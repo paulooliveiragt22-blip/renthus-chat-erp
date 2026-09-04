@@ -144,7 +144,7 @@ export default function HeaderClient({
     return (
         <header
             style={{
-                backgroundColor: "#3B246B",
+                backgroundColor: "#16364D",
                 color: "#fff",
                 padding: "10px 18px", // reduzido
                 boxShadow: "0 6px 12px rgba(0,0,0,0.16)",
@@ -291,7 +291,7 @@ export default function HeaderClient({
                         display: "flex",
                         alignItems: "center",
                         justifyContent: "center",
-                        color: "#3B246B",
+                        color: "#16364D",
                         fontWeight: 700,
                         overflow: "hidden",
                         boxShadow: "0 2px 6px rgba(0,0,0,0.12)",

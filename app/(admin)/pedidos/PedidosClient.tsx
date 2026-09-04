@@ -1808,7 +1808,7 @@ export default function PedidosPage() {
                             admin:"bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300",
                             ui:"bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300",
                         };
-                        const BORDER_COLOR: Record<string, string> = { new:"#f97316", preparing:"#a855f7", delivered:"#10b981", finalized:"#8b5cf6", canceled:"#52525b" };
+                        const BORDER_COLOR: Record<string, string> = { new:"#57ff8f", preparing:"#16364D", delivered:"#10b981", finalized:"#1f4a68", canceled:"#52525b" };
 
                         // Agrupa itens por produto (fallback: parse string)
                         const itemGroups = new Map<string, typeof items>();

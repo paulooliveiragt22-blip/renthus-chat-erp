@@ -10,13 +10,13 @@ module.exports = {
       colors: {
         // Paleta Renthus — espelha os tokens em globals.css
         primary: {
-          DEFAULT: "#4c1d95",
-          light:   "#6d28d9",
-          dark:    "#3b1570",
+          DEFAULT: "#16364D",
+          light:   "#1f4a68",
+          dark:    "#0f2838",
         },
         accent: {
-          DEFAULT: "#f97316",
-          dark:    "#ea580c",
+          DEFAULT: "#57ff8f",
+          dark:    "#2ee66f",
         },
       },
     },

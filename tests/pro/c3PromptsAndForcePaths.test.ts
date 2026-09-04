@@ -4,8 +4,9 @@ import {
     buildDeliverySpecialistSystemPreamble,
     SYSTEM_HARD_RULES_PT,
 } from "../../src/pro/tools/checkoutPhasePolicy";
-import { hasExplicitOrderQuantityInText } from "../../src/pro/tools/parseQtyPt";
+import { extractExplicitOrderQuantityFromText, hasExplicitOrderQuantityInText } from "../../src/pro/tools/parseQtyPt";
 import {
+    buildSearchPicksFallbackReply,
     respondToCustomerToolDescription,
     shouldForcePrepareAfterUnambiguousSearch,
     shouldForceResolvePendingPicks,
@@ -57,6 +58,20 @@ describe("C3.2 force-prepare exige qty", () => {
         assert.equal(hasExplicitOrderQuantityInText("quero duas skol"), true);
         assert.equal(hasExplicitOrderQuantityInText("me manda uma coca"), true);
         assert.equal(hasExplicitOrderQuantityInText("quero original"), false);
+    });
+
+    it("extractExplicitOrderQuantityFromText: 'quero 2 MARMITA P' → 2, não o P", () => {
+        assert.equal(extractExplicitOrderQuantityFromText("quero 2 MARMITA P"), 2);
+        assert.equal(extractExplicitOrderQuantityFromText("quero marmita"), null);
+    });
+
+    it("fallback de search: com qty no texto não pergunta de novo", () => {
+        const pick = { embalagemId: "m-p", label: "MARMITA P", price: 30 };
+        const withQty = buildSearchPicksFallbackReply([pick], [], "quero 2 MARMITA P");
+        assert.ok(withQty.includes("Anotei 2×"));
+        assert.ok(!withQty.includes("Quantas unidades"));
+        const noQty = buildSearchPicksFallbackReply([pick], [], "quero marmita p");
+        assert.ok(noQty.includes("Quantas unidades você quer?"));
     });
 
     it("shouldForceResolvePendingPicks: só com grupos (carryover no caller)", () => {

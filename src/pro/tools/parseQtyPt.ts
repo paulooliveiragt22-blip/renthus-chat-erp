@@ -56,9 +56,18 @@ export function parsePtQuantity(value: unknown): number | null {
  * ou artigo numeral "um/uma"). Alinha force-prepare à regra do system prompt
  * ("não assuma quantity=1").
  */
-export function hasExplicitOrderQuantityInText(text: string): boolean {
+/** Primeira quantidade explícita no texto do cliente (`2`, `duas`, `uma`). */
+export function extractExplicitOrderQuantityFromText(text: string): number | null {
     const raw = String(text ?? "").trim();
-    if (!raw) return false;
-    if (/\b\d{1,3}\b/u.test(raw)) return true;
-    return parsePtQuantity(raw) != null;
+    if (!raw) return null;
+    const digitMatch = raw.match(/\b(\d{1,3})\b/u);
+    if (digitMatch) {
+        const n = Number(digitMatch[1]);
+        if (Number.isFinite(n) && n >= 1) return Math.floor(n);
+    }
+    return parsePtQuantity(raw);
+}
+
+export function hasExplicitOrderQuantityInText(text: string): boolean {
+    return extractExplicitOrderQuantityFromText(text) != null;
 }

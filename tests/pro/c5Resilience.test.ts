@@ -87,6 +87,7 @@ describe("C5.2 — 429/AI_RATE_LIMIT → retry; sem bolha falsa ao cliente", () 
         assert.equal(isQueueRetryableError(new Error("HTTP 429 too many requests")), true);
         assert.equal(isQueueRetryableError(new Error("rate limit exceeded")), true);
         assert.equal(isQueueRetryableError(new Error("anthropic_circuit_open")), true);
+        assert.equal(isQueueRetryableError(new Error("groq_circuit_open")), true);
 
         // Objeto plano com .retryable=true também é aceito (contratos externos)
         assert.equal(isQueueRetryableError({ retryable: true }), true);

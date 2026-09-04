@@ -193,7 +193,7 @@ export default function QuickReplyModal({
                                                 padding:      "10px 12px",
                                                 borderRadius: 12,
                                                 border:       "1px solid #e6e6e6",
-                                                background:   isOut ? "#3B246B" : "#fff",
+                                                background:   isOut ? "#16364D" : "#fff",
                                                 color:        isOut ? "#fff"    : "#111",
                                             }}
                                         >
@@ -230,11 +230,11 @@ export default function QuickReplyModal({
                             style={{
                                 padding:      "12px 14px",
                                 borderRadius: 12,
-                                border:       "1px solid #3B246B",
+                                border:       "1px solid #16364D",
                                 cursor:       sending ? "not-allowed" : "pointer",
                                 opacity:      sending ? 0.6 : 1,
                                 fontWeight:   900,
-                                background:   "#3B246B",
+                                background:   "#16364D",
                                 color:        "#fff",
                             }}
                         >

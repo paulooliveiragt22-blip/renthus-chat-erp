@@ -252,6 +252,7 @@ function checkoutButtonsForState(
         if (
             state.draft.items.length > 0 &&
             checkoutAddressReady(state.draft) &&
+            state.deliveryAddressUiConfirmed === true &&
             !isDraftBelowMinimumOrder(state.draft)
         ) {
             return [buildPaymentButtons(accepted)];
@@ -644,12 +645,8 @@ export function applyQuickAction(
                     ? [{ kind: "text", text: "Combinado: retirada no local, sem taxa de entrega." }]
                     : addrReady
                       ? []
-                      : [
-                            {
-                                kind: "text",
-                                text: "Combinado: entrega. Me envia o endereço: rua, número, bairro, cidade e UF.",
-                            },
-                        ],
+                      : [],
+            /** Entrega sem address: `runProPipeline` oferece `serverOfferDeliveryAddressAfterFulfillment`. */
         };
     }
 
@@ -711,7 +708,12 @@ export function applyQuickAction(
         state.draft?.address
     ) {
         /** Botões legados: só marca confirmado; o card de resumo vem do post-process. */
-        const merged: ProSessionState = { ...state, deliveryAddressUiConfirmed: true };
+        const merged: ProSessionState = {
+            ...state,
+            deliveryAddressUiConfirmed: true,
+            pendingAddressPickOptions: [],
+            proposedAddressId: null,
+        };
         return {
             handled: true,
             actionTag: action,
@@ -724,6 +726,8 @@ export function applyQuickAction(
         const merged: ProSessionState = {
             ...state,
             deliveryAddressUiConfirmed: false,
+            pendingAddressPickOptions: [],
+            proposedAddressId: null,
             draft: {
                 ...state.draft,
                 address: null,
@@ -890,7 +894,10 @@ export function checkoutPostProcess(params: {
         !outbound.some((m) => m.kind === "buttons" || m.kind === "cta_url")
     ) {
         const candidates = extractAddressChoiceCandidates(params.orderHints);
-        if (candidates) {
+        if (
+            candidates &&
+            !(params.state.proposedAddressId || (params.state.pendingAddressPickOptions?.length ?? 0) > 0)
+        ) {
             outbound.push(buildAddressChoiceButtons(candidates.primary, candidates.secondary));
         }
     }

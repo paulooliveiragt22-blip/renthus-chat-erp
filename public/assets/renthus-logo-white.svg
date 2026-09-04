@@ -21,11 +21,11 @@ viewBox="0 0 63.61 63.61"
   </radialGradient>
   <radialGradient id="id1" gradientUnits="userSpaceOnUse" gradientTransform="matrix(0.999991 -0 -0 0.999991 0 0)" cx="31.81" cy="31.81" r="30.96" fx="31.81" fy="31.81">
    <stop offset="0" style="stop-opacity:1; stop-color:#674290"/>
-   <stop offset="1" style="stop-opacity:1; stop-color:#330066"/>
+   <stop offset="1" style="stop-opacity:1; stop-color:#16364D"/>
   </radialGradient>
   <radialGradient id="id2" gradientUnits="userSpaceOnUse" gradientTransform="matrix(1.01401 -0 -0 1.01401 0 0)" cx="32.43" cy="32.43" r="17.34" fx="32.43" fy="32.43">
    <stop offset="0" style="stop-opacity:1; stop-color:#F8A369"/>
-   <stop offset="1" style="stop-opacity:1; stop-color:#FF6600"/>
+   <stop offset="1" style="stop-opacity:1; stop-color:#57ff8f"/>
   </radialGradient>
   <radialGradient id="id3" gradientUnits="userSpaceOnUse" gradientTransform="matrix(1.72408 -0 -0 1.72411 -23 -23)" xlink:href="#id0" cx="31.55" cy="31.92" r="10.69" fx="31.55" fy="31.92">
   </radialGradient>

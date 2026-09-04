@@ -246,6 +246,13 @@ export interface ProSessionState {
      */
     pendingPickGroups?: PendingPickGroup[];
     /**
+     * Oferta pós-Entrega: outros endereços cadastrados (lista numerada 1..N).
+     * O proposto fica em `proposedAddressId` + já no draft (aguarda Confirmar).
+     */
+    pendingAddressPickOptions?: Array<{ id: string; label: string }>;
+    /** `enderecos_cliente.id` proposto na pergunta “O endereço de entrega é …?”. */
+    proposedAddressId?: string | null;
+    /**
      * Pedido acima do limiar da loja: primeira confirmação só “reconhece” o valor alto;
      * a segunda (com este flag true) fecha o pedido.
      */

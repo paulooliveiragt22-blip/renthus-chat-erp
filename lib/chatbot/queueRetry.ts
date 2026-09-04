@@ -21,16 +21,21 @@ export function isQueueRetryableError(error: unknown): boolean {
     const msg = String(e.message ?? "").toLowerCase();
     const code = String(e.code ?? "").toUpperCase();
     if (code === "AI_RATE_LIMIT" || code === "ANTHROPIC_CIRCUIT_OPEN") return true;
-    if (msg.includes("429") || msg.includes("rate limit") || msg.includes("anthropic_circuit_open")) {
+    if (
+        msg.includes("429") ||
+        msg.includes("rate limit") ||
+        msg.includes("circuit_open") ||
+        msg.includes("anthropic_circuit_open")
+    ) {
         return true;
     }
     return false;
 }
 
 /** Backoff exponencial com jitter (ms), limitado. */
-export function queueRetryDelayMs(attempts: number): number {
+export function queueRetryDelayMs(attempts: number, opts?: { minMs?: number }): number {
     const n = Math.max(1, Math.min(10, Math.floor(attempts)));
     const base = Math.min(120_000, 2_000 * 2 ** (n - 1));
     const jitter = Math.floor(Math.random() * 500);
-    return base + jitter;
+    return Math.max(opts?.minMs ?? 0, base + jitter);
 }

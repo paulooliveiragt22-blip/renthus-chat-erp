@@ -971,7 +971,7 @@ export default function PDVPage() {
                         <button key={v.id} onClick={()=>addToCart(v)}
                           className={`group relative flex flex-col rounded-xl border p-3 text-left transition-all duration-300 active:scale-95 hover:-translate-y-0.5 hover:shadow-lg ${
                             inCart
-                              ? "border-orange-500/60 bg-orange-950/30 shadow-[0_0_12px_rgba(249,115,22,0.2)]"
+                              ? "border-orange-500/60 bg-orange-950/30 shadow-[0_0_12px_rgba(87,255,143,0.2)]"
                               : "border-zinc-700 bg-zinc-800/60 hover:border-zinc-600 hover:bg-zinc-800"
                           }`}>
                           {inCart && (
@@ -1155,7 +1155,7 @@ export default function PDVPage() {
               </button>
             ) : (
               <button onClick={openCheckout} disabled={cart.length===0 || !caixa}
-                className="flex w-full items-center justify-center gap-2 rounded-xl bg-orange-500 py-3 text-sm font-black text-white shadow-[0_0_18px_rgba(249,115,22,0.45)] transition-all hover:bg-orange-600 active:scale-95 disabled:cursor-not-allowed disabled:opacity-25">
+                className="flex w-full items-center justify-center gap-2 rounded-xl bg-orange-500 py-3 text-sm font-black text-white shadow-[0_0_18px_rgba(87,255,143,0.45)] transition-all hover:bg-orange-600 active:scale-95 disabled:cursor-not-allowed disabled:opacity-25">
                 <BadgeDollarSign className="h-4 w-4" />
                 Finalizar
                 <kbd className="ml-auto hidden rounded bg-orange-400/40 px-1.5 py-0.5 text-[10px] font-bold sm:inline">F2</kbd>
@@ -1460,7 +1460,7 @@ export default function PDVPage() {
                   <button onClick={finalize} disabled={!canFinalize}
                     className={`flex w-full items-center justify-center gap-2 rounded-2xl py-3.5 text-base font-black text-white transition-all active:scale-95 disabled:cursor-not-allowed ${
                       canFinalize
-                        ? "bg-orange-500 hover:bg-orange-600 shadow-[0_0_24px_rgba(249,115,22,0.55)]"
+                        ? "bg-orange-500 hover:bg-orange-600 shadow-[0_0_24px_rgba(87,255,143,0.55)]"
                         : "bg-zinc-700 opacity-40"
                     }`}>
                     {finalizing ? <>⏳ Processando…</> : <><CheckCircle2 className="h-5 w-5" /> Confirmar · {brl(cartTotal)}</>}

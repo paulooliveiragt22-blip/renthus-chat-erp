@@ -58,6 +58,8 @@ function normalizeProV2State(raw: ProSessionState): ProSessionState {
         pendingClarifySegment: raw.pendingClarifySegment ?? null,
         pendingOrderMentions: raw.pendingOrderMentions ?? [],
         pendingPickGroups: raw.pendingPickGroups ?? [],
+        pendingAddressPickOptions: raw.pendingAddressPickOptions ?? [],
+        proposedAddressId: raw.proposedAddressId ?? null,
         aiHistorySummary: raw.aiHistorySummary ?? null,
         aiTurnCount: raw.aiTurnCount,
         aiWindowStartedAt: raw.aiWindowStartedAt ?? null,

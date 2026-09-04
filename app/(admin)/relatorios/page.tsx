@@ -271,7 +271,7 @@ function RelatoriosPageContent() {
                         style={{
                             padding: "8px 12px",
                             borderRadius: 8,
-                            background: "#3B246B",
+                            background: "#16364D",
                             color: "#fff",
                             border: "none",
                             cursor: disabledApply || loading ? "not-allowed" : "pointer",
@@ -338,7 +338,7 @@ function RelatoriosPageContent() {
                         <button onClick={exportCSV} style={{ padding: "8px 12px", borderRadius: 8, border: "1px solid #ddd", background: "#fff" }}>
                             Exportar CSV
                         </button>
-                        <button onClick={exportPDF} style={{ padding: "8px 12px", borderRadius: 8, background: "#3B246B", color: "#fff", border: "none" }}>
+                        <button onClick={exportPDF} style={{ padding: "8px 12px", borderRadius: 8, background: "#16364D", color: "#fff", border: "none" }}>
                             Exportar PDF (até 90 dias)
                         </button>
                     </div>

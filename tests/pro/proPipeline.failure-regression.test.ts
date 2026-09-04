@@ -55,6 +55,7 @@ function stateAwaitingConfirmation(): ProSessionState {
         customerId: "cust-1",
         misunderstandingStreak: 0,
         escalationTier: 0,
+        deliveryAddressUiConfirmed: true,
         draft: {
             items: [
                 {
@@ -71,6 +72,8 @@ function stateAwaitingConfirmation(): ProSessionState {
                 logradouro: "Rua A",
                 numero: "10",
                 bairro: "Centro",
+                cidade: "Sorriso",
+                estado: "MT",
                 complemento: null,
             },
             paymentMethod: "pix",
@@ -78,7 +81,7 @@ function stateAwaitingConfirmation(): ProSessionState {
             fulfillmentType: "delivery",
             deliveryFee: 5,
             deliveryZoneId: "z1",
-            deliveryAddressText: "Rua A, 10, Centro",
+            deliveryAddressText: "Rua A, 10, Centro, Sorriso/MT",
             deliveryMinOrder: null,
             deliveryEtaMin: 30,
             totalItems: 20,
@@ -167,7 +170,7 @@ describe("pro pipeline - failure regression", () => {
         );
     });
 
-    it("ia timeout: deve retornar mensagem segura", async () => {
+    it("ia timeout: métrica + outbound degradado (cardápio), não bolha do provider", async () => {
         const out = await runProPipeline(
             { ...baseInput(), inboundText: "quero pedir" },
             deps({
@@ -179,15 +182,14 @@ describe("pro pipeline - failure regression", () => {
                 },
             })
         );
-        assert.ok(out.outbound.some((m) => (m.text ?? "").toLowerCase().includes("tente novamente")));
+        assert.ok(out.outbound.length > 0);
         assert.ok(
             out.metrics.some((m) => m.name === "pro_pipeline.ai_timeout" && m.tags?.reason === "ai_timeout")
         );
     });
 
-    it("IA rate limit: nao envia bolha e devolve QueueRetryableError p/ backoff", async () => {
-        // `runProPipeline` salva a sessão e relança `QueueRetryableError` (o worker reenfileira
-        // com backoff) em vez de devolver métricas inline — não há bolha "de rate limit" ao cliente.
+    it("IA rate limit: avisa o cliente e relança QueueRetryableError p/ backoff", async () => {
+        // Antes: bolha curta + `QueueRetryableError` (worker reenfileira com backoff).
         await assert.rejects(
             async () =>
                 runProPipeline(

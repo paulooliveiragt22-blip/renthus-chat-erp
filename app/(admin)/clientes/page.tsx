@@ -790,7 +790,7 @@ export default function ClientesPage() {
             className="w-64 rounded-xl border border-zinc-200 bg-white py-2 pl-9 pr-4 text-sm text-zinc-800 placeholder-zinc-400 focus:border-violet-400 focus:outline-none dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100" />
         </div>
         <button type="button" onClick={openNew}
-          className="flex items-center gap-2 rounded-xl bg-orange-500 px-4 py-2 text-sm font-bold text-white hover:bg-orange-600 shadow-[0_0_14px_rgba(249,115,22,0.35)] transition-all">
+          className="flex items-center gap-2 rounded-xl bg-orange-500 px-4 py-2 text-sm font-bold text-white hover:bg-orange-600 shadow-[0_0_14px_rgba(87,255,143,0.35)] transition-all">
           <Plus className="h-4 w-4" /> Novo Cliente
         </button>
       </div>

@@ -82,7 +82,7 @@ function SidebarNavItem({
       ].join(" ")}
     >
       {active && (
-        <span className="absolute inset-y-2 left-0 w-[3px] rounded-full bg-accent shadow-[0_0_10px_rgba(249,115,22,0.8)]" />
+        <span className="absolute inset-y-2 left-0 w-[3px] rounded-full bg-accent shadow-[0_0_10px_rgba(87,255,143,0.8)]" />
       )}
       <div
         className={[
@@ -157,7 +157,7 @@ export default function AdminSidebar({
           alt={collapsed ? "RenthusAgent" : ""}
           width={36}
           height={36}
-          className="h-9 w-9 shrink-0 rounded-xl shadow-[0_0_20px_rgba(249,115,22,0.3)]"
+          className="h-9 w-9 shrink-0 rounded-xl shadow-[0_0_20px_rgba(87,255,143,0.3)]"
         />
 
         {!collapsed && (

@@ -2,6 +2,7 @@ import assert from "node:assert";
 import { describe, it, beforeEach, afterEach } from "node:test";
 import {
     buildSqsEnvelope,
+    fifoDeduplicationId,
     isSqsDispatchEnabled,
     messageGroupIdFor,
     resolveInboundQueueUrl,
@@ -80,6 +81,12 @@ describe("sqsDispatch", () => {
             }),
             "c"
         );
+    });
+
+    it("fifoDeduplicationId: primeiro enqueue = jobId; retry muda o id", () => {
+        assert.strictEqual(fifoDeduplicationId("job-1"), "job-1");
+        assert.strictEqual(fifoDeduplicationId("job-1", "r1-9"), "job-1:r1-9");
+        assert.notStrictEqual(fifoDeduplicationId("job-1"), fifoDeduplicationId("job-1", "r1"));
     });
 
     it("resolves queue URLs from env", () => {

@@ -18,7 +18,6 @@ import {
 } from "@/lib/chatbot/aiOrderModePolicy";
 import { buildAiDegradedOutbound } from "@/lib/chatbot/aiCapabilityProfile";
 import { MATCHING_METRICS } from "./matchingMetrics";
-import { hasExplicitOrderQuantityInText } from "@/src/pro/tools/parseQtyPt";
 import type { LoggerPort } from "../ports/logger.port";
 import { buildPipelineContext, policiesFromAiCapability, DEFAULT_PRO_POLICIES, type PipelineDependencies } from "./context";
 import type { MetricsPort } from "../ports/metrics.port";
@@ -73,6 +72,8 @@ import {
     parseAddressPickButtonId,
     serverPrepareAfterAddressPick,
 } from "./serverPrepareAfterAddressPick";
+import { serverOfferDeliveryAddressAfterFulfillment } from "./serverOfferDeliveryAddress";
+import { parseAddressOfferIndex } from "./deliveryAddressOffer";
 import { isDraftStructurallyCompleteForFinalize } from "./orderDraftGate";
 import {
     DEFAULT_FULFILLMENT_POLICY,
@@ -601,6 +602,70 @@ export async function runProPipeline(
         intentNewAddress: isNewAddressCheckoutAction(inboundTextForPipeline),
         orderHints: null,
     });
+
+    /**
+     * Índice da oferta pós-Entrega (“1.” / “2.” nos outros cadastrados) — antes do quick action,
+     * sem IA.
+     */
+    const pendingAddrOpts = stateAfterPick.pendingAddressPickOptions ?? [];
+    const addrOfferIdx = parseAddressOfferIndex(inboundTextForPipeline, pendingAddrOpts.length);
+    if (
+        addrOfferIdx != null &&
+        deps.admin &&
+        (stateAfterPick.draft?.items?.length ?? 0) > 0 &&
+        !isInfoOnlyMode(aiPolicy)
+    ) {
+        const chosen = pendingAddrOpts[addrOfferIdx - 1];
+        if (chosen?.id) {
+            try {
+                const addrPrep = await serverPrepareAfterAddressPick({
+                    admin: deps.admin,
+                    companyId: input.tenant.companyId,
+                    customerId: stateAfterPick.customerId,
+                    state: stateAfterPick,
+                    enderecoClienteId: chosen.id,
+                });
+                const synced = withResolvedSlotStep(addrPrep.state);
+                const finalOutbound = addrPrep.preparedOk
+                    ? checkoutPostProcessForQuickAction({
+                          state: synced,
+                          outbound: [],
+                          fulfillmentPolicy,
+                          acceptedPayments,
+                      })
+                    : addrPrep.outbound;
+                await emitTurn({ state: synced, outbound: finalOutbound });
+                const metrics: PipelineMetric[] = [
+                    {
+                        name: "pro_pipeline.address_offer_index",
+                        value: 1,
+                        tags: { ok: addrPrep.preparedOk ? "1" : "0" },
+                    },
+                    { name: "pro_pipeline.outbound_count", value: finalOutbound.length },
+                ];
+                flushPipelineRunMetrics(
+                    deps.metrics,
+                    input.tenant,
+                    metrics,
+                    new Set(["pro_pipeline.outbound_count"]),
+                    context.policies.aiProvider
+                );
+                return {
+                    nextState: synced,
+                    outbound: finalOutbound,
+                    sideEffects: [],
+                    metrics,
+                };
+            } catch (err) {
+                deps.logger?.warn("pro_pipeline.address_offer_index_failed", {
+                    companyId: input.tenant.companyId,
+                    threadId: input.tenant.threadId,
+                    message: err instanceof Error ? err.message : String(err),
+                });
+            }
+        }
+    }
+
     const quick = applyQuickAction(inboundTextForPipeline, stateAfterPick, {
         checkoutHandoffUrl: handoffUrl,
         fulfillmentPolicy,
@@ -609,17 +674,49 @@ export async function runProPipeline(
     /** Sempre aplica estado do quick (ex.: sair de awaiting_change sem engolir a mensagem). */
     stateAfterPick = quick.state;
     if (quick.handled) {
-        const syncedQuick = withResolvedSlotStep(quick.state);
-        const quickOutbound = checkoutPostProcessForQuickAction({
+        let syncedQuick = withResolvedSlotStep(quick.state);
+        let quickOutbound = quick.outbound;
+
+        if (
+            quick.actionTag === "pro_fulfillment_delivery" &&
+            deps.admin &&
+            syncedQuick.draft &&
+            !isInfoOnlyMode(aiPolicy)
+        ) {
+            try {
+                const offer = await serverOfferDeliveryAddressAfterFulfillment({
+                    admin: deps.admin,
+                    companyId: input.tenant.companyId,
+                    customerId: syncedQuick.customerId,
+                    state: syncedQuick,
+                });
+                syncedQuick = withResolvedSlotStep(offer.state);
+                quickOutbound = offer.outbound;
+            } catch (err) {
+                deps.logger?.warn("pro_pipeline.delivery_address_offer_failed", {
+                    companyId: input.tenant.companyId,
+                    threadId: input.tenant.threadId,
+                    message: err instanceof Error ? err.message : String(err),
+                });
+                quickOutbound = [
+                    {
+                        kind: "text",
+                        text: "Combinado: entrega. Me envia o endereço: rua, número, bairro, cidade e UF.",
+                    },
+                ];
+            }
+        }
+
+        quickOutbound = checkoutPostProcessForQuickAction({
             state: syncedQuick,
-            outbound: quick.outbound,
+            outbound: quickOutbound,
             fulfillmentPolicy,
             acceptedPayments,
         });
         await emitTurn({
-                state: syncedQuick,
-                outbound: quickOutbound,
-            });
+            state: syncedQuick,
+            outbound: quickOutbound,
+        });
         const metrics: PipelineMetric[] = [
             { name: "pro_pipeline.quick_action", value: 1, tags: { action: quick.actionTag ?? "unknown" } },
             { name: "pro_pipeline.outbound_count", value: quickOutbound.length },
@@ -1034,17 +1131,6 @@ export async function runProPipeline(
                     });
                 }
             }
-            const singleOfferAllowlist =
-                (nextState.searchProdutoEmbalagemIds?.length ?? 0) === 1 ||
-                (nextState.lastSearchPicks?.length ?? 0) === 1;
-            const forcePrepareOnClearSku =
-                decision.intent === "order_intent" &&
-                !infoOnly &&
-                singleOfferAllowlist &&
-                hasExplicitOrderQuantityInText(inboundTextForPipeline) &&
-                (nextState.step === "pro_collecting_order" ||
-                    nextState.step === "pro_idle" ||
-                    nextState.checkoutEditHold === true);
             const ai = await aiStage({
                 aiService: deps.aiService,
                 context: aiContext,
@@ -1052,12 +1138,10 @@ export async function runProPipeline(
                 userText: inboundTextForPipeline,
                 logger: deps.logger,
                 /**
-                 * tool_choice=prepare quando o contrato já tem SKU único (pick ou oferta)
-                 * e ainda não houve prepare neste turno no servidor.
+                 * tool_choice=prepare no step 0 só após pick aplicado neste turno.
+                 * Allowlist/picks só da sessão + qty NÃO forçam prepare (SKU stale → TOOL_FAILED).
                  */
-                preferPrepareToolChoiceFirst:
-                    (productPickApplied && !serverPreparedOnPick) ||
-                    (forcePrepareOnClearSku && !serverPreparedOnPick),
+                preferPrepareToolChoiceFirst: productPickApplied && !serverPreparedOnPick,
                 skipForcePrepareAfterPick: serverPreparedOnPick,
             });
             invalidAiSanitized = ai.invalidAiSanitized;
@@ -1166,12 +1250,21 @@ export async function runProPipeline(
     });
 
     /**
-     * Rate limit de LLM (qualquer provider): não envia bolha ao cliente; job volta pra fila com
-     * backoff. In-process retries + circuit breaker (isolado por provider) já esgotados em
-     * `runLlmWithResilience` (`lib/chatbot/llmResilience.ts`).
+     * Rate limit de LLM: avisa o cliente UMA vez e requeue com backoff.
+     * Antes: throw sem outbound → silêncio total no WhatsApp enquanto o job
+     * esperava (e, com o bug de sleepMs~2s, morria em coalesce).
      */
     if (aiServiceErrorCode === "AI_RATE_LIMIT") {
-        await deps.sessionRepo.save(input.tenant.companyId, input.tenant.threadId, nextState);
+        const rateLimitOutbound: OutboundMessage[] = [
+            {
+                kind: "text",
+                text: "Estamos com bastante movimento agora — já estou processando seu pedido, um instante.",
+            },
+        ];
+        await emitTurn({
+            state: nextState,
+            outbound: rateLimitOutbound,
+        });
         const { QueueRetryableError } = await import("@/lib/chatbot/queueRetry");
         throw new QueueRetryableError(
             "AI_RATE_LIMIT",

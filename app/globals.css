@@ -42,15 +42,53 @@
   --font-mono: var(--font-geist-mono);
 
   /* ── Paleta Renthus ─────────────────────────────────────────────────── */
-  --color-primary:        #4c1d95;
-  --color-primary-light:  #6d28d9;
-  --color-primary-dark:   #3b1570;
-  --color-accent:         #f97316;
-  --color-accent-dark:    #ea580c;
+  --color-primary:        #16364D;
+  --color-primary-light:  #1f4a68;
+  --color-primary-dark:   #0f2838;
+  --color-accent:         #57ff8f;
+  --color-accent-dark:    #2ee66f;
 
   /* aliases retrocompatíveis */
-  --color-prodify-purple: #4c1d95;
-  --color-prodify-orange: #f97316;
+  --color-prodify-purple: #16364D;
+  --color-prodify-orange: #57ff8f;
+
+  /* Remap Tailwind violet/purple → brand #16364D (todas as classes *-violet-* / *-purple-*) */
+  --color-violet-50:  #e8eef2;
+  --color-violet-100: #d1dde5;
+  --color-violet-200: #a3bbc9;
+  --color-violet-300: #7599ad;
+  --color-violet-400: #477791;
+  --color-violet-500: #2a5570;
+  --color-violet-600: #16364D;
+  --color-violet-700: #122c3e;
+  --color-violet-800: #0d2130;
+  --color-violet-900: #091722;
+  --color-violet-950: #050c12;
+
+  --color-purple-50:  #e8eef2;
+  --color-purple-100: #d1dde5;
+  --color-purple-200: #a3bbc9;
+  --color-purple-300: #7599ad;
+  --color-purple-400: #477791;
+  --color-purple-500: #2a5570;
+  --color-purple-600: #16364D;
+  --color-purple-700: #122c3e;
+  --color-purple-800: #0d2130;
+  --color-purple-900: #091722;
+  --color-purple-950: #050c12;
+
+  /* Remap Tailwind orange → brand #57ff8f (todas as classes *-orange-*) */
+  --color-orange-50:  #eefef4;
+  --color-orange-100: #d4ffe6;
+  --color-orange-200: #a9ffcd;
+  --color-orange-300: #7effb4;
+  --color-orange-400: #57ff8f;
+  --color-orange-500: #57ff8f;
+  --color-orange-600: #2ee66f;
+  --color-orange-700: #1ab855;
+  --color-orange-800: #148a40;
+  --color-orange-900: #0d5c2b;
+  --color-orange-950: #073318;
 }
 
 /* ── Base ─────────────────────────────────────────────────────────────────── */

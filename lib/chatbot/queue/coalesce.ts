@@ -71,10 +71,17 @@ function buildCoalesceKey(
  */
 async function shouldCoalesceInbound(
     admin: AdminClient,
-    job: CoalesceJob,
+    job: CoalesceJob & { attempts?: number | null },
     coalesceKey: string,
     seenInBatch: Set<string>
 ): Promise<boolean> {
+    /**
+     * Retry do mesmo job (429 → pending → re-dispatch) NÃO pode cair no coalesce:
+     * o lock Redis da 1ª tentativa ainda pode estar vivo, ou um twin coalescido
+     * recente aparece no PG — e o pedido some em silêncio.
+     */
+    if ((job.attempts ?? 0) > 0) return false;
+
     if (seenInBatch.has(coalesceKey)) return true;
 
     const redis = await tryCoalesceRedisLock(coalesceKey);

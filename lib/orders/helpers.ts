@@ -1,7 +1,7 @@
 import type { CartItem, UnitType, Variant } from "./types";
 
-export const PURPLE = "#3B246B";
-export const ORANGE = "#FF6600";
+export const PURPLE = "#16364D";
+export const ORANGE = "#57ff8f";
 
 export function formatBRL(n: number | null | undefined) {
     const v = typeof n === "number" ? n : 0;
@@ -40,7 +40,7 @@ export function prettyStatus(s: string) {
 
 export function statusColor(s: string) {
     if (s === "new") return "green";
-    if (s === "preparing") return "#a855f7";
+    if (s === "preparing") return "#16364D";
     if (s === "canceled") return "crimson";
     if (s === "finalized") return "dodgerblue";
     if (s === "delivered") return "#666";
@@ -80,7 +80,7 @@ export function btnPurple(disabled?: boolean): React.CSSProperties {
     return {
         ...btnBaseSlim(disabled),
         border: `1px solid ${PURPLE}`,
-        background: disabled ? "#f5f1fb" : PURPLE,
+        background: disabled ? "#e8eef2" : PURPLE,
         color: disabled ? PURPLE : "#fff",
     };
 }
@@ -98,7 +98,7 @@ export function btnOrange(disabled?: boolean): React.CSSProperties {
     return {
         ...btnBaseSlim(disabled),
         border: `1px solid ${ORANGE}`,
-        background: disabled ? "#fff4ee" : ORANGE,
+        background: disabled ? "#eefef4" : ORANGE,
         color: disabled ? ORANGE : "#fff",
     };
 }

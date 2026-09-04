@@ -7,8 +7,8 @@ import { AdminOrdersContext } from "@/components/AdminOrdersContext";
 import QuickReplyModal from "@/components/whatsapp/QuickReplyModal";
 import { useWorkspace } from "@/lib/workspace/useWorkspace";
 
-const ORANGE = "#FF6600";
-const PURPLE = "#3B246B";
+const ORANGE = "#57ff8f";
+const PURPLE = "#16364D";
 const CARD_BG = "#fff";
 const BORDER = "#eee";
 

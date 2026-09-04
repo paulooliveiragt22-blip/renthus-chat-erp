@@ -22,7 +22,20 @@ export type DispatchJobInput = {
     jobId: string;
     companyId: string;
     threadId: string;
+    /**
+     * FIFO: janela de 5 min. Webhook usa só `jobId` (idempotência).
+     * Retry/reconcile PRECISA de salt — senão SendMessage “ok” não entrega mensagem nova.
+     */
+    deduplicationSalt?: string | null;
 };
+
+/** Dedup id SQS FIFO (máx. 128). Sem salt = jobId (primeiro enqueue). */
+export function fifoDeduplicationId(jobId: string, salt?: string | null): string {
+    const id = String(jobId ?? "").trim();
+    const s = String(salt ?? "").trim();
+    const raw = s ? `${id}:${s}` : id;
+    return raw.slice(0, 128);
+}
 
 export type DispatchResult =
     | { ok: true; skipped: true; reason: "dispatch_disabled" | "missing_config" }
@@ -144,7 +157,7 @@ export async function dispatchChatbotJob(
                 QueueUrl: queueUrl,
                 MessageBody: JSON.stringify(envelope),
                 MessageGroupId: messageGroupIdFor(input),
-                MessageDeduplicationId: input.jobId,
+                MessageDeduplicationId: fifoDeduplicationId(input.jobId, input.deduplicationSalt),
             })
         );
         const messageId = res.MessageId?.trim() ?? "";
@@ -183,25 +196,29 @@ export async function dispatchChatbotJob(
 
 export async function dispatchInboundJob(
     admin: AdminClient,
-    job: { id: string; company_id: string; thread_id: string }
+    job: { id: string; company_id: string; thread_id: string },
+    opts?: { deduplicationSalt?: string | null }
 ): Promise<DispatchResult> {
     return dispatchChatbotJob(admin, {
         kind: "inbound",
         jobId: job.id,
         companyId: job.company_id,
         threadId: job.thread_id,
+        deduplicationSalt: opts?.deduplicationSalt,
     });
 }
 
 export async function dispatchOutboundJob(
     admin: AdminClient,
-    job: { id: string; company_id: string; thread_id: string }
+    job: { id: string; company_id: string; thread_id: string },
+    opts?: { deduplicationSalt?: string | null }
 ): Promise<DispatchResult> {
     return dispatchChatbotJob(admin, {
         kind: "outbound",
         jobId: job.id,
         companyId: job.company_id,
         threadId: job.thread_id,
+        deduplicationSalt: opts?.deduplicationSalt,
     });
 }
 

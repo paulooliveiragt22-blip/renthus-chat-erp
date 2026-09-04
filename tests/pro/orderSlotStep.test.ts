@@ -87,6 +87,42 @@ describe("orderSlotStep / resolveProStepFromDraft", () => {
         );
     });
 
+    it("endereço completo com deliveryAddressUiConfirmed false: aguarda confirmação UI", () => {
+        const d = draft({
+            address: {
+                logradouro: "Rua A",
+                numero: "1",
+                bairro: "Centro",
+                cidade: "Sorriso",
+                estado: "MT",
+                complemento: null,
+                enderecoClienteId: "addr-1",
+            },
+        });
+        assert.equal(
+            resolveProStepFromDraft({
+                step: "pro_collecting_order",
+                draft: d,
+                deliveryAddressUiConfirmed: false,
+            }),
+            "pro_awaiting_address_confirmation"
+        );
+        const next = withResolvedSlotStep({
+            step: "pro_collecting_order",
+            customerId: "c1",
+            misunderstandingStreak: 0,
+            escalationTier: 0,
+            draft: d,
+            aiHistory: [],
+            searchProdutoEmbalagemIds: [],
+            proposedAddressId: "addr-1",
+            pendingAddressPickOptions: [],
+            deliveryAddressUiConfirmed: false,
+        });
+        assert.equal(next.step, "pro_awaiting_address_confirmation");
+        assert.equal(next.deliveryAddressUiConfirmed, false);
+    });
+
     it("mantém pro_awaiting_payment_method", () => {
         assert.equal(
             resolveProStepFromDraft({ step: "pro_awaiting_payment_method", draft: draft() }),

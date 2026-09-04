@@ -56,7 +56,7 @@ function IconReport() {
     );
 }
 
-export default function MenuButtons({ compact = false, onNavigate, textColor = "#111", iconColor = "#3B246B" }: MenuButtonsProps) {
+export default function MenuButtons({ compact = false, onNavigate, textColor = "#111", iconColor = "#16364D" }: MenuButtonsProps) {
     const { loading: featuresLoading, features } = usePlanFeatures();
 
     const btnStyle: React.CSSProperties = {

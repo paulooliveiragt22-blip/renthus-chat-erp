@@ -18,10 +18,10 @@ export function isoDate(d: Date) {
 
 export const PAY_META: Record<string, { label: string; color: string }> = {
     pix: { label: "PIX", color: "#22c55e" },
-    card: { label: "Cartão", color: "#6d28d9" },
-    cash: { label: "Dinheiro", color: "#f97316" },
+    card: { label: "Cartão", color: "#1f4a68" },
+    cash: { label: "Dinheiro", color: "#57ff8f" },
     debit: { label: "Débito", color: "#3b82f6" },
-    credit_installment: { label: "Crédito Parc.", color: "#a855f7" },
+    credit_installment: { label: "Crédito Parc.", color: "#16364D" },
     boleto: { label: "Boleto", color: "#0ea5e9" },
     promissoria: { label: "Promissória", color: "#f59e0b" },
     cheque: { label: "Cheque", color: "#64748b" },

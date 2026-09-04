@@ -77,7 +77,7 @@ describe("runSearchProdutosForAi", () => {
         assert.equal(result.wasEmpty, false);
         assert.equal(result.lastSearchPicks.length, 1);
         const blob = (result.body.guidance_for_model_pt as string[]).join("\n");
-        assert.ok(blob.includes("Uma opção clara"));
+        assert.ok(blob.includes("JÁ disse a quantidade"));
         assert.equal((result.body as { items: unknown[] }).items.length, 1);
     });
 
@@ -194,6 +194,8 @@ describe("runSearchProdutosForAi", () => {
         assert.equal(result.allowlistIds.length, 1);
         assert.equal(result.allowlistIds[0], "m-p");
         assert.equal(result.pendingPickGroup, null);
+        const blob = (result.body.guidance_for_model_pt as string[]).join("\n");
+        assert.ok(blob.includes("JÁ disse a quantidade"));
     });
 
     it("did_you_mean presente: guidance cita as opções sugeridas", async () => {

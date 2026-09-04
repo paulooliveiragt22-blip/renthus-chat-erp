@@ -11,6 +11,7 @@ import {
     productKeyFromQuery,
     type PendingPickGroup,
 } from "@/src/pro/pipeline/pendingPickGroups";
+import { hasExplicitOrderQuantityInText } from "@/src/pro/tools/parseQtyPt";
 
 /**
  * Orquestração de `search_produtos` extraída de `ai.service.full.ts` (agora reusável por
@@ -130,9 +131,13 @@ export async function runSearchProdutosForAi(
                       ? [
                             "Há mais de uma opção: NÃO liste preços/opções no texto — o servidor já envia a pergunta de esclarecimento ao cliente.",
                         ]
-                      : [
-                            "Uma opção clara: informe nome + preço de venda e pergunte a quantidade. Se o cliente responder só com número (ex.: 3), o servidor pode montar o rascunho — chame prepare_order_draft se ainda não houver itens.",
-                        ]),
+                      : hasExplicitOrderQuantityInText(deps.userText)
+                        ? [
+                              "Uma opção clara e o cliente JÁ disse a quantidade: chame prepare_order_draft com este UUID e essa quantidade. NÃO pergunte quantas unidades de novo.",
+                          ]
+                        : [
+                              "Uma opção clara: informe nome + preço de venda e pergunte a quantidade. Se o cliente responder só com número (ex.: 3), o servidor pode montar o rascunho — chame prepare_order_draft se ainda não houver itens.",
+                          ]),
               ]
             : [
                   "Nenhum item no catálogo para este termo (busca fuzzy também vazia).",

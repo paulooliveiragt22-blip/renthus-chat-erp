@@ -108,6 +108,13 @@ export function resolveProStepFromDraft(params: {
     }
 
     if (!draft.paymentMethod) {
+        if (
+            params.deliveryAddressUiConfirmed === false &&
+            !isPickupDraft(draft) &&
+            isAddressStructurallyComplete(draft.address)
+        ) {
+            return "pro_awaiting_address_confirmation";
+        }
         return resolveStepWhenPaymentMissing(step, { hasPendingProductClarify });
     }
 
@@ -124,8 +131,11 @@ export function resolveProStepFromDraft(params: {
 
 /** Aplica `resolveProStepFromDraft` ao estado (uso após quick actions / checkout). */
 export function withResolvedSlotStep(state: ProSessionState): ProSessionState {
-    const deliveryAddressUiConfirmed =
-        isDeliveryAddressAutoConfirmed(state.draft) || state.deliveryAddressUiConfirmed === true;
+    const awaitingAddressOffer = (state.pendingAddressPickOptions?.length ?? 0) > 0
+        || Boolean(state.proposedAddressId);
+    const deliveryAddressUiConfirmed = awaitingAddressOffer
+        ? state.deliveryAddressUiConfirmed === true
+        : isDeliveryAddressAutoConfirmed(state.draft) || state.deliveryAddressUiConfirmed === true;
     if (state.checkoutEditHold) {
         return {
             ...state,

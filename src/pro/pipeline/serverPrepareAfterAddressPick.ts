@@ -84,6 +84,8 @@ export async function serverPrepareAfterAddressPick(params: {
         draft: nextDraft,
         deliveryAddressUiConfirmed: true,
         checkoutEditHold: false,
+        pendingAddressPickOptions: [],
+        proposedAddressId: null,
     };
 
     const readyForPaymentUi =

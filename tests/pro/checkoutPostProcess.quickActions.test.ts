@@ -319,7 +319,7 @@ describe("applyQuickAction — entrega vs retirada", () => {
         assert.ok(r.outbound.some((m) => m.kind === "text" && /retirada/i.test(String(m.text))));
     });
 
-    it("pro_fulfillment_delivery marca entrega e deixa endereço pendente", () => {
+    it("pro_fulfillment_delivery marca entrega e deixa endereço pendente (oferta no pipeline)", () => {
         const r = applyQuickAction(
             "pro_fulfillment_delivery",
             state({
@@ -330,7 +330,9 @@ describe("applyQuickAction — entrega vs retirada", () => {
         assert.equal(r.handled, true);
         assert.equal(r.state.draft?.fulfillmentType, "delivery");
         assert.equal(r.state.step, "pro_collecting_order");
-        assert.ok(r.outbound.some((m) => m.kind === "text" && /endereço/i.test(String(m.text))));
+        assert.equal(r.state.deliveryAddressUiConfirmed, false);
+        /** Texto/botões da oferta vêm de `serverOfferDeliveryAddressAfterFulfillment` no pipeline. */
+        assert.equal(r.outbound.length, 0);
     });
 
     it("título do botão WhatsApp (Entrega / Retirar no local) também aplica o modo", () => {

@@ -37,7 +37,11 @@ import {
     buildDeliverySpecialistSystemPreamble,
     buildPhasePlaybookForModel,
 } from "@/src/pro/tools/checkoutPhasePolicy";
-import { hasExplicitOrderQuantityInText } from "@/src/pro/tools/parseQtyPt";
+import {
+    extractExplicitOrderQuantityFromText,
+    hasExplicitOrderQuantityInText,
+} from "@/src/pro/tools/parseQtyPt";
+import { mergePreparedDraftIntoCurrent, unionAllowlistWithDraftIds } from "@/src/pro/pipeline/mergeOrderDraft";
 import {
     formatPrepareErrorsForClientReply,
     shouldPreferPrepareErrorsOverModelText,
@@ -53,6 +57,7 @@ import { createGetOrderHintsTool } from "@/src/pro/adapters/ai/tools/getOrderHin
 import { createPrepareOrderDraftTool } from "@/src/pro/adapters/ai/tools/prepareOrderDraft.tool";
 import { createResolvePendingPicksTool } from "@/src/pro/adapters/ai/tools/resolvePendingPicks.tool";
 import { createInitialTurnState, type SearchPickSummary, type TurnState } from "@/src/pro/adapters/ai/tools/turnState";
+import { runSearchProdutosForAi } from "@/src/pro/adapters/ai/tools/searchProdutosForAi";
 import {
     isLlmRateLimitError,
     runLlmWithResilience,
@@ -61,7 +66,10 @@ import {
 import { debitFromAnthropicUsage } from "@/lib/billing/aiWallet";
 import { wrapUserInboundForLlm } from "./userInboundGuard";
 import { budgetAiHistoryForLlm } from "./aiHistoryBudget";
-import { buildPickClarificationFreeText } from "@/src/pro/pipeline/pendingPickGroups";
+import {
+    buildPickClarificationFreeText,
+    upsertPendingPickGroup,
+} from "@/src/pro/pipeline/pendingPickGroups";
 
 export type AiServiceOptions = {
     catalog?: CatalogPort;
@@ -99,6 +107,11 @@ function embalagemIdSetsEqual(a: string[], b: string[]): boolean {
 /**
  * Quando o cliente já tinha várias embalagens na última busca persistida e o modelo
  * terminou sem `prepare_order_draft`, forçamos a tool no próximo step (`prepareStep`).
+ *
+ * Allowlist com **1** SKU só da sessão (sem search neste turno) NÃO força prepare —
+ * isso travava `tool_choice=prepare_order_draft` e a Groq tentava `search_produtos`
+ * → TOOL_FAILED. O caso 1 SKU pós-search deste turno fica em
+ * `shouldForcePrepareAfterUnambiguousSearch`.
  */
 export function shouldForcePrepareAfterEmbalagemChoice(params: {
     intent: string;
@@ -112,11 +125,9 @@ export function shouldForcePrepareAfterEmbalagemChoice(params: {
     if (params.step !== "pro_collecting_order") return false;
     if (params.prepareInvokedThisTurn) return false;
     if (!embalagemIdSetsEqual(params.allowlistAtStart, params.allowlistNow)) return false;
-    /** Pick de 1 SKU (allowlist estreita): força prepare aditivo mesmo com draft já parcial. */
-    const singlePickForce =
-        params.allowlistAtStart.length === 1 && params.allowlistNow.length === 1;
-    if (params.allowlistAtStart.length < 2 && !singlePickForce) return false;
-    if (params.draftItemCount > 0 && !singlePickForce) return false;
+    /** Multi-embalagem (≥2) da oferta anterior — cliente escolheu em prosa neste turno. */
+    if (params.allowlistAtStart.length < 2) return false;
+    if (params.draftItemCount > 0) return false;
     return true;
 }
 
@@ -467,13 +478,13 @@ function createRespondToCustomerTool() {
             reply_text: z.string().describe("Mensagem final ao cliente, em PT-BR."),
             address_free_text: z
                 .boolean()
-                .nullable()
+                .nullish()
                 .describe(
                     "true só quando esta resposta é o texto livre de confirmação de endereço (cliente questionou endereço diferente do cadastrado); null caso contrário."
                 ),
             understood: z
                 .boolean()
-                .nullable()
+                .nullish()
                 .describe("false só quando não entendeu a mensagem do cliente; null = entendeu."),
         }),
         execute: async (args) => args,
@@ -507,14 +518,31 @@ function isModelSkippedRequiredToolError(error: unknown): boolean {
     return msg.includes("did not call a tool");
 }
 
+/** Groq/OpenAI: `AI_APICallError` com schema de tool (não vira InvalidToolInputError do SDK). */
+function isToolCallSchemaValidationError(error: unknown): boolean {
+    const msg = error instanceof Error ? error.message : String(error);
+    return (
+        /tool call validation failed/i.test(msg) ||
+        /did not match schema/i.test(msg) ||
+        /missing properties:/i.test(msg)
+    );
+}
+
+/** Force `tool_choice=prepare` e o modelo pediu `search_produtos` (ou outra tool). */
+function isToolChoiceMismatchError(error: unknown): boolean {
+    const msg = error instanceof Error ? error.message : String(error);
+    return /does not match request\.tool_choice/i.test(msg);
+}
+
 function formatBrl(value: number): string {
     return value.toFixed(2).replace(".", ",");
 }
 
 /** Resposta determinística quando o modelo buscou o catálogo mas não chamou respond_to_customer (Groq). */
-function buildSearchPicksFallbackReply(
+export function buildSearchPicksFallbackReply(
     picks: SearchPickSummary[],
-    pendingGroups: readonly PendingPickGroup[] = []
+    pendingGroups: readonly PendingPickGroup[] = [],
+    userText?: string
 ): string {
     if (pendingGroups.length > 0) {
         return buildPickClarificationFreeText(pendingGroups);
@@ -523,9 +551,13 @@ function buildSearchPicksFallbackReply(
         return "Não encontrei esse item no cardápio agora. Quer ver o cardápio completo ou tentar outro nome?";
     }
     if (picks.length === 1) {
-        const p = picks[0];
+        const p = picks[0]!;
         const price =
             p.price != null && Number.isFinite(p.price) ? ` por R$ ${formatBrl(p.price)}` : "";
+        const qty = extractExplicitOrderQuantityFromText(userText ?? "");
+        if (qty != null) {
+            return `Anotei ${qty}× ${p.label}${price}.`;
+        }
         return `Sim! Temos ${p.label}${price}. Quantas unidades você quer?`;
     }
     const lines = picks.map((p) => {
@@ -534,6 +566,92 @@ function buildSearchPicksFallbackReply(
         return `• ${p.label}${price}`;
     });
     return `Encontrei estas opções:\n${lines.join("\n")}\nQual você prefere?`;
+}
+
+/**
+ * Groq às vezes busca o SKU e cai no fallback sem `prepare_order_draft`.
+ * Se o cliente já disse a quantidade, o servidor monta o rascunho (não pergunta de novo).
+ */
+export async function applySearchFallbackPrepareIfQtyKnown(params: {
+    orderDraft: OrderDraftPort;
+    companyId: string;
+    customerId: string | null;
+    userText: string;
+    turnState: TurnState;
+}): Promise<boolean> {
+    const { turnState } = params;
+    if (turnState.pendingPickGroups.length > 0) return false;
+    if (turnState.lastSearchPicks.length !== 1) return false;
+    if (turnState.prepareInvokedThisTurn) return false;
+    const qty = extractExplicitOrderQuantityFromText(params.userText);
+    const embId = turnState.lastSearchPicks[0]?.embalagemId?.trim();
+    if (qty == null || !embId) return false;
+
+    const allowedEmbalagemIds = unionAllowlistWithDraftIds(turnState.allowlistIds, turnState.currentDraft);
+    const prepared = await params.orderDraft.prepareFromToolInput({
+        companyId: params.companyId,
+        customerId: params.customerId,
+        body: { items: [{ produtoEmbalagemId: embId, quantity: qty }], address: null },
+        catalogPolicy: { kind: "search_allowlist", allowedEmbalagemIds },
+    });
+    turnState.prepareInvokedThisTurn = true;
+    turnState.lastPrepareOutcome = { ok: prepared.ok, errors: prepared.errors };
+    if (!prepared.draft) return false;
+    turnState.currentDraft = mergePreparedDraftIntoCurrent(turnState.currentDraft, prepared.draft);
+    return Boolean(prepared.ok && (turnState.currentDraft?.items.length ?? 0) > 0);
+}
+
+/**
+ * Busca determinística no servidor (mesma tool `search_produtos`) quando o modelo
+ * pediu search sob `tool_choice` de prepare — evita TOOL_FAILED / silêncio.
+ */
+export async function applyDeterministicSearchThenPrepareFallback(params: {
+    admin: SupabaseClient;
+    catalog: CatalogPort;
+    orderDraft: OrderDraftPort;
+    companyId: string;
+    customerId: string | null;
+    userText: string;
+    turnState: TurnState;
+}): Promise<string> {
+    const { turnState } = params;
+    if (!turnState.searchInvokedThisTurn) {
+        const result = await runSearchProdutosForAi(
+            { query: params.userText, categoryHint: null },
+            {
+                admin: params.admin,
+                catalog: params.catalog,
+                companyId: params.companyId,
+                customerId: params.customerId,
+                userText: params.userText,
+            }
+        );
+        turnState.allowlistIds = result.allowlistIds;
+        turnState.emptySearchStreak = result.wasEmpty ? turnState.emptySearchStreak + 1 : 0;
+        if (result.wasEmpty) turnState.matchingMetrics.searchHitsZero += 1;
+        turnState.searchInvokedThisTurn = true;
+        turnState.searchCallCount += 1;
+        if (result.pendingPickGroup) {
+            turnState.pendingPickGroups = upsertPendingPickGroup(
+                turnState.pendingPickGroups,
+                result.pendingPickGroup
+            );
+        } else {
+            turnState.lastSearchPicks = result.lastSearchPicks;
+        }
+    }
+    await applySearchFallbackPrepareIfQtyKnown({
+        orderDraft: params.orderDraft,
+        companyId: params.companyId,
+        customerId: params.customerId,
+        userText: params.userText,
+        turnState,
+    });
+    return buildSearchPicksFallbackReply(
+        turnState.lastSearchPicks,
+        turnState.pendingPickGroups,
+        params.userText
+    );
 }
 
 export class AiServiceAdapter implements AiService {
@@ -1085,9 +1203,17 @@ export class AiServiceAdapter implements AiService {
                         pickCount: turnState.lastSearchPicks.length,
                         pendingGroups: turnState.pendingPickGroups.length,
                     });
+                    await applySearchFallbackPrepareIfQtyKnown({
+                        orderDraft: this.orderDraft,
+                        companyId,
+                        customerId: input.context.session.customerId,
+                        userText: input.userText,
+                        turnState,
+                    });
                     const fallbackText = buildSearchPicksFallbackReply(
                         turnState.lastSearchPicks,
-                        turnState.pendingPickGroups
+                        turnState.pendingPickGroups,
+                        input.userText
                     );
                     return await this.buildSuccess(
                         input,
@@ -1127,7 +1253,80 @@ export class AiServiceAdapter implements AiService {
                     errorCode: "AI_RATE_LIMIT",
                 };
             }
-            if (InvalidToolInputError.isInstance(error)) {
+            if (isToolChoiceMismatchError(error)) {
+                console.warn("[ai.service] tool_choice mismatch — busca determinística", {
+                    companyId,
+                    errMsg: errMsg.slice(0, 240),
+                    allowlistSize: turnState.allowlistIds.length,
+                });
+                const fallbackText = await applyDeterministicSearchThenPrepareFallback({
+                    admin: this.admin,
+                    catalog: this.catalog,
+                    orderDraft: this.orderDraft,
+                    companyId,
+                    customerId: input.context.session.customerId,
+                    userText: input.userText,
+                    turnState,
+                });
+                return await this.buildSuccess(
+                    input,
+                    fallbackText,
+                    "ok",
+                    1,
+                    turnState.pendingPickGroups.length > 0
+                        ? input.draft
+                        : (turnState.currentDraft ?? input.draft),
+                    {
+                        allowlistIds: turnState.allowlistIds,
+                        lastSearchPicks: turnState.lastSearchPicks,
+                        emptySearchStreak: turnState.emptySearchStreak,
+                        addressFreeText: false,
+                        pendingOrderMentions: turnState.pendingTermsFromSearch,
+                        pendingPickGroups: turnState.pendingPickGroups,
+                    }
+                );
+            }
+            if (InvalidToolInputError.isInstance(error) || isToolCallSchemaValidationError(error)) {
+                if (
+                    turnState.searchInvokedThisTurn &&
+                    (turnState.lastSearchPicks.length > 0 || turnState.pendingPickGroups.length > 0)
+                ) {
+                    console.warn("[ai.service] tool schema fallback after search", {
+                        companyId,
+                        pickCount: turnState.lastSearchPicks.length,
+                        pendingGroups: turnState.pendingPickGroups.length,
+                        errMsg: errMsg.slice(0, 200),
+                    });
+                    await applySearchFallbackPrepareIfQtyKnown({
+                        orderDraft: this.orderDraft,
+                        companyId,
+                        customerId: input.context.session.customerId,
+                        userText: input.userText,
+                        turnState,
+                    });
+                    const fallbackText = buildSearchPicksFallbackReply(
+                        turnState.lastSearchPicks,
+                        turnState.pendingPickGroups,
+                        input.userText
+                    );
+                    return await this.buildSuccess(
+                        input,
+                        fallbackText,
+                        "ok",
+                        1,
+                        turnState.pendingPickGroups.length > 0
+                            ? input.draft
+                            : (turnState.currentDraft ?? input.draft),
+                        {
+                            allowlistIds: turnState.allowlistIds,
+                            lastSearchPicks: turnState.lastSearchPicks,
+                            emptySearchStreak: turnState.emptySearchStreak,
+                            addressFreeText: false,
+                            pendingOrderMentions: turnState.pendingTermsFromSearch,
+                            pendingPickGroups: turnState.pendingPickGroups,
+                        }
+                    );
+                }
                 return {
                     action: "error",
                     replyText:
@@ -1145,9 +1344,17 @@ export class AiServiceAdapter implements AiService {
                     pickCount: turnState.lastSearchPicks.length,
                     pendingGroups: turnState.pendingPickGroups.length,
                 });
+                await applySearchFallbackPrepareIfQtyKnown({
+                    orderDraft: this.orderDraft,
+                    companyId,
+                    customerId: input.context.session.customerId,
+                    userText: input.userText,
+                    turnState,
+                });
                 const fallbackText = buildSearchPicksFallbackReply(
                     turnState.lastSearchPicks,
-                    turnState.pendingPickGroups
+                    turnState.pendingPickGroups,
+                    input.userText
                 );
                 const updatedPendingOrderMentions = turnState.pendingTermsFromSearch;
                 return await this.buildSuccess(input, fallbackText, "ok", 1, turnState.currentDraft ?? input.draft, {

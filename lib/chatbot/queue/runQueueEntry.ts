@@ -81,7 +81,11 @@ export async function runQueueEntryWithOutcome(
         });
         const attempts = (job.attempts ?? 0) + 1;
         const retryable = isQueueRetryableError(err);
-        const delayMs = retryable ? queueRetryDelayMs(attempts) : 0;
+        const delayMs = retryable
+            ? queueRetryDelayMs(attempts, {
+                  minMs: /429|rate limit|circuit_open/i.test(message) ? 35_000 : 0,
+              })
+            : 0;
         const terminal = attempts >= MAX_ATTEMPTS;
         /**
          * ADR-0003: maxReceiveCount=1 → falha SQS vai pra DLQ. Em retryable o job volta

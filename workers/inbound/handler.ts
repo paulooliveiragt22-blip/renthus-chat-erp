@@ -101,30 +101,45 @@ async function processRecord(
         if (result.outcome === "failed") {
             const { data } = await admin
                 .from("chatbot_queue")
-                .select("status, attempts, company_id, thread_id, scheduled_at")
+                .select("status, attempts, company_id, thread_id, scheduled_at, last_error")
                 .eq("id", envelope.jobId)
                 .maybeSingle();
             if (data?.status === "pending") {
                 const attempts = Number(data.attempts ?? 1) || 1;
+                const lastError = String(data.last_error ?? "");
+                const rateLimited = /429|rate limit|circuit_open/i.test(lastError);
+                /**
+                 * `runQueueEntry` já gravou `scheduled_at` com minMs=35s em 429.
+                 * NÃO usar `Math.min(queueRetryDelayMs(attempts), …)`: sem `minMs` o delay
+                 * vira ~2s no 1º attempt — re-dispatch com lock Redis de coalesce ainda vivo
+                 * → `coalesced_duplicate_inbound` e o pedido some (silêncio no WhatsApp).
+                 */
                 const scheduledAtMs = data.scheduled_at
                     ? new Date(String(data.scheduled_at)).getTime()
                     : Date.now();
-                const waitMs = Math.max(
-                    0,
-                    Math.min(queueRetryDelayMs(attempts), scheduledAtMs - Date.now())
-                );
-                // Cap sleep in-Lambda: VisibilityTimeout=120s; keep headroom.
-                const sleepMs = Math.min(waitMs, 25_000);
-                if (sleepMs > 0) await sleep(sleepMs);
-                const dispatch = await dispatchInboundJob(admin, {
-                    id: envelope.jobId,
-                    company_id: String(data.company_id ?? envelope.companyId),
-                    thread_id: String(data.thread_id ?? envelope.threadId),
+                const fromSchedule = Math.max(0, scheduledAtMs - Date.now());
+                const fromAttempts = queueRetryDelayMs(attempts, {
+                    minMs: rateLimited ? 35_000 : 0,
                 });
+                const waitMs = Math.max(fromSchedule, fromAttempts);
+                // Cap sleep in-Lambda: VisibilityTimeout=120s; keep headroom.
+                // Circuito Groq/Anthropic = 30s; cap antigo 25s reprocessava com circuito ainda aberto.
+                const sleepMs = Math.min(waitMs, 50_000);
+                if (sleepMs > 0) await sleep(sleepMs);
+                const dispatch = await dispatchInboundJob(
+                    admin,
+                    {
+                        id: envelope.jobId,
+                        company_id: String(data.company_id ?? envelope.companyId),
+                        thread_id: String(data.thread_id ?? envelope.threadId),
+                    },
+                    { deduplicationSalt: `r${attempts}-${Date.now()}` }
+                );
                 console.info("[inbound-worker] retryable re-dispatch", {
                     jobId: envelope.jobId,
                     attempts,
                     sleepMs,
+                    rateLimited,
                     dispatchOk: dispatch.ok,
                     skipped: "skipped" in dispatch ? dispatch.skipped : undefined,
                     error: dispatch.ok ? undefined : dispatch.error,

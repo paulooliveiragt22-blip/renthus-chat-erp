@@ -30,18 +30,18 @@ describe("shouldForcePrepareAfterEmbalagemChoice", () => {
         );
     });
 
-    it("single-pick allowlist: força prepare mesmo com 1 id", () => {
+    it("single-pick allowlist só da sessão: NÃO força prepare (evita tool_choice stale)", () => {
         assert.equal(
             shouldForcePrepareAfterEmbalagemChoice({
                 ...base,
                 allowlistAtStart: ["only"],
                 allowlistNow: ["only"],
             }),
-            true
+            false
         );
     });
 
-    it("single-pick com draft parcial: ainda força prepare aditivo", () => {
+    it("single-pick com draft parcial: também não força (pós-search cobre via UnambiguousSearch)", () => {
         assert.equal(
             shouldForcePrepareAfterEmbalagemChoice({
                 ...base,
@@ -49,7 +49,7 @@ describe("shouldForcePrepareAfterEmbalagemChoice", () => {
                 allowlistNow: ["picked"],
                 draftItemCount: 2,
             }),
-            true
+            false
         );
     });
 

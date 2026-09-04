@@ -49,7 +49,7 @@ function BarTooltip({
 export default function DashboardTab({ stats, expenses, loading, periodLabel, onGoTab }: Props) {
     const { resolvedTheme } = useTheme();
     const isDark = resolvedTheme === "dark";
-    const chartColor = isDark ? "#a78bfa" : "#7c3aed";
+    const chartColor = isDark ? "#7599ad" : "#16364D";
     const gridColor = isDark ? "#3f3f46" : "#e4e4e7";
     const axisColor = isDark ? "#71717a" : "#a1a1aa";
     const realMargin = stats && stats.revenue > 0 ? (stats.realProfit / stats.revenue) * 100 : 0;
@@ -60,7 +60,7 @@ export default function DashboardTab({ stats, expenses, loading, periodLabel, on
         expenses.forEach((e) => {
             catMap[e.category] = (catMap[e.category] ?? 0) + Number(e.amount);
         });
-        const COLORS = ["#7c3aed", "#f97316", "#22c55e", "#0ea5e9", "#f43f5e", "#a855f7", "#eab308"];
+        const COLORS = ["#16364D", "#57ff8f", "#22c55e", "#0ea5e9", "#f43f5e", "#2a5570", "#eab308"];
         return Object.entries(catMap).map(([name, value], i) => ({
             name,
             value,
@@ -258,9 +258,9 @@ export default function DashboardTab({ stats, expenses, loading, periodLabel, on
                     ) : (
                         <div className="space-y-3">
                             {[
-                                { label: "Recebido (caixa)", value: stats?.revenue ?? 0, color: "#7c3aed", textCls: "text-violet-600", icon: BadgeDollarSign },
+                                { label: "Recebido (caixa)", value: stats?.revenue ?? 0, color: "#16364D", textCls: "text-violet-600", icon: BadgeDollarSign },
                                 { label: "CMV snapshot", value: stats?.cost ?? 0, color: "#f43f5e", textCls: "text-red-500", icon: ShoppingCart },
-                                { label: "Opex pago", value: stats?.expensesPaid ?? 0, color: "#f97316", textCls: "text-orange-500", icon: TrendingDown },
+                                { label: "Opex pago", value: stats?.expensesPaid ?? 0, color: "#57ff8f", textCls: "text-orange-500", icon: TrendingDown },
                                 { label: "Resultado gerencial", value: stats?.realProfit ?? 0, color: "#22c55e", textCls: "text-emerald-600", icon: TrendingUp },
                             ].map(({ label, value, color, textCls, icon: Icon }) => {
                                 const share = (stats?.revenue ?? 1) > 0 ? Math.min((Math.abs(value) / (stats?.revenue ?? 1)) * 100, 100) : 0;

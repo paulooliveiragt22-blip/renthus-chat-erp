@@ -642,7 +642,7 @@ export default function CheckoutDrawer({
                         <button
                             type="button"
                             onClick={onAddMore}
-                            className="flex-1 rounded-lg bg-[#FF6600] py-2.5 text-xs font-semibold text-white hover:bg-[#e65c00]"
+                            className="flex-1 rounded-lg bg-[#57ff8f] py-2.5 text-xs font-semibold text-white hover:bg-[#2ee66f]"
                         >
                             Adicionar mais itens
                         </button>

@@ -33,6 +33,7 @@ export type ReconcileStats = {
     outboundNeverEnqueued: number;
     inboundStuckReclaimed: number;
     outboundStuckReclaimed: number;
+    inboundSilentOrphans: number;
     dispatchErrors: number;
 };
 
@@ -162,6 +163,47 @@ async function findNeverEnqueuedPending(
     return (data ?? []) as OutboxJobRef[];
 }
 
+/**
+ * Pending com `sqs_enqueued_at` setado mas sem processing: SendMessage FIFO com o mesmo
+ * MessageDeduplicationId (jobId) não entrega mensagem nova — o job fica órfão e o
+ * backlogNotice dispara. Reclaim após a mesma idade do never-enqueued.
+ */
+async function findSilentOrphanPending(
+    admin: AdminClient,
+    minAgeIso: string,
+    maxAttempts: number,
+    limit: number
+): Promise<OutboxJobRef[]> {
+    const { data, error } = await admin
+        .from("chatbot_queue")
+        .select("id, company_id, thread_id")
+        .eq("status", "pending")
+        .not("sqs_enqueued_at", "is", null)
+        .is("processing_started_at", null)
+        .lte("scheduled_at", new Date().toISOString())
+        .lt("sqs_enqueued_at", minAgeIso)
+        .lt("attempts", maxAttempts)
+        .order("created_at", { ascending: true })
+        .limit(limit);
+
+    if (error) {
+        console.warn("[outboxReconcile] silent orphan select failed", error.message);
+        return [];
+    }
+    const rows = (data ?? []) as OutboxJobRef[];
+    if (!rows.length) return [];
+    const ids = rows.map((r) => r.id);
+    await admin
+        .from("chatbot_queue")
+        .update({
+            sqs_enqueued_at: null,
+            sqs_message_id: null,
+            last_error: "reclaimed_fifo_dedup_orphan",
+        })
+        .in("id", ids);
+    return rows;
+}
+
 function dedupe(jobs: OutboxJobRef[], seen: Set<string>): OutboxJobRef[] {
     return jobs.filter((j) => {
         if (seen.has(j.id)) return false;
@@ -181,7 +223,9 @@ async function dispatchJobs(
 
     for (const job of jobs) {
         try {
-            const res = await dispatch(admin, job);
+            const res = await dispatch(admin, job, {
+                deduplicationSalt: `rec-${Date.now()}-${dispatched}`,
+            });
             if (res.ok && !res.skipped) {
                 dispatched += 1;
             } else if (!res.ok) {
@@ -204,6 +248,7 @@ export async function reconcileOutbox(
         outboundNeverEnqueued: 0,
         inboundStuckReclaimed: 0,
         outboundStuckReclaimed: 0,
+        inboundSilentOrphans: 0,
         dispatchErrors: 0,
     };
 
@@ -227,12 +272,18 @@ export async function reconcileOutbox(
     stats.inboundStuckReclaimed = inboundStuck.length;
     stats.outboundStuckReclaimed = outboundStuck.length;
 
-    const [inboundNever, outboundNever] = await Promise.all([
+    const [inboundNever, outboundNever, inboundOrphans] = await Promise.all([
         findNeverEnqueuedPending(admin, "chatbot_queue", minAgeIso, MAX_ATTEMPTS, batchLimit),
         findNeverEnqueuedPending(admin, "outbound_jobs", minAgeIso, outboundMaxAttempts(), batchLimit),
+        findSilentOrphanPending(admin, minAgeIso, MAX_ATTEMPTS, batchLimit),
     ]);
 
-    const inboundToDispatch = dedupe([...inboundStuck, ...inboundNever], new Set<string>());
+    stats.inboundSilentOrphans = inboundOrphans.length;
+
+    const inboundToDispatch = dedupe(
+        [...inboundStuck, ...inboundNever, ...inboundOrphans],
+        new Set<string>()
+    );
     const outboundToDispatch = dedupe([...outboundStuck, ...outboundNever], new Set<string>());
 
     const inDispatch = await dispatchJobs(admin, "inbound", inboundToDispatch);
