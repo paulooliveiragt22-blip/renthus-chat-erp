@@ -34,10 +34,19 @@ type Props = {
     onUpgradeOrTrial: (plan: CommercialPlanKey) => Promise<void> | void;
     onReload: () => Promise<void>;
     onError: (msg: string) => void;
+    /** Never-paid: persistir month|year no banco ao acionar o toggle. */
+    onPrepayPeriodChange?: (period: ViewPeriod) => Promise<void> | void;
 };
 
 function brl(n: number) {
     return n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+}
+
+/** % de desconto do anual vs 12× mensal. 0 se não houver ganho. */
+function yearlyDiscountPct(monthlyBrl: number, yearlyBrl: number) {
+    const full = monthlyBrl * 12;
+    if (full <= 0 || yearlyBrl <= 0 || yearlyBrl >= full) return 0;
+    return Math.round((1 - yearlyBrl / full) * 100);
 }
 
 const BLURBS: Record<CommercialPlanKey, string> = {
@@ -59,6 +68,7 @@ export function PlanChangeCatalog({
     onUpgradeOrTrial,
     onReload,
     onError,
+    onPrepayPeriodChange,
 }: Props) {
     const isAnnualSub = String(billingPeriod ?? "month").toLowerCase() === "year";
     const [viewPeriod, setViewPeriod] = useState<ViewPeriod>(isAnnualSub ? "year" : "year");
@@ -305,39 +315,72 @@ export function PlanChangeCatalog({
               : "Upgrade vale na hora. Downgrade agenda para o fim do ciclo atual.";
 
     const canSwitchToAnnual = status === "active" && !isAnnualSub;
+    const isPrepay =
+        status === "pending_payment" ||
+        status === "pending_setup" ||
+        (status === "trial" && Boolean(onPrepayPeriodChange));
+    const maxYearlyPct = Math.max(
+        0,
+        ...PLAN_ORDER.map((k) =>
+            yearlyDiscountPct(prices[k] ?? 0, yearlyPrices?.[k] ?? 0)
+        )
+    );
+
+    async function selectViewPeriod(next: ViewPeriod) {
+        if (next === viewPeriod) return;
+        setViewPeriod(next);
+        if (isPrepay && onPrepayPeriodChange) {
+            await onPrepayPeriodChange(next);
+        }
+    }
 
     return (
         <div className="space-y-3">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-                <div>
+            <div className="flex flex-col items-center gap-3 sm:items-stretch">
+                <div className="text-center sm:text-left">
                     <p className="text-xs font-bold uppercase tracking-wide text-zinc-500">
                         {title}
                     </p>
                     <p className="mt-1 text-xs text-zinc-500">{subtitle}</p>
                 </div>
-                <div className="inline-flex rounded-full border border-zinc-200 bg-zinc-100 p-1 dark:border-zinc-700 dark:bg-zinc-800">
-                    <button
-                        type="button"
-                        onClick={() => setViewPeriod("month")}
-                        className={`rounded-full px-3 py-1 text-xs font-semibold transition ${
-                            viewPeriod === "month"
-                                ? "bg-white text-zinc-900 shadow-sm dark:bg-zinc-900 dark:text-zinc-100"
-                                : "text-zinc-500"
-                        }`}
+                <div className="flex justify-center">
+                    <div
+                        className="inline-flex rounded-full border border-zinc-200 bg-zinc-100 p-1 dark:border-zinc-700 dark:bg-zinc-800"
+                        role="tablist"
+                        aria-label="Ciclo de cobrança"
                     >
-                        Mensal
-                    </button>
-                    <button
-                        type="button"
-                        onClick={() => setViewPeriod("year")}
-                        className={`rounded-full px-3 py-1 text-xs font-semibold transition ${
-                            viewPeriod === "year"
-                                ? "bg-white text-zinc-900 shadow-sm dark:bg-zinc-900 dark:text-zinc-100"
-                                : "text-zinc-500"
-                        }`}
-                    >
-                        Anual <span className="text-emerald-600">-20%</span>
-                    </button>
+                        <button
+                            type="button"
+                            role="tab"
+                            aria-selected={viewPeriod === "month"}
+                            onClick={() => void selectViewPeriod("month")}
+                            className={`rounded-full px-4 py-1.5 text-sm font-semibold transition ${
+                                viewPeriod === "month"
+                                    ? "bg-white text-zinc-900 shadow-sm dark:bg-zinc-900 dark:text-zinc-100"
+                                    : "text-zinc-500"
+                            }`}
+                        >
+                            Mensal
+                        </button>
+                        <button
+                            type="button"
+                            role="tab"
+                            aria-selected={viewPeriod === "year"}
+                            onClick={() => void selectViewPeriod("year")}
+                            className={`rounded-full px-4 py-1.5 text-sm font-semibold transition ${
+                                viewPeriod === "year"
+                                    ? "bg-white text-zinc-900 shadow-sm dark:bg-zinc-900 dark:text-zinc-100"
+                                    : "text-zinc-500"
+                            }`}
+                        >
+                            Anual
+                            {maxYearlyPct > 0 ? (
+                                <span className="ml-1 text-emerald-600">
+                                    economize até {maxYearlyPct}%
+                                </span>
+                            ) : null}
+                        </button>
+                    </div>
                 </div>
             </div>
 
@@ -365,6 +408,9 @@ export function PlanChangeCatalog({
                     const yearPrice = yearlyPrices?.[key] ?? 0;
                     const showYear = viewPeriod === "year" && yearPrice > 0;
                     const yearPerMonth = showYear ? yearPrice / 12 : 0;
+                    const yearPct = showYear
+                        ? yearlyDiscountPct(monthlyPrice, yearPrice)
+                        : 0;
                     const higher = planRank(key) > planRank(currentPlan);
                     const lower = planRank(key) < planRank(currentPlan);
                     // Ação anual específica: plano atual, sub mensal ativa, view anual.
@@ -402,18 +448,26 @@ export function PlanChangeCatalog({
                             <p className="mt-0.5 text-xs text-zinc-500">{BLURBS[key]}</p>
                             {showYear ? (
                                 <>
-                                    <p className="mt-2 text-sm font-semibold text-zinc-800 dark:text-zinc-200">
+                                    <p className="mt-2 text-xs text-zinc-400 line-through">
+                                        De {brl(monthlyPrice)}/mês
+                                    </p>
+                                    <p className="text-lg font-bold text-zinc-900 dark:text-zinc-100">
                                         {brl(yearPerMonth)}
-                                        /mês
+                                        <span className="text-sm font-semibold text-zinc-500">
+                                            /mês
+                                        </span>
                                     </p>
                                     <p className="mt-0.5 text-[11px] font-medium text-emerald-600">
                                         {brl(yearPrice)}/ano à vista
+                                        {yearPct > 0 ? ` · economize ${yearPct}%` : ""}
                                     </p>
                                 </>
                             ) : (
-                                <p className="mt-2 text-sm font-semibold text-zinc-800 dark:text-zinc-200">
+                                <p className="mt-2 text-lg font-bold text-zinc-900 dark:text-zinc-100">
                                     {brl(monthlyPrice)}
-                                    /mês
+                                    <span className="text-sm font-semibold text-zinc-500">
+                                        /mês
+                                    </span>
                                 </p>
                             )}
                             {pending ? (

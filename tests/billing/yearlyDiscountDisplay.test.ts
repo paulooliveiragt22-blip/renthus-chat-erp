@@ -16,6 +16,12 @@ describe("yearlyFromDiscount", () => {
     it("fixed R$ 100 off no anual", () => {
         assert.equal(computeYearlyPriceCents(27900, "fixed_brl", 10000), 27900 * 12 - 10000);
     });
+
+    it("UI anual: price_year_cents/12 é o valor/mês exibido (essencial 267840)", () => {
+        const year = computeYearlyPriceCents(27900, "percent", 2000);
+        assert.equal(year, 267840);
+        assert.equal(Math.round(year / 12), 22320);
+    });
 });
 
 describe("moneyDisplay PT-BR", () => {

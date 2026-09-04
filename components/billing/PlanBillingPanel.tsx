@@ -14,7 +14,7 @@ import type {
     RenthusCardForm,
 } from "@/lib/billing/planBillingTypes";
 import { PlanChangeCatalog } from "@/components/billing/PlanChangeCatalog";
-import { normalizePlanKey } from "@/lib/billing/planCatalog";
+import { PLAN_CATALOG, normalizePlanKey } from "@/lib/billing/planCatalog";
 
 const PAGARME_PUBLIC_KEY = process.env.NEXT_PUBLIC_PAGARME_PUBLIC_KEY ?? "";
 
@@ -618,6 +618,9 @@ export default function PlanBillingPanel({ variant = "full" }: PlanBillingPanelP
 
                         const pendInv = billingData.pending_invoice;
                         const pendRecord = pendInv;
+                        const isAnnualCycle =
+                            String(sub?.billing_period ?? "month").toLowerCase() === "year" ||
+                            pendInv?.kind === "year";
 
                         const priceFallback = pk === "market" ? 397 : pk === "pro" ? 279 : 197;
 
@@ -663,14 +666,17 @@ export default function PlanBillingPanel({ variant = "full" }: PlanBillingPanelP
                                 ? "Concluir pagamento"
                                 : isFirstPayment
                                   ? "Ativar plano RenthusAgent"
-                                  : "Pagar mensalidade RenthusAgent";
+                                  : isAnnualCycle
+                                    ? "Pagar plano anual RenthusAgent"
+                                    : "Pagar mensalidade RenthusAgent";
 
-                        const paymentDesc =
-                            variant === "pay"
-                                ? "Escolha PIX ou cartão de crédito para liberar seu acesso."
-                                : isFirstPayment
-                                  ? "Taxa de ativação única — após o pagamento as mensalidades são cobradas a cada 30 dias."
-                                  : "Mensalidade recorrente. Próximo vencimento em 30 dias após o pagamento.";
+                        const paymentDesc = isAnnualCycle
+                            ? "Plano anual à vista. Próxima renovação em 12 meses após o pagamento."
+                            : variant === "pay"
+                              ? "Escolha PIX ou cartão de crédito para liberar seu acesso."
+                              : isFirstPayment
+                                ? "Primeira mensalidade — após o pagamento as cobranças seguem a cada 30 dias."
+                                : "Mensalidade recorrente. Próximo vencimento em 30 dias após o pagamento.";
 
                         return (
                             <div className="rounded-2xl border-2 border-violet-300/70 bg-gradient-to-br from-violet-50 via-white to-zinc-50 p-5 shadow-sm dark:border-violet-800 dark:from-violet-950/30 dark:via-zinc-900 dark:to-zinc-950">
@@ -954,8 +960,7 @@ export default function PlanBillingPanel({ variant = "full" }: PlanBillingPanelP
                     })()}
                     </div>
 
-                    {variant === "full" &&
-                    (() => {
+                    {(() => {
                         // R3-7 defense-in-depth: upgrade/downgrade só owner/admin.
                         // O servidor (change-plan/pending-plan-change) já bloqueia member;
                         // aqui esconde o catálogo mesmo se o read for afrouxado no futuro.
@@ -964,7 +969,15 @@ export default function PlanBillingPanel({ variant = "full" }: PlanBillingPanelP
                             return null;
                         }
                         const st = String(billingData.pagarme_subscription?.status ?? "");
-                        if (st !== "trial" && st !== "active" && st !== "overdue") return null;
+                        if (
+                            st !== "trial" &&
+                            st !== "active" &&
+                            st !== "overdue" &&
+                            st !== "pending_payment" &&
+                            st !== "pending_setup"
+                        ) {
+                            return null;
+                        }
                         const cur =
                             normalizePlanKey(
                                 String(billingData.pagarme_subscription?.plan ?? "")
@@ -993,9 +1006,12 @@ export default function PlanBillingPanel({ variant = "full" }: PlanBillingPanelP
                                     market: mp.market ?? 449,
                                 }}
                                 yearlyPrices={{
-                                    essencial: yp.essencial,
-                                    pro: yp.pro,
-                                    market: yp.market,
+                                    essencial:
+                                        yp.essencial ??
+                                        PLAN_CATALOG.essencial.yearlyPriceCents / 100,
+                                    pro: yp.pro ?? PLAN_CATALOG.pro.yearlyPriceCents / 100,
+                                    market:
+                                        yp.market ?? PLAN_CATALOG.market.yearlyPriceCents / 100,
                                 }}
                                 planSaving={planSaving}
                                 onUpgradeOrTrial={(plan) => void changeRenthusPlan(plan)}
@@ -1004,6 +1020,46 @@ export default function PlanBillingPanel({ variant = "full" }: PlanBillingPanelP
                                     invalidatePlanFeatures();
                                 }}
                                 onError={(msg) => setBillingErr(msg)}
+                                onPrepayPeriodChange={
+                                    st === "pending_payment" ||
+                                    st === "pending_setup" ||
+                                    st === "trial"
+                                        ? async (period) => {
+                                              setPlanSaving(true);
+                                              setBillingErr(null);
+                                              try {
+                                                  const res = await fetch(
+                                                      "/api/billing/set-period",
+                                                      {
+                                                          method: "POST",
+                                                          headers: {
+                                                              "Content-Type": "application/json",
+                                                          },
+                                                          credentials: "include",
+                                                          body: JSON.stringify({ period }),
+                                                      }
+                                                  );
+                                                  const json = await res
+                                                      .json()
+                                                      .catch(() => ({}));
+                                                  if (!res.ok) {
+                                                      setBillingErr(
+                                                          (json as { error?: string }).error ??
+                                                              "Não foi possível alterar o ciclo."
+                                                      );
+                                                      return;
+                                                  }
+                                                  setPixLiveCode(null);
+                                                  setPixLiveUrl(null);
+                                                  await loadBilling();
+                                              } catch {
+                                                  setBillingErr("Erro de rede.");
+                                              } finally {
+                                                  setPlanSaving(false);
+                                              }
+                                          }
+                                        : undefined
+                                }
                             />
                         );
                     })()}
