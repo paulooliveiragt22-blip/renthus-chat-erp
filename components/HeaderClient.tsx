@@ -2,12 +2,40 @@
 "use client";
 
 import React, { useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import { usePathname, useRouter } from "next/navigation";
-import { ORANGE } from "@/lib/orders/helpers";
 import { useWorkspace } from "@/lib/workspace/useWorkspace";
 import { useInstallPrompt } from "@/lib/pwa/useInstallPrompt";
-import { Download, Maximize2, Menu, Minimize2 } from "lucide-react";
+import {
+    Clock,
+    Download,
+    Maximize2,
+    Menu,
+    MessageCircle,
+    Minimize2,
+    Receipt,
+    ShoppingCart,
+    type LucideIcon,
+} from "lucide-react";
+import { cn } from "@/lib/utils";
+
+const HEADER_NAV: ReadonlyArray<{
+    href: string;
+    label: string;
+    shortLabel?: string;
+    icon: LucideIcon;
+}> = [
+    { href: "/whatsapp", label: "Chat", icon: MessageCircle },
+    { href: "/pedidos", label: "Pedidos", icon: Receipt },
+    { href: "/fila", label: "Fila de pedidos", shortLabel: "Fila", icon: Clock },
+    { href: "/pdv", label: "PDV", icon: ShoppingCart },
+];
+
+function isNavActive(pathname: string | null, href: string): boolean {
+    if (!pathname) return false;
+    return pathname === href || pathname.startsWith(`${href}/`);
+}
 
 interface HeaderClientProps {
     onOpenMobileMenu?: () => void;
@@ -154,7 +182,7 @@ export default function HeaderClient({
             }}
         >
             {/* esquerda: hamburger (mobile only) + logotipo */}
-            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            <div className="flex min-w-0 items-center gap-3">
                 {onOpenMobileMenu && (
                     <button
                         type="button"
@@ -165,18 +193,40 @@ export default function HeaderClient({
                         <Menu size={18} />
                     </button>
                 )}
-                <a href="/" aria-label="Zampell" style={{ display: "inline-flex", alignItems: "center", textDecoration: "none" }}>
+                <a href="/" aria-label="Zampell" className="inline-flex shrink-0 items-center no-underline">
                     <img
                         src="/brand/zampell-wordmark.png?v=z1"
                         alt="Zampell"
-                        style={{
-                            height: 28,
-                            width: "auto",
-                            display: "block",
-                            objectFit: "contain",
-                        }}
+                        className="block h-7 w-auto object-contain"
                     />
                 </a>
+
+                <nav
+                    aria-label="Atalhos principais"
+                    className="ml-1 flex items-center gap-0.5 sm:ml-2 sm:gap-1"
+                >
+                    {HEADER_NAV.map(({ href, label, shortLabel, icon: Icon }) => {
+                        const active = isNavActive(pathname, href);
+                        return (
+                            <Link
+                                key={href}
+                                href={href}
+                                title={label}
+                                aria-current={active ? "page" : undefined}
+                                className={cn(
+                                    "inline-flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-xs font-semibold transition-colors sm:px-2.5",
+                                    active
+                                        ? "bg-accent text-accent-foreground"
+                                        : "text-white/80 hover:bg-white/10 hover:text-white"
+                                )}
+                            >
+                                <Icon className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                                <span className="hidden md:inline">{label}</span>
+                                <span className="hidden sm:inline md:hidden">{shortLabel ?? label}</span>
+                            </Link>
+                        );
+                    })}
+                </nav>
             </div>
 
             {/* direita: empresa + fullscreen + avatar */}
