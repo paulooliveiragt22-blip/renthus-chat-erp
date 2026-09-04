@@ -61,4 +61,12 @@ describe("resolveCheckoutStrategy (BN-05 setup=0)", () => {
         );
         assert.match(checkoutOrderLabels(inv, "Essencial").description, /Mensalidade/);
     });
+
+    it("checkoutOrderLabels anual (kind=year) — Plano anual, não Mensalidade", () => {
+        const s = resolveCheckoutStrategy("overdue", "pro", null);
+        s.invoiceKind = "year";
+        const labels = checkoutOrderLabels(s, "Pro");
+        assert.match(labels.description, /Plano anual/);
+        assert.equal(labels.tipoLabel, "Plano anual");
+    });
 });
