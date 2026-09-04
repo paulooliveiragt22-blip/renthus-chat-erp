@@ -59,7 +59,7 @@ export function prorateSeatExtraCents(
 
 /** Proration de seat via banco (fn_billing_prorate_cents) — fonte canônica. */
 export async function prorateSeatExtraCentsDb(
-    admin: { rpc: SupabaseRpc },
+    admin: ProrationRpcClient,
     seatExtraCents: number,
     nextBillingAt: Date,
     now = new Date(),
@@ -71,14 +71,20 @@ export async function prorateSeatExtraCentsDb(
     return prorateViaDb(admin, unit, left, cycleDays);
 }
 
-/** Chamada compartilhada à função de proration do banco. */
-export type SupabaseRpc = (
-    fn: string,
-    args: Record<string, unknown>
-) => Promise<{ data: unknown; error: { message: string } | null }>;
+/**
+ * Client mínimo aceito pelas funções de proration DB. Compatível com o
+ * `SupabaseClient` real (cujo `rpc` retorna um thenable PostgrestBuilder) e com
+ * os mocks de teste.
+ */
+export type ProrationRpcClient = {
+    rpc: (
+        fn: string,
+        args?: Record<string, unknown>
+    ) => PromiseLike<{ data: unknown; error: { message: string } | null }>;
+};
 
 export async function prorateViaDb(
-    admin: { rpc: SupabaseRpc },
+    admin: ProrationRpcClient,
     unitCents: number,
     daysLeft: number,
     cycleDays: number

@@ -10,7 +10,7 @@
 import {
     daysRemainingInCycle,
     prorateViaDb,
-    type SupabaseRpc,
+    type ProrationRpcClient,
 } from "@/lib/billing/subscriptionAmount";
 
 export function proratePlanUpgradeCents(
@@ -31,7 +31,7 @@ export function proratePlanUpgradeCents(
 }
 
 export async function proratePlanUpgradeCentsDb(
-    admin: { rpc: SupabaseRpc },
+    admin: ProrationRpcClient,
     fromMonthlyCents: number,
     toMonthlyCents: number,
     nextBillingAt: Date,
