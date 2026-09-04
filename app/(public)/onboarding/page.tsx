@@ -68,7 +68,7 @@ export default function OnboardingPage() {
             {/* Logo */}
             <div style={{ marginBottom: 32 }}>
                 <img
-                    src="/brand/renthus-wordmark-on-light.svg"
+                    src="/brand/renthus-wordmark-on-light.svg?v=mark3"
                     alt="RenthusAgent"
                     width={194}
                     height={28}

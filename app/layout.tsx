@@ -16,11 +16,11 @@ export const metadata = {
   },
   icons: {
     icon: [
-      { url: "/favicon.ico", sizes: "any" },
-      { url: "/icons/icon-192.png?v=mark2", sizes: "192x192", type: "image/png" },
-      { url: "/icons/icon-512.png?v=mark2", sizes: "512x512", type: "image/png" },
+      { url: "/favicon.ico?v=mark3", sizes: "any" },
+      { url: "/icons/icon-192.png?v=mark3", sizes: "192x192", type: "image/png" },
+      { url: "/icons/icon-512.png?v=mark3", sizes: "512x512", type: "image/png" },
     ],
-    apple: "/icons/apple-touch-icon.png?v=mark2",
+    apple: "/icons/apple-touch-icon.png?v=mark3",
   },
 };
 

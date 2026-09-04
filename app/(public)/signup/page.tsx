@@ -217,7 +217,7 @@ export default function SignupPage() {
         <div style={S.page}>
             <div style={{ marginBottom: 36 }}>
                 <img
-                    src="/brand/renthus-wordmark-on-light.svg"
+                    src="/brand/renthus-wordmark-on-light.svg?v=mark3"
                     alt="RenthusAgent"
                     width={194}
                     height={28}

@@ -153,7 +153,7 @@ export default function AdminSidebar({
         collapsed ? "justify-center px-0" : "gap-3 px-5",
       ].join(" ")}>
         <img
-          src="/brand/renthus-mark-on-dark.svg"
+          src="/brand/renthus-mark-on-dark.svg?v=mark3"
           alt={collapsed ? "RenthusAgent" : ""}
           width={36}
           height={36}

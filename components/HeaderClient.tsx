@@ -180,7 +180,7 @@ export default function HeaderClient({
                 )}
                 <a href="/" aria-label="RenthusAgent" style={{ display: "inline-flex", alignItems: "center", textDecoration: "none" }}>
                     <img
-                        src="/brand/renthus-wordmark-on-light.svg"
+                        src="/brand/renthus-wordmark-on-light.svg?v=mark3"
                         alt="RenthusAgent"
                         style={{
                             height: 28,

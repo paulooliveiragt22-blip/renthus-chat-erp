@@ -69,7 +69,7 @@ export default function PlatformSidebar({ isOpen, onClose }: Props) {
         >
             <div className="flex items-center gap-3 border-b border-white/10 px-5 py-4">
                 <img
-                    src="/brand/renthus-mark-on-dark.svg"
+                    src="/brand/renthus-mark-on-dark.svg?v=mark3"
                     alt=""
                     width={40}
                     height={40}
