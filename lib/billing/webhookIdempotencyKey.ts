@@ -1,6 +1,7 @@
 /**
  * Chave de idempotência do webhook Pagar.me (puro — testável).
- * Preferência: event.id; fallback: eventType:orderId.
+ * Preferência: event.id; fallback estável por order: `pge:{orderId}`
+ * (evita duplicar fulfill entre `order.paid` e `charge.paid` sem event.id).
  */
 
 export function webhookConsumeKey(
@@ -12,9 +13,9 @@ export function webhookConsumeKey(
     if (eid) return eid;
 
     const oid = orderId?.trim();
-    const et = eventType?.trim();
-    if (oid && et) return `${et}:${oid}`;
+    if (oid) return `pge:${oid}`;
 
+    void eventType;
     return null;
 }
 

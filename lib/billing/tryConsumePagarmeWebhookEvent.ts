@@ -1,6 +1,7 @@
 /**
  * Idempotência webhook Pagar.me — lifecycle (E1 híbrido).
  * Retorna true se deve processar; false se skip (completed / failed_permanent / processing fresco).
+ * Reclaim de stale usa CAS em `updated_at` + RETURNING (só um worker vence).
  */
 
 import "server-only";
@@ -16,7 +17,20 @@ export type WebhookEventStatus =
     | "failed_retryable"
     | "failed_permanent";
 
-const STALE_PROCESSING_MS = 10 * 60 * 1000;
+export const STALE_PROCESSING_MS = 10 * 60 * 1000;
+
+/** Puro: decide se a linha existente é candidata a reclaim. */
+export function isWebhookEventReclaimable(
+    status: WebhookEventStatus,
+    updatedAtIso: string | null | undefined,
+    nowMs: number = Date.now(),
+    staleMs: number = STALE_PROCESSING_MS
+): boolean {
+    if (status === "failed_retryable") return true;
+    if (status !== "processing") return false;
+    const updatedAt = updatedAtIso ? new Date(updatedAtIso).getTime() : 0;
+    return nowMs - updatedAt > staleMs;
+}
 
 export async function tryConsumePagarmeWebhookEvent(
     admin: Admin,
@@ -63,27 +77,34 @@ export async function tryConsumePagarmeWebhookEvent(
         return false;
     }
 
-    const updatedAt = row?.updated_at ? new Date(row.updated_at).getTime() : 0;
-    const stale =
-        status === "failed_retryable" ||
-        (status === "processing" && Date.now() - updatedAt > STALE_PROCESSING_MS);
-
-    if (!stale) {
+    if (!isWebhookEventReclaimable(status, row?.updated_at ?? null)) {
         return false;
     }
 
-    const { error: upErr } = await admin
+    const prevUpdatedAt = row?.updated_at ?? null;
+    const nextUpdatedAt = new Date().toISOString();
+
+    let reclaim = admin
         .from("pagarme_webhook_events")
         .update({
             status: "processing",
-            updated_at: new Date().toISOString(),
+            updated_at: nextUpdatedAt,
             last_error: null,
         })
         .eq("id", id)
         .in("status", ["failed_retryable", "processing"]);
 
+    if (prevUpdatedAt) {
+        reclaim = reclaim.eq("updated_at", prevUpdatedAt);
+    } else {
+        reclaim = reclaim.is("updated_at", null);
+    }
+
+    const { data: claimed, error: upErr } = await reclaim.select("id").maybeSingle();
+
     if (upErr) throw new Error(upErr.message);
-    return true;
+    // CAS perdido: outro worker já reclaimou / concluiu.
+    return Boolean(claimed?.id);
 }
 
 export async function markWebhookEventCompleted(admin: Admin, eventKey: string): Promise<void> {
