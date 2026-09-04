@@ -15,7 +15,12 @@ export const metadata = {
     title: "RenthusAgent",
   },
   icons: {
-    apple: "/icons/apple-touch-icon.png",
+    icon: [
+      { url: "/favicon.ico", sizes: "any" },
+      { url: "/icons/icon-192.png?v=mark2", sizes: "192x192", type: "image/png" },
+      { url: "/icons/icon-512.png?v=mark2", sizes: "512x512", type: "image/png" },
+    ],
+    apple: "/icons/apple-touch-icon.png?v=mark2",
   },
 };
 
