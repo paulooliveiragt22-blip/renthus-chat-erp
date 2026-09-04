@@ -23,7 +23,9 @@ Catálogo código: `lib/billing/planCatalog.ts`. DB: `plans.price_cents` / `pric
 
 ### Pro (R$ 349)
 - ERP completo + impressão + templates/campanhas WA
-- 1 usuário incluso; seat adicional **R$ 99** (cobrança mid-cycle: pendente R3-3)
+- 1 usuário incluso; seat adicional **R$ 99**  
+  - Mid-cycle: **cobra na hora (proration) → só então libera** o user  
+  - Depois da adesão: valor extra entra na **mensalidade recorrente** junto com o plano (N × 99)
 - Sem marketplace / IG-Messenger
 
 ### Market (R$ 449)
@@ -35,18 +37,20 @@ Catálogo código: `lib/billing/planCatalog.ts`. DB: `plans.price_cents` / `pric
 - **Trial self-serve = 0** (pay-to-start, BN-07); cortesia platform = 30d (BN-08)
 
 ## Crédito IA
-- Incluso = 10% do **mensal de lista** (BN-06)
-- Crédito no plano **anual**: pendente R3-6
-- Packs / margem 2×: adiado BN-15
+- Incluso = **sempre 10% do preço de lista mensal** do plano (R3-6): 27,90 / 34,90 / 44,90  
+- **Independe** de promo, valor pago ou ciclo anual  
+- Packs / margem 2× no token: adiado BN-15
 
 ## Gates de plano (UI + API)
 - `estoque_full` · `financeiro_full` · `printing_auto` → Pro/Market
 - `whatsapp_templates_broadcast` → Pro/Market
 - `marketplace_*` / `omnichannel_ig_messenger` / `table_service` → Market
-- `staff_users` → Pro/Market (limites de seat: produto R3)
+- `staff_users` → Pro/Market (limites de seat: R3-3/R3-4)
 
-## Fora / adiado
-- Promo editável superadmin (modelo R2-A; renovação/anual = R3-1/R3-2)
+## Fora / adiado (código ainda não)
+- Promo editável superadmin (R2-1 / R3-1; anual sem promo R3-2)
+- Cobrança seat mid-cycle + renew com seats (R3-3)
+- Downgrade com seleção de users (R3-4)
 - Packs IA (BN-15) · Fiscal/TEF/2FA (BN-16)
 
 ## Legado

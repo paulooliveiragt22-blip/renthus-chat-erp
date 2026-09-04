@@ -1,167 +1,174 @@
 # Decisões de negócio — Billing
 
-**Atualizado:** 2026-09-04 (rodada 2 — dono)  
+**Atualizado:** 2026-09-04 (revisão canônica — dono)  
 **Gate:** `.cursor/rules/decisoes-negocio-antes-codigo.mdc`  
-**Rodada 3 (só furos):** renovação com promo?; seats mid-cycle/downgrade com extras — § Rodada 3.  
-**Não implementar** promo/seats mid-cycle/IA-anual até fechar R3 (§ Rodada 3). Fatia BN-04/05/06/07 + seats-as-data: **implementada** 2026-09-04.
+**Status:** Rodadas 1–3 **fechadas**. Este arquivo é a fonte de verdade comercial.
 
-Estado: `[ ]` aberto · `[x] decidido` · `[~]` parcial · `[>]` adiado.
+Estado: `[i]` implementado · `[>]` adiado · sem marca = decidido, código pendente de “implementa”.
 
 ---
 
-## Rodada 1 — Fechada (resumo)
+## Rodada 1 — BN
 
-| ID | Escolha |
+| ID | Decisão |
 |----|---------|
-| BN-01 | **C** Essencial mínimo congelado; Pro/Market expandem depois |
-| BN-02 | **A** DB `plan_features` canônico |
-| BN-03 | Manter cotas no DB (editável depois, baixo custo) |
-| BN-04 | Mensal **279 / 349 / 449**; anual −20% default; editável superadmin + promo |
-| BN-05 | **A** Setup = 0 |
-| BN-06 | **A** IA incluso 10% do mensal |
-| BN-07 | **A** Trial self-serve 0 (pay-to-start) |
-| BN-08–10 | **A** (courtesy 30d; abandoned atual; só RPC signup) |
-| BN-11 | **C** Upgrade com proration |
-| BN-12 | Downgrade **agendado** fim do ciclo; até lá pode voltar/subir/cancelar agendamento |
-| BN-13 | D0 collect · D1/D3 retry+notify · D5 = D1/D3 · **D7 block** |
-| BN-14 | Reativa ciclo cheio; `next_billing_at` = data do pagamento |
-| BN-15 | `[>]` Packs depois; margem 2× no token do pack |
-| BN-16 | **A** Fiscal/TEF/2FA fora |
-| BN-17 | Seats: Essencial 1 · Pro +R$99 · Market 10 — detalhe R2 |
+| **BN-01** | **C** — Congelar Essencial mínimo; expandir Pro/Market depois |
+| **BN-02** | **A** — DB `plan_features` canônico |
+| **BN-03** | Manter cotas no DB (editável depois, baixo retrabalho) |
+| **BN-04** `[i]` | Mensal **279 / 349 / 449**; anual default **−20%**; **editáveis** no superadmin + promo (modelo R2) |
+| **BN-05** `[i]` | **A** — Setup = 0 |
+| **BN-06** | **A** — IA incluso = **10% do preço de lista mensal do plano** (ver R3-6) |
+| **BN-07** `[i]` | **A** — Trial self-serve 0 (pay-to-start) |
+| **BN-08** | **A** — Courtesy 30d (platform) |
+| **BN-09** | **A** — Abandoned atual |
+| **BN-10** | **A** — Signup só via RPC |
+| **BN-11** | **C** — Upgrade com **proration** |
+| **BN-12** | **A** + — Downgrade **agendado** para o fim do ciclo; até a data X pode **voltar** ao plano anterior, **subir** ou **cancelar** o agendamento |
+| **BN-13** | **D0** tenta cobrar (cartão/PIX) · **D1 e D3** retry cartão + notifica se falhar · **D5+** = mesmo padrão D1/D3 · **D7 bloqueia** |
+| **BN-14** | **A** — Reativa: paga **ciclo cheio**; se venceu dia 1, bloqueou D7 e pagou dia 15 → próximo vencimento = **dia 15** (`next_billing_at` = data do pagamento) |
+| **BN-15** | **B** `[>]` — Packs **depois**; calibrar tokens no chatbot; nos packs cobrar **2×** o custo do token (pago 1 → cobra 2) |
+| **BN-16** | **A** — Fiscal / TEF / 2FA **fora** |
+| **BN-17** | Seats: Essencial **1** (cap) · Pro **+R$ 99**/user extra · Market **10** inclusos (detalhe R2/R3) |
 
 ---
 
-## Rodada 2 — Fechada
+## Rodada 2 — Promo, anual, seats base
 
-### R2-A / R1 — Promo editável (duração + meses + R$ ou %)
+### R2-1 — Promo editável
 
-**Decisão:** Promo no superadmin com:
+Superadmin configura:
 
 | Campo | Significado |
 |-------|-------------|
-| Janela / duração | `promo_starts_at` / `promo_ends_at` (quando a oferta está **ativa** para adesão) |
-| Quantidade de meses | `promo_duration_months` — por quantos **ciclos mensais** o benefício vale **para quem aderiu** (ex.: 3 = três primeiras cobranças mensais com a regra promo) |
-| Modo do ajuste | Sempre escolher: **`amount_brl`** (centavos) **ou** **`percent`** |
-| Direção | **`discount`** (desconto) **ou** **`surcharge`** (acréscimo) |
+| Janela | `promo_starts_at` / `promo_ends_at` (oferta ativa para **adesão**) |
+| Meses de benefício | `promo_duration_months` — N ciclos mensais com a regra, **para quem aderiu** |
+| Ajuste | **`discount` \| `surcharge`** |
+| Modo | **sempre** `fixed_brl` **ou** `percent` (qualquer dinheiro editável: não inventar só %) |
 
-**Regra transversal (dinheiro):** qualquer desconto/acréscimo editável no admin → UI/API com **dois modos** (`fixed_brl` | `percent`). Não inventar só %.
+Modelo preferível: tabela `plan_promotions` (ou registro rico por plano) — não só uma coluna `promo_price_cents`.
 
-**Modelo de dados alvo (proposta canônica para implementação — não código ainda):**
+### R2-2 — Anual editável
 
-Não basta uma coluna `promo_price_cents` sozinha (não cobre % nem acréscimo nem “N meses”). Preferir registro de promo (em `plans` ou tabela `plan_promotions` 1:1/N por plano):
+`price_year_cents` **editável** no superadmin.  
+Default sugerido na UI: `mensal × 12 × 0,8` (20% off); depois o admin muda livremente.
 
-```
-price_month_cents          -- lista mensal editável
-price_year_cents           -- lista anual editável (não só fórmula)
-promo_enabled
-promo_starts_at / promo_ends_at
-promo_duration_months      -- N ciclos com benefício após aderir
-promo_adjustment_kind      -- discount | surcharge
-promo_adjustment_mode      -- fixed_brl | percent
-promo_adjustment_value     -- centavos se fixed; basis points ou decimal se percent
-promo_applies_to           -- month | year | both  (a fechar se anual usa promo)
-```
+### R2-3 — Anual = 1 parcela
 
-**Cálculo (mensal):**  
-`lista` ± ajuste → valor cobrado enquanto `ciclos_cobrados_com_promo < promo_duration_months` e adesão ocorreu com promo ativa. Depois volta à lista.
+Uma única obrigação no ano (PIX/cartão valor cheio).  
+`next_billing_at` ≈ `paid_at + 1 year`.  
+`kind` / period = `year` (não 12 invoices).
 
-**Anual + promo:** se `promo_duration_months` e cobrança anual é 1×, definir na R3 se promo no anual = desconto na parcela única ou N/A (só mensal).
+### R2-4 — Seats Pro
+
+R$ **349 inclui 1** usuário.  
+Cada adicional = **R$ 99,00 / mês** (default; editável — R3-5).
+
+Ex.: 3 users → 349 + 2×99 = **547**/mês (antes de promo).
+
+### R2-5 — Seats Market
+
+**10** usuários no R$ 449.  
+A partir do **11º** = **R$ 99** / user / mês.
+
+### Essencial (BN-17)
+
+Cap **1** usuário; sem compra de seat — precisa de 2º → sobe de plano.
 
 ---
 
-### R2-B / R2 — Preço anual **editável**
+## Rodada 3 — Furos
 
-| Decisão | Detalhe |
+### R3-1 — Quem recebe promo
+
+**Só quem entrou na campanha** (adesão enquanto a oferta está no ar).  
+Leva **N meses** de benefício (ex.: 6× 50% off na mensalidade); acabou N → volta ao **valor normal (lista)** do plano.
+
+**Não** aplicar promo na renovação de quem não aderiu na campanha.
+
+Snapshot na subscription (`promo_id` / `promo_months_remaining` / regra congelada na adesão).
+
+### R3-2 — Anual × promo
+
+**Não misturar.** Anual **separado**, sem promo.  
+Promo só no fluxo **mensal**.
+
+### R3-3 — Seat adicional (cobrança)
+
+**Cobra na hora** → **paga para liberar** a criação/ativação do usuário.
+
+- Mid-cycle: obrigação `seat_add` com **proration** até o próximo `next_billing_at` (alinha BN-11).
+- **Após adesão:** o valor adicional passa a ser **mensalidade recorrente junto com o plano** (N seats × preço do seat somados ao renew `subscription`).
+
+### R3-4 — Downgrade com excesso de users
+
+Na hora de **agendar** o downgrade:
+
+1. Obrigatório **selecionar** usuário(s) a **manter**, até o limite do plano destino.
+2. Obrigatório manter **≥1 Admin/owner** na seleção.
+3. Demais: desativados/removidos **na data efetiva** (fim do ciclo), não antes.
+
+Sem seleção válida → não agenda.
+
+### R3-5 — Editável no admin
+
+**Sim.** Todos editáveis no superadmin:
+
+- Preço mensal lista  
+- Preço anual lista  
+- Preço do seat (default R$ 99)  
+- Promo (janela, N meses, discount/surcharge, **R$ ou %**)
+
+### R3-6 — Crédito IA (10%) — **lista sempre**
+
+**Sempre 10% do valor original (lista mensal) do plano**, **sem** desconto.
+
+| Exemplo | Cálculo |
 |---------|---------|
-| **Editável** | Superadmin grava `price_year_cents` (não amarrado só à fórmula) |
-| Default sugerido na UI | `mensal × 12 × 0,8` (20% off) como **valor inicial** ao criar/resetar; depois o admin pode mudar |
+| Essencial lista R$ 279 | 10% = **R$ 27,90** |
+| Pro R$ 349 | **R$ 34,90** |
+| Market R$ 449 | **R$ 44,90** |
+
+**Independe** de:
+
+- quanto foi **pago** naquele ciclo  
+- se há **promo**  
+- se o ciclo é **anual** ou mensal  
+
+No anual: o crédito incluso mensal (ou budget do período) continua ancorado em **10% da lista mensal** do plano — **não** 10% do valor anual pago nem 10% do valor com promo.
+
+> **Correção 2026-09-04:** anula a interpretação anterior “10% do valor efetivamente pago”. Canônico = **lista mensal original**.
+
+Se o superadmin **editar** a lista mensal do plano (R3-5), o 10% passa a usar o **novo** preço de lista (não o valor histórico promocional).
 
 ---
 
-### R2-B / R3 — Anual = **1 parcela**
+## Matriz comercial
 
-| Decisão | Detalhe |
-|---------|---------|
-| Cobrança | **Uma única** obrigação no ano (PIX/cartão valor cheio anual) |
-| Ciclo | `next_billing_at` ≈ `paid_at + 1 year` (ou +365/+12 months — detalhe técnico na implementação) |
-| Obrigação unificada | `kind` / period = `year` (não 12 invoices) |
-
----
-
-### R2-C / R4 — Seats Pro
-
-| Decisão | Detalhe |
-|---------|---------|
-| Base Pro | **R$ 349 inclui 1 usuário** |
-| Extra | Cada usuário **adicional** = **R$ 99,00 / mês** (preço seat editável no futuro? default 9900 cents — R3 se editável) |
-
-Ex.: 3 users no Pro → 349 + 2×99 = **R$ 547**/mês (antes de promo).
+| Plano | Mensal lista | Anual (1×; default −20%; editável) | Users | Seat extra | Promo | IA incluso |
+|-------|--------------|-------------------------------------|-------|------------|-------|------------|
+| Essencial | R$ 279 | editável | 1 (cap) | — | só mensal / campanha | R$ 27,90 |
+| Pro | R$ 349 | editável | 1 | R$ 99 | só mensal | R$ 34,90 |
+| Market | R$ 449 | editável | 10 | R$ 99 | só mensal | R$ 44,90 |
 
 ---
 
-### R2-C / R5 — Seats Market
+## Já implementado vs pendente de “implementa”
 
-| Decisão | Detalhe |
-|---------|---------|
-| Inclusos | **10 usuários** no R$ 449 |
-| Extra | A partir do **11º** = **R$ 99,00** / user / mês |
-
-Ex.: 12 users → 449 + 2×99 = **R$ 647**/mês.
-
----
-
-### R2 — Essencial (já BN-17)
-
-| Decisão | Detalhe |
-|---------|---------|
-| Cap | **1 usuário** incluso; sem compra de seat adicional (ou hard cap — se precisar de 2º user, sobe de plano) |
-
----
-
-## Preços de referência (seedados 2026-09-04)
-
-| Plano | Mensal lista | Anual lista (default 20% off, editável) | Users inclusos | Seat extra |
-|-------|--------------|------------------------------------------|----------------|------------|
-| Essencial | R$ 279 | R$ 2.678,40 | 1 | — (cap) |
-| Pro | R$ 349 | R$ 3.350,40 | 1 | R$ 99 |
-| Market | R$ 449 | R$ 4.310,40 | 10 | R$ 99 |
-
-IA incluso 10% do **mensal de lista** do plano (BN-06): R$ 27,90 / 34,90 / 44,90 — confirmar na R3 se crédito anual = 10% do anual ou 12× mensal.
-
----
-
-## Rodada 3 — Furos restantes (curtos)
-
-Responda só o que faltar; o resto da R2 está fechado.
-
-| ID | Pergunta | Por quê |
-|----|----------|---------|
-| **R3-1** | Promo na **renovação** de quem já é cliente, ou só quem **adere enquanto a campanha está no ar** (e leva N meses de benefício)? | Afeta cron renew vs só checkout novo |
-| **R3-2** | Plano **anual**: pode usar a mesma promo (desconto/acréscimo R$/%) na parcela única? Se sim, `promo_duration_months` ignora-se no anual? | Anual = 1× |
-| **R3-3** | Seat adicional: cobra **na hora** (proration BN-11) ou só no próximo vencimento? | Add user mid-cycle |
-| **R3-4** | Downgrade Pro→Essencial (ou Market→Pro) com users acima do incluso: **obrigar reduzir** até a data X, ou **bloquear** agendamento até caber no limite? | BN-12 + seats |
-| **R3-5** | Preço do seat R$ 99 e preços de plano: todos editáveis no superadmin (mesmo padrão R$/\% promo de seat?)? | Consistência admin |
-| **R3-6** | Crédito IA no plano **anual**: 10% do valor anual pago, ou equivalente a 12× (10% do mensal)? | Wallet no fulfill |
-
----
-
-## O que **não** fazer ainda (gate R3 / adiado)
-
-- UI superadmin de preços/promo (R2-A modelo ok; R3-1/2/5 abertos)
-- Cobrança de seat mid-cycle / proration seats (R3-3)
-- Downgrade com users acima do incluso (R3-4)
-- Crédito IA no ciclo anual (R3-6)
-- Packs (BN-15)
-
-**Já implementado (comando “implementar comercial” 2026-09-04):** seed `plans` 279/349/449 + `price_year_cents` (−20%) + seats cols; `planCatalog` / signup / setup=0 / trial DB=0 / AI 10% mensal.
-
-Hardening técnico permanece independente da trilha comercial restante (R3).
+| Item | Estado |
+|------|--------|
+| Preços 279/349/449 + year cols + seats cols + setup 0 + trial 0 | `[i]` PR #158 |
+| IA wallet = 10% lista mensal (já alinhado ao R3-6 canônico) | `[i]` via `planCatalog.aiIncludedCents` |
+| Promo engine + snapshot adesão | pendente |
+| Seat mid-cycle `seat_add` + renew com seats | pendente |
+| Downgrade com seleção de users | pendente |
+| UI superadmin preços / promo / seat | pendente |
+| Packs 2× token (BN-15) | `[>]` depois |
 
 ---
 
 ## Referências
 
-- `docs/BILLING_PLANS.md` (desatualizado até implementação)
+- `docs/BILLING_PLANS.md`
 - `docs/CORTE_CIRURGICO_BILLING_P1.md`
 - `docs/ADR/0006-billing-hardening-idempotency-security.md`
 - `.cursor/rules/decisoes-negocio-antes-codigo.mdc`
