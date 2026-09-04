@@ -120,9 +120,8 @@ export async function POST(req: Request) {
                 );
             }
             return NextResponse.json({
-                ok: true,
-                action: "downgrade_scheduled",
                 ...scheduled,
+                action: "downgrade_scheduled",
             });
         }
 
