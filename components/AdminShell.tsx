@@ -7,6 +7,7 @@ import { createClient } from "@/lib/supabase/client";
 import { AdminOrdersProvider } from "@/components/AdminOrdersContext";
 import AdminSidebar from "@/components/AdminSidebar";
 import HeaderClient from "@/components/HeaderClient";
+import AdminPrimaryNav from "@/components/AdminPrimaryNav";
 import BillingStatusBanner from "@/components/billing/BillingStatusBanner";
 import ImpersonationBanner from "@/components/platform/ImpersonationBanner";
 import { installBillingFetchInterceptor } from "@/lib/billing/installBillingFetchInterceptor";
@@ -167,12 +168,14 @@ function AdminShellInner({ children }: { children: React.ReactNode }) {
                         onToggleCollapse={() => setCollapsed((c) => !c)}
                     />
 
-                    <main className="relative flex flex-1 flex-col overflow-y-auto bg-zinc-100 transition-colors duration-300 dark:bg-zinc-950">
+                    <main className="relative flex flex-1 flex-col overflow-y-auto bg-zinc-100 pb-[calc(4.5rem+env(safe-area-inset-bottom))] transition-colors duration-300 dark:bg-zinc-950 lg:pb-0">
                         <div className="mx-auto w-full max-w-screen-2xl px-3 py-3 md:px-5 md:py-4">
                             {children}
                         </div>
                     </main>
                 </div>
+
+                <AdminPrimaryNav variant="dock" />
             </div>
 
             {/* ── Modal de pedido ── */}

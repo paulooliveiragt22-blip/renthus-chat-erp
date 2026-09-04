@@ -2,42 +2,20 @@
 "use client";
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import { usePathname, useRouter } from "next/navigation";
 import { useWorkspace } from "@/lib/workspace/useWorkspace";
 import { useInstallPrompt } from "@/lib/pwa/useInstallPrompt";
+import AdminPrimaryNav from "@/components/AdminPrimaryNav";
 import {
-    Clock,
     Download,
     ImagePlus,
     Loader2,
     Maximize2,
     Menu,
-    MessageCircle,
     Minimize2,
-    Receipt,
-    ShoppingCart,
-    type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-
-const HEADER_NAV: ReadonlyArray<{
-    href: string;
-    label: string;
-    shortLabel?: string;
-    icon: LucideIcon;
-}> = [
-    { href: "/whatsapp", label: "Chat", icon: MessageCircle },
-    { href: "/pedidos", label: "Pedidos", icon: Receipt },
-    { href: "/fila", label: "Fila de pedidos", shortLabel: "Fila", icon: Clock },
-    { href: "/pdv", label: "PDV", icon: ShoppingCart },
-];
-
-function isNavActive(pathname: string | null, href: string): boolean {
-    if (!pathname) return false;
-    return pathname === href || pathname.startsWith(`${href}/`);
-}
 
 interface HeaderClientProps {
     onOpenMobileMenu?: () => void;
@@ -224,7 +202,7 @@ export default function HeaderClient({
     if (sessionExists === null) return null;
 
     return (
-        <header className="relative grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2 bg-[#11283B] px-3 py-2.5 text-white shadow-[0_6px_12px_rgba(0,0,0,0.16)] sm:px-[18px]">
+        <header className="relative grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 bg-[#11283B] px-3 py-2.5 text-white shadow-[0_6px_12px_rgba(0,0,0,0.16)] sm:px-[18px] lg:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)]">
             {/* esquerda */}
             <div className="flex min-w-0 items-center gap-2 justify-self-start sm:gap-3">
                 {onOpenMobileMenu && (
@@ -246,36 +224,7 @@ export default function HeaderClient({
                 </a>
             </div>
 
-            {/* centro — atalhos */}
-            <nav
-                aria-label="Atalhos principais"
-                className="flex items-center justify-center gap-2 justify-self-center sm:gap-3"
-            >
-                {HEADER_NAV.map(({ href, label, shortLabel, icon: Icon }) => {
-                    const active = isNavActive(pathname, href);
-                    return (
-                        <Link
-                            key={href}
-                            href={href}
-                            title={label}
-                            aria-current={active ? "page" : undefined}
-                            className={cn(
-                                "inline-flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-xs font-semibold",
-                                "transition-transform duration-150 ease-out will-change-transform",
-                                "hover:-translate-y-0.5 hover:scale-[1.03]",
-                                "active:translate-y-0 active:scale-100",
-                                active
-                                    ? "bg-accent text-accent-foreground shadow-sm"
-                                    : "bg-[#16364D] text-white hover:brightness-110"
-                            )}
-                        >
-                            <Icon className="h-3.5 w-3.5 shrink-0" aria-hidden />
-                            <span className="hidden md:inline">{label}</span>
-                            <span className="hidden sm:inline md:hidden">{shortLabel ?? label}</span>
-                        </Link>
-                    );
-                })}
-            </nav>
+            <AdminPrimaryNav variant="desktop" />
 
             {/* direita */}
             <div className="relative flex items-center justify-end gap-2 justify-self-end sm:gap-3">
