@@ -57,8 +57,27 @@ export interface UiPlanPromotionAdmin {
     adjustment_mode: "percent" | "fixed_brl";
     adjustment_value: number;
     active: boolean;
+    created_at?: string;
     plans?: { key?: string; name?: string } | null;
 }
+
+/** Payload criar/editar promo (platform → API). */
+export type UiPlanPromotionUpsert = {
+    plan_id: string;
+    name?: string;
+    starts_at: string;
+    ends_at: string;
+    duration_months: number;
+    adjustment_kind: "discount" | "surcharge";
+    adjustment_mode: "percent" | "fixed_brl";
+    adjustment_value: number;
+    active?: boolean;
+};
+
+/** PATCH parcial: só toggle OU campos de edição. */
+export type UiPlanPromotionPatch =
+    | { active: boolean }
+    | (Partial<UiPlanPromotionUpsert> & { active?: boolean });
 
 /** Última fatura conhecida (null se nunca teve) */
 export interface UiLastInvoice {

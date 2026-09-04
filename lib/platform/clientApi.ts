@@ -317,17 +317,36 @@ export const platformApi = {
             body: JSON.stringify(body),
         }),
     listPromotions: () =>
-        platformFetch<{ promotions: unknown[] }>("/api/platform/billing/promotions"),
-    upsertPromotion: (body: Record<string, unknown>) =>
-        platformFetch<{ ok: boolean; promotion: unknown }>(
-            "/api/platform/billing/promotions",
-            { method: "POST", body: JSON.stringify(body) }
+        platformFetch<{ promotions: import("@/lib/billing/contracts/ui").UiPlanPromotionAdmin[] }>(
+            "/api/platform/billing/promotions"
         ),
+    upsertPromotion: (body: import("@/lib/billing/contracts/ui").UiPlanPromotionUpsert & { id?: string }) =>
+        platformFetch<{
+            ok: boolean;
+            promotion: import("@/lib/billing/contracts/ui").UiPlanPromotionAdmin;
+        }>("/api/platform/billing/promotions", {
+            method: "POST",
+            body: JSON.stringify(body),
+        }),
+    updatePromotion: (
+        id: string,
+        body: import("@/lib/billing/contracts/ui").UiPlanPromotionUpsert & { active?: boolean }
+    ) =>
+        platformFetch<{
+            ok: boolean;
+            promotion: import("@/lib/billing/contracts/ui").UiPlanPromotionAdmin;
+        }>(`/api/platform/billing/promotions/${id}`, {
+            method: "PATCH",
+            body: JSON.stringify(body),
+        }),
     setPromotionActive: (id: string, active: boolean) =>
-        platformFetch<{ ok: boolean; promotion: unknown }>(
-            `/api/platform/billing/promotions/${id}`,
-            { method: "PATCH", body: JSON.stringify({ active }) }
-        ),
+        platformFetch<{
+            ok: boolean;
+            promotion: import("@/lib/billing/contracts/ui").UiPlanPromotionAdmin;
+        }>(`/api/platform/billing/promotions/${id}`, {
+            method: "PATCH",
+            body: JSON.stringify({ active }),
+        }),
     channels: () => platformFetch<{ channels: unknown[] }>("/api/platform/channels"),
     createChannel: (data: Record<string, unknown>) =>
         platformFetch<{ ok: boolean }>("/api/platform/channels", {
