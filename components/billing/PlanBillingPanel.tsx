@@ -984,6 +984,7 @@ export default function PlanBillingPanel({ variant = "full" }: PlanBillingPanelP
                             ) ?? "essencial";
                         const mp = billingData.monthly_prices_brl ?? {};
                         const yp = billingData.yearly_prices_brl ?? {};
+                        const ys = billingData.yearly_savings_percent ?? {};
                         return (
                             <PlanChangeCatalog
                                 currentPlan={cur}
@@ -1012,6 +1013,11 @@ export default function PlanBillingPanel({ variant = "full" }: PlanBillingPanelP
                                     pro: yp.pro ?? PLAN_CATALOG.pro.yearlyPriceCents / 100,
                                     market:
                                         yp.market ?? PLAN_CATALOG.market.yearlyPriceCents / 100,
+                                }}
+                                yearlySavingsPercent={{
+                                    essencial: ys.essencial,
+                                    pro: ys.pro,
+                                    market: ys.market,
                                 }}
                                 planSaving={planSaving}
                                 onUpgradeOrTrial={(plan) => void changeRenthusPlan(plan)}

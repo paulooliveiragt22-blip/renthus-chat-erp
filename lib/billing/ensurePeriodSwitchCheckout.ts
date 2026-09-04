@@ -1,8 +1,7 @@
 /**
  * Checkout de troca de ciclo mensal → anual (pay-to-switch).
- * Valor canônico (annual − crédito do mês) vem de rpc_quote_period_switch.
- * Após paid, rpc_fulfill_obligation (kind=period_switch) vira billing_period='year'
- * e reinicia o ciclo (+1 ano). App nunca calcula/grava o valor.
+ * Obrigação e applied_free: rpc_ensure_period_switch_obligation (amount + next no banco).
+ * Após paid, rpc_fulfill_obligation (kind=period_switch) vira billing_period='year'.
  */
 
 import "server-only";
@@ -14,7 +13,6 @@ import {
 } from "@/lib/billing/pagarme";
 import { buildPagarmeCustomerPayload } from "@/lib/billing/buildPagarmeCustomerFromCompany";
 import { reconcileOrCancelLiveOrder } from "@/lib/billing/reconcileLivePagarmeOrder";
-import { isUniqueViolation } from "@/lib/billing/isUniqueViolation";
 import { normalizePlanKey, type CommercialPlanKey } from "@/lib/billing/planCatalog";
 
 type Admin = ReturnType<typeof createAdminClient>;
@@ -38,12 +36,15 @@ export type EnsurePeriodSwitchCheckoutResult =
           plan: CommercialPlanKey;
       };
 
-type QuoteRpc = {
+type EnsureObligationRpc = {
+    status?: string;
+    applied_free?: boolean;
+    invoice_id?: string;
     amount_cents?: number;
     annual_cents?: number;
     credit_cents?: number;
-    applied_free?: boolean;
     plan?: string;
+    pagarme_order_id?: string | null;
 };
 
 export async function ensurePeriodSwitchCheckout(
@@ -74,96 +75,26 @@ export async function ensurePeriodSwitchCheckout(
 
     const plan = normalizePlanKey(String(sub.plan ?? "")) ?? "essencial";
 
-    // Fonte canônica do valor: banco (annual − crédito do mês corrente).
-    const { data: quoteRaw, error: quoteErr } = await admin.rpc("rpc_quote_period_switch", {
-        p_company_id: params.companyId,
-    });
-    if (quoteErr) throw new Error(quoteErr.message);
-    const quote = (quoteRaw ?? {}) as QuoteRpc;
-    const amountCents = Math.floor(Number(quote.amount_cents ?? 0));
-    const annualCents = Math.floor(Number(quote.annual_cents ?? 0));
-    const creditCents = Math.floor(Number(quote.credit_cents ?? 0));
+    // Fonte canônica: quote + insert/applied_free no banco (nunca amount/+1y no app).
+    const { data: oblRaw, error: oblErr } = await admin.rpc(
+        "rpc_ensure_period_switch_obligation",
+        { p_company_id: params.companyId }
+    );
+    if (oblErr) throw new Error(oblErr.message);
+    const obl = (oblRaw ?? {}) as EnsureObligationRpc;
+    const amountCents = Math.floor(Number(obl.amount_cents ?? 0));
+    const annualCents = Math.floor(Number(obl.annual_cents ?? 0));
+    const creditCents = Math.floor(Number(obl.credit_cents ?? 0));
+    const catalogBrl = centsToBRL(amountCents);
 
-    // Edge: crédito ≥ anual → aplica direto (raro; anual >> 1 mês).
-    if (quote.applied_free === true || amountCents <= 0) {
-        const oneYear = new Date();
-        oneYear.setFullYear(oneYear.getFullYear() + 1);
-        const { error: upErr } = await admin
-            .from("pagarme_subscriptions")
-            .update({
-                billing_period: "year",
-                next_billing_at: oneYear.toISOString(),
-                last_paid_at: new Date().toISOString(),
-                updated_at: new Date().toISOString(),
-            })
-            .eq("id", sub.id);
-        if (upErr) throw new Error(upErr.message);
+    if (obl.applied_free === true || obl.status === "applied_free" || amountCents <= 0) {
         return { mode: "applied_free", plan };
     }
 
-    let invoiceId: string | null = null;
-    let priorOrderId: string | null = null;
-
-    const { data: pending } = await admin
-        .from("invoices")
-        .select("id, pagarme_order_id, amount")
-        .eq("company_id", params.companyId)
-        .eq("status", "pending")
-        .eq("kind", "period_switch")
-        .maybeSingle();
-
-    const catalogBrl = centsToBRL(amountCents);
-
-    if (pending?.id) {
-        invoiceId = pending.id;
-        priorOrderId = pending.pagarme_order_id ?? null;
-        if (Math.abs(Number(pending.amount) - catalogBrl) > 0.02) {
-            await admin
-                .from("invoices")
-                .update({
-                    amount: catalogBrl,
-                    pagarme_order_id: null,
-                    pagarme_payment_url: null,
-                    pix_qr_code: null,
-                })
-                .eq("id", pending.id)
-                .eq("status", "pending");
-            priorOrderId = null;
-        }
-    } else {
-        const { data: created, error: insErr } = await admin
-            .from("invoices")
-            .insert({
-                company_id: params.companyId,
-                subscription_id: sub.id,
-                amount: catalogBrl,
-                status: "pending",
-                kind: "period_switch",
-                due_at: new Date().toISOString(),
-            })
-            .select("id")
-            .single();
-        if (insErr) {
-            if (isUniqueViolation(insErr)) {
-                const { data: again } = await admin
-                    .from("invoices")
-                    .select("id, pagarme_order_id")
-                    .eq("company_id", params.companyId)
-                    .eq("status", "pending")
-                    .eq("kind", "period_switch")
-                    .maybeSingle();
-                if (!again?.id) throw new Error(insErr.message);
-                invoiceId = again.id;
-                priorOrderId = again.pagarme_order_id ?? null;
-            } else {
-                throw new Error(insErr.message);
-            }
-        } else {
-            invoiceId = created!.id;
-        }
-    }
-
+    const invoiceId = typeof obl.invoice_id === "string" ? obl.invoice_id : null;
     if (!invoiceId) throw new Error("invoice_create_failed");
+    const priorOrderId =
+        typeof obl.pagarme_order_id === "string" ? obl.pagarme_order_id : null;
 
     const recon = await reconcileOrCancelLiveOrder(admin, priorOrderId, "invoice");
     if (recon.action === "fulfilled") {
@@ -208,7 +139,6 @@ export async function ensurePeriodSwitchCheckout(
             pagarme_order_id: order.id,
             pagarme_payment_url: pixUrl,
             pix_qr_code: pixCode,
-            amount: catalogBrl,
         })
         .eq("id", invoiceId);
 
