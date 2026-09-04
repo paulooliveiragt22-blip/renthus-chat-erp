@@ -8,7 +8,6 @@ import type { createAdminClient } from "@/lib/supabase/admin";
 import {
     createOrderWithSavedCard,
     createPixInvoiceOrder,
-    centsToBRL,
     isOrderCreditPaid,
     resolvePixFromOrder,
     type PagarmeOrder,
@@ -57,39 +56,6 @@ function companyOf(sub: CollectSub): CollectCompany | null {
     return Array.isArray(c) ? (c[0] ?? null) : c;
 }
 
-async function chargeCentsForSub(admin: Admin, sub: CollectSub): Promise<number> {
-    const { loadPlanPricing } = await import("@/lib/billing/loadPlanPricing");
-    const { computeMonthlyChargeCents } = await import("@/lib/billing/subscriptionAmount");
-    const { applyTenantPromoCents } = await import("@/lib/billing/resolvePromoForCharge");
-    const { effectiveChargePlanKey } = await import("@/lib/billing/scheduleDowngrade");
-    const { data: row } = await admin
-        .from("pagarme_subscriptions")
-        .select("billing_period, promo_months_remaining, promo_snapshot, pending_plan_key, plan, seat_quantity")
-        .eq("id", sub.id)
-        .maybeSingle();
-    const chargePlan = effectiveChargePlanKey(
-        String(row?.plan ?? sub.plan ?? "essencial"),
-        row?.pending_plan_key as string | null | undefined
-    );
-    const pricing = await loadPlanPricing(admin, chargePlan);
-    const hasPending = Boolean(
-        row?.pending_plan_key && String(row.pending_plan_key).trim()
-    );
-    const seatQty = hasPending
-        ? pricing.includedSeats
-        : typeof (row?.seat_quantity ?? sub.seat_quantity) === "number" &&
-            Number(row?.seat_quantity ?? sub.seat_quantity) >= 1
-          ? Number(row?.seat_quantity ?? sub.seat_quantity)
-          : pricing.includedSeats;
-    const listWithSeats = computeMonthlyChargeCents(pricing, seatQty);
-    const { amountCents } = applyTenantPromoCents(listWithSeats, {
-        billingPeriod: row?.billing_period as string | null | undefined,
-        promoMonthsRemaining: row?.promo_months_remaining as number | null | undefined,
-        promoSnapshot: row?.promo_snapshot,
-    });
-    return amountCents;
-}
-
 function customerPayload(sub: CollectSub, company: CollectCompany | null) {
     if (sub.pagarme_customer_id || !company) return undefined;
     return buildPagarmeCustomerPayload({
@@ -123,94 +89,53 @@ async function recordAttempt(
     }
 }
 
+/**
+ * Cria/recupera a obrigação (invoice) da mensalidade. O amount é CALCULADO no
+ * banco por rpc_create_billing_obligation (ADR-0006 D9 / governanca Regra 2):
+ * plano efetivo (pending downgrade incluso), seats, promo e período. O app não
+ * envia valor — lê o amount_cents que o banco gravou.
+ */
 async function ensurePendingInvoice(
     admin: Admin,
     sub: CollectSub,
-    now: Date
-): Promise<{ id: string; pagarme_order_id: string | null; pix_qr_code: string | null; created: boolean } | null> {
-    const { data: existing } = await admin
+    _now: Date
+): Promise<{
+    id: string;
+    amountCents: number;
+    pagarme_order_id: string | null;
+    pix_qr_code: string | null;
+    created: boolean;
+} | null> {
+    const { data: rpc, error } = await admin.rpc("rpc_create_billing_obligation", {
+        p_company_id: sub.company_id,
+        p_kind: "subscription",
+        p_seat_qty: null,
+    });
+    if (error) throw new Error(error.message);
+
+    const result = (rpc ?? {}) as {
+        invoice_id?: string;
+        amount_cents?: number;
+        status?: string;
+    };
+    const invoiceId = result.invoice_id;
+    if (!invoiceId) return null;
+
+    const amountCents = Number(result.amount_cents ?? 0);
+    if (!Number.isFinite(amountCents) || amountCents <= 0) return null;
+
+    const { data: row } = await admin
         .from("invoices")
-        .select("id, pagarme_order_id, pix_qr_code")
-        .eq("subscription_id", sub.id)
-        .eq("status", "pending")
-        .eq("kind", "subscription")
+        .select("pagarme_order_id, pix_qr_code")
+        .eq("id", invoiceId)
         .maybeSingle();
-
-    if (existing?.id) {
-        return {
-            id: existing.id,
-            pagarme_order_id: existing.pagarme_order_id ?? null,
-            pix_qr_code: existing.pix_qr_code ?? null,
-            created: false,
-        };
-    }
-
-    const { loadPlanPricing } = await import("@/lib/billing/loadPlanPricing");
-    const { computeMonthlyChargeCents } = await import("@/lib/billing/subscriptionAmount");
-    const { effectiveChargePlanKey } = await import("@/lib/billing/scheduleDowngrade");
-    const { data: pendRow } = await admin
-        .from("pagarme_subscriptions")
-        .select("pending_plan_key, plan, seat_quantity")
-        .eq("id", sub.id)
-        .maybeSingle();
-    const chargePlan = effectiveChargePlanKey(
-        String(pendRow?.plan ?? sub.plan ?? "essencial"),
-        pendRow?.pending_plan_key as string | null | undefined
-    );
-    const pricing = await loadPlanPricing(admin, chargePlan);
-    const hasPending = Boolean(
-        pendRow?.pending_plan_key && String(pendRow.pending_plan_key).trim()
-    );
-    const seatQty = hasPending
-        ? pricing.includedSeats
-        : typeof (pendRow?.seat_quantity ?? sub.seat_quantity) === "number" &&
-            Number(pendRow?.seat_quantity ?? sub.seat_quantity) >= 1
-          ? Number(pendRow?.seat_quantity ?? sub.seat_quantity)
-          : pricing.includedSeats;
-    const amountCents = computeMonthlyChargeCents(pricing, seatQty);
-    const { data: claimed, error: claimErr } = await admin
-        .from("invoices")
-        .insert({
-            company_id:          sub.company_id,
-            subscription_id:     sub.id,
-            amount:              centsToBRL(amountCents),
-            status:              "pending",
-            kind:                "subscription",
-            due_at:              now.toISOString(),
-            pagarme_order_id:    null,
-            pagarme_payment_url: null,
-            pix_qr_code:         null,
-        })
-        .select("id, pagarme_order_id, pix_qr_code")
-        .single();
-
-    if (claimErr) {
-        if (isUniqueViolation(claimErr)) {
-            const { data: again } = await admin
-                .from("invoices")
-                .select("id, pagarme_order_id, pix_qr_code")
-                .eq("subscription_id", sub.id)
-                .eq("status", "pending")
-                .eq("kind", "subscription")
-                .maybeSingle();
-            if (again?.id) {
-                return {
-                    id: again.id,
-                    pagarme_order_id: again.pagarme_order_id ?? null,
-                    pix_qr_code: again.pix_qr_code ?? null,
-                    created: false,
-                };
-            }
-            return null;
-        }
-        throw new Error(claimErr.message);
-    }
 
     return {
-        id: claimed.id,
-        pagarme_order_id: claimed.pagarme_order_id ?? null,
-        pix_qr_code: claimed.pix_qr_code ?? null,
-        created: true,
+        id: invoiceId,
+        amountCents,
+        pagarme_order_id: row?.pagarme_order_id ?? null,
+        pix_qr_code: row?.pix_qr_code ?? null,
+        created: result.status === "created",
     };
 }
 
@@ -220,7 +145,8 @@ async function attachPixToInvoice(
     invoiceId: string,
     kind: CollectPaymentKind,
     attemptN: number,
-    priorOrderId: string | null
+    priorOrderId: string | null,
+    amountCents: number
 ): Promise<
     | { orderId: string | null; pixUrl: string | null; pixCode: string | null; fulfilled?: false }
     | { fulfilled: true; orderId: string }
@@ -231,7 +157,6 @@ async function attachPixToInvoice(
     }
 
     const company = companyOf(sub);
-    const amountCents = await chargeCentsForSub(admin, sub);
     const compLabel = (company?.nome_fantasia ?? company?.name ?? "").trim() || "Renthus";
 
     const created = await createPixInvoiceOrder({
@@ -344,9 +269,8 @@ export async function collectPayment(
                 };
             }
 
-            const amountCents = await chargeCentsForSub(admin, sub);
             const order = await createOrderWithSavedCard({
-                amountCents,
+                amountCents: invoice.amountCents,
                 description: `Mensalidade Renthus — Plano ${sub.plan}`,
                 itemCode: "invoice",
                 customerId: sub.pagarme_customer_id,
@@ -442,7 +366,8 @@ export async function collectPayment(
         invoice.id,
         kind,
         attemptN,
-        invoice.pagarme_order_id
+        invoice.pagarme_order_id,
+        invoice.amountCents
     );
 
     if ("fulfilled" in pix && pix.fulfilled) {

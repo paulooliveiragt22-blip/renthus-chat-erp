@@ -113,6 +113,54 @@ export function makeMockAdmin(tables: Tables): MockAdminHandle {
         client: {
             from: (tableName: string) => chain(tableName),
             rpc: async (name: string, params: Record<string, unknown>) => {
+                // rpc_create_billing_obligation: cria/reusa invoice pending (amount canônico).
+                // Amount vem do banco na produção; no mock devolve valor positivo estável.
+                if (name === "rpc_create_billing_obligation") {
+                    const companyId = params.p_company_id;
+                    const kind = String(params.p_kind ?? "subscription");
+                    const invoices = tables.invoices ?? (tables.invoices = []);
+                    const existing = invoices.find(
+                        (r) => r.status === "pending" && (r.kind == null || r.kind === kind)
+                    );
+                    if (existing) {
+                        const cents = Number.isFinite(Number(existing.amount))
+                            ? Math.round(Number(existing.amount) * 100) || 27900
+                            : 27900;
+                        return {
+                            data: {
+                                status: "exists",
+                                invoice_id: existing.id,
+                                company_id: companyId,
+                                kind,
+                                amount_cents: cents,
+                                created: false,
+                            },
+                            error: null,
+                        };
+                    }
+                    const row: Row = {
+                        id: `invoices-${idSeq++}`,
+                        company_id: companyId,
+                        kind,
+                        status: "pending",
+                        amount: 279,
+                        pagarme_order_id: null,
+                        pix_qr_code: null,
+                        created_at: new Date().toISOString(),
+                    };
+                    invoices.push(row);
+                    return {
+                        data: {
+                            status: "created",
+                            invoice_id: row.id,
+                            company_id: companyId,
+                            kind,
+                            amount_cents: 27900,
+                            created: true,
+                        },
+                        error: null,
+                    };
+                }
                 if (name !== "claim_chatbot_queue_jobs") return { data: null, error: { message: "rpc not found" } };
                 const batch = Number(params.batch_size ?? 5);
                 const maxAttempts = Number(params.max_attempts ?? 3);

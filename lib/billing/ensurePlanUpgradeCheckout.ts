@@ -12,7 +12,7 @@ import {
 } from "@/lib/billing/pagarme";
 import { buildPagarmeCustomerPayload } from "@/lib/billing/buildPagarmeCustomerFromCompany";
 import { loadPlanPricing } from "@/lib/billing/loadPlanPricing";
-import { proratePlanUpgradeCents } from "@/lib/billing/proratePlanUpgrade";
+import { proratePlanUpgradeCentsDb } from "@/lib/billing/proratePlanUpgrade";
 import { reconcileOrCancelLiveOrder } from "@/lib/billing/reconcileLivePagarmeOrder";
 import { isUniqueViolation } from "@/lib/billing/isUniqueViolation";
 import {
@@ -86,7 +86,8 @@ export async function ensurePlanUpgradeCheckout(
         ? new Date(String(sub.next_billing_at))
         : new Date(Date.now() + 30 * 86_400_000);
 
-    const amountCents = proratePlanUpgradeCents(
+    const amountCents = await proratePlanUpgradeCentsDb(
+        admin,
         fromPricing.monthlyPriceCents,
         toPricing.monthlyPriceCents,
         nextBillingAt,

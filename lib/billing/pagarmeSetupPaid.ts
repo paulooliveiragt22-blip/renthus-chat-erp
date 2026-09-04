@@ -7,7 +7,6 @@ import "server-only";
 import { randomBytes } from "node:crypto";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { sendBillingNotification } from "@/lib/billing/sendBillingNotification";
-import { computeNextBillingAt } from "@/lib/billing/computeNextBillingAt";
 import { normalizePlanKey } from "@/lib/billing/planCatalog";
 
 const TEMP_PW_ALPHABET = "abcdefghijklmnopqrstuvwxyz0123456789";
@@ -164,8 +163,22 @@ export async function activateAfterSetupPayment(
     plan: string,
     pagarmeCustomerId?: string
 ): Promise<void> {
-    const paidAt        = new Date();
-    const nextBillingAt = computeNextBillingAt(paidAt);
+    const paidAt = new Date();
+
+    const { data: existingSub } = await admin
+        .from("pagarme_subscriptions")
+        .select("id, billing_period")
+        .eq("company_id", companyId)
+        .maybeSingle();
+
+    // next_billing_at period-aware pelo banco (ADR-0006 D10 / governanca Regra 2)
+    const period = String(existingSub?.billing_period ?? "month");
+    const { data: nextDue, error: nextErr } = await admin.rpc("fn_billing_next_due", {
+        p_paid_at: paidAt.toISOString(),
+        p_period: period,
+    });
+    if (nextErr) throw new Error(nextErr.message);
+    const nextBillingAt = new Date(String(nextDue));
 
     const patch: Record<string, unknown> = {
         plan,
@@ -175,12 +188,6 @@ export async function activateAfterSetupPayment(
         activated_at:    paidAt.toISOString(),
     };
     if (pagarmeCustomerId) patch.pagarme_customer_id = pagarmeCustomerId;
-
-    const { data: existingSub } = await admin
-        .from("pagarme_subscriptions")
-        .select("id")
-        .eq("company_id", companyId)
-        .maybeSingle();
 
     if (existingSub) {
         await admin

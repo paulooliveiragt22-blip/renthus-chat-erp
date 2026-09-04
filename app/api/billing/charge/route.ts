@@ -27,7 +27,7 @@ import { billingLog } from "@/lib/billing/billingLog";
 import { isUniqueViolation } from "@/lib/billing/isUniqueViolation";
 import { collectPayment, type CollectSub } from "@/lib/billing/collectPayment";
 import {
-    resolveCollectionAction,
+    resolveCollectionActionDb,
     resolveTrialDueKind,
 } from "@/lib/billing/collectionPolicy";
 import { processAiRechargeJobs } from "@/lib/billing/processAiRechargeJobs";
@@ -363,10 +363,9 @@ async function processOverdueInvoiceRow(
     const dueAt = new Date(inv.due_at);
     const daysOverdue = Math.floor((now.getTime() - dueAt.getTime()) / (24 * 60 * 60 * 1000));
 
-    const action = resolveCollectionAction({
+    const action = await resolveCollectionActionDb(admin, {
         daysOverdue,
         hasDefaultCard: Boolean(sub.default_card_id),
-        hasPendingInvoice: true,
     });
 
     if (action.type === "block") {
@@ -394,7 +393,7 @@ async function processOverdueInvoiceRow(
             },
             kind: "subscription_renewal",
             prefer: "card",
-            attemptN: action.attemptLabel === "d1" ? 1 : 3,
+            attemptN: Math.max(1, daysOverdue),
             now,
             fallbackSubStatus: "overdue",
             notifyWhatsApp: true,

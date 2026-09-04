@@ -132,16 +132,16 @@ export function buildOverdueMessage(
         case 3:
             return (
                 "⚠️ *Aviso de cobrança — Renthus*\n\n" +
-                "Sua mensalidade está em atraso há 3 dias. Faltam *2 dias* para o bloqueio automático do sistema." +
+                "Sua mensalidade está em atraso há 3 dias. Faltam *4 dias* para o bloqueio automático do sistema." +
                 link
             );
         case 5:
             return (
                 "🔴 *Último aviso — Renthus*\n\n" +
-                "Sua mensalidade está em atraso há 5 dias. O sistema será *bloqueado hoje à meia-noite* caso o pagamento não seja realizado." +
+                "Sua mensalidade está em atraso há 5 dias. Faltam *2 dias* para o bloqueio automático do sistema. Regularize para evitar a suspensão." +
                 link
             );
         default:
-            return null; // Só envia nos dias 1, 3 e 5
+            return null; // Só envia nos dias 1, 3 e 5 (BN-13; bloqueio em D7)
     }
 }
