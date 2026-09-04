@@ -10,6 +10,168 @@ import type { PagarmeSubStatus, PagarmeInvoiceStatus } from "@/lib/billing/contr
 
 type SubRow = UiSubscriptionRow;
 
+function PromoAdminPanel({
+    plans,
+    isSuperadmin,
+}: {
+    plans: Array<{ id: string; key: string; name: string }>;
+    isSuperadmin: boolean;
+}) {
+    const queryClient = useQueryClient();
+    const { data } = useQuery({
+        queryKey: ["platform", "billing", "promotions"],
+        queryFn: () => platformApi.listPromotions(),
+        staleTime: 30_000,
+        enabled: isSuperadmin,
+    });
+    const [form, setForm] = useState({
+        plan_id: "",
+        name: "",
+        starts_at: "",
+        ends_at: "",
+        duration_months: "3",
+        adjustment_kind: "discount" as "discount" | "surcharge",
+        adjustment_mode: "percent" as "fixed_brl" | "percent",
+        adjustment_value: "5000",
+    });
+
+    const save = useMutation({
+        mutationFn: () =>
+            platformApi.upsertPromotion({
+                plan_id: form.plan_id || plans[0]?.id,
+                name: form.name,
+                starts_at: new Date(form.starts_at).toISOString(),
+                ends_at: new Date(form.ends_at).toISOString(),
+                duration_months: Number(form.duration_months),
+                adjustment_kind: form.adjustment_kind,
+                adjustment_mode: form.adjustment_mode,
+                adjustment_value: Number(form.adjustment_value),
+                active: true,
+            }),
+        onSuccess: () => {
+            toast.success("Promo salva");
+            queryClient.invalidateQueries({ queryKey: ["platform", "billing", "promotions"] });
+        },
+        onError: (e: Error) => toast.error(e.message),
+    });
+
+    if (!isSuperadmin) return null;
+
+    const promotions = (data?.promotions ?? []) as Array<{
+        id: string;
+        name: string;
+        starts_at: string;
+        ends_at: string;
+        duration_months: number;
+        adjustment_kind: string;
+        adjustment_mode: string;
+        adjustment_value: number;
+        active: boolean;
+        plans?: { key?: string; name?: string } | null;
+    }>;
+
+    return (
+        <div className="rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
+            <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+                Promoções (mensal)
+            </h2>
+            <p className="mt-1 text-xs text-zinc-500">
+                Só quem aderir na janela leva N meses. Percent em basis points (5000 = 50%). Anual sem
+                promo.
+            </p>
+            <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                <select
+                    className="rounded border border-zinc-200 bg-white px-2 py-1.5 text-xs dark:border-zinc-700 dark:bg-zinc-950"
+                    value={form.plan_id || plans[0]?.id || ""}
+                    onChange={(e) => setForm((f) => ({ ...f, plan_id: e.target.value }))}
+                >
+                    {plans.map((p) => (
+                        <option key={p.id} value={p.id}>
+                            {p.name}
+                        </option>
+                    ))}
+                </select>
+                <input
+                    placeholder="Nome"
+                    className="rounded border border-zinc-200 bg-white px-2 py-1.5 text-xs dark:border-zinc-700 dark:bg-zinc-950"
+                    value={form.name}
+                    onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+                />
+                <input
+                    type="datetime-local"
+                    className="rounded border border-zinc-200 bg-white px-2 py-1.5 text-xs dark:border-zinc-700 dark:bg-zinc-950"
+                    value={form.starts_at}
+                    onChange={(e) => setForm((f) => ({ ...f, starts_at: e.target.value }))}
+                />
+                <input
+                    type="datetime-local"
+                    className="rounded border border-zinc-200 bg-white px-2 py-1.5 text-xs dark:border-zinc-700 dark:bg-zinc-950"
+                    value={form.ends_at}
+                    onChange={(e) => setForm((f) => ({ ...f, ends_at: e.target.value }))}
+                />
+                <input
+                    placeholder="Meses benefício"
+                    className="rounded border border-zinc-200 bg-white px-2 py-1.5 text-xs dark:border-zinc-700 dark:bg-zinc-950"
+                    value={form.duration_months}
+                    onChange={(e) => setForm((f) => ({ ...f, duration_months: e.target.value }))}
+                />
+                <select
+                    className="rounded border border-zinc-200 bg-white px-2 py-1.5 text-xs dark:border-zinc-700 dark:bg-zinc-950"
+                    value={form.adjustment_kind}
+                    onChange={(e) =>
+                        setForm((f) => ({
+                            ...f,
+                            adjustment_kind: e.target.value as "discount" | "surcharge",
+                        }))
+                    }
+                >
+                    <option value="discount">Desconto</option>
+                    <option value="surcharge">Acréscimo</option>
+                </select>
+                <select
+                    className="rounded border border-zinc-200 bg-white px-2 py-1.5 text-xs dark:border-zinc-700 dark:bg-zinc-950"
+                    value={form.adjustment_mode}
+                    onChange={(e) =>
+                        setForm((f) => ({
+                            ...f,
+                            adjustment_mode: e.target.value as "fixed_brl" | "percent",
+                        }))
+                    }
+                >
+                    <option value="percent">% (bps)</option>
+                    <option value="fixed_brl">R$ (centavos)</option>
+                </select>
+                <input
+                    placeholder="Valor"
+                    className="rounded border border-zinc-200 bg-white px-2 py-1.5 text-xs dark:border-zinc-700 dark:bg-zinc-950"
+                    value={form.adjustment_value}
+                    onChange={(e) => setForm((f) => ({ ...f, adjustment_value: e.target.value }))}
+                />
+            </div>
+            <button
+                type="button"
+                disabled={save.isPending}
+                onClick={() => save.mutate()}
+                className="mt-3 inline-flex items-center gap-1 rounded bg-zinc-900 px-3 py-1.5 text-[11px] font-semibold text-white dark:bg-zinc-100 dark:text-zinc-900"
+            >
+                <Save className="h-3 w-3" />
+                Criar promo
+            </button>
+            {promotions.length > 0 && (
+                <ul className="mt-3 space-y-1 text-[11px] text-zinc-600 dark:text-zinc-400">
+                    {promotions.slice(0, 8).map((p) => (
+                        <li key={p.id}>
+                            {(p.plans?.name ?? p.plans?.key) || "plano"} · {p.name || "(sem nome)"} ·{" "}
+                            {p.adjustment_kind}/{p.adjustment_mode}={p.adjustment_value} ·{" "}
+                            {p.duration_months}m · {p.active ? "ativa" : "off"}
+                        </li>
+                    ))}
+                </ul>
+            )}
+        </div>
+    );
+}
+
 /**
  * Badge visual do status de pagamento.
  * Cores semânticas: verde (pago), amarelo (trial/pending_payment), vermelho (overdue/blocked/cancelled), cinza (pending_setup).
@@ -417,6 +579,13 @@ export default function PlatformBillingPage() {
                     </div>
                 )}
             </div>
+
+            <PromoAdminPanel
+                plans={
+                    (plansData?.plans ?? []) as Array<{ id: string; key: string; name: string }>
+                }
+                isSuperadmin={isSuperadmin}
+            />
 
             <div className="rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
                 <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">

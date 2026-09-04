@@ -105,19 +105,39 @@ export async function loadCheckoutContext(
 
     const { loadPlanPricing } = await import("@/lib/billing/loadPlanPricing");
     const { computeMonthlyChargeCents } = await import("@/lib/billing/subscriptionAmount");
-    const pricing = await loadPlanPricing(admin, String(sub.plan ?? "essencial"));
+    const { applyTenantPromoCents } = await import("@/lib/billing/resolvePromoForCharge");
+    const { attachPromoOnAdesaoIfEligible } = await import("@/lib/billing/attachPromoOnAdesao");
+
+    await attachPromoOnAdesaoIfEligible(admin, companyId);
+
+    const { data: subFresh } = await admin
+        .from("pagarme_subscriptions")
+        .select(
+            "id, plan, status, pagarme_customer_id, next_billing_at, last_paid_at, seat_quantity, billing_period, promo_months_remaining, promo_snapshot"
+        )
+        .eq("company_id", companyId)
+        .maybeSingle();
+
+    const subRow = subFresh ?? sub;
+    const pricing = await loadPlanPricing(admin, String(subRow.plan ?? "essencial"));
     const seatQty =
-        typeof (sub as { seat_quantity?: number }).seat_quantity === "number" &&
-        (sub as { seat_quantity: number }).seat_quantity >= 1
-            ? (sub as { seat_quantity: number }).seat_quantity
+        typeof (subRow as { seat_quantity?: number }).seat_quantity === "number" &&
+        (subRow as { seat_quantity: number }).seat_quantity >= 1
+            ? (subRow as { seat_quantity: number }).seat_quantity
             : pricing.includedSeats;
-    const chargeCents = computeMonthlyChargeCents(pricing, seatQty);
+    const listWithSeats = computeMonthlyChargeCents(pricing, seatQty);
+    const { amountCents: chargeCents } = applyTenantPromoCents(listWithSeats, {
+        billingPeriod: (subRow as { billing_period?: string }).billing_period,
+        promoMonthsRemaining: (subRow as { promo_months_remaining?: number })
+            .promo_months_remaining,
+        promoSnapshot: (subRow as { promo_snapshot?: unknown }).promo_snapshot,
+    });
 
     const strategyProbe = resolveCheckoutStrategy(
-        String(sub.status),
-        String(sub.plan ?? "essencial"),
+        String(subRow.status),
+        String(subRow.plan ?? "essencial"),
         null,
-        (sub.last_paid_at as string | null) ?? null,
+        (subRow.last_paid_at as string | null) ?? null,
         { amountCents: chargeCents }
     );
     const { data: matchingPending } = await admin
@@ -145,10 +165,10 @@ export async function loadCheckoutContext(
     }
 
     const strategy = resolveCheckoutStrategy(
-        String(sub.status),
-        String(sub.plan ?? "essencial"),
+        String(subRow.status),
+        String(subRow.plan ?? "essencial"),
         null,
-        (sub.last_paid_at as string | null) ?? null,
+        (subRow.last_paid_at as string | null) ?? null,
         { amountCents: chargeCents }
     );
 
@@ -195,12 +215,12 @@ export async function loadCheckoutContext(
     return {
         companyId,
         sub: {
-            id: String(sub.id),
-            plan: String(sub.plan ?? "essencial"),
-            status: String(sub.status),
-            pagarme_customer_id: (sub.pagarme_customer_id as string | null) ?? null,
-            next_billing_at: (sub.next_billing_at as string | null) ?? null,
-            last_paid_at: (sub.last_paid_at as string | null) ?? null,
+            id: String(subRow.id),
+            plan: String(subRow.plan ?? "essencial"),
+            status: String(subRow.status),
+            pagarme_customer_id: (subRow.pagarme_customer_id as string | null) ?? null,
+            next_billing_at: (subRow.next_billing_at as string | null) ?? null,
+            last_paid_at: (subRow.last_paid_at as string | null) ?? null,
         },
         strategy,
         pendingInv: pendingForKind,

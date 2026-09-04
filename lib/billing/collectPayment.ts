@@ -60,12 +60,24 @@ function companyOf(sub: CollectSub): CollectCompany | null {
 async function chargeCentsForSub(admin: Admin, sub: CollectSub): Promise<number> {
     const { loadPlanPricing } = await import("@/lib/billing/loadPlanPricing");
     const { computeMonthlyChargeCents } = await import("@/lib/billing/subscriptionAmount");
+    const { applyTenantPromoCents } = await import("@/lib/billing/resolvePromoForCharge");
     const pricing = await loadPlanPricing(admin, String(sub.plan ?? "essencial"));
     const seatQty =
         typeof sub.seat_quantity === "number" && sub.seat_quantity >= 1
             ? sub.seat_quantity
             : pricing.includedSeats;
-    return computeMonthlyChargeCents(pricing, seatQty);
+    const listWithSeats = computeMonthlyChargeCents(pricing, seatQty);
+    const { data: promoRow } = await admin
+        .from("pagarme_subscriptions")
+        .select("billing_period, promo_months_remaining, promo_snapshot")
+        .eq("id", sub.id)
+        .maybeSingle();
+    const { amountCents } = applyTenantPromoCents(listWithSeats, {
+        billingPeriod: promoRow?.billing_period as string | null | undefined,
+        promoMonthsRemaining: promoRow?.promo_months_remaining as number | null | undefined,
+        promoSnapshot: promoRow?.promo_snapshot,
+    });
+    return amountCents;
 }
 
 function customerPayload(sub: CollectSub, company: CollectCompany | null) {

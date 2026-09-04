@@ -311,6 +311,13 @@ export const platformApi = {
             method: "PATCH",
             body: JSON.stringify(body),
         }),
+    listPromotions: () =>
+        platformFetch<{ promotions: unknown[] }>("/api/platform/billing/promotions"),
+    upsertPromotion: (body: Record<string, unknown>) =>
+        platformFetch<{ ok: boolean; promotion: unknown }>(
+            "/api/platform/billing/promotions",
+            { method: "POST", body: JSON.stringify(body) }
+        ),
     channels: () => platformFetch<{ channels: unknown[] }>("/api/platform/channels"),
     createChannel: (data: Record<string, unknown>) =>
         platformFetch<{ ok: boolean }>("/api/platform/channels", {
