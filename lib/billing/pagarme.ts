@@ -10,6 +10,7 @@
 import "server-only";
 import {
     getMonthlyPriceCentsForPlan,
+    getYearlyPriceCentsForPlan,
     normalizePlanKey,
     type PlanInputKey,
 } from "@/lib/billing/planCatalog";
@@ -680,19 +681,12 @@ export function isPagarmeOrderPaid(order: PagarmeOrder): boolean {
     return isOrderCreditPaid(order);
 }
 
-/** Preço em centavos para cada plano (configurável via env nos legados) */
-export function getSetupPriceCents(plan: PlanInputKey | string): number {
-    const key = normalizePlanKey(plan);
-    if (key === "essencial") {
-        return parseInt(process.env.SETUP_PRICE_ESSENCIAL_CENTS ?? process.env.SETUP_PRICE_BOT_CENTS ?? "0", 10);
-    }
-    if (key === "market") {
-        return parseInt(process.env.SETUP_PRICE_MARKET_CENTS ?? "0", 10);
-    }
-    return parseInt(
-        process.env.SETUP_PRICE_PRO_CENTS ?? process.env.SETUP_PRICE_COMPLETE_CENTS ?? "0",
-        10
-    );
+/**
+ * Setup fee = 0 (BN-05). Env SETUP_PRICE_* legado ignorado.
+ */
+export function getSetupPriceCents(_plan?: PlanInputKey | string): number {
+    void _plan;
+    return 0;
 }
 
 /**
@@ -705,9 +699,11 @@ export function getMonthlyPriceCents(plan: PlanInputKey | string): number {
     return getMonthlyPriceCentsForPlan(key);
 }
 
-/** Preço anual em centavos (10× mensal = 2 meses off) */
+/** Anual canônico = planCatalog (−20% default; BN-04 / R2-B). */
 export function getYearlyPriceCents(plan: PlanInputKey | string): number {
-    return getMonthlyPriceCents(plan) * 10;
+    const key = normalizePlanKey(plan);
+    if (!key) return getYearlyPriceCentsForPlan("essencial");
+    return getYearlyPriceCentsForPlan(key);
 }
 
 export function centsToBRL(cents: number): number {

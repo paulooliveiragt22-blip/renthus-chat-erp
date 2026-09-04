@@ -1,71 +1,54 @@
 # Planos e Cobrança — Renthus Chat + ERP
 
+**Atualizado:** 2026-09-04 — BN-04 (279 / 349 / 449). Decisões: `docs/DECISOES_NEGOCIO_BILLING_PENDENTES.md`.
+
 ## Identidade do cliente pagante
-Cliente pagante = `company` (tenant). **MVP: 1 usuário** por company (login em vários dispositivos OK).
+Cliente pagante = `company` (tenant).
 
-## Planos (opção A fechada)
+## Planos
 
-| Key | Nome | Mensal | Posição |
-|-----|------|--------|---------|
-| `essencial` | Essencial | **R$ 197** | Entrada — canal próprio |
-| `pro` | Pro | **R$ 279** | Âncora (mais popular) — ERP + IA |
-| `market` | Market | **R$ 397** | Omni + marketplaces + mesa |
+| Key | Nome | Mensal | Anual (default −20%) | Users inclusos | Seat extra |
+|-----|------|--------|----------------------|----------------|------------|
+| `essencial` | Essencial | **R$ 279** | R$ 2.678,40 | 1 (cap) | — |
+| `pro` | Pro | **R$ 349** | R$ 3.350,40 | 1 | R$ 99/mês |
+| `market` | Market | **R$ 449** | R$ 4.310,40 | 10 | R$ 99/mês |
 
-### Essencial (R$ 197)
+Catálogo código: `lib/billing/planCatalog.ts`. DB: `plans.price_cents` / `price_year_cents` / `included_seats` / `seat_extra_cents`.
+
+### Essencial (R$ 279)
 - WhatsApp (Meta) + Flow + cardápio web (free)
-- Credenciais WABA self-serve em **Configurações → Canais** (paste Cloud API)
-- IA Haiku com **crédito incluso = 10% do plano** (R$ 19,70) + packs R$10/20/50
-- Toggle desligar IA a qualquer momento
-- Sem crédito IA → trava **só a IA** (cai no Flow); ERP/WhatsApp seguem
-- PDV básico · **sem** iFood/Aiqfome · **sem** impressão automática
-- **Sem** templates HSM / campanhas em massa
+- Credenciais WABA self-serve em **Configurações → Canais**
+- IA com **crédito incluso = 10% do mensal** (R$ 27,90) + packs R$10/20/50
+- PDV básico · **1 usuário** (sem seat adicional) · sem marketplace / impressão auto
 
-### Pro (R$ 279)
-- Tudo do Essencial (crédito IA R$ 27,90)
-- PDV + estoque + financeiro + impressão automática
-- Feature **`whatsapp_templates_broadcast`**: Templates WA (`/templates`) + Campanhas (`/campanhas`) + envio HSM 1:1 na inbox
-- **Sem** marketplace (iFood/Aiqfome) · **sem** Instagram/Messenger
+### Pro (R$ 349)
+- ERP completo + impressão + templates/campanhas WA
+- 1 usuário incluso; seat adicional **R$ 99** (cobrança mid-cycle: pendente R3-3)
+- Sem marketplace / IG-Messenger
 
-### Market (R$ 397)
-- Tudo do Pro (crédito IA R$ 39,70) incluindo templates/campanhas WA
-- iFood + Aiqfome · Instagram + Messenger (OAuth Page em **Configurações → Canais**) · mesa / salão
+### Market (R$ 449)
+- Tudo do Pro + iFood/Aiqfome + IG/Messenger + mesa
+- **10 usuários** inclusos; a partir do 11º = R$ 99
 
-## Crédito IA (Haiku 4.5)
-- Preço API: **USD $1/M input** · **$5/M output** (cache hit $0,10/M)
-- Conversão BRL: `AI_USD_BRL_RATE` (default 5,5)
-- Tabelas: `company_ai_wallets`, `company_ai_ledger`
-- Packs: 1000 / 2000 / 5000 centavos; auto-recharge opcional (cartão/PIX na sequência)
+## Setup e trial
+- **Setup fee = R$ 0** (BN-05)
+- **Trial self-serve = 0** (pay-to-start, BN-07); cortesia platform = 30d (BN-08)
 
-## Confirmação de valor alto
-- Por loja em Configurações → Chatbot: toggle + valor em R$ (ou desligado)
-- Keys em `chatbots.config`: `high_value_confirm_enabled`, `high_value_confirm_amount_brl`
+## Crédito IA
+- Incluso = 10% do **mensal de lista** (BN-06)
+- Crédito no plano **anual**: pendente R3-6
+- Packs / margem 2×: adiado BN-15
 
 ## Gates de plano (UI + API)
-- `estoque_full` · `financeiro_full` · `printing_auto` → Pro/Market (menu + APIs)
-- Relatórios (`/relatorios` + `/api/reports/*`) → `financeiro_full`
-- `whatsapp_templates_broadcast` → Pro/Market (`/templates`, `/campanhas`, sync/submit/send template)
-- `marketplace_*` → Market (GET/PATCH/sync)
-- `omnichannel_ig_messenger` → Market (Canais → Instagram/Messenger)
-- Essencial não contorna gate pela API
+- `estoque_full` · `financeiro_full` · `printing_auto` → Pro/Market
+- `whatsapp_templates_broadcast` → Pro/Market
+- `marketplace_*` / `omnichannel_ig_messenger` / `table_service` → Market
+- `staff_users` → Pro/Market (limites de seat: produto R3)
 
-## Print Agent
-- Pareamento: Impressoras → código → `POST /api/agent/activate`
-- Release: [print-agent-v1.1.3](https://github.com/paulooliveiragt22-blip/renthus-chat-erp/releases/tag/print-agent-v1.1.3)
-- Download: `…/releases/download/print-agent-v1.1.3/renthus-print-agent-1.1.3-win.zip` (override via `NEXT_PUBLIC_PRINT_AGENT_DOWNLOAD_URL`)
-- Criptografia do código: `CREDENTIALS_ENCRYPTION_KEY` (32 bytes base64)
+## Fora / adiado
+- Promo editável superadmin (modelo R2-A; renovação/anual = R3-1/R3-2)
+- Packs IA (BN-15) · Fiscal/TEF/2FA (BN-16)
 
-## PDV por plano
-- Essencial (`pdv_basic`): venda à vista, caixa, cliente sem limite de crédito
-- Pro/Market (`pdv`): + A Prazo / boleto / cheque / promissória + limite de crédito
-- Impressão automática: só com `printing_auto` (Pro/Market)
-
-## Add-ons / fora do escopo atual
-- Fiscal NFC-e / TEF → próxima etapa
-- A Prazo → só PDV
-- 2FA → adiado (1 usuário)
-
-## Legado (somente leitura interna)
-`normalizePlanKey` ainda mapeia `bot`/`starter` → `essencial` e `complete` → `pro` para linhas/webhooks antigos.
-APIs públicas (`signup`, `change-plan`) aceitam **somente** `essencial` | `pro` | `market`.
-Catálogo canônico: `lib/billing/planCatalog.ts`.
-A rota morta `/api/billing/upgrade` (mini_erp/full_erp) foi removida.
+## Legado
+`normalizePlanKey`: `bot`/`starter` → `essencial`, `complete` → `pro`.
+APIs públicas: só `essencial` | `pro` | `market`.
