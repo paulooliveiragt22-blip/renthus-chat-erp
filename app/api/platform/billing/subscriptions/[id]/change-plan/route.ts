@@ -4,7 +4,8 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { ConsoleBillingNotifier } from "@/lib/billing/adapters/consoleBillingNotifier";
 import { ChangeSubscriptionPlan, type RpcExecutor } from "@/lib/billing/use-cases/changeSubscriptionPlan";
 import { rebillPendingObligationAfterPlanChange } from "@/lib/billing/rebillPendingObligation";
-import type { SubscriptionPlanKey } from "@/lib/billing/contracts/status";
+import { isSubscriptionPlanKey } from "@/lib/billing/contracts/status";
+import { normalizePlanKey } from "@/lib/billing/planCatalog";
 
 export const runtime = "nodejs";
 
@@ -56,11 +57,14 @@ export async function POST(req: Request, { params }: Ctx) {
             plan_key?: string;
             reason?: string;
         };
-        const planKey = (
+        const planKey = normalizePlanKey(
             typeof body.plan_key === "string" ? body.plan_key.trim() : ""
-        ) as SubscriptionPlanKey;
-        if (!planKey) {
-            return NextResponse.json({ error: "plan_key required" }, { status: 400 });
+        );
+        if (!planKey || !isSubscriptionPlanKey(planKey)) {
+            return NextResponse.json(
+                { error: "plan_key inválido (essencial|pro|market)" },
+                { status: 400 }
+            );
         }
 
         const rpc = makeRpc();

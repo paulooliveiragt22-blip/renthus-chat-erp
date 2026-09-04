@@ -138,8 +138,6 @@ export function isSubscriptionPlanKey(value: unknown): value is SubscriptionPlan
   return typeof value === "string" && isOneOf(value, SUBSCRIPTION_PLAN_KEYS);
 }
 export const SUBSCRIPTION_PLAN_KEYS = [
-  "bot",
-  "complete",
   "essencial",
   "pro",
   "market",

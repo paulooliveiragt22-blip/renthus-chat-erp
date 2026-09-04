@@ -37,8 +37,13 @@ export class ListNeverPaidTenants {
   ) {}
 
   async execute(input: ListNeverPaidTenantsInput = {}): Promise<NeverPaidTenantItem[]> {
-    const subs = await this.subscriptions.listNeverPaid();
-    const sliced = input.limit ? subs.slice(0, input.limit) : subs.slice(0, 100);
+    const limit = input.limit && input.limit > 0 ? input.limit : 100;
+    const filter: SubscriptionFilter = {
+      ...(input.filter ?? {}),
+      limit: input.filter?.limit ?? limit,
+      offset: input.filter?.offset,
+    };
+    const sliced = await this.subscriptions.listNeverPaid(filter);
 
     // Buscar invoices pendentes em batch
     const companyIds = sliced.map((s) => s.companyId);

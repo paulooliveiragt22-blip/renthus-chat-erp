@@ -53,8 +53,9 @@ describe("billing/contracts/status — constants", () => {
     assert.strictEqual(PAGARME_INVOICE_STATUSES.length, 4);
   });
 
-  it("SUBSCRIPTION_PLAN_KEYS tem 5 valores", () => {
-    assert.strictEqual(SUBSCRIPTION_PLAN_KEYS.length, 5);
+  it("SUBSCRIPTION_PLAN_KEYS tem 3 valores comerciais (sem aliases bot/complete)", () => {
+    assert.strictEqual(SUBSCRIPTION_PLAN_KEYS.length, 3);
+    assert.deepEqual([...SUBSCRIPTION_PLAN_KEYS], ["essencial", "pro", "market"]);
   });
 
   it("agrupamentos paid/blocking/needs_payment não se sobrepõem", () => {
@@ -208,7 +209,7 @@ describe("billing/contracts/status — type guards", () => {
   });
 
   describe("isSubscriptionPlanKey", () => {
-    it("true para os 5 valores canônicos", () => {
+    it("true para os 3 valores comerciais", () => {
       for (const s of SUBSCRIPTION_PLAN_KEYS) {
         assert.strictEqual(isSubscriptionPlanKey(s), true);
       }
@@ -216,6 +217,8 @@ describe("billing/contracts/status — type guards", () => {
 
     it("false para inválidos (case-sensitive)", () => {
       assert.strictEqual(isSubscriptionPlanKey("premium"), false);
+      assert.strictEqual(isSubscriptionPlanKey("bot"), false);
+      assert.strictEqual(isSubscriptionPlanKey("complete"), false);
       assert.strictEqual(isSubscriptionPlanKey("ESSENCIAL"), false);
       assert.strictEqual(isSubscriptionPlanKey(null), false);
     });

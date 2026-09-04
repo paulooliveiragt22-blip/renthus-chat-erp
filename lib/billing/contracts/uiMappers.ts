@@ -8,6 +8,7 @@
 import type { PagarmeSubscriptionWithLastInvoice, WithSupabaseEmbeds } from "./subscription";
 import type { UiSubscriptionRow, UiPlan, UiCompany, UiLastInvoice } from "./ui";
 import type { SubscriptionPlanKey, PagarmeInvoiceStatus } from "./status";
+import { normalizePlanKey } from "../planCatalog";
 
 /**
  * Converte o retorno do use case `ListSubscriptionsForPlatform`
@@ -28,7 +29,7 @@ export function subscriptionToUiRow(
     const plan: UiPlan | null = row.plans
         ? {
               id: row.plans.id,
-              key: row.plans.key as SubscriptionPlanKey,
+              key: (normalizePlanKey(row.plans.key) ?? "essencial") as SubscriptionPlanKey,
               name: row.plans.name,
               price_cents: row.plans.price_cents,
           }

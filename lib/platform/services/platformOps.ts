@@ -1008,7 +1008,7 @@ export async function createCompany(
         .eq("id", plan_id)
         .maybeSingle();
 
-    const planKey = planRow?.key ?? "bot";
+    const planKey = planRow?.key ?? "essencial";
 
     const { error: sErr } = await admin.from("pagarme_subscriptions").insert({
         company_id: company.id,

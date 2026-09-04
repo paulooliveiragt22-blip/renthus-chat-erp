@@ -14,6 +14,7 @@ import type {
   PagarmeSubscriptionWithLastInvoice,
 } from "../contracts/subscription";
 import type { PagarmeSubStatus, PagarmeInvoiceStatus, SubscriptionPlanKey } from "../contracts/status";
+import { normalizePlanKey } from "../planCatalog";
 
 type CompanyEmbed = {
   name: string | null;
@@ -62,7 +63,7 @@ function rowToDomain(row: SubRow): PagarmeSubscription {
   return {
     id: row.id,
     companyId: row.company_id,
-    planKey: (row.plan_key as SubscriptionPlanKey | null) ?? null,
+    planKey: (normalizePlanKey(row.plan_key) as SubscriptionPlanKey | null) ?? null,
     planId: row.plan_id,
     status: row.status,
     allowOverage: row.allow_overage,
@@ -109,22 +110,32 @@ export class SupabaseSubscriptionRepository implements SubscriptionRepositoryPor
     return ((data ?? []) as unknown as SubRow[]).map(rowToDomainWithCompany);
   }
 
-  async listNeverPaid(): Promise<PagarmeSubscriptionWithCompany[]> {
-    const { isNeverPaid } = await import("../contracts/status");
-    const { data, error } = await this.admin
+  async listNeverPaid(
+    filter: SubscriptionFilter = {}
+  ): Promise<PagarmeSubscriptionWithCompany[]> {
+    const nowIso = new Date().toISOString();
+    // H5.4: filtro SQL (pending_* / abandoned OU trial vencido sem pagamento)
+    let q = this.admin
       .from("pagarme_subscriptions")
       .select(this.baseSelect())
-      .order("started_at", { ascending: false, nullsFirst: false });
-    if (error) throw new Error(error.message);
-    return ((data ?? []) as unknown as SubRow[])
-      .filter((row) =>
-        isNeverPaid({
-          status: row.status,
-          last_paid_at: row.last_paid_at,
-          trial_ends_at: row.trial_ends_at,
-        })
+      .or(
+        `status.in.(pending_payment,pending_setup,abandoned),` +
+          `and(status.eq.trial,last_paid_at.is.null,trial_ends_at.lte.${nowIso})`
       )
-      .map(rowToDomainWithCompany);
+      .order("started_at", { ascending: false, nullsFirst: false });
+
+    if (filter.statuses?.length) q = q.in("status", [...filter.statuses]);
+    if (filter.planKey) q = q.eq("plan_key", filter.planKey);
+    if (filter.companyId) q = q.eq("company_id", filter.companyId);
+    if (filter.offset != null && filter.offset > 0) {
+      q = q.range(filter.offset, filter.offset + (filter.limit ?? 100) - 1);
+    } else if (filter.limit) {
+      q = q.limit(filter.limit);
+    }
+
+    const { data, error } = await q;
+    if (error) throw new Error(error.message);
+    return ((data ?? []) as unknown as SubRow[]).map(rowToDomainWithCompany);
   }
 
   async listWithLastInvoice(
@@ -134,18 +145,15 @@ export class SupabaseSubscriptionRepository implements SubscriptionRepositoryPor
     if (subs.length === 0) return [];
     const companyIds = subs.map((s) => s.companyId);
 
-    const { data: invoices, error: invErr } = await this.admin
-      .from("invoices")
-      .select("id, company_id, amount, status, due_at, paid_at, created_at")
-      .in("company_id", companyIds)
-      .order("created_at", { ascending: false });
+    const { data: invoices, error: invErr } = await this.admin.rpc(
+      "rpc_last_invoices_by_company",
+      { p_company_ids: companyIds }
+    );
     if (invErr) throw new Error(invErr.message);
 
     const lastByCompany = new Map<string, InvoiceRow>();
     for (const row of (invoices ?? []) as InvoiceRow[]) {
-      if (!lastByCompany.has(row.company_id)) {
-        lastByCompany.set(row.company_id, row);
-      }
+      lastByCompany.set(row.company_id, row);
     }
 
     return subs.map((s) => {
