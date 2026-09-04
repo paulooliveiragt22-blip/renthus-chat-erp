@@ -487,7 +487,10 @@ export default function PlanBillingPanel({ variant = "full" }: PlanBillingPanelP
             ) : null}
 
             {!loading && billingErr ? (
-                <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-800 dark:bg-red-900/20 dark:text-red-300">
+                <div
+                    data-testid="billing-checkout-error"
+                    className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-800 dark:bg-red-900/20 dark:text-red-300"
+                >
                     {billingErr}
                 </div>
             ) : null}
@@ -711,7 +714,10 @@ export default function PlanBillingPanel({ variant = "full" }: PlanBillingPanelP
                                 ) : null}
 
                                 {billingSuccessMsg ? (
-                                    <div className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-200">
+                                    <div
+                                        data-testid="billing-checkout-success"
+                                        className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-200"
+                                    >
                                         {billingSuccessMsg}
                                     </div>
                                 ) : null}

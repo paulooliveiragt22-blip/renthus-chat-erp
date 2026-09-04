@@ -12,14 +12,17 @@ As variáveis `PAGARME_*` já estão na Vercel — **não precisa** replicar no 
 | Página | `/plano/pagar` |
 | Webhook | `https://renthus-chat-erp.vercel.app/api/billing/webhook` |
 
-**Conta de teste sugerida (never-paid / pending_setup):**  
-`paulooliveiragt22@gmail.com` — empresas `pending_setup` com `setup_payments` pending no banco.
+**Conta de teste sugerida (never-paid / pending_payment):**  
+empresa com status `pending_setup` / `pending_payment` / `overdue` **ou** `pending_invoice`.  
+Conta **já `active`** (ex.: Zampell após smoke pago) **não serve** — `/plano/pagar` redireciona para `/ativar`.
 
 ```powershell
 $env:E2E_SKIP_WEBSERVER="1"
 $env:E2E_BASE_URL="https://renthus-chat-erp.vercel.app"
 $env:E2E_EMAIL="paulooliveiragt22@gmail.com"
 $env:E2E_PASSWORD="..."   # senha do owner — não versionar
+# opcional: força workspace never-paid
+# $env:E2E_COMPANY_ID="uuid-da-empresa-pending"
 npm run test:e2e:billing
 ```
 
