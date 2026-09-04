@@ -28,6 +28,11 @@ function loadEnvLocal(): void {
     }
 }
 
+/** Carrega `.env.local` (E2E_*). Idempotente. */
+export function ensureE2eEnv(): void {
+    loadEnvLocal();
+}
+
 export function e2eCredentials(): { email: string; password: string } | null {
     loadEnvLocal();
     const email = process.env.E2E_EMAIL?.trim() ?? "";

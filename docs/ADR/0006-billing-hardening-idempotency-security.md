@@ -1,6 +1,6 @@
 # ADR 0006 — Billing: hardening de idempotência, segurança e fulfill atômico
 
-**Status:** proposto (emenda 2026-09-04 — unificar obrigações + RPC fulfill; gate BN)  
+**Status:** aceito (hardening P1 Fases 0–5 entregues; Fase 6 DoD — H6.3 PIX adiado; H6.2 webhook idempotente OK 2026-09-04)  
 **Data:** 2026-09-04  
 **Emenda:** 2026-09-04 — R3: unificar `setup_payments`∪`invoices` **neste** hardening; D7 abaixo supersedido parcialmente.  
 **Escopo técnico:** races, HMAC, fulfill atômico, **unificação de obrigação**, anti-órfão.  
@@ -8,7 +8,9 @@
 
 **Checklist:** [`CHECKLIST_BILLING_HARDENING_P1.md`](../CHECKLIST_BILLING_HARDENING_P1.md)  
 **Corte:** [`CORTE_CIRURGICO_BILLING_P1.md`](../CORTE_CIRURGICO_BILLING_P1.md)  
-**Predecessor:** [`ADR/0004`](./0004-billing-route-handlers-only.md)
+**Smoke:** [`SMOKE_BILLING_PAGARME_SANDBOX.md`](../SMOKE_BILLING_PAGARME_SANDBOX.md)  
+**Predecessor:** [`ADR/0004`](./0004-billing-route-handlers-only.md)  
+**Orquestração P0 (histórico):** [`CHECKLIST_BILLING_ORCHESTRATION_P0.md`](../CHECKLIST_BILLING_ORCHESTRATION_P0.md) — O5.2 revalidado em P1 H5.6 (`POST /api/platform/billing/replay-fulfill`)
 
 ---
 
