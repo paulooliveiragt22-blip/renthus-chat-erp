@@ -144,44 +144,31 @@ export default function HeaderClient({
     return (
         <header
             style={{
-                backgroundColor: "#16364D",
+                backgroundColor: "#11283B",
                 color: "#fff",
-                padding: "10px 18px", // reduzido
+                padding: "10px 18px",
                 boxShadow: "0 6px 12px rgba(0,0,0,0.16)",
                 display: "flex",
                 justifyContent: "space-between",
                 alignItems: "center",
             }}
         >
-            {/* esquerda: hamburger (mobile) + logo */}
+            {/* esquerda: hamburger (mobile only) + logotipo */}
             <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                {/* Hamburguer — só no mobile */}
                 {onOpenMobileMenu && (
                     <button
+                        type="button"
                         onClick={onOpenMobileMenu}
                         aria-label="Abrir menu"
-                        className="lg:hidden"
-                        style={{
-                            display: "flex",
-                            alignItems: "center",
-                            justifyContent: "center",
-                            width: 36,
-                            height: 36,
-                            borderRadius: 8,
-                            background: "rgba(255,255,255,0.12)",
-                            border: "none",
-                            cursor: "pointer",
-                            color: "#fff",
-                            flexShrink: 0,
-                        }}
+                        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white/12 text-white lg:hidden"
                     >
                         <Menu size={18} />
                     </button>
                 )}
-                <a href="/" aria-label="RenthusAgent" style={{ display: "inline-flex", alignItems: "center", textDecoration: "none" }}>
+                <a href="/" aria-label="Zampell" style={{ display: "inline-flex", alignItems: "center", textDecoration: "none" }}>
                     <img
-                        src="/brand/renthus-wordmark-on-light.svg?v=mark3"
-                        alt="RenthusAgent"
+                        src="/brand/zampell-wordmark.png?v=z1"
+                        alt="Zampell"
                         style={{
                             height: 28,
                             width: "auto",

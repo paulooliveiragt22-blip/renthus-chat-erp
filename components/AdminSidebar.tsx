@@ -147,29 +147,23 @@ export default function AdminSidebar({
         collapsed ? "w-16" : "w-64 lg:w-60",
       ].join(" ")}
     >
-      {/* ── Logo + fechar (mobile) ──────────────────────────────────────────── */}
+      {/* ── Logotipo (somente imagem) + fechar (mobile) ─────────────────────── */}
       <div className={[
         "flex shrink-0 items-center border-b border-white/10 py-4",
-        collapsed ? "justify-center px-0" : "gap-3 px-5",
+        collapsed ? "justify-center px-2" : "gap-2 px-4",
       ].join(" ")}>
-        <img
-          src="/brand/renthus-mark-on-dark.svg?v=mark3"
-          alt={collapsed ? "RenthusAgent" : ""}
-          width={36}
-          height={36}
-          className="h-9 w-9 shrink-0 rounded-xl shadow-[0_0_20px_rgba(87,255,143,0.3)]"
-        />
-
-        {!collapsed && (
-          <div className="min-w-0 flex-1">
-            <div className="truncate text-sm font-semibold tracking-wide">RenthusAgent</div>
-            <div className="text-[10px] font-medium text-white/50">Painel Administrativo</div>
-          </div>
-        )}
+        <Link href="/dashboard" className="flex min-w-0 flex-1 items-center" aria-label="Zampell">
+          <img
+            src="/brand/zampell-wordmark.png?v=z1"
+            alt="Zampell"
+            className={collapsed ? "h-5 w-auto max-w-full object-contain object-left" : "h-7 w-auto max-w-full object-contain"}
+          />
+        </Link>
 
         {/* Fechar — mobile only */}
         {!collapsed && (
           <button
+            type="button"
             onClick={onClose}
             aria-label="Fechar menu"
             className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-white/60 hover:bg-white/10 hover:text-white lg:hidden"

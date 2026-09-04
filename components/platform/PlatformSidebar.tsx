@@ -67,22 +67,19 @@ export default function PlatformSidebar({ isOpen, onClose }: Props) {
                 isOpen ? "translate-x-0 shadow-2xl" : "-translate-x-full",
             ].join(" ")}
         >
-            <div className="flex items-center gap-3 border-b border-white/10 px-5 py-4">
-                <img
-                    src="/brand/renthus-mark-on-dark.svg?v=mark3"
-                    alt=""
-                    width={40}
-                    height={40}
-                    className="h-10 w-10 rounded-xl shadow-[0_0_20px_rgba(87,255,143,0.3)]"
-                />
-                <div className="flex-1">
-                    <div className="text-sm font-semibold tracking-wide">RenthusAgent</div>
-                    <div className="text-[10px] font-medium text-white/50">Platform Admin</div>
-                </div>
+            <div className="flex items-center gap-2 border-b border-white/10 px-4 py-4">
+                <Link href="/platform" className="min-w-0 flex-1" aria-label="Zampell">
+                    <img
+                        src="/brand/zampell-wordmark.png?v=z1"
+                        alt="Zampell"
+                        className="h-7 w-auto max-w-full object-contain"
+                    />
+                </Link>
                 <button
+                    type="button"
                     onClick={onClose}
                     aria-label="Fechar menu"
-                    className="flex h-8 w-8 items-center justify-center rounded-lg text-white/60 hover:bg-white/10 hover:text-white lg:hidden"
+                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-white/60 hover:bg-white/10 hover:text-white lg:hidden"
                 >
                     <X className="h-4 w-4" />
                 </button>
