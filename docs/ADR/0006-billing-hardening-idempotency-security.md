@@ -114,6 +114,64 @@ Nenhuma migration/seed/API que altere preço, trial, features ou ciclo comercial
 
 ---
 
+## Emenda 2026-09-04c — Endurecimento total: regra de negócio no banco
+
+**Decisão do dono:** nenhuma invariante comercial confiada só ao código. Fonte de verdade =
+Postgres (RPC / função / CHECK / trigger). App orquestra e exibe. Rule reforçada:
+`governanca-seguranca-negocio.mdc` §Regra 2.
+
+Auditoria (2026-09-04) contra o banco real confirmou que o hardening técnico (L1–L5, RLS/FORCE,
+RPC fulfill SECURITY DEFINER) está de pé, mas **regra comercial ficou no TS**:
+
+| Furo | Onde estava no código | Correção (DB) |
+|------|-----------------------|---------------|
+| **F1** D3 não aplicado a downgrade/change-plan | `scheduleDowngrade.ts` + `.update()` direto; `change-plan` trial `.update()` direto | **D11** `rpc_schedule_downgrade` / mutações de plano via RPC |
+| **F2** amount calculado em TS e gravado sem validação | `subscriptionAmount.ts` insere `invoices.amount` | **D9** `rpc_create_billing_obligation` calcula amount canônico no DB |
+| **F3** setup morto (BN-05) ainda no fluxo | `generateSetupCharge`, `kind='setup'` | **D10** fulfill/obligation rejeita `setup`; cancelar pendings |
+| **F4** `billing_period` texto livre + fulfill `+1 mês` fixo | `computeNextBillingAt`, SQL fixo | **D10** CHECK period + `fn_billing_next_due(paid_at, period)` |
+| **F5** seat cap só gate TS (race) | `admin/users/route.ts` | **D11** trigger/constraint seat cap |
+| **F6** dunning D0–D7 só em TS | `collectionPolicy.ts` | **D12** `fn_billing_collection_action` + proration no DB |
+
+### D9 — Amount canônico calculado no banco
+
+Toda obrigação (`invoices`) é criada por `rpc_create_billing_obligation(company, kind, plan,
+period, seat_qty)`:
+
+1. Lê `plans` (preço lista, included_seats, seat_extra, desconto anual) **no banco**.
+2. Aplica seats + promo ativa (`plan_promotions`) + período via funções `IMMUTABLE`.
+3. Grava `invoices.amount` com o valor **recalculado** — o app **não** envia valor.
+4. Respeita `uq_invoices_one_pending_per_company_kind` (idempotência de pending).
+
+App só passa **o que** cobrar (kind/plan/period), nunca **quanto**.
+
+### D10 — Período e domínio no banco
+
+- `CHECK (billing_period IN ('month','year'))` em `pagarme_subscriptions`.
+- `fn_billing_next_due(paid_at, period)` → `+1 month` | `+1 year`. `rpc_fulfill_obligation` usa
+  essa função (mata o `+1 month` fixo).
+- Obrigação/fulfill **rejeita** `kind='setup'` (BN-05); migration cancela `setup` pending órfãos.
+
+### D11 — Mutação de estado/limite via RPC (sem `.update()` direto)
+
+- `rpc_schedule_downgrade(company, target_plan, keep_user_ids[])`: valida no banco (destino ≤ seats,
+  ≥1 admin/owner, users pertencem à company) e grava `pending_*` atômico.
+- Seat cap (BN-17): trigger em `company_users` (ou constraint) contra `seat_quantity` — bloqueia
+  race de convite concorrente que o gate TS deixa passar.
+- Transições de `status` críticas (block dunning, reativação) por RPC com claim/CAS.
+
+### D12 — Matriz de dunning e proration no banco
+
+- `fn_billing_collection_action(days_overdue, has_default_card)` → ação (`collect`/`notify`/`block`)
+  seguindo **BN-13** (retry D1/D3/D5; block **D7**). Fonte única; TS não reimplementa.
+- `fn_billing_prorate_cents(unit_cents, days_left, cycle_days)` → proration (seat R3-3, upgrade
+  BN-11). Cron/RPC chamam; TS não recalcula dinheiro.
+
+**Consequência:** `collectionPolicy.ts`, `subscriptionAmount.ts`, `computeNextBillingAt.ts` deixam
+de ser fonte — viram wrappers finos que chamam a RPC/função, ou saem do hot path. Testes migram
+para `execute_sql` (unit SQL) + smoke.
+
+---
+
 ## Mapa de recursos → problema → camadas → arquivos
 
 | ID | Recurso | Resolve | Camadas | Arquivos principais |

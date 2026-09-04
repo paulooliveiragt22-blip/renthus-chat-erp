@@ -1,10 +1,10 @@
 # Decisões de negócio — Billing
 
-**Atualizado:** 2026-09-04 (revisão canônica — dono)  
+**Atualizado:** 2026-09-04 (auditoria cruzada BN + clarificações BN-13)  
 **Gate:** `.cursor/rules/decisoes-negocio-antes-codigo.mdc`  
 **Status:** Rodadas 1–3 **fechadas**. Este arquivo é a fonte de verdade comercial.
 
-Estado: `[i]` implementado · `[>]` adiado · sem marca = decidido, código pendente de “implementa”.
+Estado: `[i]` implementado · `[~]` implementado com **desvio** a corrigir · `[>]` adiado · sem marca = decidido, código pendente de “implementa”.
 
 ---
 
@@ -16,16 +16,16 @@ Estado: `[i]` implementado · `[>]` adiado · sem marca = decidido, código pend
 | **BN-02** | **A** — DB `plan_features` canônico |
 | **BN-03** | Manter cotas no DB (editável depois, baixo retrabalho) |
 | **BN-04** `[i]` | Mensal **279 / 349 / 449**; anual default **−20%**; **editáveis** no superadmin + promo (modelo R2) |
-| **BN-05** `[i]` | **A** — Setup = 0 |
-| **BN-06** | **A** — IA incluso = **10% do preço de lista mensal do plano** (ver R3-6) |
+| **BN-05** `[~]` | **A** — Setup = 0 (**não existe mais** como produto; kind `setup` / `generateSetupCharge` são legado a limpar) |
+| **BN-06** `[i]` | **A** — IA incluso = **10% do preço de lista mensal do plano** (ver R3-6) |
 | **BN-07** `[i]` | **A** — Trial self-serve 0 (pay-to-start) |
-| **BN-08** | **A** — Courtesy 30d (platform) |
-| **BN-09** | **A** — Abandoned atual |
+| **BN-08** `[~]` | **A** — Courtesy **1–30d** (platform); RPC ok; **use case ainda 1–14** |
+| **BN-09** | **A** — Abandoned atual (never-paid; **não** é o D7 de renovação) |
 | **BN-10** | **A** — Signup só via RPC |
 | **BN-11** `[i]` | **C** — Upgrade com **proration** |
-| **BN-12** | **A** + — Downgrade **agendado** para o fim do ciclo; até a data X pode **voltar** ao plano anterior, **subir** ou **cancelar** o agendamento |
-| **BN-13** | **D0** tenta cobrar (cartão/PIX) · **D1 e D3** retry cartão + notifica se falhar · **D5+** = mesmo padrão D1/D3 · **D7 bloqueia** |
-| **BN-14** | **A** — Reativa: paga **ciclo cheio**; se venceu dia 1, bloqueou D7 e pagou dia 15 → próximo vencimento = **dia 15** (`next_billing_at` = data do pagamento) |
+| **BN-12** `[i]` | **A** + — Downgrade **agendado** fim do ciclo; voltar / subir / cancelar até a data |
+| **BN-13** | **D0** cobra · **D1/D3** retry card + notify · **D5+** retry card + notify · **D7 bloqueia** — clarificações 2026-09-04 abaixo |
+| **BN-14** | **A** — Pós-D7: paga **ciclo cheio**; `next_billing_at` = **data do pagamento** (ex.: bloqueou D7, pagou dia 15 → vence dia 15) |
 | **BN-15** | **B** `[>]` — Packs **depois**; calibrar tokens no chatbot; nos packs cobrar **2×** o custo do token (pago 1 → cobra 2) |
 | **BN-16** | **A** — Fiscal / TEF / 2FA **fora** |
 | **BN-17** | Seats: Essencial **1** (cap) · Pro **+R$ 99**/user extra · Market **10** inclusos (detalhe R2/R3) |
@@ -52,11 +52,13 @@ Modelo preferível: tabela `plan_promotions` (ou registro rico por plano) — n�
 `price_year_cents` **editável** no superadmin.  
 Default sugerido na UI: `mensal × 12 × 0,8` (20% off); depois o admin muda livremente.
 
-### R2-3 — Anual = 1 parcela
+### R2-3 — Anual = 1 parcela `[~]`
 
 Uma única obrigação no ano (PIX/cartão valor cheio).  
 `next_billing_at` ≈ `paid_at + 1 year`.  
 `kind` / period = `year` (não 12 invoices).
+
+**Desvio atual:** `rpc_fulfill_obligation` e `computeNextBillingAt` sempre fazem **+1 month**; `collectPayment` grava `kind=subscription` com valor mensal mesmo se `billing_period=year`. Catálogo/UI anual existem; **ciclo anual de cobrança/fulfill incompleto**.
 
 ### R2-4 — Seats Pro
 
@@ -92,12 +94,14 @@ Snapshot na subscription (`promo_id` / `promo_months_remaining` / regra congelad
 **Não misturar.** Anual **separado**, sem promo.  
 Promo só no fluxo **mensal**.
 
-### R3-3 — Seat adicional (cobrança)
+### R3-3 — Seat adicional (cobrança) `[~]`
 
 **Cobra na hora** → **paga para liberar** a criação/ativação do usuário.
 
 - Mid-cycle: obrigação `seat_add` com **proration** até o próximo `next_billing_at` (alinha BN-11).
 - **Após adesão:** o valor adicional passa a ser **mensalidade recorrente junto com o plano** (N seats × preço do seat somados ao renew `subscription`).
+
+**Desvio atual:** `prorateSeatExtraCents` usa denominador **30** e `min(daysLeft, 30)` — em ciclo **anual** (R2-3) pode cobrir só ~1 mês de seat apesar de meses restantes até `next_billing_at`. Corrigir junto do anual.
 
 ### R3-4 — Downgrade com excesso de users
 
@@ -161,12 +165,117 @@ Se o superadmin **editar** a lista mensal do plano (R3-5), o 10% passa a usar o 
 | Superadmin editar mensal/anual/seat (R3-5) + cobrança lê DB+seats | `[i]` C1 → UX C1-fix: anual via desconto %/R$ |
 | `seat_quantity` + gate invite no cap | `[i]` C1 |
 | Tabela `plan_promotions` (schema) | `[i]` C1 schema |
-| Seat mid-cycle checkout `seat_add` + renew | `[i]` C2 — `POST /api/billing/seats/purchase` + fulfill bump |
+| Seat mid-cycle checkout `seat_add` + renew | `[~]` C2 — proration OK no mensal; **quebrada no anual** |
 | Promo engine + snapshot adesão | `[i]` C3 — attach na adesão + apply no charge + admin UI |
 | Promo toggle kill-switch + signup De/por | `[i]` C1-fix — `active` + `/api/billing/public-plans` |
 | Promo Switch UI + editar campanha (PATCH full) | `[i]` C1-fix2 |
 | Downgrade com seleção de users | `[i]` BN-12 — pending_* + apply no fulfill + UI /plano |
 | Upgrade mid-cycle com proration (BN-11) | `[i]` plan_upgrade + PIX pay-to-unlock |
+| Ciclo anual R2-3 (kind=year, +1y no fulfill) | `[~]` **incompleto** — ver auditoria |
+| Cortesia BN-08 1–30d | `[~]` RPC 30; use case/UI parcial 14 |
+| BN-13 dunning D7 | pendente |
+| BN-14 reativação pós-bloqueio (ciclo cheio) | pendente — **≠** `self-reactivate` (abandoned→trial) |
+| BN-15 packs | `[>]` |
+| Limpeza legado setup (BN-05) | `[~]` fee=0 ok; paths/invoices `kind=setup` ainda existem |
+
+---
+
+## Clarificações BN-13 (2026-09-04 — dono)
+
+| ID | Decisão |
+|----|---------|
+| **BN-13-R1** | **Setup não existe mais.** Dunning/overdue **não** processa `kind=setup`. Remover/ignorar path `generateSetupCharge`; void/cancel pendings `setup` órfãos. |
+| **BN-13-R2** | Sem cartão: **só WA** nos dias **D1 / D3 / D5** (não refresh PIX obrigatório no cron). Com cartão: retry nos dias de política. |
+| **BN-13-R3** | **Sim** — `kind=year` entra no mesmo dunning BN-13 (junto com `subscription`). |
+
+Matriz alvo pós-correção:
+
+| Dia | Com `default_card_id` | Sem cartão |
+|-----|----------------------|------------|
+| D0 | collect card→PIX fallback | collect PIX |
+| D1, D3 | retry card; se falhar → WA | WA only |
+| D2, D4, D6 | noop | noop |
+| D5+ (&lt; D7) | retry card; se falhar → WA (templates D1/D3/**D5**) | WA only em **D5** |
+| D7+ | **block** | **block** |
+
+Never-paid / abandoned (BN-09) **fora** desta matriz — não misturar com D7 de renovação.
+
+---
+
+## Auditoria cruzada — conflitos e inconsistências
+
+### A) Conflitos entre decisões (produto)
+
+| Par | Problema | Resolução proposta |
+|-----|----------|-------------------|
+| **BN-05 × kind=setup no schema/cron** | Fee=0 mas invoices/`generateSetupCharge`/`pending_setup` vivem | Radical pré-prod: overdue só `subscription`\|`year`; cancelar setup pending; morto o branch setup no charge |
+| **BN-08 × GrantCourtesyTrial 1..14** | Decisão/RPC = 30d; use case rejeita 15–30 | Alinhar use case + UI a **1..30** |
+| **BN-13 × checklist renewal / collectionPolicy** | Docs+código block **D5**; canônico **D7** | Atualizar política, testes, WA, checklist |
+| **BN-13 × WA templates** | Texto “bloqueio em D5” / “faltam 2 dias” no D3 | Reescrever para D7; D5 = penúltimo aviso |
+| **BN-13 × BN-09 / stale 5d block** | Cron bloqueia `pending_*` stale em **5d** (parece D5 setup) | Separar: never-paid → abandoned (BN-09); **não** usar blockCompany D5 de renovação |
+| **BN-14 × self-reactivate** | Self-reactivate = abandoned→**trial**; BN-14 = blocked overdue→**paga ciclo cheio** | Dois fluxos: manter self-reactivate p/ abandoned; BN-14 = checkout renew full + fulfill com `next_billing_at=paid_at+(1m\|1y)` |
+| **R2-3 × fulfill/charge** | Anual no catálogo; fulfill sempre +1 mês; invoice sempre mensal | Pacote “anual completo”: charge amount year, `kind=year`, `next=+1 year` |
+| **R2-3 × R3-3 seat proration** | Seat mid-cycle com cap 30d em ciclo anual subcobra | Proration `daysLeft / cycleDays` sem cap artificial; `cycleDays` = 30 (mês) ou dias do ciclo anual |
+| **R3-2 × renew** | Promo só mensal — OK no attach | Garantir charge de `year` nunca aplica promo (já parcial) |
+| **BN-11 × R3-2** | Upgrade prorata sem promo | OK — manter |
+| **BN-12 × BN-11** | Downgrade agenda; upgrade cobra agora | OK — sem conflito |
+| **BN-06/R3-6 × anual** | IA = 10% lista **mensal** mesmo no anual | OK — documentado; não usar 10% do year |
+
+### B) Desvios no código já “aplicado” (corrigir)
+
+| # | Item | Ação |
+|---|------|------|
+| C1 | BN-08 courtesy 1–30 | `grantCourtesyTrial.ts` + testes: max **30** (RPC já ok) |
+| C2 | BN-05 limpeza setup | Filtrar overdue; remover/dead-code `generateSetupCharge` path; cancelar setup pending no DB |
+| C3 | R2-3 anual | `computeNextBillingAt(period)`; fulfill `+1 year` se `billing_period=year` ou `kind=year`; collect/ensureCheckout valor anual + kind |
+| C4 | R3-3 seat × anual | Ajustar `prorateSeatExtraCents` / caller com `cycleDays` real |
+| C5 | Marcar BN-12 `[i]` | já refletido acima |
+
+### C) Ainda não aplicados — estrutura alvo
+
+#### BN-13 (retries / D7) — após C2
+
+```
+Domain:     collectionPolicy (D7 block; D5+ retry; labels d0|d1|d3|d5|…)
+Application: charge/route overdue loop
+  - filter kind ∈ {subscription, year}
+  - neverPaid early-exit SEM block D7 de renovação
+  - WA: buildOverdueMessage(1|3|5) + msg D7 opcional no block
+  - attempt_n = daysOverdue
+Adapters:   (sem schema novo)
+Docs:       CHECKLIST_AUTO_RECHARGE + DECISOES [i]
+```
+
+#### BN-14 (reativação pós-D7)
+
+```
+Domain:     resolveReactivationAmount (ciclo cheio month|year)
+Application: EnsureCheckout / CollectPayment para status=blocked + last_paid_at
+             fulfill: next_billing_at = paid_at + period (NÃO trial)
+API:        /plano/pagar já; garantir blocked → checkout full cycle
+NÃO reusar: rpc_self_reactivate_subscription (é BN-09 abandoned→trial)
+```
+
+#### R2-3 anual (completar) — pré-requisito de BN-13-R3 e BN-14 anual
+
+```
+Domain:     computeNextBillingAt(paidAt, period)
+Application: ensureCheckout + collectPayment + rpc_fulfill_obligation
+UI:         signup/plano já mostra anual; cobrir smoke renew year
+```
+
+#### BN-15 `[>]` / BN-16 — fora
+
+---
+
+## Ordem de execução sugerida
+
+1. **C1** Courtesy 1–30 (rápido, sem conflito)  
+2. **C2** Limpeza setup no dunning + void pendings (desbloqueia BN-13 seguro)  
+3. **C3+C4** Anual fulfill/charge + seat proration (R2-3 / R3-3)  
+4. **BN-13** política D7 + WA + filtros (com R1–R3)  
+5. **BN-14** reativação pós-bloqueio (depende de BN-13)  
+6. Docs checklist renewal alinhar D7  
 
 ---
 

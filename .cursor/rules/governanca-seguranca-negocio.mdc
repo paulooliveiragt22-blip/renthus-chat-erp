@@ -16,6 +16,37 @@ alwaysApply: true
 - Em mutações críticas, preferir RPC transacional no banco.
 - Evitar duplicar regra de negócio no frontend; manter canônico no servidor.
 
+## Regra 2 — Regra de negócio amarrada no banco (obrigatória)
+
+**Decisão do dono (2026-09-04): endurecimento total.** Nenhuma invariante comercial pode ser
+confiada apenas ao código do app. "Canônico no servidor" = **no Postgres** (RPC / função /
+CHECK / trigger / constraint), não no runtime Next.
+
+São **invariantes comerciais** (têm de viver no banco):
+
+| Classe | Exemplos | Forma no DB |
+|--------|----------|-------------|
+| Dinheiro | valor de fatura, proration, promo, seat extra, preço de plano | função `IMMUTABLE` + RPC que **calcula** o amount (o app **nunca** envia valor a gravar) |
+| Ciclo/tempo | `next_billing_at` mensal/anual, matriz de dunning D0–D7, vencimentos | função pura no DB + RPC/cron chama; nada de `+1 mês` só em TS |
+| Estado/lifecycle | transições de `status` (trial/active/overdue/blocked/abandoned), agendamento de downgrade/upgrade | RPC transacional com claim/CAS; sem `.update()` direto de status crítico no route |
+| Limites/cotas | seat cap por plano, ≥1 admin ao manter no downgrade, limite de crédito | CHECK/trigger **ou** validação dentro da RPC de mutação |
+| Domínio de valores | `billing_period ∈ {month,year}`, `kind` de obrigação, plano | `CHECK` / enum, não string livre |
+
+Proibido:
+- App calcular `amount`/`next_billing_at`/proration e o banco **gravar sem recalcular/validar**.
+- `.insert()/.update()` direto em tabela de billing/estado crítico a partir de route/use-case
+  quando existe (ou deveria existir) RPC para a operação — criar a RPC e migrar o call site na
+  mesma entrega (`projeto-pre-producao-radical`).
+- Duplicar a regra em TS **e** SQL como fontes concorrentes: a **fonte é o DB**; TS só orquestra,
+  formata e exibe (pode espelhar para UX, mas o efeito vem da RPC).
+
+Permitido em TS puro: apresentação, formatação (R$, datas), montagem de payload PSP, e chamada
+das funções/RPCs. Se precisar da lógica no cliente para UX, ler via view/RPC — não reimplementar.
+
+Toda função/RPC nova segue `supabase-migrations-seguranca.mdc` (SECURITY DEFINER + `search_path`,
+`revoke ... from public`, `grant execute` ao role específico) e é aplicada no remoto na mesma
+entrega (`supabase-migrations.mdc`).
+
 ## Regras de negócio (delivery e pedidos)
 - Entrega deve respeitar política ativa da empresa (cidade, modo e regras por bairro).
 - Ao confirmar pedido, incluir taxa, pedido mínimo e previsão quando definidos.

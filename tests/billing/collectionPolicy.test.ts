@@ -60,13 +60,42 @@ describe("resolveCollectionAction", () => {
         assert.equal(a.type, "noop");
     });
 
-    it("D5+ → block", () => {
+    it("D5 com cartão → retry card (BN-13)", () => {
         const a = resolveCollectionAction({
             daysOverdue: 5,
             hasDefaultCard: true,
             hasPendingInvoice: true,
         });
-        assert.equal(a.type, "block");
+        assert.deepEqual(a, { type: "collect", prefer: "card", attemptLabel: "d5" });
+    });
+
+    it("D5 sem cartão → notify_only", () => {
+        const a = resolveCollectionAction({
+            daysOverdue: 5,
+            hasDefaultCard: false,
+            hasPendingInvoice: true,
+        });
+        assert.deepEqual(a, { type: "notify_only", day: 5 });
+    });
+
+    it("D6 → noop (não bloqueia antes de D7)", () => {
+        const a = resolveCollectionAction({
+            daysOverdue: 6,
+            hasDefaultCard: true,
+            hasPendingInvoice: true,
+        });
+        assert.equal(a.type, "noop");
+    });
+
+    it("D7+ → block (BN-13)", () => {
+        assert.equal(
+            resolveCollectionAction({
+                daysOverdue: 7,
+                hasDefaultCard: true,
+                hasPendingInvoice: true,
+            }).type,
+            "block"
+        );
         assert.equal(
             resolveCollectionAction({
                 daysOverdue: 9,

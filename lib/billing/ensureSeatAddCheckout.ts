@@ -12,7 +12,7 @@ import {
 } from "@/lib/billing/pagarme";
 import { buildPagarmeCustomerPayload } from "@/lib/billing/buildPagarmeCustomerFromCompany";
 import { loadPlanPricing } from "@/lib/billing/loadPlanPricing";
-import { prorateSeatExtraCents } from "@/lib/billing/subscriptionAmount";
+import { prorateSeatExtraCentsDb } from "@/lib/billing/subscriptionAmount";
 import { reconcileOrCancelLiveOrder } from "@/lib/billing/reconcileLivePagarmeOrder";
 import { isUniqueViolation } from "@/lib/billing/isUniqueViolation";
 
@@ -66,7 +66,8 @@ export async function ensureSeatAddCheckout(
     const nextBillingAt = sub.next_billing_at
         ? new Date(String(sub.next_billing_at))
         : new Date(Date.now() + 30 * 86_400_000);
-    const amountCents = prorateSeatExtraCents(
+    const amountCents = await prorateSeatExtraCentsDb(
+        admin,
         pricing.seatExtraCents,
         nextBillingAt,
         new Date(),
