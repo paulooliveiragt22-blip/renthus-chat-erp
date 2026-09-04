@@ -162,7 +162,7 @@ Se o superadmin **editar** a lista mensal do plano (R3-5), o 10% passa a usar o 
 | `seat_quantity` + gate invite no cap | `[i]` C1 |
 | Tabela `plan_promotions` (schema) | `[i]` C1 schema |
 | Seat mid-cycle checkout `seat_add` + renew | `[i]` C2 — `POST /api/billing/seats/purchase` + fulfill bump |
-| Promo engine + snapshot adesão | pendente |
+| Promo engine + snapshot adesão | `[i]` C3 — attach na adesão + apply no charge + admin UI |
 | Downgrade com seleção de users | pendente |
 
 ---
