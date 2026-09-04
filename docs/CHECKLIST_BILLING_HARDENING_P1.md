@@ -53,8 +53,8 @@ Estado: `[ ]` pendente · `[~]` parcial · `[x]` feito + data · `[!]` bloqueado
 |---|------|----------|---------|---------|-----|--------|
 | H2.1 **R6** | Unique parcial: `CREATE UNIQUE INDEX … ON invoices (subscription_id) WHERE status = 'pending'` | migration + apply remoto | Dois pending no mesmo ciclo | L5 | `execute_sql` índice existe; insert duplicado falha | [ ] |
 | H2.2 | `ensurePendingInvoice`: tratar unique violation → re-select (já parcial) | `collectPayment.ts` | Race SELECT+INSERT | L5 | Path retry documentado | [ ] |
-| H2.3 **R12a** | `billing_checkout_idempotency`: ENABLE+FORCE RLS + policy `service_role_only` + REVOKE anon/authenticated | migration | Leak de EMV / grants legados | L5 | `pg_policies` + grants audit | [ ] |
-| H2.4 **R12b** | TTL no cache: lookup só se `created_at > now() - interval '7 days'` (ou coluna `expires_at`) | migration + `create-invoice-checkout/route.ts` | QR PIX morto reutilizado | L5 | Key antiga regenera PIX | [ ] |
+| H2.3 **R12a** | `billing_checkout_idempotency`: ENABLE+FORCE RLS + policy `service_role_only` + REVOKE anon/authenticated | migration | Leak de EMV / grants legados | L5 | `pg_policies` + grants audit | [x] 2026-08-28 mig |
+| H2.4 **R12b** | TTL no cache: lookup só se `created_at > now() - interval '7 days'` (ou coluna `expires_at`) | `checkoutIdempotency.ts` + `create-invoice-checkout/route.ts` | QR PIX morto reutilizado | L5 | Key antiga regenera PIX | [x] 2026-09-04 |
 
 **Aplicar migrations via MCP Supabase** (`apply_migration` + validação) na mesma entrega do código.
 
