@@ -17,6 +17,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import {
     getPagarmeOrder,
     isPagarmeOrderPaid,
+    isPagarmeOrderTerminalFailed,
 } from "@/lib/billing/pagarme";
 import { assertPagarmeWebhookAuth } from "@/lib/billing/pagarmeWebhookAuth";
 import { billingLog } from "@/lib/billing/billingLog";
@@ -136,7 +137,7 @@ export async function POST(req: Request) {
 
             case "order.payment_failed":
             case "charge.failed":
-                await handleOrderFailed(admin, data);
+                await handleOrderFailed(admin, eventType, data);
                 break;
 
             default:
@@ -210,13 +211,14 @@ async function handleOrderPaid(
         );
     }
 
+    // Customer e metadata canônicos = GET API (não confiar no body do webhook).
     const result = await fulfillPayment(admin, {
         id: apiOrder.id,
         metadata: {
             ...((orderHint.metadata as Record<string, string> | undefined) ?? {}),
             ...((apiOrder.metadata as Record<string, string> | undefined) ?? {}),
         },
-        customer: apiOrder.customer ?? (orderHint.customer as { id?: string } | undefined),
+        customer: apiOrder.customer,
     });
     billingLog("webhook", "fulfill_ok", {
         order_id: apiOrder.id,
@@ -226,12 +228,52 @@ async function handleOrderPaid(
     });
 }
 
+/**
+ * Fail forjado no body não basta: GET `/orders/:id` e só então marca pending→failed.
+ * Se o PSP já estiver paid (race), encaminha para fulfill.
+ */
 async function handleOrderFailed(
     admin: ReturnType<typeof createAdminClient>,
-    order: Record<string, unknown>
+    eventType: string,
+    data: Record<string, unknown>
 ) {
-    const orderId = order?.id as string;
-    if (!orderId) return;
+    const orderId = extractWebhookOrderId(eventType, data);
+    if (!orderId) {
+        billingLog("webhook", "payment_failed_skip_no_order_id", { event_type: eventType });
+        return;
+    }
+
+    let apiOrder;
+    try {
+        apiOrder = await getPagarmeOrder(orderId);
+    } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : String(e);
+        throw new RetryableFulfillError(`GET order PSP (failed) falhou: ${msg}`);
+    }
+
+    if (isPagarmeOrderPaid(apiOrder)) {
+        billingLog("webhook", "fail_event_but_psp_paid", {
+            order_id: orderId,
+            event_type: eventType,
+        });
+        await fulfillPayment(admin, {
+            id: apiOrder.id,
+            metadata: (apiOrder.metadata as Record<string, string> | undefined) ?? {},
+            customer: apiOrder.customer,
+        });
+        return;
+    }
+
+    if (!isPagarmeOrderTerminalFailed(apiOrder)) {
+        billingLog("webhook", "psp_not_failed_yet", {
+            order_id: orderId,
+            status: apiOrder.status,
+            charge_status: apiOrder.charges?.[0]?.status,
+        });
+        throw new RetryableFulfillError(
+            `order ${orderId} ainda não failed no PSP (status=${apiOrder.status})`
+        );
+    }
 
     await admin
         .from("invoices")
@@ -245,5 +287,10 @@ async function handleOrderFailed(
         .eq("pagarme_order_id", orderId)
         .eq("status", "pending");
 
-    billingLog("webhook", "payment_failed", { order_id: orderId });
+    billingLog("webhook", "payment_failed", {
+        order_id: orderId,
+        source: "api_confirmed",
+        status: apiOrder.status,
+        charge_status: apiOrder.charges?.[0]?.status,
+    });
 }
