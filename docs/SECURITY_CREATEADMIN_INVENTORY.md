@@ -18,7 +18,7 @@ Gerado para o item 1 de `SECURITY_IMPROVEMENTS_CHECKLIST.md`. Rever em cada rota
 | `app/api/billing/create-invoice-checkout/route.ts` | Sessão |
 | `app/api/billing/signup/route.ts` | Fluxo signup |
 | `app/api/billing/status/route.ts` | Sessão; atenção ao `?company_id=` — validar membership dessa empresa |
-| `app/api/billing/webhook/route.ts` | HMAC Pagar.me + rate limit |
+| `app/api/billing/webhook/route.ts` | Basic Auth Pagar.me (+ HMAC legado) + rate limit |
 | `app/api/chatbot/process-queue/route.ts` | `CRON_SECRET` / Bearer |
 | `app/api/marketplace/sync-catalog/route.ts` | `CRON_SECRET` / Bearer |
 | `app/api/admin/menu-analytics/route.ts` | `requireCompanyAccess` + RPC `rpc_get_menu_analytics` |

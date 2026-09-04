@@ -4,8 +4,9 @@
  * Pagar.me Core v5: o webhook é **notificação**, não fonte da verdade.
  * Em `order.paid` / `charge.paid` → GET `/orders/:id` na API → só então `FulfillPayment`.
  *
- * Auth: sem Basic Auth no painel. HMAC `PAGARME_WEBHOOK_SECRET` é opcional/legado
- * (só rejeita se header + secret estiverem presentes e não baterem).
+ * Auth L1: Basic Auth do hookset (`PAGARME_WEBHOOK_BASIC_USER` /
+ * `PAGARME_WEBHOOK_BASIC_PASSWORD`) — obrigatório em produção.
+ * HMAC `PAGARME_WEBHOOK_SECRET` = legado (só se `X-Hub-Signature` vier).
  *
  * Política E1: transitório → 500 + failed_retryable; permanente → 200 + dead-letter
  */
@@ -16,8 +17,8 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import {
     getPagarmeOrder,
     isPagarmeOrderPaid,
-    verifyWebhookSignature,
 } from "@/lib/billing/pagarme";
+import { assertPagarmeWebhookAuth } from "@/lib/billing/pagarmeWebhookAuth";
 import { billingLog } from "@/lib/billing/billingLog";
 import {
     tryConsumePagarmeWebhookEvent,
@@ -52,11 +53,13 @@ export async function POST(req: Request) {
     if (limited) return limited;
 
     const rawBody = await req.text();
-    const signature = req.headers.get("x-hub-signature") ?? "";
-
-    const valid = await verifyWebhookSignature(rawBody, signature);
-    if (!valid) {
-        return NextResponse.json({ error: "invalid_signature" }, { status: 401 });
+    const auth = assertPagarmeWebhookAuth({
+        authorization: req.headers.get("authorization"),
+        signatureHeader: req.headers.get("x-hub-signature"),
+        rawBody,
+    });
+    if (!auth.ok) {
+        return NextResponse.json({ error: auth.error }, { status: auth.status });
     }
 
     let event: Record<string, unknown>;

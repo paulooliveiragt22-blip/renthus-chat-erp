@@ -30,7 +30,7 @@ Use como guia de implementação e revisão periódica. Itens derivados da anál
 
 ## 4. Webhooks (Meta, Pagar.me)
 
-- [ ] Produção: `WHATSAPP_APP_SECRET` definido e rotacionado se vazado. `PAGARME_WEBHOOK_SECRET` **não** é obrigatório no Core v5 (HMAC opcional). *(env Vercel + `npm run check:prod-env --strict`)*
+- [ ] Produção: `WHATSAPP_APP_SECRET` definido e rotacionado se vazado. `PAGARME_WEBHOOK_BASIC_USER` + `PAGARME_WEBHOOK_BASIC_PASSWORD` **obrigatórios** (Basic Auth do painel Core v5). `PAGARME_WEBHOOK_SECRET` = HMAC legado opcional. *(env Vercel + `npm run check:prod-env --strict`)*
 - [x] Considerar rate limit adicional no webhook de billing (além do existente no WhatsApp, se aplicável). → `app/api/billing/webhook/route.ts` (IP + janela)
 - [x] Produção: webhook confirma pago via GET `/orders/:id` (API = fonte da verdade); HMAC só rejeita se header+secret presentes e inválidos.
 

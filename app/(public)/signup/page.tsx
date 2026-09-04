@@ -215,26 +215,24 @@ export default function SignupPage() {
 
     return (
         <div style={S.page}>
-            <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 36 }}>
+            <div style={S.brandRow}>
                 <img
                     src="/icons/icon-192.png?v=mark10"
                     alt=""
-                    width={64}
-                    height={64}
+                    width={44}
+                    height={44}
                     style={{
-                        height: 64,
-                        width: 64,
+                        height: 44,
+                        width: 44,
                         display: "block",
                         flexShrink: 0,
-                        borderRadius: 16,
+                        borderRadius: 12,
                     }}
                 />
-                <span style={{ fontSize: 22, fontWeight: 700, color: "#ffffff", letterSpacing: "-0.02em" }}>
-                    RenthusAgent
-                </span>
+                <span style={S.brandName}>RenthusAgent</span>
             </div>
 
-            <div style={{ textAlign: "center", marginBottom: 32 }}>
+            <div style={S.hero}>
                 <h1 style={S.title}>Crie sua conta</h1>
                 <p style={S.subtitle}>
                     {policyLoaded && trialPolicy.payment_required
@@ -446,49 +444,77 @@ const S = {
         display:       "flex",
         flexDirection: "column" as const,
         alignItems:    "center",
-        padding:       "48px 16px 64px",
+        padding:       "40px 24px 64px",
         fontFamily:    "'Inter', 'Segoe UI', system-ui, sans-serif",
+        boxSizing:     "border-box" as const,
+    },
+    brandRow: {
+        display:        "flex",
+        alignItems:     "center",
+        justifyContent: "center",
+        gap:            12,
+        marginBottom:   28,
+        width:          "100%",
+    },
+    brandName: {
+        fontSize:      20,
+        fontWeight:    700,
+        color:         "#ffffff",
+        letterSpacing: "-0.02em",
+    },
+    hero: {
+        textAlign:    "center" as const,
+        marginBottom: 40,
+        maxWidth:     640,
+        padding:      "0 8px",
     },
     title: {
-        margin:        "0 0 10px",
-        fontSize:      34,
+        margin:        "0 0 12px",
+        fontSize:      40,
         fontWeight:    800,
         color:         "#ffffff",
-        letterSpacing: "-0.5px",
+        letterSpacing: "-0.6px",
+        lineHeight:    1.15,
     },
     subtitle: {
-        margin:   0,
-        fontSize: 15,
-        color:    "rgba(255,255,255,0.55)",
+        margin:     0,
+        fontSize:   15,
+        lineHeight: 1.5,
+        color:      "rgba(255,255,255,0.58)",
     },
     plansRow: {
         display:        "flex",
-        gap:            24,
+        gap:            28,
         flexWrap:       "wrap" as const,
         justifyContent: "center",
+        alignItems:     "stretch",
         width:          "100%",
-        maxWidth:       880,
-        marginBottom:   36,
+        maxWidth:       1120,
+        marginBottom:   40,
     },
     planCard: {
         position:      "relative" as const,
-        borderRadius:  18,
-        padding:       "28px 24px 20px",
-        width:         360,
+        borderRadius:  28,
+        padding:       "36px 28px 28px",
+        flex:          "1 1 280px",
+        minWidth:      260,
+        minHeight:     520,
         display:       "flex",
         flexDirection: "column" as const,
         background:    "#fff",
         cursor:        "pointer",
         outline:       "none",
-        transition:    "box-shadow 0.15s, border-color 0.15s",
+        boxSizing:     "border-box" as const,
+        transition:    "box-shadow 0.15s, border-color 0.15s, transform 0.15s",
     },
     planCardActive: {
         border:    `2.5px solid ${BRAND.accent}`,
-        boxShadow: "0 8px 32px rgba(87,255,143,0.28)",
+        boxShadow: "0 12px 36px rgba(87,255,143,0.22)",
+        transform: "translateY(-2px)",
     },
     planCardInactive: {
-        border:    "2px solid rgba(255,255,255,0.12)",
-        boxShadow: "0 4px 20px rgba(0,0,0,0.25)",
+        border:    "2px solid transparent",
+        boxShadow: "0 8px 28px rgba(0,0,0,0.18)",
     },
     popularBadge: {
         position:      "absolute" as const,
@@ -505,25 +531,25 @@ const S = {
         whiteSpace:    "nowrap" as const,
     },
     planName: {
-        fontSize:     20,
+        fontSize:     22,
         fontWeight:   800,
         color:        "#111827",
-        marginBottom: 4,
+        marginBottom: 6,
     },
     planDesc: {
-        fontSize:     13,
+        fontSize:     14,
         color:        "#6b7280",
-        marginBottom: 18,
+        marginBottom: 22,
         lineHeight:   1.5,
     },
     priceRow: {
         display:      "flex",
         alignItems:   "baseline",
         gap:          4,
-        marginBottom: 4,
+        marginBottom: 6,
     },
     priceValue: {
-        fontSize:   30,
+        fontSize:   32,
         fontWeight: 800,
         color:      "#111827",
     },
@@ -534,31 +560,32 @@ const S = {
     setupLine: {
         fontSize:     12,
         color:        "#9ca3af",
-        marginBottom: 14,
+        marginBottom: 20,
     },
     featureList: {
         listStyle:     "none",
-        margin:        "0 0 20px",
+        margin:        "0 0 28px",
         padding:       0,
         display:       "flex",
         flexDirection: "column" as const,
-        gap:           9,
+        gap:           12,
         flex:          1,
     },
     featureItem: {
         display:    "flex",
-        alignItems: "center",
-        gap:        8,
-        fontSize:   13,
+        alignItems: "flex-start",
+        gap:        10,
+        fontSize:   14,
         color:      "#374151",
         fontWeight: 500,
+        lineHeight: 1.4,
     },
     planBtn: {
         width:        "100%",
-        padding:      "12px 0",
+        padding:      "14px 0",
         border:       "none",
-        borderRadius: 10,
-        fontSize:     14,
+        borderRadius: 12,
+        fontSize:     15,
         fontWeight:   700,
         cursor:       "pointer",
         marginTop:    "auto",
@@ -575,7 +602,7 @@ const S = {
     },
     form: {
         background:      "#fff",
-        borderRadius:    20,
+        borderRadius:    24,
         padding:         "32px 28px",
         width:           "100%",
         maxWidth:        560,

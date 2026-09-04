@@ -21,7 +21,7 @@ Diagnóstico de 2026-09-04 (código + contratos) mostrou **dívida de concorrên
 | Classe | Exemplo |
 |--------|---------|
 | Race / double-execution | Lock de webhook sem CAS; side-effects de activate fora do claim |
-| Auth webhook | HMAC opcional + `===` (timing); sem secret = POST aceito |
+| Auth webhook | Basic Auth do painel não validado; HMAC opcional + `===` (timing); POST anônimo aceito |
 | PSP órfãos | Novo PIX/cartão sem cancelar order anterior (cron + card path) |
 | Invariantes DB | Sem unique parcial `invoices(subscription_id) WHERE pending` |
 | Fulfill não-atômico | `activate` → `sync` → `provision` em 3 writes sem transação |
@@ -37,7 +37,7 @@ Pré-produção radical: **corrigir causa raiz** (CAS, unique index, secret obri
 ### D1 — Cinco camadas de segurança (ordem de defesa)
 
 ```
-L1 Auth & integrity     → HMAC obrigatório em produção + timingSafeEqual
+L1 Auth & integrity     → Basic Auth obrigatório em produção (+ HMAC legado se header; timingSafeEqual)
 L2 Idempotência ingestão → CAS em pagarme_webhook_events (consume único)
 L3 Fonte de verdade PSP  → GET /orders/:id antes de fulfill ou fail
 L4 Claim local           → UPDATE … WHERE status='pending' RETURNING (único efeito)
@@ -54,18 +54,19 @@ L5 Invariantes DB        → unique parcial pending + RLS FORCE em caches sensí
 
 **Regra:** cada recurso do checklist deve citar **quais camadas** fecha. Não “só alertar no Sentry” no lugar de L4/L5.
 
-### D2 — Emenda à ADR-0004 B2 (HMAC)
+### D2 — Emenda à ADR-0004 B2 (auth webhook Core v5)
 
-**Antes (0004 B2.5):** `PAGARME_WEBHOOK_SECRET` opcional/legado; sem header/env → aceita e confirma na API.
+**Antes (0004 B2.5):** sem Basic Auth; `PAGARME_WEBHOOK_SECRET` HMAC opcional/legado; sem header/env → aceita e confirma na API.
 
-**Agora (0006):**
+**Agora (0006 + emenda 2026-09-04b):** Core v5 autentica o hookset com **HTTP Basic Auth** (user/senha no painel). HMAC **não** é o mecanismo documentado do v5.
 
 | Ambiente | Comportamento |
 |----------|----------------|
-| `NODE_ENV=production` (Vercel prod) | Secret **obrigatório**. Sem secret → rota webhook **não sobe** / rejeita 503. Sem header ou HMAC inválido → **401**. |
-| Preview / local / sandbox | Secret recomendado; se ausente, log warn + aceita **somente** se `ALLOW_INSECURE_PAGARME_WEBHOOK=1` explícito. |
+| Production (Vercel) | `PAGARME_WEBHOOK_BASIC_USER` + `PAGARME_WEBHOOK_BASIC_PASSWORD` **obrigatórios**. Ausentes → **503**. `Authorization: Basic` inválido → **401** (timing-safe). |
+| Preview / local | Basic recomendado; sem Basic só com `ALLOW_INSECURE_PAGARME_WEBHOOK=1`. Se Basic estiver setado, deve bater. |
+| HMAC legado | Se `PAGARME_WEBHOOK_SECRET` + `X-Hub-Signature` presentes → valida timing-safe; inválido → **401**. Sem header → ignora (v5). |
 
-Confirmação GET order (L3) **permanece** obrigatória antes de `FulfillPayment` e antes de marcar `failed`. HMAC não substitui L3.
+Confirmação GET order (L3) **permanece** obrigatória antes de `FulfillPayment` e antes de marcar `failed`. L1 não substitui L3.
 
 ### D3 — Fulfill atômico (efeito de negócio)
 
@@ -115,7 +116,7 @@ Nenhuma migration/seed/API que altere preço, trial, features ou ciclo comercial
 
 | ID | Recurso | Resolve | Camadas | Arquivos principais |
 |----|---------|---------|---------|---------------------|
-| R1 | HMAC timing-safe + secret obrigatório em prod | Spoof / timing / flood sem auth | L1 | `lib/billing/pagarme.ts`, `app/api/billing/webhook/route.ts`, env Vercel |
+| R1 | Basic Auth prod + HMAC legado timing-safe | Spoof / flood sem auth | L1 | `lib/billing/pagarmeWebhookAuth.ts`, `webhook/route.ts`, env Vercel |
 | R2 | CAS no consume de webhook (`updated_at` + RETURNING) | Dois workers no mesmo evento | L2 | `lib/billing/tryConsumePagarmeWebhookEvent.ts` |
 | R3 | Key de idempotência por `order_id` (não por eventType) | `order.paid` + `charge.paid` = um slot | L2 | `lib/billing/webhookIdempotencyKey.ts` |
 | R4 | Side-effects só após claim; customer.id só do GET API | Double activate; customer forjado | L3+L4 | `lib/billing/fulfillPayment.ts`, `pagarmeSetupPaid.ts` |
@@ -155,7 +156,7 @@ Não pular Fase 1/2 para “só sync” — mascara race e duplicate invoice.
 
 ## Consequências
 
-- Emenda ADR-0004 B2: secret HMAC **obrigatório em produção** (ver D2).
+- Emenda ADR-0004 B2: Basic Auth **obrigatório em produção** (ver D2); HMAC legado.
 - Checklist orquestração P0 permanece histórico; execução nova = `CHECKLIST_BILLING_HARDENING_P1.md`.
 - Migrations: `FORCE RLS` + `service_role_only` em tabelas novas/cache; unique parcial em `invoices`.
 - Testes: unit CAS/claim; integração webhook duplicate; smoke: dois POSTs mesmo order → um fulfill.
