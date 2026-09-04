@@ -1,7 +1,7 @@
 // components/HeaderClient.tsx
 "use client";
 
-import React, { useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import { usePathname, useRouter } from "next/navigation";
@@ -10,6 +10,8 @@ import { useInstallPrompt } from "@/lib/pwa/useInstallPrompt";
 import {
     Clock,
     Download,
+    ImagePlus,
+    Loader2,
     Maximize2,
     Menu,
     MessageCircle,
@@ -52,18 +54,43 @@ export default function HeaderClient({
     const router = useRouter();
     const pathname = usePathname();
 
-    const { currentCompany, loading: loadingWorkspace } = useWorkspace();
+    const { currentCompany } = useWorkspace();
 
     const [menuOpen, setMenuOpen] = useState(false);
     const [sessionExists, setSessionExists] = useState<boolean | null>(null);
     const menuRef = useRef<HTMLDivElement | null>(null);
+    const logoInputRef = useRef<HTMLInputElement | null>(null);
+
+    const [companyLogoUrl, setCompanyLogoUrl] = useState<string | null>(null);
+    const [logoUploading, setLogoUploading] = useState(false);
+    const [logoHint, setLogoHint] = useState<string | null>(null);
 
     const { canInstallDirectly, canShowIosInstructions, canOfferInstall, promptInstall } =
         useInstallPrompt();
     const [installHintOpen, setInstallHintOpen] = useState(false);
     const iosHintRef = useRef<HTMLDivElement | null>(null);
 
-    // verifica sessão (apenas no cliente)
+    const loadCompanyLogo = useCallback(async () => {
+        try {
+            const res = await fetch("/api/admin/menu-profile", {
+                cache: "no-store",
+                credentials: "include",
+            });
+            if (!res.ok) return;
+            const json = (await res.json().catch(() => ({}))) as {
+                profile?: { logoUrl?: string | null } | null;
+            };
+            const url = json.profile?.logoUrl;
+            setCompanyLogoUrl(typeof url === "string" && url.trim() ? url : null);
+        } catch {
+            // silencioso — header não depende do cardápio
+        }
+    }, []);
+
+    useEffect(() => {
+        void loadCompanyLogo();
+    }, [loadCompanyLogo, currentCompany?.id]);
+
     useEffect(() => {
         let mounted = true;
         async function check() {
@@ -78,11 +105,13 @@ export default function HeaderClient({
         }
         check();
 
-        // subscreve mudanças de auth (ex: login/logout em outra aba)
         const {
             data: { subscription },
         } = supabase.auth.onAuthStateChange((_event, _session) => {
-            supabase.auth.getSession().then((r) => setSessionExists(!!r.data?.session)).catch(() => setSessionExists(false));
+            supabase.auth
+                .getSession()
+                .then((r) => setSessionExists(!!r.data?.session))
+                .catch(() => setSessionExists(false));
         });
 
         return () => {
@@ -91,7 +120,6 @@ export default function HeaderClient({
         };
     }, [supabase]);
 
-    // fecha ao clicar fora / ESC
     useEffect(() => {
         function onDoc(e: MouseEvent) {
             if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
@@ -126,15 +154,11 @@ export default function HeaderClient({
 
     async function handleSignOut() {
         try {
-            // Primeiro, limpa sessão cookies server-side e cookie workspace
             try {
                 await fetch("/api/auth/signout", { method: "POST", credentials: "include" });
             } catch (e) {
-                // não bloquear logout client se o server falhar
                 console.warn("Server signout failed", e);
             }
-
-            // Depois, limpa sessão client-side no Supabase
             try {
                 await supabase.auth.signOut();
             } catch (e) {
@@ -151,7 +175,39 @@ export default function HeaderClient({
         router.push("/configuracoes");
     }
 
-    // Não renderiza o header em páginas standalone
+    async function handleLogoFile(file: File | null) {
+        if (!file) return;
+        setLogoUploading(true);
+        setLogoHint(null);
+        try {
+            const fd = new FormData();
+            fd.set("kind", "logo");
+            fd.set("file", file);
+            const res = await fetch("/api/admin/menu-profile/upload", {
+                method: "POST",
+                credentials: "include",
+                body: fd,
+            });
+            const json = (await res.json().catch(() => ({}))) as {
+                error?: string;
+                url?: string;
+                hint?: string;
+            };
+            if (!res.ok) {
+                if (json.error === "profile_missing") {
+                    setLogoHint("Salve o cardápio em Configurações antes de enviar o logo.");
+                    return;
+                }
+                setLogoHint(json.error ?? "Falha ao enviar logo.");
+                return;
+            }
+            if (typeof json.url === "string") setCompanyLogoUrl(json.url);
+        } finally {
+            setLogoUploading(false);
+            if (logoInputRef.current) logoInputRef.current.value = "";
+        }
+    }
+
     if (
         pathname === "/login" ||
         pathname === "/register" ||
@@ -162,33 +218,21 @@ export default function HeaderClient({
         pathname === "/c" ||
         pathname.startsWith("/superadmin") ||
         pathname.startsWith("/platform")
-    ) return null;
-    if (sessionExists === false) return null;
-    if (sessionExists === null) {
-        // ainda checando: evitar flash indesejado
+    )
         return null;
-    }
+    if (sessionExists === false) return null;
+    if (sessionExists === null) return null;
 
     return (
-        <header
-            style={{
-                backgroundColor: "#11283B",
-                color: "#fff",
-                padding: "10px 18px",
-                boxShadow: "0 6px 12px rgba(0,0,0,0.16)",
-                display: "flex",
-                justifyContent: "space-between",
-                alignItems: "center",
-            }}
-        >
-            {/* esquerda: hamburger (mobile only) + logotipo */}
-            <div className="flex min-w-0 items-center gap-3">
+        <header className="relative grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2 bg-[#11283B] px-3 py-2.5 text-white shadow-[0_6px_12px_rgba(0,0,0,0.16)] sm:px-[18px]">
+            {/* esquerda */}
+            <div className="flex min-w-0 items-center gap-2 justify-self-start sm:gap-3">
                 {onOpenMobileMenu && (
                     <button
                         type="button"
                         onClick={onOpenMobileMenu}
                         aria-label="Abrir menu"
-                        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white/12 text-white lg:hidden"
+                        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white/12 text-white transition-transform duration-150 hover:-translate-y-0.5 lg:hidden"
                     >
                         <Menu size={18} />
                     </button>
@@ -200,82 +244,108 @@ export default function HeaderClient({
                         className="block h-7 w-auto object-contain"
                     />
                 </a>
-
-                <nav
-                    aria-label="Atalhos principais"
-                    className="ml-1 flex items-center gap-0.5 sm:ml-2 sm:gap-1"
-                >
-                    {HEADER_NAV.map(({ href, label, shortLabel, icon: Icon }) => {
-                        const active = isNavActive(pathname, href);
-                        return (
-                            <Link
-                                key={href}
-                                href={href}
-                                title={label}
-                                aria-current={active ? "page" : undefined}
-                                className={cn(
-                                    "inline-flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-xs font-semibold transition-colors sm:px-2.5",
-                                    active
-                                        ? "bg-accent text-accent-foreground"
-                                        : "text-white/80 hover:bg-white/10 hover:text-white"
-                                )}
-                            >
-                                <Icon className="h-3.5 w-3.5 shrink-0" aria-hidden />
-                                <span className="hidden md:inline">{label}</span>
-                                <span className="hidden sm:inline md:hidden">{shortLabel ?? label}</span>
-                            </Link>
-                        );
-                    })}
-                </nav>
             </div>
 
-            {/* direita: empresa + fullscreen + avatar */}
-            <div style={{ display: "flex", alignItems: "center", gap: 12, position: "relative" }}>
-                <div style={{ fontWeight: 600, fontSize: 14 }}>
-                    {loadingWorkspace ? "Carregando..." : currentCompany?.name ?? "RenthusAgent"}
-                </div>
+            {/* centro — atalhos */}
+            <nav
+                aria-label="Atalhos principais"
+                className="flex items-center justify-center gap-1 justify-self-center sm:gap-1.5"
+            >
+                {HEADER_NAV.map(({ href, label, shortLabel, icon: Icon }) => {
+                    const active = isNavActive(pathname, href);
+                    return (
+                        <Link
+                            key={href}
+                            href={href}
+                            title={label}
+                            aria-current={active ? "page" : undefined}
+                            className={cn(
+                                "inline-flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-xs font-semibold",
+                                "transition-transform duration-150 ease-out will-change-transform",
+                                "hover:-translate-y-0.5 hover:scale-[1.03]",
+                                "active:translate-y-0 active:scale-100",
+                                active
+                                    ? "bg-accent text-accent-foreground shadow-sm"
+                                    : "bg-[#16364D] text-white hover:brightness-110"
+                            )}
+                        >
+                            <Icon className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                            <span className="hidden md:inline">{label}</span>
+                            <span className="hidden sm:inline md:hidden">{shortLabel ?? label}</span>
+                        </Link>
+                    );
+                })}
+            </nav>
 
-                {/* Instalar app (PWA) — some só quando já está em modo standalone */}
-                {canOfferInstall && (
-                    <div ref={iosHintRef} style={{ position: "relative" }}>
+            {/* direita */}
+            <div className="relative flex items-center justify-end gap-2 justify-self-end sm:gap-3">
+                <input
+                    ref={logoInputRef}
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp,image/gif"
+                    className="hidden"
+                    onChange={(e) => {
+                        const f = e.target.files?.[0] ?? null;
+                        void handleLogoFile(f);
+                    }}
+                />
+                <button
+                    type="button"
+                    onClick={() => logoInputRef.current?.click()}
+                    disabled={logoUploading}
+                    title={companyLogoUrl ? "Trocar logo da empresa" : "Adicionar logo da empresa"}
+                    aria-label={companyLogoUrl ? "Trocar logo da empresa" : "Adicionar logo da empresa"}
+                    className={cn(
+                        "relative flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-lg",
+                        "bg-white/10 transition-transform duration-150 hover:-translate-y-0.5 hover:bg-white/15",
+                        "disabled:opacity-60"
+                    )}
+                >
+                    {logoUploading ? (
+                        <Loader2 className="h-4 w-4 animate-spin text-white/80" />
+                    ) : companyLogoUrl ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                            src={companyLogoUrl}
+                            alt=""
+                            className="h-full w-full object-cover"
+                        />
+                    ) : (
+                        <ImagePlus className="h-4 w-4 text-white/80" />
+                    )}
+                </button>
+                {logoHint ? (
+                    <span className="absolute right-0 top-[calc(100%+6px)] z-[60] max-w-[220px] rounded-lg bg-white px-2.5 py-1.5 text-[11px] font-medium text-zinc-700 shadow-lg">
+                        {logoHint}{" "}
                         <button
-                            onClick={() => { handleInstallClick().catch(() => {}); }}
-                            title="Instalar app"
-                            style={{
-                                display: "flex",
-                                alignItems: "center",
-                                justifyContent: "center",
-                                width: 36,
-                                height: 36,
-                                borderRadius: 8,
-                                background: "rgba(255,255,255,0.12)",
-                                border: "none",
-                                cursor: "pointer",
-                                color: "#fff",
-                                flexShrink: 0,
+                            type="button"
+                            className="font-bold text-[#16364D] underline"
+                            onClick={() => {
+                                setLogoHint(null);
+                                router.push("/configuracoes");
                             }}
+                        >
+                            Abrir
+                        </button>
+                    </span>
+                ) : null}
+
+                {canOfferInstall && (
+                    <div ref={iosHintRef} className="relative">
+                        <button
+                            type="button"
+                            onClick={() => {
+                                handleInstallClick().catch(() => {});
+                            }}
+                            title="Instalar app"
+                            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white/12 text-white transition-transform duration-150 hover:-translate-y-0.5"
                         >
                             <Download size={16} />
                         </button>
 
                         {installHintOpen && (
-                            <div
-                                style={{
-                                    position: "absolute",
-                                    right: 0,
-                                    top: "calc(100% + 10px)",
-                                    width: 260,
-                                    background: "#fff",
-                                    color: "#222",
-                                    borderRadius: 8,
-                                    boxShadow: "0 8px 24px rgba(0,0,0,0.18)",
-                                    padding: 12,
-                                    zIndex: 60,
-                                    fontSize: 12.5,
-                                    lineHeight: 1.4,
-                                }}
-                            >
-                                <div style={{ fontWeight: 700, marginBottom: 4 }}>Instalar como app</div>
+                            <div className="absolute right-0 top-[calc(100%+10px)] z-[60] w-[260px] rounded-lg bg-white p-3 text-[12.5px] leading-snug text-zinc-800 shadow-[0_8px_24px_rgba(0,0,0,0.18)]">
+                                <div className="mb-1 font-bold">Instalar como app</div>
                                 {canShowIosInstructions ? (
                                     <>
                                         Toque em <b>Compartilhar</b> (ícone □↑ na barra do Safari) e depois em{" "}
@@ -293,103 +363,52 @@ export default function HeaderClient({
                     </div>
                 )}
 
-                {/* Tela cheia */}
                 {onToggleFullscreen && (
                     <button
+                        type="button"
                         onClick={onToggleFullscreen}
                         title={isFullscreen ? "Sair da tela cheia (F11)" : "Tela cheia (F11)"}
-                        style={{
-                            display: "flex",
-                            alignItems: "center",
-                            justifyContent: "center",
-                            width: 36,
-                            height: 36,
-                            borderRadius: 8,
-                            background: "rgba(255,255,255,0.12)",
-                            border: "none",
-                            cursor: "pointer",
-                            color: "#fff",
-                            flexShrink: 0,
-                        }}
+                        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white/12 text-white transition-transform duration-150 hover:-translate-y-0.5"
                     >
                         {isFullscreen ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
                     </button>
                 )}
 
                 <button
+                    type="button"
                     aria-haspopup="true"
                     aria-expanded={menuOpen}
                     onClick={() => setMenuOpen((s) => !s)}
-                    style={{
-                        width: 44,
-                        height: 44,
-                        borderRadius: "50%",
-                        backgroundColor: "#fff",
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        color: "#16364D",
-                        fontWeight: 700,
-                        overflow: "hidden",
-                        boxShadow: "0 2px 6px rgba(0,0,0,0.12)",
-                        border: "none",
-                        cursor: "pointer",
-                    }}
                     title="Abrir menu do usuário"
+                    className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-full bg-white text-sm font-bold text-[#16364D] shadow-[0_2px_6px_rgba(0,0,0,0.12)] transition-transform duration-150 hover:-translate-y-0.5"
                 >
                     R
                 </button>
 
                 <div
                     ref={menuRef}
-                    style={{
-                        position: "absolute",
-                        right: 12,
-                        top: "calc(100% + 10px)",
-                        minWidth: 200,
-                        background: "#fff",
-                        color: "#222",
-                        borderRadius: 8,
-                        boxShadow: "0 8px 24px rgba(0,0,0,0.18)",
-                        padding: 8,
-                        zIndex: 60,
-                        display: menuOpen ? "block" : "none",
-                    }}
+                    className={cn(
+                        "absolute right-0 top-[calc(100%+10px)] z-[60] min-w-[200px] rounded-lg bg-white p-2 text-zinc-800 shadow-[0_8px_24px_rgba(0,0,0,0.18)]",
+                        menuOpen ? "block" : "hidden"
+                    )}
                 >
-                    <div style={{ padding: "8px 12px", borderBottom: "1px solid #eee" }}>
-                        <div style={{ fontWeight: 900 }}>{currentCompany?.name ?? "RenthusAgent"}</div>
-                        <div style={{ color: "#666", fontSize: 12 }}>Empresa</div>
+                    <div className="border-b border-zinc-100 px-3 py-2">
+                        <div className="font-bold">{currentCompany?.name ?? "Empresa"}</div>
+                        <div className="text-xs text-zinc-500">Empresa</div>
                     </div>
 
-                    <div style={{ display: "flex", flexDirection: "column", padding: 8, gap: 6 }}>
+                    <div className="flex flex-col gap-1.5 p-2">
                         <button
+                            type="button"
                             onClick={goToSettings}
-                            style={{
-                                textAlign: "left",
-                                padding: "8px 10px",
-                                borderRadius: 6,
-                                border: "none",
-                                background: "transparent",
-                                cursor: "pointer",
-                                fontWeight: 700,
-                                color: "#333",
-                            }}
+                            className="rounded-md px-2.5 py-2 text-left text-sm font-bold text-zinc-700 hover:bg-zinc-50"
                         >
                             Configurações
                         </button>
-
                         <button
+                            type="button"
                             onClick={handleSignOut}
-                            style={{
-                                textAlign: "left",
-                                padding: "8px 10px",
-                                borderRadius: 6,
-                                border: "none",
-                                background: "transparent",
-                                cursor: "pointer",
-                                fontWeight: 700,
-                                color: "#c62828",
-                            }}
+                            className="rounded-md px-2.5 py-2 text-left text-sm font-bold text-red-700 hover:bg-red-50"
                         >
                             Sair
                         </button>
