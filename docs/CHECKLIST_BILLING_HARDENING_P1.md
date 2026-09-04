@@ -103,11 +103,11 @@ Estado: `[ ]` pendente · `[~]` parcial · `[x]` feito + data · `[!]` bloqueado
 
 | # | Item | DoD | Estado |
 |---|------|-----|--------|
-| H6.1 | `npm test` suíte billing (CAS, HMAC, claim, key) | Verde | [ ] |
-| H6.2 | Sandbox: 2× POST webhook mesmo `order.paid` → 1 fulfill / 1 alreadyDone | `pagarme_webhook_events` + sub `active` único | [ ] |
-| H6.3 | Sandbox: regenerar PIX → order antigo canceled ou unpaid; só novo vivo | Painel Pagar.me | [ ] |
-| H6.4 | DoD B6 ADR-0004: paid local + `active` + `last_paid_at` | Smoke / E2E | [ ] |
-| H6.5 | ADR-0004 + 0006 + este checklist linkados; O5.2 revalidado se R13 | Refs cruzadas | [ ] |
+| H6.1 | `npm test` suíte billing (CAS, HMAC, claim, key) | Verde | [x] 2026-09-04 — 264 billing OK; `npm test` full 1447/1449 (2 fails fora: `preparingNotify` mock) |
+| H6.2 | Sandbox: 2× POST webhook mesmo `order.paid` → 1 fulfill / 1 alreadyDone | `pagarme_webhook_events` + sub `active` único | [x] 2026-09-04 — 2× POST prod: 200 `{ok}` + 200 `{duplicate:true}`; sub leleka `active` |
+| H6.3 | Sandbox: regenerar PIX → order antigo canceled ou unpaid; só novo vivo | Painel Pagar.me | [>] 2026-09-04 — **adiado** (PIX PSP: `action_forbidden` / sem ambiente; cartão OK; copia-e-cola fora) |
+| H6.4 | DoD B6 ADR-0004: paid local + `active` + `last_paid_at` | Smoke / E2E | [x] 2026-09-04 — E2E cartão + `test:billing-sandbox` |
+| H6.5 | ADR-0004 + 0006 + este checklist linkados; O5.2 revalidado se R13 | Refs cruzadas | [x] 2026-09-04 — links mútuos; O5.2 = `POST /api/platform/billing/replay-fulfill` (H5.6) |
 
 ---
 
@@ -170,7 +170,8 @@ Fase 0  Env secret + smoke HMAC
 - `app/api/billing/charge/route.ts`
 - `app/api/billing/change-plan/route.ts`
 - `app/api/platform/billing/subscriptions/[id]/change-plan/route.ts`
-- `app/api/platform/billing/subscriptions/[id]/replay-fulfill/route.ts`
+- `app/api/platform/billing/replay-fulfill/route.ts`
+- `app/api/platform/billing/subscriptions/[id]/change-plan/route.ts`
 
 ### DB / docs / testes
 - `supabase/migrations/YYYYMMDDHHMMSS_billing_hardening_*.sql` (unique + RLS/TTL + opcional RPC fulfill)

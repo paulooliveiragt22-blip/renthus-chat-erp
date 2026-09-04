@@ -81,7 +81,7 @@ Estado: `[ ]` pendente · `[~]` parcial · `[x]` feito + data · `[!]` bloqueado
 | # | Item | Arquivos | DoD | Estado |
 |---|------|----------|-----|--------|
 | O5.1 | Confirmar webhook → `FulfillPayment` → `active` + `last_paid_at` + `is_active` | fluxo E1 | Conta teste: após `order.paid`, status local coerente | [ ] bloqueado por O1 |
-| O5.2 | Platform ou cron **Replay** `order_id` → `FulfillPayment` (CRON_SECRET / superadmin) | `app/api/…` | Órfãos em `billing_fulfill_failures` / paid sem linha recuperáveis sem reconcile-first | [x] 2026-09-02 — `POST /api/platform/billing/replay-fulfill` |
+| O5.2 | Platform ou cron **Replay** `order_id` → `FulfillPayment` (CRON_SECRET / superadmin) | `app/api/…` | Órfãos em `billing_fulfill_failures` / paid sem linha recuperáveis sem reconcile-first | [x] 2026-09-02 — `POST /api/platform/billing/replay-fulfill`; **revalidado P1 H5.6** 2026-09-04 |
 | O5.3 | Watchdog (opcional após O1): não reprocessar massa; só alertar | cron RH | ADR-0004 B2 | [x] 2026-09-02 — webhook-health |
 | O5.4 | Sync sob demanda: pending+`pagarme_order_id` → GET PSP → `fulfillPayment` se paid | `syncPendingObligationFromPsp` + `GET /status` + checkout | Paywall poll libera sem webhook; idempotente | [x] 2026-09-02 |
 

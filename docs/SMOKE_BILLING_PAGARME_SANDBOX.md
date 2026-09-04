@@ -12,14 +12,17 @@ As variáveis `PAGARME_*` já estão na Vercel — **não precisa** replicar no 
 | Página | `/plano/pagar` |
 | Webhook | `https://renthus-chat-erp.vercel.app/api/billing/webhook` |
 
-**Conta de teste sugerida (never-paid / pending_setup):**  
-`paulooliveiragt22@gmail.com` — empresas `pending_setup` com `setup_payments` pending no banco.
+**Conta de teste sugerida (never-paid / pending_payment):**  
+empresa com status `pending_setup` / `pending_payment` / `overdue` **ou** `pending_invoice`.  
+Conta **já `active`** (ex.: Zampell após smoke pago) **não serve** — `/plano/pagar` redireciona para `/ativar`.
 
 ```powershell
 $env:E2E_SKIP_WEBSERVER="1"
 $env:E2E_BASE_URL="https://renthus-chat-erp.vercel.app"
 $env:E2E_EMAIL="paulooliveiragt22@gmail.com"
 $env:E2E_PASSWORD="..."   # senha do owner — não versionar
+# opcional: força workspace never-paid
+# $env:E2E_COMPANY_ID="uuid-da-empresa-pending"
 npm run test:e2e:billing
 ```
 
@@ -119,13 +122,37 @@ curl -s -o /dev/null -w "%{http_code}" -X POST "$BASE/api/billing/webhook" \
 
 Se `pagarme_webhook_events` = 0 após pagamento sandbox: conferir URL/POST no painel Pagar.me, Basic Auth env↔painel, e logs Vercel (401 unauthorized / 503 auth_not_configured / 405 método). Não usar reconcile cego em massa (ADR-0004).
 
-### PIX sem copia-e-cola (`pix_emv_unavailable` / `pix_gateway_stub`)
+### H6.2 — Webhook idempotente (2× mesmo `order.paid`)
+
+DoD P1: dois POSTs com o **mesmo** evento/`id` → 1 fulfill + 1 `duplicate`; sub permanece `active` única.
+
+```powershell
+$BASE = "https://renthus-chat-erp.vercel.app"
+$USER = $env:PAGARME_WEBHOOK_BASIC_USER
+$PASS = $env:PAGARME_WEBHOOK_BASIC_PASSWORD
+$ORDER = "or_...."   # order já paid no PSP (ou pending que GET marca paid)
+
+$body = @{
+  id = "evt_h62_smoke_$(Get-Date -Format 'yyyyMMddHHmmss')"
+  type = "order.paid"
+  data = @{ id = $ORDER }
+} | ConvertTo-Json -Depth 5
+
+curl.exe -s -w "`nHTTP %{http_code}`n" -X POST "$BASE/api/billing/webhook" -u "${USER}:${PASS}" -H "Content-Type: application/json" -d $body
+curl.exe -s -w "`nHTTP %{http_code}`n" -X POST "$BASE/api/billing/webhook" -u "${USER}:${PASS}" -H "Content-Type: application/json" -d $body
+```
+
+Esperado: ambas **200**; 1ª com fulfill/`already_done`; 2ª `{ ok: true, duplicate: true }`; 1 linha em `pagarme_webhook_events` para a key. Unit: `tests/billing/tryConsumePagarmeWebhookEvent.test.ts`.
+
+### PIX sem copia-e-cola (`pix_emv_unavailable` / `pix_gateway_stub` / PSP sem ambiente)
 
 Se a API devolver `qr_code` = `https://digital.mundipagg.com/pix/` (e a PNG só embutir essa URL), **não há EMV recuperável** — o domínio Mundipagg está morto (ENOTFOUND).
 
 Causa típica: meio PIX no gateway legado Mundipagg em vez do gateway **Pagar.me / Stone** (docs: PIX só com gateway Pagar.me).
 
-No [painel Pagar.me](https://id.pagar.me/) → Configurações → Meios de pagamento: ative **PIX** no gateway correto, regenerar cobrança. Enquanto isso use **cartão** no `/plano/pagar`.
+No gateway **PSP**, charge pode falhar com `action_forbidden | Sem ambiente configurado para este tipo de transação` (sandbox sem PIX) — `qr_code` null. Diagnóstico: `node scripts/diag-pix-qr-code.mjs`.
+
+No [painel Pagar.me](https://id.pagar.me/) → Configurações → Meios de pagamento: ative **PIX** no gateway correto **e** ambiente sandbox. Enquanto isso use **cartão**. **H6.3** do checklist P1 está **adiado**.
 
 EMV saudável começa com `000201…` e contém `br.gov.bcb.pix` (ver [docs PIX](https://docs.pagar.me/reference/pix-2)).
 
@@ -224,13 +251,14 @@ WHERE ps.company_id = '<company_id>';
 
 ## 6. Checklist DoD sandbox
 
-- [ ] `sk_test_` / `pk_test_` configurados local + Vercel preview
-- [ ] Domínio cadastrado no Pagar.me
-- [ ] Webhook apontando para deploy
-- [ ] `npm run test:billing-sandbox` verde
-- [ ] E2E cartão em `/plano/pagar` verde
-- [ ] E2E PIX em `/plano/pagar` verde
-- [ ] `npm test` verde (regressão billing gate)
+- [x] `sk_test_` / `pk_test_` configurados (Vercel Production)
+- [x] Domínio cadastrado no Pagar.me
+- [x] Webhook apontando para deploy + Basic Auth (L1)
+- [x] `npm run test:billing-sandbox` verde (cartão + PIX API; EMV UI pode falhar se PSP sem ambiente)
+- [x] E2E cartão em `/plano/pagar` → `active` + `last_paid_at` (H6.4)
+- [>] E2E PIX UI — **adiado** (H6.3; ambiente PIX PSP)
+- [x] Suíte billing unit verde (H6.1)
+- [x] H6.2 — 2× webhook mesmo `order.paid` (2026-09-04: `or_1XKEmwwulNFYeP2N` → ok + duplicate)
 
 ---
 
@@ -238,6 +266,9 @@ WHERE ps.company_id = '<company_id>';
 
 - Checkout: `app/api/billing/create-invoice-checkout/route.ts`
 - Webhook: `app/api/billing/webhook/route.ts`
+- Replay ops: `app/api/platform/billing/replay-fulfill/route.ts`
 - UI: `components/billing/PlanBillingPanel.tsx`
 - Cliente HTTP: `lib/billing/pagarme.ts`
 - Token browser: `lib/pagarme/cardTokenBrowser.ts`
+- Hardening: `docs/CHECKLIST_BILLING_HARDENING_P1.md` · `docs/ADR/0006-billing-hardening-idempotency-security.md`
+- Orquestração P0: `docs/CHECKLIST_BILLING_ORCHESTRATION_P0.md` · `docs/ADR/0004-billing-route-handlers-only.md`
