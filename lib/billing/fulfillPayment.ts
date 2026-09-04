@@ -48,7 +48,7 @@ export function isRetryableFulfillError(e: unknown): e is RetryableFulfillError 
 }
 
 export type FulfillPaymentResult =
-    | { ok: true; kind: "setup" | "invoice" | "ai_pack"; alreadyDone?: boolean }
+    | { ok: true; kind: "setup" | "invoice" | "ai_pack" | "seat_add"; alreadyDone?: boolean }
     | { ok: true; kind: "none"; alreadyDone?: boolean };
 
 type OrderLike = {
@@ -127,7 +127,12 @@ async function fulfillInvoiceViaRpc(
         return null;
     }
 
-    const kind = row.kind === "setup" ? ("setup" as const) : ("invoice" as const);
+    const kind =
+        row.kind === "setup"
+            ? ("setup" as const)
+            : row.kind === "seat_add"
+              ? ("seat_add" as const)
+              : ("invoice" as const);
 
     if (status === "already_done") {
         return { ok: true, kind, alreadyDone: true };
@@ -177,6 +182,7 @@ export async function fulfillPayment(
     if (
         metaType === "setup" ||
         metaType === "invoice" ||
+        metaType === "seat_add" ||
         metaType === undefined ||
         metaType === ""
     ) {
@@ -184,7 +190,7 @@ export async function fulfillPayment(
         const inv = await fulfillInvoiceViaRpc(admin, orderId, metadata, custId);
         if (inv) return inv;
 
-        if (metaType === "invoice" || metaType === "setup") {
+        if (metaType === "invoice" || metaType === "setup" || metaType === "seat_add") {
             throw new PermanentFulfillError(
                 `metadata.type=${metaType} sem invoice para order ${orderId}`
             );

@@ -162,7 +162,8 @@ Se o superadmin **editar** a lista mensal do plano (R3-5), o 10% passa a usar o 
 | `seat_quantity` + gate invite no cap | `[i]` C1 (compra seat_add ainda pendente) |
 | Tabela `plan_promotions` (schema) | `[i]` C1 schema |
 | Promo engine + snapshot adesão | pendente |
-| Seat mid-cycle checkout `seat_add` + renew | parcial — renew soma seats; checkout seat_add pendente |
+| Seat mid-cycle checkout `seat_add` + renew | `[i]` C2 — `POST /api/billing/seats/purchase` + fulfill bump |
+| Promo engine + snapshot adesão | pendente |
 | Downgrade com seleção de users | pendente |
 
 ---
