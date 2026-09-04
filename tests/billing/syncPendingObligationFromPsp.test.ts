@@ -67,6 +67,7 @@ describe("syncPendingObligationFromPsp", () => {
             "co-1"
         );
         assert.equal(r.action, "noop");
+        assert.equal(r.checked, 0);
         assert.equal(fulfillCalls.length, 0);
     });
 
@@ -148,5 +149,48 @@ describe("syncPendingObligationFromPsp", () => {
         assert.equal(r.action, "fulfilled");
         assert.equal(r.kind, "setup");
         assert.equal(r.order_id, "or_setup");
+    });
+
+    it("H4.5: segundo pending pago é fulfillado (não só o mais recente)", async () => {
+        fulfillCalls = [];
+        const seen: string[] = [];
+        mockGetOrder = async (id: string) => {
+            seen.push(id);
+            if (id === "or_old_paid") {
+                return { id: "or_old_paid", status: "paid", metadata: { type: "setup" } };
+            }
+            return { id, status: "pending", charges: [{ status: "waiting" }] };
+        };
+        const db = makeMockAdmin({
+            invoices: [
+                {
+                    id: "inv-new",
+                    company_id: "co-1",
+                    status: "pending",
+                    kind: "subscription",
+                    pagarme_order_id: "or_new_open",
+                    created_at: "2026-09-03T00:00:00.000Z",
+                },
+                {
+                    id: "inv-old",
+                    company_id: "co-1",
+                    status: "pending",
+                    kind: "setup",
+                    pagarme_order_id: "or_old_paid",
+                    created_at: "2026-09-01T00:00:00.000Z",
+                },
+            ],
+        });
+        const r = await syncPendingObligationFromPsp(
+            db.client as unknown as SupabaseClient,
+            "co-1"
+        );
+        assert.equal(r.action, "fulfilled");
+        assert.equal(r.kind, "setup");
+        assert.equal(r.order_id, "or_old_paid");
+        assert.equal(r.checked, 2);
+        assert.ok(seen.includes("or_new_open"));
+        assert.ok(seen.includes("or_old_paid"));
+        assert.equal(fulfillCalls.length, 1);
     });
 });

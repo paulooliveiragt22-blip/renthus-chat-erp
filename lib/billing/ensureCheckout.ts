@@ -36,11 +36,12 @@ export type PendingCheckoutRow = {
  * Decide setup vs invoice a partir do status da assinatura e preço de setup.
  * - pending_setup legado, trial ou pending_payment nunca pago + setup>0 → setup
  * - demais → mensalidade
+ * Amount **sempre** do catálogo (H4.3) — pending stale não dita preço.
  */
 export function resolveCheckoutStrategy(
     status: string | null | undefined,
     plan: string | null | undefined,
-    pendingAmountBrl?: number | string | null,
+    _pendingAmountBrl?: number | string | null,
     lastPaidAt?: string | null
 ): CheckoutStrategy {
     const planKey = String(plan ?? "essencial");
@@ -55,17 +56,7 @@ export function resolveCheckoutStrategy(
 
     const chargesSetup = isFirstPayment && setupCents > 0;
     const kind: CheckoutObligationKind = chargesSetup ? "setup" : "invoice";
-    const fromPending =
-        pendingAmountBrl != null && String(pendingAmountBrl).trim() !== ""
-            ? Math.round(Number(pendingAmountBrl) * 100)
-            : null;
-
-    const amountCents =
-        fromPending != null && Number.isFinite(fromPending) && fromPending > 0
-            ? fromPending
-            : chargesSetup
-              ? setupCents
-              : getMonthlyPriceCents(planKey);
+    const amountCents = chargesSetup ? setupCents : getMonthlyPriceCents(planKey);
 
     return {
         kind,
@@ -137,9 +128,49 @@ export async function loadCheckoutContext(
     const strategy = resolveCheckoutStrategy(
         String(sub.status),
         String(sub.plan ?? "essencial"),
-        pendingForKind?.amount,
+        null,
         (sub.last_paid_at as string | null) ?? null
     );
+
+    // H4.3: se pending diverge do catálogo, alinha amount e limpa order stale.
+    if (pendingForKind?.id) {
+        const catalogBrl = centsToBRL(strategy.amountCents);
+        const current = Number(pendingForKind.amount);
+        if (
+            Number.isFinite(current) &&
+            Math.abs(current - catalogBrl) > 0.02
+        ) {
+            const { reconcileOrCancelLiveOrder } = await import(
+                "@/lib/billing/reconcileLivePagarmeOrder"
+            );
+            const recon = await reconcileOrCancelLiveOrder(
+                admin,
+                pendingForKind.pagarme_order_id,
+                strategy.metaType
+            );
+            if (recon.action === "fulfilled") {
+                pendingForKind = null;
+            } else {
+                await admin
+                    .from("invoices")
+                    .update({
+                        amount: catalogBrl,
+                        pagarme_order_id: null,
+                        pagarme_payment_url: null,
+                        pix_qr_code: null,
+                    })
+                    .eq("id", pendingForKind.id)
+                    .eq("status", "pending");
+                pendingForKind = {
+                    ...pendingForKind,
+                    amount: catalogBrl,
+                    pagarme_order_id: null,
+                    pagarme_payment_url: null,
+                    pix_qr_code: null,
+                };
+            }
+        }
+    }
 
     return {
         companyId,

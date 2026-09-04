@@ -18,6 +18,8 @@ let mockPagarme: {
     isOrderCreditPaid: (o: unknown) => boolean;
     getMonthlyPriceCents: (plan: string) => number;
     centsToBRL: (c: number) => number;
+    getPagarmeOrder: (id: string) => Promise<unknown>;
+    cancelPagarmeChargeBestEffort: (id: string) => Promise<void>;
 };
 let fulfillCalls: unknown[] = [];
 
@@ -44,6 +46,7 @@ before(() => {
         notify: join(root, "lib", "billing", "sendBillingNotification.js"),
         collect: join(root, "lib", "billing", "collectPayment.js"),
         log: join(root, "lib", "billing", "billingLog.js"),
+        recon: join(root, "lib", "billing", "reconcileLivePagarmeOrder.js"),
     };
 
     mockPagarme = {
@@ -64,6 +67,8 @@ before(() => {
             Boolean((o as { charges?: { status?: string }[] })?.charges?.[0]?.status === "paid"),
         getMonthlyPriceCents: () => 19700,
         centsToBRL: (c: number) => c / 100,
+        getPagarmeOrder: async (id: string) => ({ id, status: "pending" }),
+        cancelPagarmeChargeBestEffort: async () => {},
     };
 
     const cache = require.cache as unknown as Record<string, unknown>;
@@ -98,6 +103,15 @@ before(() => {
         filename: paths.log,
         loaded: true,
         exports: { billingLog: () => {} },
+    };
+    // H4: cancel-before-create — default noop nos testes de happy path
+    cache[paths.recon] = {
+        id: paths.recon,
+        filename: paths.recon,
+        loaded: true,
+        exports: {
+            reconcileOrCancelLiveOrder: async () => ({ action: "noop" }),
+        },
     };
 
     delete cache[paths.collect];

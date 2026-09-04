@@ -19,6 +19,7 @@ import { fulfillPayment } from "@/lib/billing/fulfillPayment";
 import { billingLog } from "@/lib/billing/billingLog";
 import { isUniqueViolation } from "@/lib/billing/isUniqueViolation";
 import { sendBillingNotification, buildOverdueMessage } from "@/lib/billing/sendBillingNotification";
+import { reconcileOrCancelLiveOrder } from "@/lib/billing/reconcileLivePagarmeOrder";
 
 type Admin = ReturnType<typeof createAdminClient>;
 
@@ -160,8 +161,17 @@ async function attachPixToInvoice(
     sub: CollectSub,
     invoiceId: string,
     kind: CollectPaymentKind,
-    attemptN: number
-): Promise<{ orderId: string | null; pixUrl: string | null; pixCode: string | null }> {
+    attemptN: number,
+    priorOrderId: string | null
+): Promise<
+    | { orderId: string | null; pixUrl: string | null; pixCode: string | null; fulfilled?: false }
+    | { fulfilled: true; orderId: string }
+> {
+    const recon = await reconcileOrCancelLiveOrder(admin, priorOrderId, "invoice");
+    if (recon.action === "fulfilled") {
+        return { fulfilled: true, orderId: priorOrderId ?? "" };
+    }
+
     const company = companyOf(sub);
     const amountCents = getMonthlyPriceCents(String(sub.plan ?? "essencial"));
     const compLabel = (company?.nome_fantasia ?? company?.name ?? "").trim() || "Renthus";
@@ -233,8 +243,21 @@ export async function collectPayment(
         return { ok: true, outcome: "skipped_existing", invoiceId: null };
     }
 
-    // Já tem PIX EMV e prefer=pix sem cartão nesta passada: só garante status
+    // Já tem PIX EMV e prefer=pix: reconcilia paid; senão mantém pending
     if (prefer === "pix" && invoice.pix_qr_code && invoice.pagarme_order_id) {
+        const recon = await reconcileOrCancelLiveOrder(
+            admin,
+            invoice.pagarme_order_id,
+            "invoice"
+        );
+        if (recon.action === "fulfilled") {
+            return {
+                ok: true,
+                outcome: "paid_card",
+                invoiceId: invoice.id,
+                orderId: invoice.pagarme_order_id,
+            };
+        }
         await admin
             .from("pagarme_subscriptions")
             .update({ status: fallbackSubStatus })
@@ -249,6 +272,20 @@ export async function collectPayment(
 
     if (prefer === "card" && sub.default_card_id && sub.pagarme_customer_id) {
         try {
+            const recon = await reconcileOrCancelLiveOrder(
+                admin,
+                invoice.pagarme_order_id,
+                "invoice"
+            );
+            if (recon.action === "fulfilled") {
+                return {
+                    ok: true,
+                    outcome: "paid_card",
+                    invoiceId: invoice.id,
+                    orderId: invoice.pagarme_order_id ?? "",
+                };
+            }
+
             const amountCents = getMonthlyPriceCents(String(sub.plan ?? "essencial"));
             const order = await createOrderWithSavedCard({
                 amountCents,
@@ -281,7 +318,6 @@ export async function collectPayment(
                     status: "paid",
                     attempt_n: attemptN,
                 });
-                // Garante default_card_id para próximos ciclos (mesmo se já setado).
                 await admin
                     .from("pagarme_subscriptions")
                     .update({ default_card_id: sub.default_card_id })
@@ -342,7 +378,23 @@ export async function collectPayment(
     }
 
     // Fallback / path PIX
-    const pix = await attachPixToInvoice(admin, sub, invoice.id, kind, attemptN);
+    const pix = await attachPixToInvoice(
+        admin,
+        sub,
+        invoice.id,
+        kind,
+        attemptN,
+        invoice.pagarme_order_id
+    );
+
+    if ("fulfilled" in pix && pix.fulfilled) {
+        return {
+            ok: true,
+            outcome: "paid_card",
+            invoiceId: invoice.id,
+            orderId: pix.orderId,
+        };
+    }
 
     await admin
         .from("pagarme_subscriptions")

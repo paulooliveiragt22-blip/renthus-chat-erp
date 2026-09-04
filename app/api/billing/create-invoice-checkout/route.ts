@@ -21,7 +21,6 @@ import {
     centsToBRL,
     isOrderCreditPaid,
     listCustomerCards,
-    cancelPagarmeChargeBestEffort,
 } from "@/lib/billing/pagarme";
 import { fulfillPayment } from "@/lib/billing/fulfillPayment";
 import { syncPendingObligationFromPsp } from "@/lib/billing/syncPendingObligationFromPsp";
@@ -33,6 +32,7 @@ import {
     checkoutOrderLabels,
 } from "@/lib/billing/ensureCheckout";
 import { isCheckoutIdempotencyFresh } from "@/lib/billing/checkoutIdempotency";
+import { reconcileOrCancelLiveOrder } from "@/lib/billing/reconcileLivePagarmeOrder";
 
 export const runtime = "nodejs";
 
@@ -289,6 +289,21 @@ export async function POST(req: Request) {
                 );
             }
 
+            // H4.2: cancel-before-create (ou fulfill se already paid)
+            const cardRecon = await reconcileOrCancelLiveOrder(
+                admin,
+                pendingRecord?.pagarme_order_id,
+                metaType
+            );
+            if (cardRecon.action === "fulfilled") {
+                return remember({
+                    ok: true,
+                    payment_method: "credit_card",
+                    payment_status: "paid",
+                    message: "Pagamento confirmado. Plano liberado.",
+                });
+            }
+
             const installments = Math.max(1, Math.min(12, Number(body.installments) || 1));
             let order;
             let usedCardId: string | null = savedCardId || null;
@@ -453,9 +468,21 @@ export async function POST(req: Request) {
             || (company.name as string | null)?.trim()
             || "Renthus";
 
-        // Regenerar: cancela charge anterior (best-effort) para evitar QR stale
+        // Regenerar: fulfill se paid; senão cancela charge anterior (anti-órfão)
         if (pendingRecord?.pagarme_order_id) {
-            await cancelPagarmeChargeBestEffort(pendingRecord.pagarme_order_id);
+            const pixRecon = await reconcileOrCancelLiveOrder(
+                admin,
+                pendingRecord.pagarme_order_id,
+                metaType
+            );
+            if (pixRecon.action === "fulfilled") {
+                return remember({
+                    ok: true,
+                    payment_method: "pix",
+                    payment_status: "paid",
+                    message: "Pagamento confirmado. Plano liberado.",
+                });
+            }
         }
 
         const created = await createPixInvoiceOrder({
