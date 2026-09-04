@@ -193,8 +193,8 @@ Se o superadmin **editar** a lista mensal do plano (R3-5), o 10% passa a usar o 
 | Ciclo anual R2-3 (kind=year, +1y no fulfill) | `[i]` Pacote 2/4 — fulfill period-aware, `kind=year`, dunning anual, seat/upgrade anual |
 | RBAC upgrade/downgrade só owner/admin (R3-7) | `[i]` server-side nas 3 rotas; UI (esconder botão p/ member) pendente |
 | Cortesia BN-08 1–30d | `[i]` RPC + use case + UI + testes alinhados a 1–30 |
-| BN-13 dunning D7 | pendente |
-| BN-14 reativação pós-bloqueio (ciclo cheio) | pendente — **≠** `self-reactivate` (abandoned→trial) |
+| BN-13 dunning D7 | `[i]` `fn_billing_collection_action` D1/D3/D5 retry + D7 block; cron filtra `kind∈{subscription,year}` |
+| BN-14 reativação pós-bloqueio (ciclo cheio) | `[i]` checkout interativo puxa obrigação canônica (subscription\|year); fulfill → `active` + `next=paid+período`; **≠** `self-reactivate` (abandoned→trial) |
 | BN-15 packs | `[>]` |
 | Limpeza legado setup (BN-05) | `[~]` fee=0 ok; paths/invoices `kind=setup` ainda existem |
 
@@ -247,7 +247,7 @@ Never-paid / abandoned (BN-09) **fora** desta matriz — não misturar com D7 de
 |---|------|------|
 | C1 | BN-08 courtesy 1–30 | `[i]` `grantCourtesyTrial.ts` (>30), route/UI label, teste 31 inválido + 30 válido |
 | C2 | BN-05 limpeza setup | Filtrar overdue; remover/dead-code `generateSetupCharge` path; cancelar setup pending no DB |
-| C3 | R2-3 anual | `[i]` `fn_billing_next_due(period)`; fulfill period-aware; `rpc_create_billing_obligation` promove `kind=year` + valor anual; dunning `kind in (subscription,year)` |
+| C3 | R2-3 anual | `[i]` `fn_billing_next_due(period)`; fulfill period-aware; `rpc_create_billing_obligation` promove `kind=year` + valor anual; dunning `kind in (subscription,year)`; **checkout interativo** (`loadCheckoutContext`) também puxa amount+kind do banco |
 | C4 | R3-3 seat × anual | `[i]` `rpc_quote_seat_add` período-aware (ano = seat×12 / 365); renew anual soma extras |
 | C5 | Marcar BN-12 `[i]` | já refletido acima |
 

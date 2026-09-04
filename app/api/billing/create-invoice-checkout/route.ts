@@ -58,7 +58,7 @@ async function persistCardBillingOrder(
         subId: string;
         amountCents: number;
         orderId: string;
-        kind: "setup" | "subscription";
+        kind: "setup" | "subscription" | "year";
         pendingInv: { id: string } | null;
     }
 ) {
@@ -96,7 +96,7 @@ async function persistPixBillingOrder(
         orderId: string;
         pixUrl: string | null;
         pixCode: string | null;
-        kind: "setup" | "subscription";
+        kind: "setup" | "subscription" | "year";
         pendingInv: { id: string } | null;
     }
 ) {

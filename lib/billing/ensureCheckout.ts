@@ -21,7 +21,8 @@ export type CheckoutStrategy = {
     isFirstPayment: boolean;
     metaType: "setup" | "invoice";
     amountCents: number;
-    invoiceKind: "setup" | "subscription";
+    /** `year` = ciclo anual (R2-3); canônico vindo de rpc_create_billing_obligation. */
+    invoiceKind: "setup" | "subscription" | "year";
 };
 
 export type PendingCheckoutRow = {
@@ -105,7 +106,6 @@ export async function loadCheckoutContext(
 
     const { loadPlanPricing } = await import("@/lib/billing/loadPlanPricing");
     const { computeMonthlyChargeCents } = await import("@/lib/billing/subscriptionAmount");
-    const { applyTenantPromoCents } = await import("@/lib/billing/resolvePromoForCharge");
     const { attachPromoOnAdesaoIfEligible } = await import("@/lib/billing/attachPromoOnAdesao");
 
     await attachPromoOnAdesaoIfEligible(admin, companyId);
@@ -119,101 +119,94 @@ export async function loadCheckoutContext(
         .maybeSingle();
 
     const subRow = subFresh ?? sub;
-    const { effectiveChargePlanKey } = await import("@/lib/billing/scheduleDowngrade");
-    const pendingKey = (subRow as { pending_plan_key?: string | null }).pending_plan_key;
-    const chargePlan = effectiveChargePlanKey(String(subRow.plan ?? "essencial"), pendingKey);
-    const pricing = await loadPlanPricing(admin, chargePlan);
-    const hasPending = Boolean(pendingKey && String(pendingKey).trim());
-    const seatQty = hasPending
-        ? pricing.includedSeats
-        : typeof (subRow as { seat_quantity?: number }).seat_quantity === "number" &&
-            (subRow as { seat_quantity: number }).seat_quantity >= 1
-          ? (subRow as { seat_quantity: number }).seat_quantity
-          : pricing.includedSeats;
-    const listWithSeats = computeMonthlyChargeCents(pricing, seatQty);
-    const { amountCents: chargeCents } = applyTenantPromoCents(listWithSeats, {
-        billingPeriod: (subRow as { billing_period?: string }).billing_period,
-        promoMonthsRemaining: (subRow as { promo_months_remaining?: number })
-            .promo_months_remaining,
-        promoSnapshot: (subRow as { promo_snapshot?: unknown }).promo_snapshot,
-    });
+    const stLower = String(subRow.status ?? "").toLowerCase();
+    const lastPaid = (subRow.last_paid_at as string | null) ?? null;
+    const nextMs = subRow.next_billing_at
+        ? Date.parse(String(subRow.next_billing_at))
+        : Number.NaN;
 
-    const strategyProbe = resolveCheckoutStrategy(
-        String(subRow.status),
-        chargePlan,
-        null,
-        (subRow.last_paid_at as string | null) ?? null,
-        { amountCents: chargeCents }
-    );
-    const { data: matchingPending } = await admin
+    type PendingKindRow = PendingCheckoutRow & { kind?: string | null };
+
+    // Obrigação já pendente (subscription|year). Não recria para prepaid ativo.
+    const { data: existingPending } = await admin
         .from("invoices")
-        .select("id, amount, pagarme_order_id, pagarme_payment_url, pix_qr_code")
+        .select("id, amount, pagarme_order_id, pagarme_payment_url, pix_qr_code, kind")
         .eq("company_id", companyId)
         .eq("status", "pending")
-        .eq("kind", strategyProbe.invoiceKind)
+        .in("kind", ["subscription", "year"])
         .order("created_at", { ascending: false })
         .limit(1)
         .maybeSingle();
 
-    let pendingForKind = (matchingPending as PendingCheckoutRow | null) ?? null;
-    if (!pendingForKind) {
-        const { data: anyPending } = await admin
-            .from("invoices")
-            .select("id, amount, pagarme_order_id, pagarme_payment_url, pix_qr_code")
-            .eq("company_id", companyId)
-            .eq("status", "pending")
-            .eq("kind", "subscription")
-            .order("created_at", { ascending: false })
-            .limit(1)
-            .maybeSingle();
-        pendingForKind = (anyPending as PendingCheckoutRow | null) ?? null;
+    const prepaidActive =
+        stLower === "active" &&
+        Number.isFinite(nextMs) &&
+        nextMs > Date.now() &&
+        !existingPending;
+
+    let pendingForKind = (existingPending as PendingKindRow | null) ?? null;
+    let obligKind: "subscription" | "year" =
+        pendingForKind?.kind === "year" ? "year" : "subscription";
+    let chargeCents = 0;
+
+    if (prepaidActive) {
+        // Rota curto-circuita (already_paid); amount só informativo (lista mensal).
+        const pricing = await loadPlanPricing(admin, String(subRow.plan ?? "essencial"));
+        const seatQty =
+            typeof (subRow as { seat_quantity?: number }).seat_quantity === "number" &&
+            (subRow as { seat_quantity: number }).seat_quantity >= 1
+                ? (subRow as { seat_quantity: number }).seat_quantity
+                : pricing.includedSeats;
+        chargeCents = computeMonthlyChargeCents(pricing, seatQty);
+    } else if (pendingForKind) {
+        chargeCents = Math.round(Number(pendingForKind.amount) * 100);
+    } else {
+        // Fonte canônica: banco calcula amount + kind (subscription|year), aplica
+        // plano efetivo (pending downgrade), seats, promo e período (governanca §2).
+        const { data: oblig, error: obligErr } = await admin.rpc(
+            "rpc_create_billing_obligation",
+            { p_company_id: companyId, p_kind: "subscription", p_seat_qty: null }
+        );
+        if (obligErr) return { error: obligErr.message, status: 500 };
+        const o = (oblig ?? {}) as {
+            invoice_id?: string;
+            kind?: string;
+            amount_cents?: number;
+        };
+        obligKind = o.kind === "year" ? "year" : "subscription";
+        chargeCents = Number(o.amount_cents ?? 0);
+        if (o.invoice_id) {
+            const { data: newInv } = await admin
+                .from("invoices")
+                .select("id, amount, pagarme_order_id, pagarme_payment_url, pix_qr_code, kind")
+                .eq("id", o.invoice_id)
+                .maybeSingle();
+            pendingForKind = (newInv as PendingKindRow | null) ?? null;
+        }
     }
 
     const strategy = resolveCheckoutStrategy(
         String(subRow.status),
         String(subRow.plan ?? "essencial"),
         null,
-        (subRow.last_paid_at as string | null) ?? null,
+        lastPaid,
         { amountCents: chargeCents }
     );
+    // Kind canônico do banco (subscription|year) — sobrepõe o default mensal.
+    strategy.invoiceKind = obligKind;
 
-    // H4.3: se pending diverge do catálogo, alinha amount e limpa order stale.
-    if (pendingForKind?.id) {
-        const catalogBrl = centsToBRL(strategy.amountCents);
-        const current = Number(pendingForKind.amount);
-        if (
-            Number.isFinite(current) &&
-            Math.abs(current - catalogBrl) > 0.02
-        ) {
-            const { reconcileOrCancelLiveOrder } = await import(
-                "@/lib/billing/reconcileLivePagarmeOrder"
-            );
-            const recon = await reconcileOrCancelLiveOrder(
-                admin,
-                pendingForKind.pagarme_order_id,
-                strategy.metaType
-            );
-            if (recon.action === "fulfilled") {
-                pendingForKind = null;
-            } else {
-                await admin
-                    .from("invoices")
-                    .update({
-                        amount: catalogBrl,
-                        pagarme_order_id: null,
-                        pagarme_payment_url: null,
-                        pix_qr_code: null,
-                    })
-                    .eq("id", pendingForKind.id)
-                    .eq("status", "pending");
-                pendingForKind = {
-                    ...pendingForKind,
-                    amount: catalogBrl,
-                    pagarme_order_id: null,
-                    pagarme_payment_url: null,
-                    pix_qr_code: null,
-                };
-            }
+    // Reconcile order pendente já pago no PSP (webhook perdido) → libera antes do QR.
+    if (pendingForKind?.id && pendingForKind.pagarme_order_id) {
+        const { reconcileOrCancelLiveOrder } = await import(
+            "@/lib/billing/reconcileLivePagarmeOrder"
+        );
+        const recon = await reconcileOrCancelLiveOrder(
+            admin,
+            pendingForKind.pagarme_order_id,
+            strategy.metaType
+        );
+        if (recon.action === "fulfilled") {
+            pendingForKind = null;
         }
     }
 
@@ -240,6 +233,13 @@ export function checkoutOrderLabels(strategy: CheckoutStrategy, planLabel: strin
             description: `Taxa de ativação Renthus — Plano ${planLabel}`,
             itemCode: "setup" as const,
             tipoLabel: "Taxa de ativação",
+        };
+    }
+    if (strategy.invoiceKind === "year") {
+        return {
+            description: `Plano anual Renthus — ${planLabel}`,
+            itemCode: "mensalidade" as const,
+            tipoLabel: "Plano anual",
         };
     }
     return {
