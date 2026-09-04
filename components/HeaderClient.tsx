@@ -289,46 +289,6 @@ export default function HeaderClient({
                         void handleLogoFile(f);
                     }}
                 />
-                <button
-                    type="button"
-                    onClick={() => logoInputRef.current?.click()}
-                    disabled={logoUploading}
-                    title={companyLogoUrl ? "Trocar logo da empresa" : "Adicionar logo da empresa"}
-                    aria-label={companyLogoUrl ? "Trocar logo da empresa" : "Adicionar logo da empresa"}
-                    className={cn(
-                        "relative flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-lg",
-                        "bg-white/10 transition-transform duration-150 hover:-translate-y-0.5 hover:bg-white/15",
-                        "disabled:opacity-60"
-                    )}
-                >
-                    {logoUploading ? (
-                        <Loader2 className="h-4 w-4 animate-spin text-white/80" />
-                    ) : companyLogoUrl ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img
-                            src={companyLogoUrl}
-                            alt=""
-                            className="h-full w-full object-cover"
-                        />
-                    ) : (
-                        <ImagePlus className="h-4 w-4 text-white/80" />
-                    )}
-                </button>
-                {logoHint ? (
-                    <span className="absolute right-0 top-[calc(100%+6px)] z-[60] max-w-[220px] rounded-lg bg-white px-2.5 py-1.5 text-[11px] font-medium text-zinc-700 shadow-lg">
-                        {logoHint}{" "}
-                        <button
-                            type="button"
-                            className="font-bold text-[#16364D] underline"
-                            onClick={() => {
-                                setLogoHint(null);
-                                router.push("/configuracoes");
-                            }}
-                        >
-                            Abrir
-                        </button>
-                    </span>
-                ) : null}
 
                 {canOfferInstall && (
                     <div ref={iosHintRef} className="relative">
@@ -379,11 +339,38 @@ export default function HeaderClient({
                     aria-haspopup="true"
                     aria-expanded={menuOpen}
                     onClick={() => setMenuOpen((s) => !s)}
-                    title="Abrir menu do usuário"
+                    title="Menu da empresa"
                     className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-full bg-white text-sm font-bold text-[#16364D] shadow-[0_2px_6px_rgba(0,0,0,0.12)] transition-transform duration-150 hover:-translate-y-0.5"
                 >
-                    R
+                    {logoUploading ? (
+                        <Loader2 className="h-4 w-4 animate-spin text-[#16364D]" />
+                    ) : companyLogoUrl ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                            src={companyLogoUrl}
+                            alt=""
+                            className="h-full w-full object-cover"
+                        />
+                    ) : (
+                        <ImagePlus className="h-4 w-4 text-[#16364D]/70" aria-hidden />
+                    )}
                 </button>
+
+                {logoHint ? (
+                    <span className="absolute right-0 top-[calc(100%+6px)] z-[60] max-w-[240px] rounded-lg bg-white px-2.5 py-1.5 text-[11px] font-medium text-zinc-700 shadow-lg">
+                        {logoHint}{" "}
+                        <button
+                            type="button"
+                            className="font-bold text-[#16364D] underline"
+                            onClick={() => {
+                                setLogoHint(null);
+                                router.push("/configuracoes");
+                            }}
+                        >
+                            Abrir
+                        </button>
+                    </span>
+                ) : null}
 
                 <div
                     ref={menuRef}
@@ -398,6 +385,16 @@ export default function HeaderClient({
                     </div>
 
                     <div className="flex flex-col gap-1.5 p-2">
+                        <button
+                            type="button"
+                            onClick={() => {
+                                setMenuOpen(false);
+                                logoInputRef.current?.click();
+                            }}
+                            className="rounded-md px-2.5 py-2 text-left text-sm font-bold text-zinc-700 hover:bg-zinc-50"
+                        >
+                            {companyLogoUrl ? "Trocar logo" : "Adicionar logo"}
+                        </button>
                         <button
                             type="button"
                             onClick={goToSettings}
