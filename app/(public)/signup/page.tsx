@@ -15,6 +15,8 @@ import { PLAN_CATALOG, PLAN_ORDER, type CommercialPlanKey } from "@/lib/billing/
 
 type TrialPolicy = { trial_days: number; payment_required: boolean };
 
+type BillingPeriod = "month" | "year";
+
 type SignupPlanCard = {
     key: CommercialPlanKey;
     name: string;
@@ -22,6 +24,7 @@ type SignupPlanCard = {
     description: string;
     listMonthlyCents: number;
     offerMonthlyCents: number;
+    listYearlyCents: number | null;
     promoLabel: string | null;
     features: string[];
 };
@@ -57,6 +60,7 @@ function catalogFallbackPlans(): SignupPlanCard[] {
             description: c.description,
             listMonthlyCents: c.monthlyPriceCents,
             offerMonthlyCents: c.monthlyPriceCents,
+            listYearlyCents: c.yearlyPriceCents ?? null,
             promoLabel: null,
             features: PLAN_FEATURE_BLURBS[key],
         };
@@ -66,6 +70,18 @@ function catalogFallbackPlans(): SignupPlanCard[] {
 type PlanKey = CommercialPlanKey;
 function fmtCents(cents: number) {
     return (cents / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+}
+
+/** Valor/mês equivalente do plano anual (anual à vista ÷ 12). */
+function yearlyPerMonthCents(yearlyCents: number) {
+    return Math.round(yearlyCents / 12);
+}
+
+/** % de desconto do anual vs 12× mensal de lista. 0 se não houver ganho. */
+function yearlyDiscountPct(monthlyListCents: number, yearlyCents: number) {
+    const full = monthlyListCents * 12;
+    if (full <= 0 || yearlyCents <= 0 || yearlyCents >= full) return 0;
+    return Math.round((1 - yearlyCents / full) * 100);
 }
 
 async function syncServerSession(session: Session | null) {
@@ -89,6 +105,7 @@ export default function SignupPage() {
     const router   = useRouter();
     const supabase = useMemo(() => createClient(), []);
     const [selectedPlan, setSelectedPlan] = useState<PlanKey | null>(null);
+    const [billingPeriod, setBillingPeriod] = useState<BillingPeriod>("year");
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [trialPolicy, setTrialPolicy] = useState<TrialPolicy>({
@@ -143,6 +160,7 @@ export default function SignupPage() {
                         description: string | null;
                         list_monthly_cents: number;
                         offer_monthly_cents: number;
+                        list_yearly_cents: number | null;
                         popular: boolean;
                         promo: { label_de_por: string } | null;
                     }>;
@@ -163,6 +181,11 @@ export default function SignupPage() {
                             description: row.description || c.description,
                             listMonthlyCents: row.list_monthly_cents,
                             offerMonthlyCents: row.offer_monthly_cents,
+                            listYearlyCents:
+                                typeof row.list_yearly_cents === "number" &&
+                                row.list_yearly_cents > 0
+                                    ? row.list_yearly_cents
+                                    : (c.yearlyPriceCents ?? null),
                             promoLabel: row.promo?.label_de_por ?? null,
                             features: PLAN_FEATURE_BLURBS[key],
                         });
@@ -208,6 +231,7 @@ export default function SignupPage() {
                     whatsapp:         form.whatsapp,
                     email:            form.email,
                     plan:             selectedPlan,
+                    billing_period:   billingPeriod,
                     password:         form.password,
                     password_confirm: form.password_confirm,
                 }),
@@ -297,11 +321,49 @@ export default function SignupPage() {
                 </p>
             </div>
 
+            <div style={S.periodToggleWrap}>
+                <div style={S.periodToggle} role="tablist" aria-label="Ciclo de cobrança">
+                    <button
+                        type="button"
+                        role="tab"
+                        aria-selected={billingPeriod === "month"}
+                        onClick={() => setBillingPeriod("month")}
+                        style={{
+                            ...S.periodBtn,
+                            ...(billingPeriod === "month" ? S.periodBtnActive : {}),
+                        }}
+                    >
+                        Mensal
+                    </button>
+                    <button
+                        type="button"
+                        role="tab"
+                        aria-selected={billingPeriod === "year"}
+                        onClick={() => setBillingPeriod("year")}
+                        style={{
+                            ...S.periodBtn,
+                            ...(billingPeriod === "year" ? S.periodBtnActive : {}),
+                        }}
+                    >
+                        Anual
+                        <span style={S.periodBtnHint}>economize até 20%</span>
+                    </button>
+                </div>
+            </div>
+
             <div style={S.plansRow}>
                 {plans.map((p) => {
                     const active = selectedPlan === p.key;
                     const hasPromo =
                         p.promoLabel != null && p.offerMonthlyCents < p.listMonthlyCents;
+                    const showYear =
+                        billingPeriod === "year" &&
+                        p.listYearlyCents != null &&
+                        p.listYearlyCents > 0;
+                    const yearPerMonth = showYear ? yearlyPerMonthCents(p.listYearlyCents!) : 0;
+                    const yearPct = showYear
+                        ? yearlyDiscountPct(p.listMonthlyCents, p.listYearlyCents!)
+                        : 0;
                     return (
                         <div
                             key={p.key}
@@ -318,7 +380,25 @@ export default function SignupPage() {
                             <div style={S.planName}>{p.name}</div>
                             <div style={S.planDesc}>{p.description}</div>
                             <div style={{ ...S.priceRow, transition: "opacity 0.25s" }}>
-                                {hasPromo ? (
+                                {showYear ? (
+                                    <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                                        <span
+                                            style={{
+                                                ...S.pricePer,
+                                                textDecoration: "line-through",
+                                                opacity: 0.75,
+                                            }}
+                                        >
+                                            De {fmtCents(p.listMonthlyCents)}/mês
+                                        </span>
+                                        <span>
+                                            <span style={S.priceValue}>
+                                                {fmtCents(yearPerMonth)}
+                                            </span>
+                                            <span style={S.pricePer}>/mês</span>
+                                        </span>
+                                    </div>
+                                ) : hasPromo ? (
                                     <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
                                         <span
                                             style={{
@@ -345,10 +425,17 @@ export default function SignupPage() {
                                     </>
                                 )}
                             </div>
-                            {hasPromo && (
-                                <div style={{ ...S.setupLine, color: "#57ff8f" }}>
-                                    {p.promoLabel}
+                            {showYear ? (
+                                <div style={{ ...S.setupLine, color: "#16a34a", fontWeight: 600 }}>
+                                    {fmtCents(p.listYearlyCents!)}/ano à vista
+                                    {yearPct > 0 ? ` · economize ${yearPct}%` : ""}
                                 </div>
+                            ) : (
+                                hasPromo && (
+                                    <div style={{ ...S.setupLine, color: "#57ff8f" }}>
+                                        {p.promoLabel}
+                                    </div>
+                                )
                             )}
                             <div style={S.setupLine}>
                                 {trialPolicy.payment_required
@@ -399,29 +486,40 @@ export default function SignupPage() {
 
                     <div style={S.resumoBox}>
                         <div style={S.resumoQuestion}>Como funciona</div>
-                        {trialPolicy.payment_required ? (
-                            <>
-                                <div style={S.resumoHighlight}>
-                                    Após criar a conta, você paga a 1ª mensalidade do plano {plan.name} (
-                                    {fmtCents(plan.offerMonthlyCents)}/mês) por PIX ou cartão.
-                                </div>
-                                <div style={S.resumoHighlight}>
-                                    Só depois do pagamento você acessa o ERP e configura WhatsApp e produtos.
-                                </div>
-                            </>
-                        ) : (
-                            <>
-                                <div style={S.resumoHighlight}>
-                                    Você usa o sistema grátis por {trialPolicy.trial_days} dias (plano{" "}
-                                    {plan.name}).
-                                </div>
-                                <div style={S.resumoHighlight}>
-                                    Quando o teste acabar, enviamos a cobrança da mensalidade (
-                                    {fmtCents(plan.offerMonthlyCents)}/mês) por PIX. Ao pagar, o acesso continua
-                                    normalmente — sem novo cadastro.
-                                </div>
-                            </>
-                        )}
+                        {(() => {
+                            const isYear =
+                                billingPeriod === "year" &&
+                                plan.listYearlyCents != null &&
+                                plan.listYearlyCents > 0;
+                            const chargeLabel = isYear
+                                ? `${fmtCents(plan.listYearlyCents!)}/ano à vista`
+                                : `${fmtCents(plan.offerMonthlyCents)}/mês`;
+                            const cicloLabel = isYear ? "plano anual" : "1ª mensalidade";
+                            return trialPolicy.payment_required ? (
+                                <>
+                                    <div style={S.resumoHighlight}>
+                                        Após criar a conta, você paga o {cicloLabel} do {plan.name} (
+                                        {chargeLabel}) por PIX ou cartão.
+                                    </div>
+                                    <div style={S.resumoHighlight}>
+                                        Só depois do pagamento você acessa o ERP e configura WhatsApp e
+                                        produtos.
+                                    </div>
+                                </>
+                            ) : (
+                                <>
+                                    <div style={S.resumoHighlight}>
+                                        Você usa o sistema grátis por {trialPolicy.trial_days} dias (plano{" "}
+                                        {plan.name}).
+                                    </div>
+                                    <div style={S.resumoHighlight}>
+                                        Quando o teste acabar, enviamos a cobrança do {cicloLabel} (
+                                        {chargeLabel}) por PIX. Ao pagar, o acesso continua normalmente —
+                                        sem novo cadastro.
+                                    </div>
+                                </>
+                            );
+                        })()}
                     </div>
 
                     <div style={S.sectionLabel}>Empresa</div>
@@ -566,6 +664,45 @@ const S = {
         fontSize:   15,
         lineHeight: 1.5,
         color:      "rgba(255,255,255,0.58)",
+    },
+    periodToggleWrap: {
+        display:        "flex",
+        justifyContent: "center",
+        width:          "100%",
+        marginBottom:   28,
+    },
+    periodToggle: {
+        display:      "inline-flex",
+        background:   "rgba(255,255,255,0.08)",
+        border:       "1px solid rgba(255,255,255,0.14)",
+        borderRadius: 999,
+        padding:      4,
+        gap:          4,
+    },
+    periodBtn: {
+        display:      "inline-flex",
+        alignItems:   "center",
+        gap:          8,
+        border:       "none",
+        background:   "transparent",
+        color:        "rgba(255,255,255,0.7)",
+        fontSize:     14,
+        fontWeight:   700,
+        padding:      "9px 20px",
+        borderRadius: 999,
+        cursor:       "pointer",
+        transition:   "all 0.15s",
+    },
+    periodBtnActive: {
+        background: BRAND.accent,
+        color:      BRAND.accentFg,
+        boxShadow:  "0 3px 10px rgba(87,255,143,0.35)",
+    },
+    periodBtnHint: {
+        fontSize:      10,
+        fontWeight:    700,
+        letterSpacing: "0.2px",
+        opacity:       0.85,
     },
     plansRow: {
         display:        "flex",
