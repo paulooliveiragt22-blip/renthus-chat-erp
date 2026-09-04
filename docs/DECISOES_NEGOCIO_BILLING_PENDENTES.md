@@ -159,9 +159,8 @@ Se o superadmin **editar** a lista mensal do plano (R3-5), o 10% passa a usar o 
 | Preços 279/349/449 + year cols + seats cols + setup 0 + trial 0 | `[i]` PR #158 |
 | IA wallet = 10% lista mensal (R3-6) | `[i]` via `planCatalog.aiIncludedCents` |
 | Superadmin editar mensal/anual/seat (R3-5) + cobrança lê DB+seats | `[i]` C1 |
-| `seat_quantity` + gate invite no cap | `[i]` C1 (compra seat_add ainda pendente) |
+| `seat_quantity` + gate invite no cap | `[i]` C1 |
 | Tabela `plan_promotions` (schema) | `[i]` C1 schema |
-| Promo engine + snapshot adesão | pendente |
 | Seat mid-cycle checkout `seat_add` + renew | `[i]` C2 — `POST /api/billing/seats/purchase` + fulfill bump |
 | Promo engine + snapshot adesão | pendente |
 | Downgrade com seleção de users | pendente |
