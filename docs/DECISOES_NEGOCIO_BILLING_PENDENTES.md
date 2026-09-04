@@ -60,7 +60,7 @@ Uma única obrigação no ano (PIX/cartão valor cheio).
 
 **Resolvido (Pacote 2/4):** `fn_billing_next_due(paid_at, period)` (+1m|+1y), `rpc_fulfill_obligation` period-aware, `rpc_create_billing_obligation` promove `kind=year` com valor anual canônico e dunning anual no cron (`kind in (subscription,year)`). Validado end-to-end via RPC.
 
-**UI anual (Pacote 5 — 2026-09-04):** `/signup` ganhou toggle Mensal/Anual (default Anual): card mostra `price_year_cents/12` /mês + total/ano à vista + −20%; `rpc_signup_company_with_billing` recebe `p_billing_period` (grava `billing_period`), 1ª fatura via `createInitialInvoice` (period-aware). `/plano` (PlanChangeCatalog) ganhou o mesmo toggle e a ação **migrar mensal→anual** (ver R2-5).
+**UI anual (Pacote 5 — 2026-09-04):** `/signup` ganhou toggle Mensal/Anual (default Anual): card mostra `price_year_cents/12` /mês + total/ano à vista + −20%; `rpc_signup_company_with_billing` recebe `p_billing_period` (grava `billing_period`), 1ª fatura via `createInitialInvoice` (period-aware). `/plano` e `/plano/pagar` (PlanChangeCatalog) ganharam o mesmo toggle (também em `pending_payment`); never-paid persiste ciclo via `rpc_set_prepay_billing_period`. Assinante mensal ativo usa **migrar mensal→anual** (ver R2-5).
 
 ### R2-5 — Troca de ciclo mensal→anual (pay-to-switch) `[i]`
 

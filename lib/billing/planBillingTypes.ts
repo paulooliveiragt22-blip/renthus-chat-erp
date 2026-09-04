@@ -25,7 +25,7 @@ export type BillingStatusJson = {
         pix_qr_code: string | null;
         amount: number;
         due_at: string;
-        kind?: "setup" | "subscription";
+        kind?: "setup" | "subscription" | "year";
     } | null;
     /** Resultado do sync PSP sob demanda (rede de segurança se webhook falhou). */
     psp_sync?: {
