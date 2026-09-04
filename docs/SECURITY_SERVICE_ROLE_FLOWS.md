@@ -7,7 +7,7 @@ Objetivo: saber onde o Postgres vê `auth.role() = 'service_role'` (RLS contorna
 | Fluxo | Entrada de confiança |
 |--------|------------------------|
 | Webhook WhatsApp `POST /api/whatsapp/incoming` | Assinatura `X-Hub-Signature-256` + `WHATSAPP_APP_SECRET` |
-| Webhook Pagar.me `POST /api/billing/webhook` | Rate limit IP; HMAC opcional/legado; **confirmação paid via GET order API** |
+| Webhook Pagar.me `POST /api/billing/webhook` | Rate limit IP; **Basic Auth** (`PAGARME_WEBHOOK_BASIC_*`); HMAC legado se header; **confirmação paid via GET order API** |
 | Cron fila chatbot `GET /api/chatbot/process-queue` | `Authorization: Bearer CRON_SECRET` |
 | Cron sync catálogo marketplace `GET /api/marketplace/sync-catalog` | `Authorization: Bearer CRON_SECRET` |
 | Cron billing `POST /api/billing/charge` | `Authorization: Bearer CRON_SECRET` (+ opcional `x-vercel-cron: 1` do Vercel) |

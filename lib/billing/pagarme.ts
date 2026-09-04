@@ -14,6 +14,7 @@ import {
     type PlanInputKey,
 } from "@/lib/billing/planCatalog";
 import { isPixEmvPayload, isMundipaggPixStubUrl } from "@/lib/billing/pixEmv";
+import { verifyPagarmeWebhookHmacSignature } from "@/lib/billing/pagarmeWebhookAuth";
 
 export { isPixEmvPayload, isMundipaggPixStubUrl };
 
@@ -638,42 +639,20 @@ export async function resolvePixFromOrder(order: PagarmeOrder): Promise<{
 }
 
 /**
- * Assinatura HMAC do webhook — legado / opcional.
+ * Assinatura HMAC do webhook — legado / opcional (v3/v4).
+ * L1 canônico do Core v5 = Basic Auth em `pagarmeWebhookAuth.ts`.
  *
- * Pagar.me Core **v5** (hookset no painel) **não** documenta secret HMAC nem exige
- * `X-Hub-Signature`. Autenticação opcional no painel = Basic Auth (user/senha) que o
- * PSP envia para a nossa URL — não é o mesmo que HMAC.
- *
- * Postbacks v3/v4 usavam HMAC-SHA1 com a Secret Key. Se o header vier e
- * `PAGARME_WEBHOOK_SECRET` estiver setado, valida SHA-256 (compat). Sem header /
- * sem secret → `true` (fonte da verdade do pago = GET `/orders/:id`).
+ * Se secret e header presentes → timing-safe HMAC-SHA256.
+ * Sem header ou sem secret → `true` (não bloqueia; Basic Auth já gated).
  */
 export async function verifyWebhookSignature(
     rawBody: string,
     signature: string
 ): Promise<boolean> {
     const secret = process.env.PAGARME_WEBHOOK_SECRET?.trim();
-    // `replace` (não replaceAll sem /g): Node exige flag `g` em replaceAll(RegExp).
-    const sig = signature.replace(/^sha256=/i, "").trim();
+    const sig = (signature ?? "").trim();
     if (!secret || !sig) return true;
-
-    const key = await crypto.subtle.importKey(
-        "raw",
-        new TextEncoder().encode(secret),
-        { name: "HMAC", hash: "SHA-256" },
-        false,
-        ["sign"]
-    );
-    const sigBuffer = await crypto.subtle.sign(
-        "HMAC",
-        key,
-        new TextEncoder().encode(rawBody)
-    );
-    const computed = Array.from(new Uint8Array(sigBuffer))
-        .map((b) => b.toString(16).padStart(2, "0"))
-        .join("");
-
-    return computed === sig;
+    return verifyPagarmeWebhookHmacSignature(rawBody, signature, secret);
 }
 
 /** Order/charge considerado pago na API Pagar.me (fonte da verdade). */

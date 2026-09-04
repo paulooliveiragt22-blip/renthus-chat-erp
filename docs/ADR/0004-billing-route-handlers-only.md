@@ -1,9 +1,10 @@
 # ADR 0004 — Billing: runtime Route Handlers + orquestração canônica
 
-**Status:** aceito (emenda 2026-09-04 — HMAC prod + ponte para hardening)  
+**Status:** aceito (emenda 2026-09-04 — Basic Auth prod + ponte para hardening)  
 **Data original:** 2026-08-28  
 **Emenda:** 2026-09-02 — calibração pós-diagnóstico sandbox (webhook morto, órfãos PIX, preço stale, RPC features errada)  
-**Emenda:** 2026-09-04 — B2.5 supersedido parcialmente por [ADR-0006](./0006-billing-hardening-idempotency-security.md) (HMAC obrigatório em produção; CAS/claim/unique pending)
+**Emenda:** 2026-09-04 — B2.5 supersedido parcialmente por [ADR-0006](./0006-billing-hardening-idempotency-security.md) (auth webhook + CAS/claim/unique pending)  
+**Emenda:** 2026-09-04b — L1 canônico = **Basic Auth** do hookset Core v5 (não HMAC); HMAC permanece legado se `X-Hub-Signature` vier.
 
 **Contexto:** R6.3 — cobrança, webhook Pagar.me, cron de renovação e fulfill compartilham `service_role`, idempotência e Sentry. Emenda incorpora falhas reais: `pagarme_webhook_events` vazio com orders pagos no PSP; invoice pendente com valor ≠ plano; UI QR sem EMV; entitlements lendo a tabela errada.
 
@@ -56,11 +57,11 @@ Nova Edge Function que toque billing exige **novo ADR** + revisão de segurança
 
 Alinhado a E1 (`CHECKLIST_TENANT_ACCESS_SIGNUP_PAYMENTS`) e à lição do ADR-0003 (reconciler como primeira linha **mascara** ingestão morta):
 
-1. **P0 obrigatório:** webhook Pagar.me → `POST /api/billing/webhook` recebendo e persistindo em `pagarme_webhook_events` (lifecycle E1). Auth: Core v5 **sem** secret HMAC no painel (Basic Auth opcional; neste projeto não usamos). Gate de segurança do pago = **GET `/orders/:id` na API** antes de `FulfillPayment` — webhook é notificação, API é fonte da verdade.
+1. **P0 obrigatório:** webhook Pagar.me → `POST /api/billing/webhook` recebendo e persistindo em `pagarme_webhook_events` (lifecycle E1). Auth L1 Core v5: **Basic Auth** no painel do hookset + `PAGARME_WEBHOOK_BASIC_USER` / `PAGARME_WEBHOOK_BASIC_PASSWORD` (obrigatório em produção). Gate de segurança do **pago** = **GET `/orders/:id` na API** antes de `FulfillPayment` — webhook é notificação autenticada, API é fonte da verdade.
 2. **Sync sob demanda (rede de segurança UX):** `GET /api/billing/status` e reentrada em `create-invoice-checkout` chamam `syncPendingObligationFromPsp` — se obrigação pending tem `pagarme_order_id` e o order no PSP está `paid`, roda o mesmo `FulfillPayment` (idempotente). O paywall já polla status ~5s; webhook morto não deixa o tenant eternamente travado após pagar.
 3. **Watchdog / replay** (ops): cron Route Handler com `CRON_SECRET` **ou** ação platform “Replay fulfill(`order_id`)” — dead-letter / órfãos; alerta Sentry se checkouts criados e **zero** eventos webhook em janela N.
 4. **Proibido no P0:** cron que lista “todos paid no PSP” como caminho feliz de liberação de plano.
-5. **`PAGARME_WEBHOOK_SECRET`:** **emenda 2026-09-04 (ADR-0006 D2)** — em **produção** o secret é **obrigatório**; HMAC inválido/ausente → 401; comparação com `timingSafeEqual`. Preview/local só pode aceitar sem secret com `ALLOW_INSECURE_PAGARME_WEBHOOK=1`. Gate de verdade do pago continua sendo GET `/orders/:id` antes de `FulfillPayment`. **Não** guardar secret no Postgres. (Texto anterior “opcional/legado” aplica-se só a ambientes com flag insecure.)
+5. **Auth webhook (emenda 2026-09-04b):** em **produção**, `PAGARME_WEBHOOK_BASIC_USER` + `PAGARME_WEBHOOK_BASIC_PASSWORD` são **obrigatórios** (espelho do Basic Auth do painel); ausente → 503; inválido → 401; comparação timing-safe. Preview/local sem Basic só com `ALLOW_INSECURE_PAGARME_WEBHOOK=1`. `PAGARME_WEBHOOK_SECRET` / HMAC = **legado** (valida só se header + secret presentes). Gate de verdade do pago continua sendo GET `/orders/:id`. **Não** guardar credenciais no Postgres.
 
 ### B3 — EnsureCheckout anti-órfão + PIX EMV
 

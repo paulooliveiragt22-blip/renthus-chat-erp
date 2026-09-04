@@ -61,7 +61,10 @@ npm run test:billing-sandbox
 |----------|---------|------|
 | `PAGARME_API_KEY` | `sk_test_…` / `sk_live_…` | **Vercel** (+ local smoke) |
 | `NEXT_PUBLIC_PAGARME_PUBLIC_KEY` | `pk_test_…` | **Vercel** |
-| `PAGARME_WEBHOOK_SECRET` | (opcional/legado) | Vercel — **não** existe no painel Core v5; HMAC só se `X-Hub-Signature` vier |
+| `PAGARME_WEBHOOK_BASIC_USER` | user do hookset | **Vercel** + painel Pagar.me (Basic Auth) |
+| `PAGARME_WEBHOOK_BASIC_PASSWORD` | senha do hookset | **Vercel** + painel Pagar.me |
+| `PAGARME_WEBHOOK_SECRET` | (opcional/legado) | Vercel — HMAC só se `X-Hub-Signature` vier (não é o auth v5) |
+| `ALLOW_INSECURE_PAGARME_WEBHOOK` | `1` só preview/local | Nunca em Production |
 
 Local `.env.local` **opcional** — só para `npm run test:billing-sandbox` ou Playwright com `E2E_BASE_URL` local.
 
@@ -95,7 +98,18 @@ URL: `https://renthus-chat-erp.vercel.app/api/billing/webhook`
 
 Eventos mínimos: `order.paid`, `charge.paid` (opcional `order.payment_failed`).
 
-**Auth v5:** sem usuário/senha no hook e sem secret HMAC no painel. O handler confirma `paid` via `GET /orders/:id` antes de liberar. `PAGARME_WEBHOOK_SECRET` no env é legado/opcional.
+**Auth v5 (L1):** no painel do hookset, ative **Basic Auth** (user/senha). Espelhe em `PAGARME_WEBHOOK_BASIC_USER` / `PAGARME_WEBHOOK_BASIC_PASSWORD` na Vercel Production. Sem isso o handler responde **503**; credencial errada → **401**. Preview/local sem Basic: `ALLOW_INSECURE_PAGARME_WEBHOOK=1`. HMAC `PAGARME_WEBHOOK_SECRET` é legado (só se `X-Hub-Signature` vier).
+
+**Fonte da verdade do pago:** `GET /orders/:id` antes de liberar — Basic Auth só autentica o POST.
+
+**Prova rápida auth:**
+```bash
+# deve 401
+curl -s -o /dev/null -w "%{http_code}" -X POST "$BASE/api/billing/webhook" -d '{}'
+# deve passar do gate auth (pode 400 JSON) com Basic correto
+curl -s -o /dev/null -w "%{http_code}" -X POST "$BASE/api/billing/webhook" \
+  -u "$PAGARME_WEBHOOK_BASIC_USER:$PAGARME_WEBHOOK_BASIC_PASSWORD" -d '{}'
+```
 
 **Health:** `GET /api/billing/webhook-health` com `Authorization: Bearer $CRON_SECRET` — Sentry se pending+order e zero eventos/24h.
 
@@ -103,7 +117,7 @@ Eventos mínimos: `order.paid`, `charge.paid` (opcional `order.payment_failed`).
 
 **Sync sob demanda:** `GET /api/billing/status` (paywall poll ~5s) e reentrada no checkout — se pending tem `pagarme_order_id` e o PSP está `paid`, roda o mesmo `FulfillPayment`. Campo `psp_sync` na resposta. Webhook continua canônico; sync evita tenant travado.
 
-Se `pagarme_webhook_events` = 0 após pagamento sandbox: conferir URL/POST no painel Pagar.me e logs Vercel (401 secret / 405 método). Não usar reconcile cego em massa (ADR-0004).
+Se `pagarme_webhook_events` = 0 após pagamento sandbox: conferir URL/POST no painel Pagar.me, Basic Auth env↔painel, e logs Vercel (401 unauthorized / 503 auth_not_configured / 405 método). Não usar reconcile cego em massa (ADR-0004).
 
 ### PIX sem copia-e-cola (`pix_emv_unavailable` / `pix_gateway_stub`)
 

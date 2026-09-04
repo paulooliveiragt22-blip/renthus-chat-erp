@@ -27,14 +27,21 @@ if (missing.length) {
     process.exit(1);
 }
 
-// Pagar.me Core v5: sem secret HMAC no painel. HMAC opcional/legado.
+// Pagar.me Core v5: L1 = Basic Auth do hookset (não HMAC).
+const basicUser = process.env.PAGARME_WEBHOOK_BASIC_USER?.trim();
+const basicPass = process.env.PAGARME_WEBHOOK_BASIC_PASSWORD?.trim();
+if (!basicUser || !basicPass) {
+    console.error(
+        "[check-production-env] Faltam PAGARME_WEBHOOK_BASIC_USER e/ou PAGARME_WEBHOOK_BASIC_PASSWORD (Basic Auth do painel Pagar.me)."
+    );
+    process.exit(1);
+}
+console.log(
+    "[check-production-env] PAGARME_WEBHOOK_BASIC_* set — webhook exige Authorization Basic em produção."
+);
 if (process.env.PAGARME_WEBHOOK_SECRET?.trim()) {
     console.log(
-        "[check-production-env] PAGARME_WEBHOOK_SECRET set (legado/opcional) — só rejeita se X-Hub-Signature vier e não bater."
-    );
-} else {
-    console.log(
-        "[check-production-env] Sem PAGARME_WEBHOOK_SECRET — webhook v5 OK; pago confirmado via GET /orders na API."
+        "[check-production-env] PAGARME_WEBHOOK_SECRET set (legado) — só valida se X-Hub-Signature vier."
     );
 }
 
