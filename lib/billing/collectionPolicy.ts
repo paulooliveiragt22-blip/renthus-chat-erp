@@ -95,8 +95,3 @@ export async function resolveCollectionActionDb(
             return { type: "noop" };
     }
 }
-
-/** Trial vencido: setup fee > 0 → setup; senão first invoice (pending_payment). */
-export function resolveTrialDueKind(setupPriceCents: number): "setup" | "first_invoice" {
-    return setupPriceCents > 0 ? "setup" : "first_invoice";
-}

@@ -4,8 +4,8 @@
  * Cron diário (Vercel, 08:00 BRT) — vercel.json: "0 11 * * *" (UTC)
  *
  * 1. trial/active vencido → CollectPayment (card-first se default_card_id; senão PIX)
- * 2. overdue D1/D3 → retry card (CollectPayment) + WA; D5+ block
- * 3. pending_setup legado stale >5d → block
+ * 2. overdue de quem JÁ pagou: D1/D3/D5 retry card + WA; D7 block (BN-13)
+ * 3. never-paid NÃO bloqueia aqui — lifecycle → abandoned é do cron mark-abandoned (14d)
  */
 
 import { NextResponse } from "next/server";
@@ -13,23 +13,12 @@ import * as Sentry from "@sentry/nextjs";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { validateCronAuthorization } from "@/lib/security/cronAuth";
 import {
-    createPixInvoiceOrder,
-    getSetupPriceCents,
-    centsToBRL,
-    resolvePixFromOrder,
-} from "@/lib/billing/pagarme";
-import {
     sendBillingNotification,
     buildOverdueMessage,
 } from "@/lib/billing/sendBillingNotification";
-import { buildPagarmeCustomerPayload } from "@/lib/billing/buildPagarmeCustomerFromCompany";
 import { billingLog } from "@/lib/billing/billingLog";
-import { isUniqueViolation } from "@/lib/billing/isUniqueViolation";
 import { collectPayment, type CollectSub } from "@/lib/billing/collectPayment";
-import {
-    resolveCollectionActionDb,
-    resolveTrialDueKind,
-} from "@/lib/billing/collectionPolicy";
+import { resolveCollectionActionDb } from "@/lib/billing/collectionPolicy";
 import { processAiRechargeJobs } from "@/lib/billing/processAiRechargeJobs";
 
 export const runtime = "nodejs";
@@ -86,22 +75,18 @@ export async function POST(req: Request) {
         for (const sub of dueBatch.slice(0, CHARGE_BATCH_LIMIT)) {
             try {
                 if (sub.status === "trial") {
-                    const setupCents = getSetupPriceCents(String(sub.plan ?? "essencial"));
-                    if (resolveTrialDueKind(setupCents) === "setup") {
-                        const setupInvId = await generateSetupCharge(admin, sub, now);
-                        if (setupInvId) processedInvoiceIds.add(setupInvId);
-                    } else {
-                        const r = await collectPayment(admin, {
-                            sub: sub as CollectSub,
-                            kind: "subscription_first",
-                            prefer: sub.default_card_id ? "card" : "pix",
-                            attemptN: 0,
-                            now,
-                            fallbackSubStatus: "pending_payment",
-                        });
-                        if (r.ok && r.invoiceId) processedInvoiceIds.add(r.invoiceId);
-                        if (r.ok && r.outcome === "paid_card") results.cardPaid++;
-                    }
+                    // BN-05: setup fee abolido — trial vencido gera a 1ª mensalidade
+                    // (ou anual), amount canônico no banco via collectPayment.
+                    const r = await collectPayment(admin, {
+                        sub: sub as CollectSub,
+                        kind: "subscription_first",
+                        prefer: sub.default_card_id ? "card" : "pix",
+                        attemptN: 0,
+                        now,
+                        fallbackSubStatus: "pending_payment",
+                    });
+                    if (r.ok && r.invoiceId) processedInvoiceIds.add(r.invoiceId);
+                    if (r.ok && r.outcome === "paid_card") results.cardPaid++;
                     results.trialsCharged++;
                 } else {
                     const neverPaid =
@@ -131,8 +116,6 @@ export async function POST(req: Request) {
         }
     }
 
-    const fiveDaysAgo = new Date(now.getTime() - 5 * 24 * 60 * 60 * 1000);
-
     const { data: overdueInvoices, error: ovErr } = await admin
         .from("invoices")
         .select(`
@@ -150,14 +133,6 @@ export async function POST(req: Request) {
         .lte("due_at", now.toISOString())
         .order("due_at", { ascending: true })
         .limit(CHARGE_BATCH_LIMIT + 1);
-
-    const { data: stalePendingSetups } = await admin
-        .from("pagarme_subscriptions")
-        .select("id, company_id")
-        .in("status", ["pending_setup", "pending_payment"])
-        .is("last_paid_at", null)
-        .lte("updated_at", fiveDaysAgo.toISOString())
-        .limit(CHARGE_BATCH_LIMIT);
 
     if (ovErr) {
         console.error("[charge] Erro ao buscar invoices vencidas:", ovErr.message);
@@ -179,17 +154,6 @@ export async function POST(req: Request) {
                 });
                 results.errors.push(msg);
             }
-        }
-    }
-
-    for (const sub of stalePendingSetups ?? []) {
-        try {
-            await blockCompany(admin, sub.company_id, sub.id);
-            results.blocked++;
-        } catch (err: unknown) {
-            results.errors.push(
-                `pending_setup_block sub ${sub.id}: ${err instanceof Error ? err.message : String(err)}`
-            );
         }
     }
 
@@ -217,118 +181,6 @@ export async function POST(req: Request) {
         error_count: results.errors.length,
     });
     return NextResponse.json({ ok: true, ...results });
-}
-
-type CompanyRow = {
-    id?: string;
-    name?: string | null;
-    nome_fantasia?: string | null;
-    email?: string | null;
-    whatsapp_phone?: string | null;
-    meta?: Record<string, unknown> | null;
-    cnpj?: string | null;
-};
-
-function buildCustomerPayload(sub: { pagarme_customer_id?: string | null; company_id: string }, company: CompanyRow | null) {
-    if (sub.pagarme_customer_id || !company) return undefined;
-    return buildPagarmeCustomerPayload({
-        id: sub.company_id,
-        name: company.name ?? null,
-        nome_fantasia: company.nome_fantasia ?? null,
-        email: company.email ?? null,
-        whatsapp_phone: company.whatsapp_phone ?? null,
-        cnpj: company.cnpj ?? null,
-        meta: company.meta ?? null,
-    });
-}
-
-async function generateSetupCharge(
-    admin: ReturnType<typeof createAdminClient>,
-    sub: {
-        id: string;
-        company_id: string;
-        plan: string | null;
-        pagarme_customer_id: string | null;
-        companies?: CompanyRow | CompanyRow[] | null;
-    },
-    _now: Date
-): Promise<string | null> {
-    const companyRaw = sub.companies;
-    const company = Array.isArray(companyRaw) ? companyRaw[0] ?? null : companyRaw ?? null;
-    const amountCents = getSetupPriceCents(String(sub.plan ?? "essencial"));
-    const brlAmount = centsToBRL(amountCents);
-
-    const { data: claimed, error: claimErr } = await admin
-        .from("invoices")
-        .insert({
-            company_id: sub.company_id,
-            subscription_id: sub.id,
-            amount: brlAmount,
-            status: "pending",
-            due_at: _now.toISOString(),
-            pagarme_order_id: null,
-            pagarme_payment_url: "",
-            pix_qr_code: null,
-            kind: "setup",
-        })
-        .select("id")
-        .single();
-
-    if (claimErr) {
-        if (isUniqueViolation(claimErr)) {
-            console.log(`[charge] invoice de setup pendente já existe para sub ${sub.id}, pulando`);
-            return null;
-        }
-        throw new Error(claimErr.message);
-    }
-
-    const claimId = claimed.id as string;
-    const compLabel = (company?.nome_fantasia ?? company?.name ?? "").trim() || "Renthus";
-
-    try {
-        const created = await createPixInvoiceOrder({
-            amountCents,
-            description: `Taxa de ativação Renthus — Plano ${sub.plan}`,
-            itemCode: "setup",
-            customerId: sub.pagarme_customer_id ?? undefined,
-            customer: buildCustomerPayload(sub, company),
-            additionalInfo: [
-                { name: "Empresa", value: compLabel },
-                { name: "Tipo", value: "Taxa de ativação" },
-            ],
-            metadata: {
-                type: "setup",
-                company_id: sub.company_id,
-                subscription_id: sub.id,
-                plan: String(sub.plan ?? ""),
-            },
-        });
-
-        const { order, pixUrl, pixCode } = await resolvePixFromOrder(created);
-
-        await admin
-            .from("invoices")
-            .update({
-                pagarme_order_id: order.id,
-                pagarme_payment_url: pixUrl ?? "",
-                pix_qr_code: pixCode,
-            })
-            .eq("id", claimId);
-
-        await admin
-            .from("pagarme_subscriptions")
-            .update({ status: "pending_payment" })
-            .eq("id", sub.id);
-
-        if (company?.whatsapp_phone) {
-            const msg = buildOverdueMessage(1, pixUrl ?? pixCode ?? "");
-            if (msg) await sendBillingNotification(sub.company_id, company.whatsapp_phone, msg);
-        }
-        return claimId;
-    } catch (err: unknown) {
-        await admin.from("invoices").update({ status: "failed" }).eq("id", claimId);
-        throw err;
-    }
 }
 
 type OverdueInvoiceCompany = {
@@ -363,6 +215,19 @@ async function processOverdueInvoiceRow(
 
     const neverPaid = sub.last_paid_at == null || String(sub.last_paid_at).trim() === "";
 
+    // BN-09/BN-13: never-paid NÃO entra no dunning de renovação nem é bloqueado no
+    // D7. O ciclo de vida de quem nunca pagou (→ abandoned) é do cron mark-abandoned
+    // (14d). Aqui só normaliza overdue órfão para pending_payment.
+    if (neverPaid) {
+        if (sub.status === "overdue") {
+            await admin
+                .from("pagarme_subscriptions")
+                .update({ status: "pending_payment" })
+                .eq("id", sub.id);
+        }
+        return;
+    }
+
     const dueAt = new Date(inv.due_at);
     const daysOverdue = Math.floor((now.getTime() - dueAt.getTime()) / (24 * 60 * 60 * 1000));
 
@@ -371,20 +236,10 @@ async function processOverdueInvoiceRow(
         hasDefaultCard: Boolean(sub.default_card_id),
     });
 
+    // D7: bloqueio só para renovação de quem JÁ pagou (last_paid_at presente).
     if (action.type === "block") {
         await blockCompany(admin, inv.company_id, inv.subscription_id);
         results.blocked++;
-        return;
-    }
-
-    // B4.3 / H5.2: neverPaid → pending_payment (não dunning overdue)
-    if (neverPaid) {
-        if (sub.status === "overdue") {
-            await admin
-                .from("pagarme_subscriptions")
-                .update({ status: "pending_payment" })
-                .eq("id", sub.id);
-        }
         return;
     }
 

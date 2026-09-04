@@ -1,9 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import {
-    resolveCollectionAction,
-    resolveTrialDueKind,
-} from "../../lib/billing/collectionPolicy";
+import { resolveCollectionAction } from "../../lib/billing/collectionPolicy";
 
 describe("resolveCollectionAction", () => {
     it("D0 com cartão → collect card", () => {
@@ -107,11 +104,3 @@ describe("resolveCollectionAction", () => {
     });
 });
 
-describe("resolveTrialDueKind", () => {
-    it("setup=0 → first_invoice", () => {
-        assert.equal(resolveTrialDueKind(0), "first_invoice");
-    });
-    it("setup>0 → setup", () => {
-        assert.equal(resolveTrialDueKind(9900), "setup");
-    });
-});
