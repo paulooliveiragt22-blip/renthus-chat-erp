@@ -54,6 +54,17 @@ export default function PlatformBillingPage() {
     const queryClient = useQueryClient();
     const [tab, setTab] = useState<BillingTab>("subscriptions");
     const [planEdits, setPlanEdits] = useState<Record<string, string>>({});
+    const [priceEdits, setPriceEdits] = useState<
+        Record<
+            string,
+            {
+                price_cents?: string;
+                price_year_cents?: string;
+                included_seats?: string;
+                seat_extra_cents?: string;
+            }
+        >
+    >({});
     const [trialDaysInput, setTrialDaysInput] = useState<string>("");
     const [courtesyDaysByCompany, setCourtesyDaysByCompany] = useState<Record<string, string>>({});
     const [courtesyPlanByCompany, setCourtesyPlanByCompany] = useState<
@@ -115,7 +126,28 @@ export default function PlatformBillingPage() {
     const { data: plansData } = useQuery({
         queryKey: ["platform", "plans"],
         queryFn: () => platformApi.plans(),
-        staleTime: Infinity,
+        staleTime: 30_000,
+    });
+
+    const savePlanPrice = useMutation({
+        mutationFn: ({
+            id,
+            body,
+        }: {
+            id: string;
+            body: {
+                price_cents?: number;
+                price_year_cents?: number | null;
+                included_seats?: number;
+                seat_extra_cents?: number | null;
+            };
+        }) => platformApi.updatePlanPricing(id, body),
+        onSuccess: () => {
+            toast.success("Preço do plano atualizado");
+            setPriceEdits({});
+            queryClient.invalidateQueries({ queryKey: ["platform", "plans"] });
+        },
+        onError: (e: Error) => toast.error(e.message),
     });
 
     const plans = (plansData?.plans ?? []) as Array<{ id: string; key: string; name: string }>;
@@ -233,6 +265,157 @@ export default function PlatformBillingPage() {
                 >
                     Sem pagamento
                 </button>
+            </div>
+
+            <div className="rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
+                <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+                    Preços dos planos (lista)
+                </h2>
+                <p className="mt-1 text-xs text-zinc-500">
+                    Mensal / anual / seats editáveis (R3-5). Valores em centavos (27900 = R$ 279).
+                    Anual vazio ao salvar mensal → sugere −20%.
+                </p>
+                {!isSuperadmin ? (
+                    <p className="mt-2 text-xs text-amber-700">Apenas superadmin edita preços.</p>
+                ) : (
+                    <div className="mt-3 overflow-x-auto">
+                        <table className="min-w-full text-left text-xs">
+                            <thead className="text-zinc-500">
+                                <tr>
+                                    <th className="py-1 pr-3">Plano</th>
+                                    <th className="py-1 pr-3">Mensal ¢</th>
+                                    <th className="py-1 pr-3">Anual ¢</th>
+                                    <th className="py-1 pr-3">Seats</th>
+                                    <th className="py-1 pr-3">Seat extra ¢</th>
+                                    <th className="py-1"> </th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {(
+                                    (plansData?.plans ?? []) as Array<{
+                                        id: string;
+                                        key: string;
+                                        name: string;
+                                        price_cents: number;
+                                        price_year_cents: number | null;
+                                        included_seats: number | null;
+                                        seat_extra_cents: number | null;
+                                    }>
+                                ).map((p) => {
+                                    const edit = priceEdits[p.id] ?? {};
+                                    const month = edit.price_cents ?? String(p.price_cents);
+                                    const year =
+                                        edit.price_year_cents ??
+                                        (p.price_year_cents == null ? "" : String(p.price_year_cents));
+                                    const seats =
+                                        edit.included_seats ??
+                                        String(p.included_seats ?? 1);
+                                    const seatX =
+                                        edit.seat_extra_cents ??
+                                        (p.seat_extra_cents == null
+                                            ? ""
+                                            : String(p.seat_extra_cents));
+                                    return (
+                                        <tr key={p.id} className="border-t border-zinc-100 dark:border-zinc-800">
+                                            <td className="py-2 pr-3 font-medium">{p.name}</td>
+                                            <td className="py-2 pr-3">
+                                                <input
+                                                    className="w-24 rounded border border-zinc-200 bg-white px-1.5 py-1 dark:border-zinc-700 dark:bg-zinc-950"
+                                                    value={month}
+                                                    onChange={(e) =>
+                                                        setPriceEdits((prev) => ({
+                                                            ...prev,
+                                                            [p.id]: {
+                                                                ...prev[p.id],
+                                                                price_cents: e.target.value,
+                                                            },
+                                                        }))
+                                                    }
+                                                />
+                                            </td>
+                                            <td className="py-2 pr-3">
+                                                <input
+                                                    className="w-28 rounded border border-zinc-200 bg-white px-1.5 py-1 dark:border-zinc-700 dark:bg-zinc-950"
+                                                    value={year}
+                                                    onChange={(e) =>
+                                                        setPriceEdits((prev) => ({
+                                                            ...prev,
+                                                            [p.id]: {
+                                                                ...prev[p.id],
+                                                                price_year_cents: e.target.value,
+                                                            },
+                                                        }))
+                                                    }
+                                                />
+                                            </td>
+                                            <td className="py-2 pr-3">
+                                                <input
+                                                    className="w-16 rounded border border-zinc-200 bg-white px-1.5 py-1 dark:border-zinc-700 dark:bg-zinc-950"
+                                                    value={seats}
+                                                    onChange={(e) =>
+                                                        setPriceEdits((prev) => ({
+                                                            ...prev,
+                                                            [p.id]: {
+                                                                ...prev[p.id],
+                                                                included_seats: e.target.value,
+                                                            },
+                                                        }))
+                                                    }
+                                                />
+                                            </td>
+                                            <td className="py-2 pr-3">
+                                                <input
+                                                    className="w-24 rounded border border-zinc-200 bg-white px-1.5 py-1 dark:border-zinc-700 dark:bg-zinc-950"
+                                                    placeholder="null"
+                                                    value={seatX}
+                                                    onChange={(e) =>
+                                                        setPriceEdits((prev) => ({
+                                                            ...prev,
+                                                            [p.id]: {
+                                                                ...prev[p.id],
+                                                                seat_extra_cents: e.target.value,
+                                                            },
+                                                        }))
+                                                    }
+                                                />
+                                            </td>
+                                            <td className="py-2">
+                                                <button
+                                                    type="button"
+                                                    disabled={savePlanPrice.isPending}
+                                                    onClick={() => {
+                                                        const body: {
+                                                            price_cents?: number;
+                                                            price_year_cents?: number | null;
+                                                            included_seats?: number;
+                                                            seat_extra_cents?: number | null;
+                                                        } = {};
+                                                        if (month !== "")
+                                                            body.price_cents = Number(month);
+                                                        if (year === "")
+                                                            body.price_year_cents = null;
+                                                        else if (year !== "")
+                                                            body.price_year_cents = Number(year);
+                                                        if (seats !== "")
+                                                            body.included_seats = Number(seats);
+                                                        if (seatX === "")
+                                                            body.seat_extra_cents = null;
+                                                        else body.seat_extra_cents = Number(seatX);
+                                                        savePlanPrice.mutate({ id: p.id, body });
+                                                    }}
+                                                    className="inline-flex items-center gap-1 rounded bg-zinc-900 px-2 py-1 text-[11px] font-semibold text-white dark:bg-zinc-100 dark:text-zinc-900"
+                                                >
+                                                    <Save className="h-3 w-3" />
+                                                    Salvar
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    );
+                                })}
+                            </tbody>
+                        </table>
+                    </div>
+                )}
             </div>
 
             <div className="rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
