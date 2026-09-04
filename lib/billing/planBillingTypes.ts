@@ -17,11 +17,7 @@ export type BillingStatusJson = {
         pix_qr_code: string | null;
         amount: number;
         due_at: string;
-    } | null;
-    pending_setup_payment?: {
-        pagarme_payment_url: string | null;
-        pix_qr_code?: string | null;
-        amount: number;
+        kind?: "setup" | "subscription";
     } | null;
     /** Resultado do sync PSP sob demanda (rede de segurança se webhook falhou). */
     psp_sync?: {
@@ -52,11 +48,6 @@ export type BillingStatusJson = {
     plan_key?: string | null;
     plan_label?: string | null;
     monthly_prices_brl?: {
-        essencial?: number;
-        pro?: number;
-        market?: number;
-    };
-    setup_prices_brl?: {
         essencial?: number;
         pro?: number;
         market?: number;

@@ -9,20 +9,43 @@ describe("resolveCheckoutStrategy (B3.6)", () => {
         process.env = { ...prev };
     });
 
-    it("pending_setup → setup mesmo com SETUP=0", () => {
+    it("pending_setup legado com SETUP=0 cobra mensalidade em invoice", () => {
         process.env.SETUP_PRICE_ESSENCIAL_CENTS = "0";
         const s = resolveCheckoutStrategy("pending_setup", "essencial", null);
+        assert.equal(s.kind, "invoice");
+        assert.equal(s.isFirstPayment, true);
+        assert.equal(s.metaType, "invoice");
+        assert.equal(s.invoiceKind, "subscription");
+    });
+
+    it("pending_payment nunca pago → setup quando configurado", () => {
+        process.env.SETUP_PRICE_ESSENCIAL_CENTS = "49700";
+        const s = resolveCheckoutStrategy("pending_payment", "essencial", null);
         assert.equal(s.kind, "setup");
         assert.equal(s.isFirstPayment, true);
         assert.equal(s.metaType, "setup");
+        assert.equal(s.amountCents, 49700);
     });
 
-    it("pending_payment → invoice (1ª fatura)", () => {
+    it("pending_payment já pago → invoice mensal", () => {
         process.env.SETUP_PRICE_ESSENCIAL_CENTS = "49700";
-        const s = resolveCheckoutStrategy("pending_payment", "essencial", null);
+        const s = resolveCheckoutStrategy(
+            "pending_payment",
+            "essencial",
+            null,
+            "2026-09-01T00:00:00.000Z"
+        );
         assert.equal(s.kind, "invoice");
         assert.equal(s.isFirstPayment, false);
         assert.equal(s.metaType, "invoice");
+    });
+
+    it("pending_payment nunca pago com setup zero continua primeiro pagamento mensal", () => {
+        process.env.SETUP_PRICE_ESSENCIAL_CENTS = "0";
+        const s = resolveCheckoutStrategy("pending_payment", "essencial", null);
+        assert.equal(s.isFirstPayment, true);
+        assert.equal(s.kind, "invoice");
+        assert.equal(s.invoiceKind, "subscription");
     });
 
     it("trial + setup>0 → setup", () => {
@@ -49,9 +72,15 @@ describe("resolveCheckoutStrategy (B3.6)", () => {
     });
 
     it("checkoutOrderLabels alinhado", () => {
+        process.env.SETUP_PRICE_ESSENCIAL_CENTS = "49700";
         const setup = resolveCheckoutStrategy("pending_setup", "essencial", null);
         assert.match(checkoutOrderLabels(setup, "Essencial").description, /Taxa de ativação/);
-        const inv = resolveCheckoutStrategy("pending_payment", "essencial", null);
+        const inv = resolveCheckoutStrategy(
+            "pending_payment",
+            "essencial",
+            null,
+            "2026-09-01T00:00:00.000Z"
+        );
         assert.match(checkoutOrderLabels(inv, "Essencial").description, /Mensalidade/);
     });
 });

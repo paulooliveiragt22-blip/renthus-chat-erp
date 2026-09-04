@@ -53,68 +53,25 @@ type OrderLike = {
     customer?: { id?: string };
 };
 
-async function fulfillSetup(admin: Admin, order: OrderLike): Promise<FulfillPaymentResult | null> {
-    const orderId = order.id;
-    if (!orderId) return null;
-
-    const { data: sp, error } = await admin
-        .from("setup_payments")
-        .select("id, plan, company_id, status")
-        .eq("pagarme_order_id", orderId)
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
-
-    if (error) throw new RetryableFulfillError(error.message);
-    if (!sp?.company_id) return null;
-
-    if (sp.status === "paid") {
-        return { ok: true, kind: "setup", alreadyDone: true };
-    }
-
-    const { data: claimed, error: claimErr } = await admin
-        .from("setup_payments")
-        .update({ status: "paid", paid_at: new Date().toISOString() })
-        .eq("id", sp.id)
-        .eq("status", "pending")
-        .select("id")
-        .maybeSingle();
-
-    if (claimErr) throw new RetryableFulfillError(claimErr.message);
-    if (!claimed) {
-        return { ok: true, kind: "setup", alreadyDone: true };
-    }
-
-    // Side-effects só após claim (acima). Customer id só do order PSP (GET API).
-    const companyId = sp.company_id as string;
-    const pagarmeCustomerId = extractOrderCustomerId(order as PagarmeOrder);
-    await activateAfterSetupPayment(
-        admin,
-        companyId,
-        String(sp.plan),
-        pagarmeCustomerId ?? undefined
-    );
-    await syncLogicalSubscription(admin, companyId, String(sp.plan));
-    await provisionUserAfterPaymentIfNeeded(admin, companyId, String(sp.plan));
-    return { ok: true, kind: "setup" };
-}
-
 async function fulfillInvoice(
     admin: Admin,
     orderId: string,
+    metadata: Record<string, string>,
     pagarmeCustomerId?: string | null
 ): Promise<FulfillPaymentResult | null> {
     const { data: inv, error } = await admin
         .from("invoices")
-        .select("id, subscription_id, company_id, status")
+        .select("id, subscription_id, company_id, status, kind")
         .eq("pagarme_order_id", orderId)
         .maybeSingle();
 
     if (error) throw new RetryableFulfillError(error.message);
     if (!inv) return null;
 
+    const isSetup = inv.kind === "setup" || metadata.type === "setup";
+    const resultKind = isSetup ? "setup" as const : "invoice" as const;
     if (inv.status === "paid") {
-        return { ok: true, kind: "invoice", alreadyDone: true };
+        return { ok: true, kind: resultKind, alreadyDone: true };
     }
 
     const paidAt = new Date();
@@ -128,7 +85,7 @@ async function fulfillInvoice(
 
     if (claimErr) throw new RetryableFulfillError(claimErr.message);
     if (!claimed) {
-        return { ok: true, kind: "invoice", alreadyDone: true };
+        return { ok: true, kind: resultKind, alreadyDone: true };
     }
 
     const { data: sub } = await admin
@@ -136,6 +93,25 @@ async function fulfillInvoice(
         .select("id, plan")
         .eq("id", inv.subscription_id)
         .maybeSingle();
+
+    const companyId = inv.company_id as string;
+    if (isSetup) {
+        const plan = String(sub?.plan ?? metadata.plan ?? "");
+        if (!plan) {
+            throw new PermanentFulfillError(
+                `invoice de setup sem plano para order ${orderId}`
+            );
+        }
+        await activateAfterSetupPayment(
+            admin,
+            companyId,
+            plan,
+            pagarmeCustomerId ?? undefined
+        );
+        await syncLogicalSubscription(admin, companyId, plan);
+        await provisionUserAfterPaymentIfNeeded(admin, companyId, plan);
+        return { ok: true, kind: "setup" };
+    }
 
     const nextBillingAt = computeNextBillingAt(paidAt);
     const subPatch: Record<string, unknown> = {
@@ -152,7 +128,6 @@ async function fulfillInvoice(
         .eq("id", inv.subscription_id);
     if (subErr) throw new RetryableFulfillError(subErr.message);
 
-    const companyId = inv.company_id as string;
     await admin.from("companies").update({ is_active: true }).eq("id", companyId);
 
     if (sub?.plan) {
@@ -217,30 +192,26 @@ export async function fulfillPayment(
     const metadata = (order.metadata ?? {}) as Record<string, string>;
     const metaType = metadata.type;
 
-    const setup = await fulfillSetup(admin, order);
-    if (setup) return setup;
-
-    if (metaType === "setup") {
-        throw new PermanentFulfillError(
-            `metadata.type=setup sem setup_payments para order ${orderId}`
-        );
-    }
-
     const ai = await fulfillAiPack(admin, orderId, metadata);
     if (ai) return ai;
 
-    if (metaType === "invoice" || metaType === undefined || metaType === "") {
+    if (
+        metaType === "setup" ||
+        metaType === "invoice" ||
+        metaType === undefined ||
+        metaType === ""
+    ) {
         const custId = extractOrderCustomerId(order as PagarmeOrder);
-        const inv = await fulfillInvoice(admin, orderId, custId);
+        const inv = await fulfillInvoice(admin, orderId, metadata, custId);
         if (inv) return inv;
 
-        if (metaType === "invoice") {
+        if (metaType === "invoice" || metaType === "setup") {
             throw new PermanentFulfillError(
-                `metadata.type=invoice sem invoice para order ${orderId}`
+                `metadata.type=${metaType} sem invoice para order ${orderId}`
             );
         }
         throw new PermanentFulfillError(
-            `order.paid sem setup/invoice/ai_pack para order ${orderId}`
+            `order.paid sem invoice/ai_pack para order ${orderId}`
         );
     }
 

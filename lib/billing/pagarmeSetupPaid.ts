@@ -6,7 +6,6 @@
 import "server-only";
 import { randomBytes } from "node:crypto";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { activateTrial } from "@/lib/billing/activateTrial";
 import { sendBillingNotification } from "@/lib/billing/sendBillingNotification";
 import { computeNextBillingAt } from "@/lib/billing/computeNextBillingAt";
 import { normalizePlanKey } from "@/lib/billing/planCatalog";
@@ -197,7 +196,7 @@ export async function activateAfterSetupPayment(
 }
 
 /**
- * Se existir setup_payment pendente para este order.id, marca pago e ativa subscription.
+ * Se existir invoice de setup para este order.id, marca pago e ativa subscription.
  * @returns true se tratou como setup pago
  */
 export async function processSetupOrderPaid(
@@ -207,13 +206,14 @@ export async function processSetupOrderPaid(
     const orderId = order?.id;
     if (!orderId) return false;
 
-    const { data: sp } = await admin
-        .from("setup_payments")
+    const { data: setupInvoice } = await admin
+        .from("invoices")
         .select("id")
         .eq("pagarme_order_id", orderId)
+        .eq("kind", "setup")
         .limit(1)
         .maybeSingle();
-    if (!sp) return false;
+    if (!setupInvoice) return false;
 
     const { fulfillPayment } = await import("@/lib/billing/fulfillPayment");
     const r = await fulfillPayment(admin, {

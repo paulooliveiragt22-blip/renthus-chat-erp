@@ -62,15 +62,13 @@ async function selectBillingWorkspace(page: import("@playwright/test").Page): Pr
         const stJson = (await stRes.json()) as {
             pagarme_subscription?: { status?: string };
             pending_invoice?: unknown;
-            pending_setup_payment?: unknown;
         };
         const status = stJson.pagarme_subscription?.status ?? "";
         if (
             status === "pending_setup" ||
             status === "pending_payment" ||
             status === "overdue" ||
-            stJson.pending_invoice ||
-            stJson.pending_setup_payment
+            stJson.pending_invoice
         ) {
             chosen = c.id;
             break;

@@ -1,5 +1,5 @@
 /**
- * EnsureCheckout — resolve qual obrigação cobrar (setup vs invoice) sem misturar tabelas.
+ * EnsureCheckout — resolve qual obrigação cobrar na tabela unificada `invoices`.
  * Puro + load leve; a rota HTTP orquestra Pagar.me / persistência.
  */
 
@@ -13,15 +13,15 @@ import {
 
 type Admin = ReturnType<typeof createAdminClient>;
 
-/** setup → `setup_payments`; invoice → `invoices` (1ª fatura ou renovação). */
+/** Tipo lógico enviado ao PSP; ambos persistem em `invoices`. */
 export type CheckoutObligationKind = "setup" | "invoice";
 
 export type CheckoutStrategy = {
     kind: CheckoutObligationKind;
-    /** true ⇒ grava/lê `setup_payments`; false ⇒ `invoices`. */
     isFirstPayment: boolean;
     metaType: "setup" | "invoice";
     amountCents: number;
+    invoiceKind: "setup" | "subscription";
 };
 
 export type PendingCheckoutRow = {
@@ -34,22 +34,27 @@ export type PendingCheckoutRow = {
 
 /**
  * Decide setup vs invoice a partir do status da assinatura e preço de setup.
- * - pending_setup OU trial com setup>0 → setup
- * - demais (pending_payment, active, overdue, trial setup=0) → invoice
+ * - pending_setup legado, trial ou pending_payment nunca pago + setup>0 → setup
+ * - demais → mensalidade
  */
 export function resolveCheckoutStrategy(
     status: string | null | undefined,
     plan: string | null | undefined,
-    pendingAmountBrl?: number | string | null
+    pendingAmountBrl?: number | string | null,
+    lastPaidAt?: string | null
 ): CheckoutStrategy {
     const planKey = String(plan ?? "essencial");
     const setupCents = getSetupPriceCents(planKey);
     const st = String(status ?? "").toLowerCase();
 
+    const neverPaid = !lastPaidAt || String(lastPaidAt).trim() === "";
     const isFirstPayment =
-        st === "pending_setup" || (st === "trial" && setupCents > 0);
+        st === "pending_setup" ||
+        (st === "trial" && setupCents > 0) ||
+        (st === "pending_payment" && neverPaid);
 
-    const kind: CheckoutObligationKind = isFirstPayment ? "setup" : "invoice";
+    const chargesSetup = isFirstPayment && setupCents > 0;
+    const kind: CheckoutObligationKind = chargesSetup ? "setup" : "invoice";
     const fromPending =
         pendingAmountBrl != null && String(pendingAmountBrl).trim() !== ""
             ? Math.round(Number(pendingAmountBrl) * 100)
@@ -58,15 +63,16 @@ export function resolveCheckoutStrategy(
     const amountCents =
         fromPending != null && Number.isFinite(fromPending) && fromPending > 0
             ? fromPending
-            : isFirstPayment
-              ? getSetupPriceCents(planKey)
+            : chargesSetup
+              ? setupCents
               : getMonthlyPriceCents(planKey);
 
     return {
         kind,
         isFirstPayment,
-        metaType: isFirstPayment ? "setup" : "invoice",
+        metaType: chargesSetup ? "setup" : "invoice",
         amountCents,
+        invoiceKind: chargesSetup ? "setup" : "subscription",
     };
 }
 
@@ -78,9 +84,9 @@ export type CheckoutContext = {
         status: string;
         pagarme_customer_id: string | null;
         next_billing_at: string | null;
+        last_paid_at: string | null;
     };
     strategy: CheckoutStrategy;
-    pendingSetup: PendingCheckoutRow | null;
     pendingInv: PendingCheckoutRow | null;
     pendingRecord: PendingCheckoutRow | null;
 };
@@ -92,45 +98,47 @@ export async function loadCheckoutContext(
 ): Promise<CheckoutContext | { error: string; status: number }> {
     const { data: sub, error: subErr } = await admin
         .from("pagarme_subscriptions")
-        .select("id, plan, status, pagarme_customer_id, next_billing_at")
+        .select("id, plan, status, pagarme_customer_id, next_billing_at, last_paid_at")
         .eq("company_id", companyId)
         .maybeSingle();
 
     if (subErr) return { error: subErr.message, status: 500 };
     if (!sub) return { error: "Assinatura não encontrada", status: 404 };
 
-    const [{ data: pendingSetup }, { data: pendingInv }] = await Promise.all([
-        admin
-            .from("setup_payments")
-            .select("id, amount, pagarme_order_id, pagarme_payment_url, pix_qr_code")
-            .eq("company_id", companyId)
-            .eq("status", "pending")
-            .order("created_at", { ascending: false })
-            .limit(1)
-            .maybeSingle(),
-        admin
+    const strategyProbe = resolveCheckoutStrategy(
+        String(sub.status),
+        String(sub.plan ?? "essencial"),
+        null,
+        (sub.last_paid_at as string | null) ?? null
+    );
+    const { data: matchingPending } = await admin
+        .from("invoices")
+        .select("id, amount, pagarme_order_id, pagarme_payment_url, pix_qr_code")
+        .eq("company_id", companyId)
+        .eq("status", "pending")
+        .eq("kind", strategyProbe.invoiceKind)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+    let pendingForKind = (matchingPending as PendingCheckoutRow | null) ?? null;
+    if (!pendingForKind) {
+        const { data: anyPending } = await admin
             .from("invoices")
             .select("id, amount, pagarme_order_id, pagarme_payment_url, pix_qr_code")
             .eq("company_id", companyId)
             .eq("status", "pending")
             .order("created_at", { ascending: false })
             .limit(1)
-            .maybeSingle(),
-    ]);
+            .maybeSingle();
+        pendingForKind = (anyPending as PendingCheckoutRow | null) ?? null;
+    }
 
-    const setupRow = (pendingSetup as PendingCheckoutRow | null) ?? null;
-    const invRow = (pendingInv as PendingCheckoutRow | null) ?? null;
-
-    const strategyProbe = resolveCheckoutStrategy(
-        String(sub.status),
-        String(sub.plan ?? "essencial"),
-        null
-    );
-    const pendingForKind = strategyProbe.isFirstPayment ? setupRow : invRow;
     const strategy = resolveCheckoutStrategy(
         String(sub.status),
         String(sub.plan ?? "essencial"),
-        pendingForKind?.amount
+        pendingForKind?.amount,
+        (sub.last_paid_at as string | null) ?? null
     );
 
     return {
@@ -141,17 +149,17 @@ export async function loadCheckoutContext(
             status: String(sub.status),
             pagarme_customer_id: (sub.pagarme_customer_id as string | null) ?? null,
             next_billing_at: (sub.next_billing_at as string | null) ?? null,
+            last_paid_at: (sub.last_paid_at as string | null) ?? null,
         },
         strategy,
-        pendingSetup: setupRow,
-        pendingInv: invRow,
+        pendingInv: pendingForKind,
         pendingRecord: pendingForKind,
     };
 }
 
 /** Helper de descrição/itemCode alinhado à estratégia. */
 export function checkoutOrderLabels(strategy: CheckoutStrategy, planLabel: string) {
-    if (strategy.isFirstPayment) {
+    if (strategy.kind === "setup") {
         return {
             description: `Taxa de ativação Renthus — Plano ${planLabel}`,
             itemCode: "setup" as const,

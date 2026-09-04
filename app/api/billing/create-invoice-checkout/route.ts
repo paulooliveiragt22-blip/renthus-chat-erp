@@ -56,35 +56,21 @@ async function persistCardBillingOrder(
     p: {
         companyId: string;
         subId: string;
-        plan: string;
         amountCents: number;
-        installments: number;
         orderId: string;
-        isFirstPayment: boolean;
-        pendingSetup: { id: string } | null;
+        kind: "setup" | "subscription";
         pendingInv: { id: string } | null;
     }
 ) {
     const brlAmount = centsToBRL(p.amountCents);
-    if (p.isFirstPayment) {
-        if (p.pendingSetup) {
-            await admin.from("setup_payments")
-                .update({ pagarme_order_id: p.orderId, pagarme_payment_url: "" })
-                .eq("id", p.pendingSetup.id);
-        } else {
-            await admin.from("setup_payments").insert({
-                company_id:          p.companyId,
-                plan:                p.plan,
-                amount:              brlAmount,
-                installments:        p.installments,
-                status:              "pending",
-                pagarme_order_id:    p.orderId,
-                pagarme_payment_url: "",
-            });
-        }
-    } else if (p.pendingInv) {
+    if (p.pendingInv) {
         await admin.from("invoices")
-            .update({ pagarme_order_id: p.orderId, pagarme_payment_url: "", pix_qr_code: null })
+            .update({
+                pagarme_order_id: p.orderId,
+                pagarme_payment_url: "",
+                pix_qr_code: null,
+                kind: p.kind,
+            })
             .eq("id", p.pendingInv.id);
     } else {
         await admin.from("invoices").insert({
@@ -96,6 +82,7 @@ async function persistCardBillingOrder(
             pagarme_order_id:    p.orderId,
             pagarme_payment_url: "",
             pix_qr_code:         null,
+            kind:                p.kind,
         });
     }
 }
@@ -105,44 +92,22 @@ async function persistPixBillingOrder(
     p: {
         companyId: string;
         subId: string;
-        plan: string;
         amountCents: number;
         orderId: string;
         pixUrl: string | null;
         pixCode: string | null;
-        isFirstPayment: boolean;
-        pendingSetup: { id: string } | null;
+        kind: "setup" | "subscription";
         pendingInv: { id: string } | null;
     }
 ) {
     const brlAmount = centsToBRL(p.amountCents);
-    if (p.isFirstPayment) {
-        if (p.pendingSetup) {
-            await admin.from("setup_payments")
-                .update({
-                    pagarme_order_id:    p.orderId,
-                    pagarme_payment_url: p.pixUrl ?? "",
-                    pix_qr_code:         p.pixCode,
-                })
-                .eq("id", p.pendingSetup.id);
-        } else {
-            await admin.from("setup_payments").insert({
-                company_id:          p.companyId,
-                plan:                p.plan,
-                amount:              brlAmount,
-                installments:        1,
-                status:              "pending",
-                pagarme_order_id:    p.orderId,
-                pagarme_payment_url: p.pixUrl ?? "",
-                pix_qr_code:         p.pixCode,
-            });
-        }
-    } else if (p.pendingInv) {
+    if (p.pendingInv) {
         await admin.from("invoices")
             .update({
                 pagarme_order_id:    p.orderId,
                 pagarme_payment_url: p.pixUrl ?? "",
                 pix_qr_code:         p.pixCode,
+                kind:                p.kind,
             })
             .eq("id", p.pendingInv.id);
     } else {
@@ -155,6 +120,7 @@ async function persistPixBillingOrder(
             pagarme_order_id:    p.orderId,
             pagarme_payment_url: p.pixUrl ?? "",
             pix_qr_code:         p.pixCode,
+            kind:                p.kind,
         });
         if (error) throw error;
     }
@@ -244,7 +210,7 @@ export async function POST(req: Request) {
             return NextResponse.json({ error: checkout.error }, { status: checkout.status });
         }
 
-        const { sub, strategy, pendingSetup, pendingInv, pendingRecord } = checkout;
+        const { sub, strategy, pendingInv, pendingRecord } = checkout;
         const { isFirstPayment, amountCents } = strategy;
         const plan = sub.plan;
 
@@ -404,12 +370,9 @@ export async function POST(req: Request) {
             await persistCardBillingOrder(admin, {
                 companyId,
                 subId: sub.id,
-                plan,
                 amountCents,
-                installments,
                 orderId: order.id,
-                isFirstPayment,
-                pendingSetup: pendingSetup ? { id: pendingSetup.id } : null,
+                kind: strategy.invoiceKind,
                 pendingInv:   pendingInv ? { id: pendingInv.id } : null,
             });
 
@@ -464,14 +427,7 @@ export async function POST(req: Request) {
                 const resolved = await resolvePixFromOrder(existingOrder);
                 if (resolved.pixCode) {
                     const url = resolved.pixUrl ?? existingPixUrl;
-                    if (isFirstPayment && pendingSetup) {
-                        await admin.from("setup_payments")
-                            .update({
-                                pix_qr_code:         resolved.pixCode,
-                                pagarme_payment_url: url,
-                            })
-                            .eq("id", pendingSetup.id);
-                    } else if (pendingInv) {
+                    if (pendingInv) {
                         await admin.from("invoices")
                             .update({
                                 pix_qr_code:         resolved.pixCode,
@@ -522,13 +478,11 @@ export async function POST(req: Request) {
             await persistPixBillingOrder(admin, {
                 companyId,
                 subId: sub.id,
-                plan,
                 amountCents,
                 orderId: order.id,
                 pixUrl,
                 pixCode: pixCode && String(pixCode).trim() ? pixCode : null,
-                isFirstPayment,
-                pendingSetup: pendingSetup ? { id: pendingSetup.id } : null,
+                kind: strategy.invoiceKind,
                 pendingInv:   pendingInv ? { id: pendingInv.id } : null,
             });
         } catch (persistErr: unknown) {

@@ -5,7 +5,7 @@
  *
  * 1. trial/active vencido → CollectPayment (card-first se default_card_id; senão PIX)
  * 2. overdue D1/D3 → retry card (CollectPayment) + WA; D5+ block
- * 3. pending_setup stale >5d → block
+ * 3. pending_setup legado stale >5d → block
  */
 
 import { NextResponse } from "next/server";
@@ -141,7 +141,8 @@ export async function POST(req: Request) {
     const { data: stalePendingSetups } = await admin
         .from("pagarme_subscriptions")
         .select("id, company_id")
-        .eq("status", "pending_setup")
+        .in("status", ["pending_setup", "pending_payment"])
+        .is("last_paid_at", null)
         .lte("updated_at", fiveDaysAgo.toISOString())
         .limit(CHARGE_BATCH_LIMIT);
 
@@ -244,23 +245,24 @@ async function generateSetupCharge(
     const brlAmount = centsToBRL(amountCents);
 
     const { data: claimed, error: claimErr } = await admin
-        .from("setup_payments")
+        .from("invoices")
         .insert({
             company_id: sub.company_id,
-            plan: sub.plan,
+            subscription_id: sub.id,
             amount: brlAmount,
-            installments: 1,
             status: "pending",
+            due_at: _now.toISOString(),
             pagarme_order_id: null,
             pagarme_payment_url: "",
             pix_qr_code: null,
+            kind: "setup",
         })
         .select("id")
         .single();
 
     if (claimErr) {
         if (isUniqueViolation(claimErr)) {
-            console.log(`[charge] setup_payment pendente já existe para sub ${sub.id}, pulando`);
+            console.log(`[charge] invoice de setup pendente já existe para sub ${sub.id}, pulando`);
             return;
         }
         throw new Error(claimErr.message);
@@ -291,7 +293,7 @@ async function generateSetupCharge(
         const { order, pixUrl, pixCode } = await resolvePixFromOrder(created);
 
         await admin
-            .from("setup_payments")
+            .from("invoices")
             .update({
                 pagarme_order_id: order.id,
                 pagarme_payment_url: pixUrl ?? "",
@@ -301,15 +303,15 @@ async function generateSetupCharge(
 
         await admin
             .from("pagarme_subscriptions")
-            .update({ status: "pending_setup" })
+            .update({ status: "pending_payment" })
             .eq("id", sub.id);
 
         if (company?.whatsapp_phone) {
             const msg = buildOverdueMessage(1, pixUrl ?? pixCode ?? "");
             if (msg) await sendBillingNotification(sub.company_id, company.whatsapp_phone, msg);
         }
-    } catch (err) {
-        await admin.from("setup_payments").update({ status: "failed" }).eq("id", claimId);
+    } catch (err: unknown) {
+        await admin.from("invoices").update({ status: "failed" }).eq("id", claimId);
         throw err;
     }
 }
