@@ -88,3 +88,39 @@ export async function upsertPlanPromotion(
 
     return data;
 }
+
+/** Kill-switch: desliga/liga promo mesmo antes de ends_at (só bloqueia novas adesões). */
+export async function setPlanPromotionActive(
+    admin: SupabaseClient,
+    promoId: string,
+    active: boolean,
+    audit: PlatformOpsAuditCtx
+) {
+    const id = promoId?.trim();
+    if (!id) throw new Error("promo_id_required");
+
+    const { data, error } = await admin
+        .from("plan_promotions")
+        .update({ active: Boolean(active), updated_at: new Date().toISOString() })
+        .eq("id", id)
+        .select(
+            "id, plan_id, name, starts_at, ends_at, duration_months, adjustment_kind, adjustment_mode, adjustment_value, active"
+        )
+        .single();
+    if (error) throw new Error(error.message);
+
+    await recordPlatformAudit({
+        admin,
+        actor: audit.actor,
+        action: "platform.billing.plan_promotion_toggled",
+        resourceType: "plan_promotion",
+        resourceId: data.id,
+        companyId: null,
+        requestId: audit.requestId,
+        ipAddress: audit.ipAddress,
+        userAgent: audit.userAgent,
+        metadata: { active: data.active, plan_id: data.plan_id },
+    });
+
+    return data;
+}

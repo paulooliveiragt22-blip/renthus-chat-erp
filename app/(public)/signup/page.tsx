@@ -15,6 +15,17 @@ import { PLAN_CATALOG, PLAN_ORDER, type CommercialPlanKey } from "@/lib/billing/
 
 type TrialPolicy = { trial_days: number; payment_required: boolean };
 
+type SignupPlanCard = {
+    key: CommercialPlanKey;
+    name: string;
+    popular: boolean;
+    description: string;
+    listMonthlyCents: number;
+    offerMonthlyCents: number;
+    promoLabel: string | null;
+    features: string[];
+};
+
 const PLAN_FEATURE_BLURBS: Record<CommercialPlanKey, string[]> = {
     essencial: [
         "Pedidos no WhatsApp (Flow + IA)",
@@ -36,21 +47,25 @@ const PLAN_FEATURE_BLURBS: Record<CommercialPlanKey, string[]> = {
     ],
 };
 
-const PLANS = PLAN_ORDER.map((key) => {
-    const c = PLAN_CATALOG[key];
-    return {
-        key,
-        name: c.name,
-        popular: Boolean(c.popular),
-        description: c.description,
-        monthlyPrice: c.monthlyPriceCents / 100,
-        features: PLAN_FEATURE_BLURBS[key],
-    };
-});
+function catalogFallbackPlans(): SignupPlanCard[] {
+    return PLAN_ORDER.map((key) => {
+        const c = PLAN_CATALOG[key];
+        return {
+            key,
+            name: c.name,
+            popular: Boolean(c.popular),
+            description: c.description,
+            listMonthlyCents: c.monthlyPriceCents,
+            offerMonthlyCents: c.monthlyPriceCents,
+            promoLabel: null,
+            features: PLAN_FEATURE_BLURBS[key],
+        };
+    });
+}
 
 type PlanKey = CommercialPlanKey;
-function fmt(v: number) {
-    return v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+function fmtCents(cents: number) {
+    return (cents / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
 
 async function syncServerSession(session: Session | null) {
@@ -81,6 +96,7 @@ export default function SignupPage() {
         payment_required: true,
     });
     const [policyLoaded, setPolicyLoaded] = useState(false);
+    const [plans, setPlans] = useState<SignupPlanCard[]>(() => catalogFallbackPlans());
     const [form, setForm] = useState({
         company_name:      "",
         cnpj:              "",
@@ -115,7 +131,54 @@ export default function SignupPage() {
         };
     }, []);
 
-    const plan = selectedPlan ? PLANS.find((p) => p.key === selectedPlan)! : null;
+    useEffect(() => {
+        let cancelled = false;
+        fetch("/api/billing/public-plans", { cache: "no-store" })
+            .then((r) => r.json())
+            .then(
+                (d: {
+                    plans?: Array<{
+                        key: string;
+                        name: string;
+                        description: string | null;
+                        list_monthly_cents: number;
+                        offer_monthly_cents: number;
+                        popular: boolean;
+                        promo: { label_de_por: string } | null;
+                    }>;
+                }) => {
+                    if (cancelled || !Array.isArray(d.plans) || d.plans.length === 0) return;
+                    const next: SignupPlanCard[] = [];
+                    for (const key of PLAN_ORDER) {
+                        const row = d.plans.find((p) => p.key === key);
+                        const c = PLAN_CATALOG[key];
+                        if (!row) {
+                            next.push(catalogFallbackPlans().find((p) => p.key === key)!);
+                            continue;
+                        }
+                        next.push({
+                            key,
+                            name: row.name || c.name,
+                            popular: Boolean(row.popular ?? c.popular),
+                            description: row.description || c.description,
+                            listMonthlyCents: row.list_monthly_cents,
+                            offerMonthlyCents: row.offer_monthly_cents,
+                            promoLabel: row.promo?.label_de_por ?? null,
+                            features: PLAN_FEATURE_BLURBS[key],
+                        });
+                    }
+                    setPlans(next);
+                }
+            )
+            .catch(() => {
+                /* fallback catalog */
+            });
+        return () => {
+            cancelled = true;
+        };
+    }, []);
+
+    const plan = selectedPlan ? plans.find((p) => p.key === selectedPlan)! : null;
 
     function selectPlan(key: PlanKey) {
         setSelectedPlan(key);
@@ -235,8 +298,10 @@ export default function SignupPage() {
             </div>
 
             <div style={S.plansRow}>
-                {PLANS.map((p) => {
+                {plans.map((p) => {
                     const active = selectedPlan === p.key;
+                    const hasPromo =
+                        p.promoLabel != null && p.offerMonthlyCents < p.listMonthlyCents;
                     return (
                         <div
                             key={p.key}
@@ -253,9 +318,38 @@ export default function SignupPage() {
                             <div style={S.planName}>{p.name}</div>
                             <div style={S.planDesc}>{p.description}</div>
                             <div style={{ ...S.priceRow, transition: "opacity 0.25s" }}>
-                                <span style={S.priceValue}>{fmt(p.monthlyPrice)}</span>
-                                <span style={S.pricePer}>/mês</span>
+                                {hasPromo ? (
+                                    <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                                        <span
+                                            style={{
+                                                ...S.pricePer,
+                                                textDecoration: "line-through",
+                                                opacity: 0.75,
+                                            }}
+                                        >
+                                            De {fmtCents(p.listMonthlyCents)}
+                                        </span>
+                                        <span>
+                                            <span style={S.priceValue}>
+                                                {fmtCents(p.offerMonthlyCents)}
+                                            </span>
+                                            <span style={S.pricePer}>/mês</span>
+                                        </span>
+                                    </div>
+                                ) : (
+                                    <>
+                                        <span style={S.priceValue}>
+                                            {fmtCents(p.offerMonthlyCents)}
+                                        </span>
+                                        <span style={S.pricePer}>/mês</span>
+                                    </>
+                                )}
                             </div>
+                            {hasPromo && (
+                                <div style={{ ...S.setupLine, color: "#57ff8f" }}>
+                                    {p.promoLabel}
+                                </div>
+                            )}
                             <div style={S.setupLine}>
                                 {trialPolicy.payment_required
                                     ? "Pague para começar · cancele quando quiser"
@@ -309,7 +403,7 @@ export default function SignupPage() {
                             <>
                                 <div style={S.resumoHighlight}>
                                     Após criar a conta, você paga a 1ª mensalidade do plano {plan.name} (
-                                    {fmt(plan.monthlyPrice)}/mês) por PIX ou cartão.
+                                    {fmtCents(plan.offerMonthlyCents)}/mês) por PIX ou cartão.
                                 </div>
                                 <div style={S.resumoHighlight}>
                                     Só depois do pagamento você acessa o ERP e configura WhatsApp e produtos.
@@ -323,7 +417,7 @@ export default function SignupPage() {
                                 </div>
                                 <div style={S.resumoHighlight}>
                                     Quando o teste acabar, enviamos a cobrança da mensalidade (
-                                    {fmt(plan.monthlyPrice)}/mês) por PIX. Ao pagar, o acesso continua
+                                    {fmtCents(plan.offerMonthlyCents)}/mês) por PIX. Ao pagar, o acesso continua
                                     normalmente — sem novo cadastro.
                                 </div>
                             </>

@@ -28,6 +28,38 @@ export interface UiPlan {
     price_cents: number;
 }
 
+/** Edição de lista no platform (R3-5) — anual via desconto, não centavos crus. */
+export type UiYearlyDiscountMode = "percent" | "fixed_brl";
+
+export interface UiPlanPricingAdmin {
+    id: string;
+    key: string;
+    name: string;
+    price_cents: number;
+    yearly_discount_mode: UiYearlyDiscountMode;
+    yearly_discount_value: number;
+    /** Derivado: mensal×12 − desconto. */
+    price_year_cents: number | null;
+    included_seats: number | null;
+    seat_extra_cents: number | null;
+    description?: string | null;
+}
+
+/** Promo criada — kill-switch via `active` mesmo antes de ends_at. */
+export interface UiPlanPromotionAdmin {
+    id: string;
+    plan_id: string;
+    name: string;
+    starts_at: string;
+    ends_at: string;
+    duration_months: number;
+    adjustment_kind: "discount" | "surcharge";
+    adjustment_mode: "percent" | "fixed_brl";
+    adjustment_value: number;
+    active: boolean;
+    plans?: { key?: string; name?: string } | null;
+}
+
 /** Última fatura conhecida (null se nunca teve) */
 export interface UiLastInvoice {
     id: string;

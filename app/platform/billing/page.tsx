@@ -7,6 +7,14 @@ import { platformApi } from "@/lib/platform/clientApi";
 import { toast } from "sonner";
 import type { UiSubscriptionRow, UiPlan, UiNeverPaidTenant } from "@/lib/billing/contracts/ui";
 import type { PagarmeSubStatus, PagarmeInvoiceStatus } from "@/lib/billing/contracts/status";
+import {
+    brlInputToCents,
+    centsToBrlInput,
+    formatBrlFromCents,
+    percentHundredthsToInput,
+    percentInputToHundredths,
+} from "@/lib/billing/moneyDisplay";
+import { computeYearlyPriceCents } from "@/lib/billing/yearlyFromDiscount";
 
 type SubRow = UiSubscriptionRow;
 
@@ -30,26 +38,42 @@ function PromoAdminPanel({
         starts_at: "",
         ends_at: "",
         duration_months: "3",
-        adjustment_kind: "discount" as "discount" | "surcharge",
         adjustment_mode: "percent" as "fixed_brl" | "percent",
-        adjustment_value: "5000",
+        discount_display: "50,00",
     });
 
     const save = useMutation({
-        mutationFn: () =>
-            platformApi.upsertPromotion({
+        mutationFn: () => {
+            const value =
+                form.adjustment_mode === "percent"
+                    ? percentInputToHundredths(form.discount_display)
+                    : brlInputToCents(form.discount_display);
+            if (value == null) throw new Error("Informe o desconto (R$ ou %)");
+            if (!form.starts_at || !form.ends_at) throw new Error("Informe início e fim da campanha");
+            return platformApi.upsertPromotion({
                 plan_id: form.plan_id || plans[0]?.id,
                 name: form.name,
                 starts_at: new Date(form.starts_at).toISOString(),
                 ends_at: new Date(form.ends_at).toISOString(),
                 duration_months: Number(form.duration_months),
-                adjustment_kind: form.adjustment_kind,
+                adjustment_kind: "discount",
                 adjustment_mode: form.adjustment_mode,
-                adjustment_value: Number(form.adjustment_value),
+                adjustment_value: value,
                 active: true,
-            }),
+            });
+        },
         onSuccess: () => {
-            toast.success("Promo salva");
+            toast.success("Promo criada");
+            queryClient.invalidateQueries({ queryKey: ["platform", "billing", "promotions"] });
+        },
+        onError: (e: Error) => toast.error(e.message),
+    });
+
+    const toggle = useMutation({
+        mutationFn: ({ id, active }: { id: string; active: boolean }) =>
+            platformApi.setPromotionActive(id, active),
+        onSuccess: (_d, v) => {
+            toast.success(v.active ? "Promo ligada" : "Promo desligada");
             queryClient.invalidateQueries({ queryKey: ["platform", "billing", "promotions"] });
         },
         onError: (e: Error) => toast.error(e.message),
@@ -70,83 +94,98 @@ function PromoAdminPanel({
         plans?: { key?: string; name?: string } | null;
     }>;
 
+    const inputCls =
+        "rounded border border-zinc-200 bg-white px-2 py-1.5 text-xs dark:border-zinc-700 dark:bg-zinc-950";
+
     return (
         <div className="rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
             <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
-                Promoções (mensal)
+                Promoções (só adesão mensal)
             </h2>
             <p className="mt-1 text-xs text-zinc-500">
-                Só quem aderir na janela leva N meses. Percent em basis points (5000 = 50%). Anual sem
-                promo.
+                Aparece em /signup como “De R$ … por R$ …”. Desligar corta novas adesões; quem já
+                aderiu mantém os meses restantes. Anual sem promo.
             </p>
-            <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-                <select
-                    className="rounded border border-zinc-200 bg-white px-2 py-1.5 text-xs dark:border-zinc-700 dark:bg-zinc-950"
-                    value={form.plan_id || plans[0]?.id || ""}
-                    onChange={(e) => setForm((f) => ({ ...f, plan_id: e.target.value }))}
-                >
-                    {plans.map((p) => (
-                        <option key={p.id} value={p.id}>
-                            {p.name}
-                        </option>
-                    ))}
-                </select>
-                <input
-                    placeholder="Nome"
-                    className="rounded border border-zinc-200 bg-white px-2 py-1.5 text-xs dark:border-zinc-700 dark:bg-zinc-950"
-                    value={form.name}
-                    onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
-                />
-                <input
-                    type="datetime-local"
-                    className="rounded border border-zinc-200 bg-white px-2 py-1.5 text-xs dark:border-zinc-700 dark:bg-zinc-950"
-                    value={form.starts_at}
-                    onChange={(e) => setForm((f) => ({ ...f, starts_at: e.target.value }))}
-                />
-                <input
-                    type="datetime-local"
-                    className="rounded border border-zinc-200 bg-white px-2 py-1.5 text-xs dark:border-zinc-700 dark:bg-zinc-950"
-                    value={form.ends_at}
-                    onChange={(e) => setForm((f) => ({ ...f, ends_at: e.target.value }))}
-                />
-                <input
-                    placeholder="Meses benefício"
-                    className="rounded border border-zinc-200 bg-white px-2 py-1.5 text-xs dark:border-zinc-700 dark:bg-zinc-950"
-                    value={form.duration_months}
-                    onChange={(e) => setForm((f) => ({ ...f, duration_months: e.target.value }))}
-                />
-                <select
-                    className="rounded border border-zinc-200 bg-white px-2 py-1.5 text-xs dark:border-zinc-700 dark:bg-zinc-950"
-                    value={form.adjustment_kind}
-                    onChange={(e) =>
-                        setForm((f) => ({
-                            ...f,
-                            adjustment_kind: e.target.value as "discount" | "surcharge",
-                        }))
-                    }
-                >
-                    <option value="discount">Desconto</option>
-                    <option value="surcharge">Acréscimo</option>
-                </select>
-                <select
-                    className="rounded border border-zinc-200 bg-white px-2 py-1.5 text-xs dark:border-zinc-700 dark:bg-zinc-950"
-                    value={form.adjustment_mode}
-                    onChange={(e) =>
-                        setForm((f) => ({
-                            ...f,
-                            adjustment_mode: e.target.value as "fixed_brl" | "percent",
-                        }))
-                    }
-                >
-                    <option value="percent">% (bps)</option>
-                    <option value="fixed_brl">R$ (centavos)</option>
-                </select>
-                <input
-                    placeholder="Valor"
-                    className="rounded border border-zinc-200 bg-white px-2 py-1.5 text-xs dark:border-zinc-700 dark:bg-zinc-950"
-                    value={form.adjustment_value}
-                    onChange={(e) => setForm((f) => ({ ...f, adjustment_value: e.target.value }))}
-                />
+            <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                <label className="flex flex-col gap-0.5 text-[10px] text-zinc-500">
+                    Plano
+                    <select
+                        className={inputCls}
+                        value={form.plan_id || plans[0]?.id || ""}
+                        onChange={(e) => setForm((f) => ({ ...f, plan_id: e.target.value }))}
+                    >
+                        {plans.map((p) => (
+                            <option key={p.id} value={p.id}>
+                                {p.name}
+                            </option>
+                        ))}
+                    </select>
+                </label>
+                <label className="flex flex-col gap-0.5 text-[10px] text-zinc-500">
+                    Nome da campanha
+                    <input
+                        placeholder="Ex.: Lançamento Q3"
+                        className={inputCls}
+                        value={form.name}
+                        onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+                    />
+                </label>
+                <label className="flex flex-col gap-0.5 text-[10px] text-zinc-500">
+                    Meses de benefício
+                    <input
+                        className={inputCls}
+                        value={form.duration_months}
+                        onChange={(e) => setForm((f) => ({ ...f, duration_months: e.target.value }))}
+                    />
+                </label>
+                <label className="flex flex-col gap-0.5 text-[10px] text-zinc-500">
+                    Início
+                    <input
+                        type="datetime-local"
+                        className={inputCls}
+                        value={form.starts_at}
+                        onChange={(e) => setForm((f) => ({ ...f, starts_at: e.target.value }))}
+                    />
+                </label>
+                <label className="flex flex-col gap-0.5 text-[10px] text-zinc-500">
+                    Fim
+                    <input
+                        type="datetime-local"
+                        className={inputCls}
+                        value={form.ends_at}
+                        onChange={(e) => setForm((f) => ({ ...f, ends_at: e.target.value }))}
+                    />
+                </label>
+                <div className="flex flex-col gap-0.5 text-[10px] text-zinc-500">
+                    Desconto
+                    <div className="flex gap-1">
+                        <select
+                            className={inputCls}
+                            value={form.adjustment_mode}
+                            onChange={(e) => {
+                                const mode = e.target.value as "fixed_brl" | "percent";
+                                setForm((f) => ({
+                                    ...f,
+                                    adjustment_mode: mode,
+                                    discount_display: mode === "percent" ? "0,00" : "0,00",
+                                }));
+                            }}
+                        >
+                            <option value="percent">%</option>
+                            <option value="fixed_brl">R$</option>
+                        </select>
+                        <input
+                            className={`${inputCls} flex-1`}
+                            placeholder={
+                                form.adjustment_mode === "percent" ? "% 00,00" : "R$ 00,00"
+                            }
+                            value={form.discount_display}
+                            onChange={(e) =>
+                                setForm((f) => ({ ...f, discount_display: e.target.value }))
+                            }
+                        />
+                    </div>
+                </div>
             </div>
             <button
                 type="button"
@@ -158,14 +197,45 @@ function PromoAdminPanel({
                 Criar promo
             </button>
             {promotions.length > 0 && (
-                <ul className="mt-3 space-y-1 text-[11px] text-zinc-600 dark:text-zinc-400">
-                    {promotions.slice(0, 8).map((p) => (
-                        <li key={p.id}>
-                            {(p.plans?.name ?? p.plans?.key) || "plano"} · {p.name || "(sem nome)"} ·{" "}
-                            {p.adjustment_kind}/{p.adjustment_mode}={p.adjustment_value} ·{" "}
-                            {p.duration_months}m · {p.active ? "ativa" : "off"}
-                        </li>
-                    ))}
+                <ul className="mt-4 divide-y divide-zinc-100 dark:divide-zinc-800">
+                    {promotions.slice(0, 12).map((p) => {
+                        const discLabel =
+                            p.adjustment_mode === "percent"
+                                ? `% ${percentHundredthsToInput(p.adjustment_value)}`
+                                : formatBrlFromCents(p.adjustment_value);
+                        return (
+                            <li
+                                key={p.id}
+                                className="flex flex-wrap items-center justify-between gap-2 py-2 text-[11px] text-zinc-600 dark:text-zinc-400"
+                            >
+                                <span>
+                                    <span className="font-medium text-zinc-800 dark:text-zinc-200">
+                                        {(p.plans?.name ?? p.plans?.key) || "plano"}
+                                    </span>
+                                    {" · "}
+                                    {p.name || "(sem nome)"}
+                                    {" · desconto "}
+                                    {discLabel}
+                                    {" · "}
+                                    {p.duration_months} meses
+                                </span>
+                                <button
+                                    type="button"
+                                    disabled={toggle.isPending}
+                                    onClick={() =>
+                                        toggle.mutate({ id: p.id, active: !p.active })
+                                    }
+                                    className={`rounded-full px-2.5 py-1 text-[10px] font-semibold ${
+                                        p.active
+                                            ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200"
+                                            : "bg-zinc-200 text-zinc-600 dark:bg-zinc-700 dark:text-zinc-300"
+                                    }`}
+                                >
+                                    {p.active ? "Ligada" : "Desligada"}
+                                </button>
+                            </li>
+                        );
+                    })}
                 </ul>
             )}
         </div>
@@ -220,10 +290,11 @@ export default function PlatformBillingPage() {
         Record<
             string,
             {
-                price_cents?: string;
-                price_year_cents?: string;
+                price_display?: string;
+                yearly_mode?: "percent" | "fixed_brl";
+                yearly_discount_display?: string;
                 included_seats?: string;
-                seat_extra_cents?: string;
+                seat_extra_display?: string;
             }
         >
     >({});
@@ -299,9 +370,10 @@ export default function PlatformBillingPage() {
             id: string;
             body: {
                 price_cents?: number;
-                price_year_cents?: number | null;
                 included_seats?: number;
                 seat_extra_cents?: number | null;
+                yearly_discount_mode?: "percent" | "fixed_brl";
+                yearly_discount_value?: number;
             };
         }) => platformApi.updatePlanPricing(id, body),
         onSuccess: () => {
@@ -434,8 +506,8 @@ export default function PlatformBillingPage() {
                     Preços dos planos (lista)
                 </h2>
                 <p className="mt-1 text-xs text-zinc-500">
-                    Mensal / anual / seats editáveis (R3-5). Valores em centavos (27900 = R$ 279).
-                    Anual vazio ao salvar mensal → sugere −20%.
+                    Mensal e seats em R$. Anual = mensal × 12 menos desconto (% ou R$) — não é promo.
+                    Default sugerido: −20%.
                 </p>
                 {!isSuperadmin ? (
                     <p className="mt-2 text-xs text-amber-700">Apenas superadmin edita preços.</p>
@@ -445,10 +517,11 @@ export default function PlatformBillingPage() {
                             <thead className="text-zinc-500">
                                 <tr>
                                     <th className="py-1 pr-3">Plano</th>
-                                    <th className="py-1 pr-3">Mensal ¢</th>
-                                    <th className="py-1 pr-3">Anual ¢</th>
+                                    <th className="py-1 pr-3">Mensal</th>
+                                    <th className="py-1 pr-3">Desconto anual</th>
+                                    <th className="py-1 pr-3">Anual calc.</th>
                                     <th className="py-1 pr-3">Seats</th>
-                                    <th className="py-1 pr-3">Seat extra ¢</th>
+                                    <th className="py-1 pr-3">Seat extra</th>
                                     <th className="py-1"> </th>
                                 </tr>
                             </thead>
@@ -460,59 +533,123 @@ export default function PlatformBillingPage() {
                                         name: string;
                                         price_cents: number;
                                         price_year_cents: number | null;
+                                        yearly_discount_mode?: "percent" | "fixed_brl";
+                                        yearly_discount_value?: number;
                                         included_seats: number | null;
                                         seat_extra_cents: number | null;
                                     }>
                                 ).map((p) => {
                                     const edit = priceEdits[p.id] ?? {};
-                                    const month = edit.price_cents ?? String(p.price_cents);
-                                    const year =
-                                        edit.price_year_cents ??
-                                        (p.price_year_cents == null ? "" : String(p.price_year_cents));
+                                    const mode =
+                                        edit.yearly_mode ??
+                                        p.yearly_discount_mode ??
+                                        "percent";
+                                    const monthDisp =
+                                        edit.price_display ?? centsToBrlInput(p.price_cents);
+                                    const discDisp =
+                                        edit.yearly_discount_display ??
+                                        (mode === "percent"
+                                            ? percentHundredthsToInput(
+                                                  p.yearly_discount_value ?? 2000
+                                              )
+                                            : centsToBrlInput(p.yearly_discount_value ?? 0));
                                     const seats =
-                                        edit.included_seats ??
-                                        String(p.included_seats ?? 1);
+                                        edit.included_seats ?? String(p.included_seats ?? 1);
                                     const seatX =
-                                        edit.seat_extra_cents ??
+                                        edit.seat_extra_display ??
                                         (p.seat_extra_cents == null
                                             ? ""
-                                            : String(p.seat_extra_cents));
+                                            : centsToBrlInput(p.seat_extra_cents));
+                                    const monthCents =
+                                        brlInputToCents(monthDisp) ?? p.price_cents;
+                                    const discVal =
+                                        mode === "percent"
+                                            ? (percentInputToHundredths(discDisp) ?? 2000)
+                                            : (brlInputToCents(discDisp) ?? 0);
+                                    const yearPreview = computeYearlyPriceCents(
+                                        monthCents,
+                                        mode,
+                                        discVal
+                                    );
+                                    const inputCls =
+                                        "w-full min-w-[5.5rem] rounded border border-zinc-200 bg-white px-1.5 py-1 dark:border-zinc-700 dark:bg-zinc-950";
                                     return (
-                                        <tr key={p.id} className="border-t border-zinc-100 dark:border-zinc-800">
+                                        <tr
+                                            key={p.id}
+                                            className="border-t border-zinc-100 dark:border-zinc-800"
+                                        >
                                             <td className="py-2 pr-3 font-medium">{p.name}</td>
                                             <td className="py-2 pr-3">
-                                                <input
-                                                    className="w-24 rounded border border-zinc-200 bg-white px-1.5 py-1 dark:border-zinc-700 dark:bg-zinc-950"
-                                                    value={month}
-                                                    onChange={(e) =>
-                                                        setPriceEdits((prev) => ({
-                                                            ...prev,
-                                                            [p.id]: {
-                                                                ...prev[p.id],
-                                                                price_cents: e.target.value,
-                                                            },
-                                                        }))
-                                                    }
-                                                />
+                                                <div className="flex items-center gap-1">
+                                                    <span className="text-[10px] text-zinc-400">
+                                                        R$
+                                                    </span>
+                                                    <input
+                                                        className={inputCls}
+                                                        placeholder="00,00"
+                                                        value={monthDisp}
+                                                        onChange={(e) =>
+                                                            setPriceEdits((prev) => ({
+                                                                ...prev,
+                                                                [p.id]: {
+                                                                    ...prev[p.id],
+                                                                    price_display: e.target.value,
+                                                                },
+                                                            }))
+                                                        }
+                                                    />
+                                                </div>
+                                            </td>
+                                            <td className="py-2 pr-3">
+                                                <div className="flex items-center gap-1">
+                                                    <select
+                                                        className="rounded border border-zinc-200 bg-white px-1 py-1 text-[10px] dark:border-zinc-700 dark:bg-zinc-950"
+                                                        value={mode}
+                                                        onChange={(e) => {
+                                                            const m = e.target.value as
+                                                                | "percent"
+                                                                | "fixed_brl";
+                                                            setPriceEdits((prev) => ({
+                                                                ...prev,
+                                                                [p.id]: {
+                                                                    ...prev[p.id],
+                                                                    yearly_mode: m,
+                                                                    yearly_discount_display:
+                                                                        m === "percent"
+                                                                            ? "20,00"
+                                                                            : "0,00",
+                                                                },
+                                                            }));
+                                                        }}
+                                                    >
+                                                        <option value="percent">%</option>
+                                                        <option value="fixed_brl">R$</option>
+                                                    </select>
+                                                    <input
+                                                        className={inputCls}
+                                                        placeholder={
+                                                            mode === "percent" ? "00,00" : "00,00"
+                                                        }
+                                                        value={discDisp}
+                                                        onChange={(e) =>
+                                                            setPriceEdits((prev) => ({
+                                                                ...prev,
+                                                                [p.id]: {
+                                                                    ...prev[p.id],
+                                                                    yearly_discount_display:
+                                                                        e.target.value,
+                                                                },
+                                                            }))
+                                                        }
+                                                    />
+                                                </div>
+                                            </td>
+                                            <td className="py-2 pr-3 tabular-nums text-zinc-600 dark:text-zinc-300">
+                                                {formatBrlFromCents(yearPreview)}
                                             </td>
                                             <td className="py-2 pr-3">
                                                 <input
-                                                    className="w-28 rounded border border-zinc-200 bg-white px-1.5 py-1 dark:border-zinc-700 dark:bg-zinc-950"
-                                                    value={year}
-                                                    onChange={(e) =>
-                                                        setPriceEdits((prev) => ({
-                                                            ...prev,
-                                                            [p.id]: {
-                                                                ...prev[p.id],
-                                                                price_year_cents: e.target.value,
-                                                            },
-                                                        }))
-                                                    }
-                                                />
-                                            </td>
-                                            <td className="py-2 pr-3">
-                                                <input
-                                                    className="w-16 rounded border border-zinc-200 bg-white px-1.5 py-1 dark:border-zinc-700 dark:bg-zinc-950"
+                                                    className="w-14 rounded border border-zinc-200 bg-white px-1.5 py-1 dark:border-zinc-700 dark:bg-zinc-950"
                                                     value={seats}
                                                     onChange={(e) =>
                                                         setPriceEdits((prev) => ({
@@ -526,43 +663,72 @@ export default function PlatformBillingPage() {
                                                 />
                                             </td>
                                             <td className="py-2 pr-3">
-                                                <input
-                                                    className="w-24 rounded border border-zinc-200 bg-white px-1.5 py-1 dark:border-zinc-700 dark:bg-zinc-950"
-                                                    placeholder="null"
-                                                    value={seatX}
-                                                    onChange={(e) =>
-                                                        setPriceEdits((prev) => ({
-                                                            ...prev,
-                                                            [p.id]: {
-                                                                ...prev[p.id],
-                                                                seat_extra_cents: e.target.value,
-                                                            },
-                                                        }))
-                                                    }
-                                                />
+                                                <div className="flex items-center gap-1">
+                                                    <span className="text-[10px] text-zinc-400">
+                                                        R$
+                                                    </span>
+                                                    <input
+                                                        className={inputCls}
+                                                        placeholder="00,00"
+                                                        value={seatX}
+                                                        onChange={(e) =>
+                                                            setPriceEdits((prev) => ({
+                                                                ...prev,
+                                                                [p.id]: {
+                                                                    ...prev[p.id],
+                                                                    seat_extra_display:
+                                                                        e.target.value,
+                                                                },
+                                                            }))
+                                                        }
+                                                    />
+                                                </div>
                                             </td>
                                             <td className="py-2">
                                                 <button
                                                     type="button"
                                                     disabled={savePlanPrice.isPending}
                                                     onClick={() => {
+                                                        const price = brlInputToCents(monthDisp);
+                                                        if (price == null) {
+                                                            toast.error("Mensal inválido");
+                                                            return;
+                                                        }
+                                                        const yVal =
+                                                            mode === "percent"
+                                                                ? percentInputToHundredths(
+                                                                      discDisp
+                                                                  )
+                                                                : brlInputToCents(discDisp);
+                                                        if (yVal == null) {
+                                                            toast.error("Desconto anual inválido");
+                                                            return;
+                                                        }
                                                         const body: {
-                                                            price_cents?: number;
-                                                            price_year_cents?: number | null;
+                                                            price_cents: number;
+                                                            yearly_discount_mode:
+                                                                | "percent"
+                                                                | "fixed_brl";
+                                                            yearly_discount_value: number;
                                                             included_seats?: number;
                                                             seat_extra_cents?: number | null;
-                                                        } = {};
-                                                        if (month !== "")
-                                                            body.price_cents = Number(month);
-                                                        if (year === "")
-                                                            body.price_year_cents = null;
-                                                        else if (year !== "")
-                                                            body.price_year_cents = Number(year);
+                                                        } = {
+                                                            price_cents: price,
+                                                            yearly_discount_mode: mode,
+                                                            yearly_discount_value: yVal,
+                                                        };
                                                         if (seats !== "")
                                                             body.included_seats = Number(seats);
-                                                        if (seatX === "")
+                                                        if (seatX.trim() === "")
                                                             body.seat_extra_cents = null;
-                                                        else body.seat_extra_cents = Number(seatX);
+                                                        else {
+                                                            const sx = brlInputToCents(seatX);
+                                                            if (sx == null) {
+                                                                toast.error("Seat extra inválido");
+                                                                return;
+                                                            }
+                                                            body.seat_extra_cents = sx;
+                                                        }
                                                         savePlanPrice.mutate({ id: p.id, body });
                                                     }}
                                                     className="inline-flex items-center gap-1 rounded bg-zinc-900 px-2 py-1 text-[11px] font-semibold text-white dark:bg-zinc-100 dark:text-zinc-900"
