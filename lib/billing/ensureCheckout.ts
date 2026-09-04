@@ -113,18 +113,23 @@ export async function loadCheckoutContext(
     const { data: subFresh } = await admin
         .from("pagarme_subscriptions")
         .select(
-            "id, plan, status, pagarme_customer_id, next_billing_at, last_paid_at, seat_quantity, billing_period, promo_months_remaining, promo_snapshot"
+            "id, plan, status, pagarme_customer_id, next_billing_at, last_paid_at, seat_quantity, billing_period, promo_months_remaining, promo_snapshot, pending_plan_key"
         )
         .eq("company_id", companyId)
         .maybeSingle();
 
     const subRow = subFresh ?? sub;
-    const pricing = await loadPlanPricing(admin, String(subRow.plan ?? "essencial"));
-    const seatQty =
-        typeof (subRow as { seat_quantity?: number }).seat_quantity === "number" &&
-        (subRow as { seat_quantity: number }).seat_quantity >= 1
-            ? (subRow as { seat_quantity: number }).seat_quantity
-            : pricing.includedSeats;
+    const { effectiveChargePlanKey } = await import("@/lib/billing/scheduleDowngrade");
+    const pendingKey = (subRow as { pending_plan_key?: string | null }).pending_plan_key;
+    const chargePlan = effectiveChargePlanKey(String(subRow.plan ?? "essencial"), pendingKey);
+    const pricing = await loadPlanPricing(admin, chargePlan);
+    const hasPending = Boolean(pendingKey && String(pendingKey).trim());
+    const seatQty = hasPending
+        ? pricing.includedSeats
+        : typeof (subRow as { seat_quantity?: number }).seat_quantity === "number" &&
+            (subRow as { seat_quantity: number }).seat_quantity >= 1
+          ? (subRow as { seat_quantity: number }).seat_quantity
+          : pricing.includedSeats;
     const listWithSeats = computeMonthlyChargeCents(pricing, seatQty);
     const { amountCents: chargeCents } = applyTenantPromoCents(listWithSeats, {
         billingPeriod: (subRow as { billing_period?: string }).billing_period,
@@ -135,7 +140,7 @@ export async function loadCheckoutContext(
 
     const strategyProbe = resolveCheckoutStrategy(
         String(subRow.status),
-        String(subRow.plan ?? "essencial"),
+        chargePlan,
         null,
         (subRow.last_paid_at as string | null) ?? null,
         { amountCents: chargeCents }

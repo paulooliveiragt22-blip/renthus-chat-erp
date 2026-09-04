@@ -31,7 +31,7 @@ export async function GET() {
             admin
                 .from("pagarme_subscriptions")
                 .select(
-                    "id, plan, status, trial_ends_at, next_billing_at, last_paid_at, activated_at, pagarme_customer_id, default_card_id"
+                    "id, plan, status, trial_ends_at, next_billing_at, last_paid_at, activated_at, pagarme_customer_id, default_card_id, pending_plan_key, pending_plan_change_at, pending_keep_user_ids, seat_quantity"
                 )
                 .eq("company_id", companyId)
                 .maybeSingle()

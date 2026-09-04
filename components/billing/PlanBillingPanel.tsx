@@ -13,6 +13,8 @@ import type {
     RenthusBillingAddr,
     RenthusCardForm,
 } from "@/lib/billing/planBillingTypes";
+import { DowngradePlanSection } from "@/components/billing/DowngradePlanSection";
+import { normalizePlanKey } from "@/lib/billing/planCatalog";
 
 const PAGARME_PUBLIC_KEY = process.env.NEXT_PUBLIC_PAGARME_PUBLIC_KEY ?? "";
 
@@ -1039,10 +1041,34 @@ export default function PlanBillingPanel({ variant = "full" }: PlanBillingPanelP
                               const isMarket = cur === "market";
                               const mp = billingData.monthly_prices_brl ?? {};
                               if (isMarket) {
+                                  const nk = normalizePlanKey(cur) ?? "market";
                                   return (
-                                      <p className="text-sm text-zinc-600 dark:text-zinc-400">
-                                          Você já está no plano Market (máximo atual).
-                                      </p>
+                                      <div className="space-y-3">
+                                          <p className="text-sm text-zinc-600 dark:text-zinc-400">
+                                              Você está no plano Market (máximo atual).
+                                          </p>
+                                          <DowngradePlanSection
+                                              currentPlan={nk}
+                                              pendingPlanKey={
+                                                  billingData.pagarme_subscription
+                                                      ?.pending_plan_key
+                                              }
+                                              pendingPlanChangeAt={
+                                                  billingData.pagarme_subscription
+                                                      ?.pending_plan_change_at
+                                              }
+                                              nextBillingAt={
+                                                  billingData.pagarme_subscription
+                                                      ?.next_billing_at
+                                              }
+                                              planSaving={planSaving}
+                                              onScheduled={async () => {
+                                                  await loadBilling();
+                                                  invalidatePlanFeatures();
+                                              }}
+                                              onError={(msg) => setBillingErr(msg)}
+                                          />
+                                      </div>
                                   );
                               }
                               return (
@@ -1055,7 +1081,7 @@ export default function PlanBillingPanel({ variant = "full" }: PlanBillingPanelP
                                               <p className="mt-1 text-xs text-zinc-600 dark:text-zinc-300">
                                                   ERP completo + impressão automática (
                                                   {(
-                                                      (mp as Record<string, number>).pro ?? 279
+                                                      (mp as Record<string, number>).pro ?? 349
                                                   ).toLocaleString("pt-BR", {
                                                       style: "currency",
                                                       currency: "BRL",
@@ -1082,7 +1108,7 @@ export default function PlanBillingPanel({ variant = "full" }: PlanBillingPanelP
                                               <p className="mt-1 text-xs text-zinc-600 dark:text-zinc-300">
                                                   iFood + Aiqfome + Instagram/Messenger + mesa (
                                                   {(
-                                                      (mp as Record<string, number>).market ?? 397
+                                                      (mp as Record<string, number>).market ?? 449
                                                   ).toLocaleString("pt-BR", {
                                                       style: "currency",
                                                       currency: "BRL",
@@ -1100,6 +1126,29 @@ export default function PlanBillingPanel({ variant = "full" }: PlanBillingPanelP
                                                   {planSaving ? "Salvando…" : "Ir para Market"}
                                               </button>
                                           </div>
+                                      ) : null}
+                                      {isPro ? (
+                                          <DowngradePlanSection
+                                              currentPlan="pro"
+                                              pendingPlanKey={
+                                                  billingData.pagarme_subscription
+                                                      ?.pending_plan_key
+                                              }
+                                              pendingPlanChangeAt={
+                                                  billingData.pagarme_subscription
+                                                      ?.pending_plan_change_at
+                                              }
+                                              nextBillingAt={
+                                                  billingData.pagarme_subscription
+                                                      ?.next_billing_at
+                                              }
+                                              planSaving={planSaving}
+                                              onScheduled={async () => {
+                                                  await loadBilling();
+                                                  invalidatePlanFeatures();
+                                              }}
+                                              onError={(msg) => setBillingErr(msg)}
+                                          />
                                       ) : null}
                                   </div>
                               );

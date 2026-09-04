@@ -11,6 +11,10 @@ export type BillingStatusJson = {
         next_billing_at: string | null;
         last_paid_at: string | null;
         activated_at: string | null;
+        pending_plan_key?: string | null;
+        pending_plan_change_at?: string | null;
+        pending_keep_user_ids?: string[] | null;
+        seat_quantity?: number | null;
     } | null;
     pending_invoice?: {
         pagarme_payment_url: string | null;
