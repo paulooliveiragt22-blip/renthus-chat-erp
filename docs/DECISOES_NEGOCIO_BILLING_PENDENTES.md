@@ -165,7 +165,7 @@ Se o superadmin **editar** a lista mensal do plano (R3-5), o 10% passa a usar o 
 | Promo engine + snapshot adesão | `[i]` C3 — attach na adesão + apply no charge + admin UI |
 | Promo toggle kill-switch + signup De/por | `[i]` C1-fix — `active` + `/api/billing/public-plans` |
 | Promo Switch UI + editar campanha (PATCH full) | `[i]` C1-fix2 |
-| Downgrade com seleção de users | pendente |
+| Downgrade com seleção de users | `[i]` BN-12 — pending_* + apply no fulfill + UI /plano |
 
 ---
 

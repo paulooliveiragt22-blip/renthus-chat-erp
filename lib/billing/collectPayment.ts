@@ -61,21 +61,31 @@ async function chargeCentsForSub(admin: Admin, sub: CollectSub): Promise<number>
     const { loadPlanPricing } = await import("@/lib/billing/loadPlanPricing");
     const { computeMonthlyChargeCents } = await import("@/lib/billing/subscriptionAmount");
     const { applyTenantPromoCents } = await import("@/lib/billing/resolvePromoForCharge");
-    const pricing = await loadPlanPricing(admin, String(sub.plan ?? "essencial"));
-    const seatQty =
-        typeof sub.seat_quantity === "number" && sub.seat_quantity >= 1
-            ? sub.seat_quantity
-            : pricing.includedSeats;
-    const listWithSeats = computeMonthlyChargeCents(pricing, seatQty);
-    const { data: promoRow } = await admin
+    const { effectiveChargePlanKey } = await import("@/lib/billing/scheduleDowngrade");
+    const { data: row } = await admin
         .from("pagarme_subscriptions")
-        .select("billing_period, promo_months_remaining, promo_snapshot")
+        .select("billing_period, promo_months_remaining, promo_snapshot, pending_plan_key, plan, seat_quantity")
         .eq("id", sub.id)
         .maybeSingle();
+    const chargePlan = effectiveChargePlanKey(
+        String(row?.plan ?? sub.plan ?? "essencial"),
+        row?.pending_plan_key as string | null | undefined
+    );
+    const pricing = await loadPlanPricing(admin, chargePlan);
+    const hasPending = Boolean(
+        row?.pending_plan_key && String(row.pending_plan_key).trim()
+    );
+    const seatQty = hasPending
+        ? pricing.includedSeats
+        : typeof (row?.seat_quantity ?? sub.seat_quantity) === "number" &&
+            Number(row?.seat_quantity ?? sub.seat_quantity) >= 1
+          ? Number(row?.seat_quantity ?? sub.seat_quantity)
+          : pricing.includedSeats;
+    const listWithSeats = computeMonthlyChargeCents(pricing, seatQty);
     const { amountCents } = applyTenantPromoCents(listWithSeats, {
-        billingPeriod: promoRow?.billing_period as string | null | undefined,
-        promoMonthsRemaining: promoRow?.promo_months_remaining as number | null | undefined,
-        promoSnapshot: promoRow?.promo_snapshot,
+        billingPeriod: row?.billing_period as string | null | undefined,
+        promoMonthsRemaining: row?.promo_months_remaining as number | null | undefined,
+        promoSnapshot: row?.promo_snapshot,
     });
     return amountCents;
 }
@@ -137,11 +147,26 @@ async function ensurePendingInvoice(
 
     const { loadPlanPricing } = await import("@/lib/billing/loadPlanPricing");
     const { computeMonthlyChargeCents } = await import("@/lib/billing/subscriptionAmount");
-    const pricing = await loadPlanPricing(admin, String(sub.plan ?? "essencial"));
-    const seatQty =
-        typeof sub.seat_quantity === "number" && sub.seat_quantity >= 1
-            ? sub.seat_quantity
-            : pricing.includedSeats;
+    const { effectiveChargePlanKey } = await import("@/lib/billing/scheduleDowngrade");
+    const { data: pendRow } = await admin
+        .from("pagarme_subscriptions")
+        .select("pending_plan_key, plan, seat_quantity")
+        .eq("id", sub.id)
+        .maybeSingle();
+    const chargePlan = effectiveChargePlanKey(
+        String(pendRow?.plan ?? sub.plan ?? "essencial"),
+        pendRow?.pending_plan_key as string | null | undefined
+    );
+    const pricing = await loadPlanPricing(admin, chargePlan);
+    const hasPending = Boolean(
+        pendRow?.pending_plan_key && String(pendRow.pending_plan_key).trim()
+    );
+    const seatQty = hasPending
+        ? pricing.includedSeats
+        : typeof (pendRow?.seat_quantity ?? sub.seat_quantity) === "number" &&
+            Number(pendRow?.seat_quantity ?? sub.seat_quantity) >= 1
+          ? Number(pendRow?.seat_quantity ?? sub.seat_quantity)
+          : pricing.includedSeats;
     const amountCents = computeMonthlyChargeCents(pricing, seatQty);
     const { data: claimed, error: claimErr } = await admin
         .from("invoices")
