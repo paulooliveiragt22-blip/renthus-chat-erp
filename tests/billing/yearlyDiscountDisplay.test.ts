@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { computeYearlyPriceCents } from "@/lib/billing/yearlyFromDiscount";
+import {
+    computeYearlyPriceCents,
+    yearlyDiscountLabelPercent,
+    yearlySavingsPercent,
+} from "@/lib/billing/yearlyFromDiscount";
 import {
     brlInputToCents,
     centsToBrlInput,
@@ -21,6 +25,17 @@ describe("yearlyFromDiscount", () => {
         const year = computeYearlyPriceCents(27900, "percent", 2000);
         assert.equal(year, 267840);
         assert.equal(Math.round(year / 12), 22320);
+    });
+
+    it("toggle: percent canônico 2000 → 20%", () => {
+        const year = computeYearlyPriceCents(27900, "percent", 2000);
+        assert.equal(yearlyDiscountLabelPercent("percent", 2000, 27900, year), 20);
+        assert.equal(yearlySavingsPercent(27900, year), 20);
+    });
+
+    it("toggle: percent canônico 1500 → 15%", () => {
+        const year = computeYearlyPriceCents(34900, "percent", 1500);
+        assert.equal(yearlyDiscountLabelPercent("percent", 1500, 34900, year), 15);
     });
 });
 

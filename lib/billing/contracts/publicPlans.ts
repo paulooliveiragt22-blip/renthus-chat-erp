@@ -18,6 +18,8 @@ export type UiPublicPlanOffer = {
     list_monthly_cents: number;
     offer_monthly_cents: number;
     list_yearly_cents: number | null;
+    /** % canônico do anual (plans.yearly_discount_* / price_year_cents). */
+    yearly_savings_percent: number;
     included_seats: number | null;
     seat_extra_cents: number | null;
     popular: boolean;

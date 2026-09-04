@@ -9,6 +9,10 @@ import { applyPromoAdjustmentCents } from "@/lib/billing/subscriptionAmount";
 import { findActivePlanPromotion } from "@/lib/billing/resolvePromoForCharge";
 import { formatBrlFromCents } from "@/lib/billing/moneyDisplay";
 import type { UiPublicPlanOffer } from "@/lib/billing/contracts/publicPlans";
+import {
+    yearlyDiscountLabelPercent,
+    type YearlyDiscountMode,
+} from "@/lib/billing/yearlyFromDiscount";
 
 function isCommercialKey(k: string): k is CommercialPlanKey {
     return k === "essencial" || k === "pro" || k === "market";
@@ -21,7 +25,7 @@ export async function listPublicPlanOffers(
     const { data, error } = await admin
         .from("plans")
         .select(
-            "id, key, name, description, price_cents, price_year_cents, included_seats, seat_extra_cents"
+            "id, key, name, description, price_cents, price_year_cents, yearly_discount_mode, yearly_discount_value, included_seats, seat_extra_cents"
         )
         .in("key", PLAN_ORDER);
     if (error) throw new Error(error.message);
@@ -71,6 +75,14 @@ export async function listPublicPlanOffers(
             list_monthly_cents: listMonthly,
             offer_monthly_cents: offerMonthly,
             list_yearly_cents: listYearly,
+            yearly_savings_percent: yearlyDiscountLabelPercent(
+                row?.yearly_discount_mode as YearlyDiscountMode | undefined,
+                typeof row?.yearly_discount_value === "number"
+                    ? row.yearly_discount_value
+                    : null,
+                listMonthly,
+                listYearly
+            ),
             included_seats:
                 row?.included_seats == null
                     ? catalog.includedSeats
