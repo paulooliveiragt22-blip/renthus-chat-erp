@@ -152,13 +152,13 @@ export default function AdminSidebar({
         "flex shrink-0 items-center border-b border-white/10 py-4",
         collapsed ? "justify-center px-0" : "gap-3 px-5",
       ].join(" ")}>
-        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl shadow-[0_0_20px_rgba(87,255,143,0.3)]">
+        <span className="flex h-9 w-9 shrink-0 items-center justify-center">
           <img
-            src="/brand/renthus-mark-on-dark.svg?v=mark4"
+            src="/brand/renthus-mark-on-dark.svg?v=mark6"
             alt={collapsed ? "RenthusAgent" : ""}
             width={36}
             height={36}
-            className="h-9 w-9 object-contain object-center"
+            className="h-9 w-9 object-contain object-center drop-shadow-[0_0_12px_rgba(87,255,143,0.45)]"
           />
         </span>
 

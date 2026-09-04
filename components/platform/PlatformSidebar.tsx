@@ -68,13 +68,13 @@ export default function PlatformSidebar({ isOpen, onClose }: Props) {
             ].join(" ")}
         >
             <div className="flex items-center gap-3 border-b border-white/10 px-5 py-4">
-                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl shadow-[0_0_20px_rgba(87,255,143,0.3)]">
+                <span className="flex h-10 w-10 shrink-0 items-center justify-center">
                     <img
-                        src="/brand/renthus-mark-on-dark.svg?v=mark4"
+                        src="/brand/renthus-mark-on-dark.svg?v=mark6"
                         alt=""
                         width={40}
                         height={40}
-                        className="h-10 w-10 object-contain object-center"
+                        className="h-10 w-10 object-contain object-center drop-shadow-[0_0_12px_rgba(87,255,143,0.45)]"
                     />
                 </span>
                 <div className="flex-1">
