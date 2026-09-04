@@ -13,7 +13,7 @@ import type {
     RenthusBillingAddr,
     RenthusCardForm,
 } from "@/lib/billing/planBillingTypes";
-import { DowngradePlanSection } from "@/components/billing/DowngradePlanSection";
+import { PlanChangeCatalog } from "@/components/billing/PlanChangeCatalog";
 import { normalizePlanKey } from "@/lib/billing/planCatalog";
 
 const PAGARME_PUBLIC_KEY = process.env.NEXT_PUBLIC_PAGARME_PUBLIC_KEY ?? "";
@@ -954,206 +954,43 @@ export default function PlanBillingPanel({ variant = "full" }: PlanBillingPanelP
                     })()}
                     </div>
 
-                    {variant === "full" && billingData.pagarme_subscription?.status === "trial" ? (
-                        <div>
-                            <p className="mb-3 text-xs font-bold uppercase tracking-wide text-zinc-500">
-                                Escolha do plano (durante o teste)
-                            </p>
-                            <div className="grid gap-3 sm:grid-cols-3">
-                                {(
-                                    [
-                                        {
-                                            key: "essencial" as const,
-                                            name: "Essencial",
-                                            blurb: "WhatsApp + cardápio + IA",
-                                        },
-                                        {
-                                            key: "pro" as const,
-                                            name: "Pro",
-                                            blurb: "ERP + impressão + IA",
-                                            popular: true,
-                                        },
-                                        {
-                                            key: "market" as const,
-                                            name: "Market",
-                                            blurb: "Pro + iFood/Aiqfome + omni",
-                                        },
-                                    ] as const
-                                ).map((p) => {
-                                    const cur = String(billingData.pagarme_subscription?.plan ?? "");
-                                    const active =
-                                        cur === p.key ||
-                                        (p.key === "essencial" && (cur === "bot" || cur === "starter")) ||
-                                        (p.key === "pro" && cur === "complete");
-                                    const mp = billingData.monthly_prices_brl ?? {};
-                                    const price =
-                                        (mp as Record<string, number>)[p.key] ??
-                                        (p.key === "essencial" ? 197 : p.key === "pro" ? 279 : 397);
-                                    return (
-                                        <div
-                                            key={p.key}
-                                            className={`rounded-xl border-2 p-4 ${
-                                                active
-                                                    ? "border-violet-500 bg-violet-50 dark:border-violet-500 dark:bg-violet-950/30"
-                                                    : "border-zinc-200 dark:border-zinc-700"
-                                            }`}
-                                        >
-                                            {"popular" in p && p.popular ? (
-                                                <p className="mb-1 text-[10px] font-bold uppercase tracking-wide text-violet-600">
-                                                    Mais popular
-                                                </p>
-                                            ) : null}
-                                            <p className="font-bold text-zinc-900 dark:text-zinc-100">{p.name}</p>
-                                            <p className="mt-0.5 text-xs text-zinc-500">{p.blurb}</p>
-                                            <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-300">
-                                                {price.toLocaleString("pt-BR", {
-                                                    style: "currency",
-                                                    currency: "BRL",
-                                                })}
-                                                /mês
-                                            </p>
-                                            <button
-                                                type="button"
-                                                disabled={planSaving || active}
-                                                onClick={() => {
-                                                    void changeRenthusPlan(p.key);
-                                                }}
-                                                className="mt-3 w-full rounded-lg bg-violet-600 py-2 text-sm font-semibold text-white hover:bg-violet-700 disabled:opacity-50"
-                                            >
-                                                {active ? "Plano atual" : "Usar este plano"}
-                                            </button>
-                                        </div>
-                                    );
-                                })}
-                            </div>
-                        </div>
-                    ) : null}
-
-                    {variant === "full"
-                        ? (() => {
-                              const cur = String(billingData.pagarme_subscription?.plan ?? "");
-                              const st = billingData.pagarme_subscription?.status;
-                              const paid = st === "active" || st === "overdue";
-                              if (!paid) return null;
-                              const isEssencial =
-                                  cur === "essencial" || cur === "bot" || cur === "starter";
-                              const isPro = cur === "pro" || cur === "complete";
-                              const isMarket = cur === "market";
-                              const mp = billingData.monthly_prices_brl ?? {};
-                              if (isMarket) {
-                                  const nk = normalizePlanKey(cur) ?? "market";
-                                  return (
-                                      <div className="space-y-3">
-                                          <p className="text-sm text-zinc-600 dark:text-zinc-400">
-                                              Você está no plano Market (máximo atual).
-                                          </p>
-                                          <DowngradePlanSection
-                                              currentPlan={nk}
-                                              pendingPlanKey={
-                                                  billingData.pagarme_subscription
-                                                      ?.pending_plan_key
-                                              }
-                                              pendingPlanChangeAt={
-                                                  billingData.pagarme_subscription
-                                                      ?.pending_plan_change_at
-                                              }
-                                              nextBillingAt={
-                                                  billingData.pagarme_subscription
-                                                      ?.next_billing_at
-                                              }
-                                              planSaving={planSaving}
-                                              onScheduled={async () => {
-                                                  await loadBilling();
-                                                  invalidatePlanFeatures();
-                                              }}
-                                              onError={(msg) => setBillingErr(msg)}
-                                          />
-                                      </div>
-                                  );
-                              }
-                              return (
-                                  <div className="space-y-3">
-                                      {isEssencial ? (
-                                          <div className="rounded-xl border border-violet-200 bg-violet-50 p-4 dark:border-violet-800 dark:bg-violet-950/30">
-                                              <p className="text-sm font-bold text-zinc-900 dark:text-zinc-100">
-                                                  Upgrade para Pro
-                                              </p>
-                                              <p className="mt-1 text-xs text-zinc-600 dark:text-zinc-300">
-                                                  ERP completo + impressão automática (
-                                                  {(
-                                                      (mp as Record<string, number>).pro ?? 349
-                                                  ).toLocaleString("pt-BR", {
-                                                      style: "currency",
-                                                      currency: "BRL",
-                                                  })}
-                                                  /mês).
-                                              </p>
-                                              <button
-                                                  type="button"
-                                                  disabled={planSaving}
-                                                  onClick={() => {
-                                                      void changeRenthusPlan("pro");
-                                                  }}
-                                                  className="mt-3 rounded-lg bg-violet-600 px-4 py-2 text-sm font-semibold text-white hover:bg-violet-700 disabled:opacity-60"
-                                              >
-                                                  {planSaving ? "Salvando…" : "Ir para Pro"}
-                                              </button>
-                                          </div>
-                                      ) : null}
-                                      {isEssencial || isPro ? (
-                                          <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 dark:border-amber-800 dark:bg-amber-950/30">
-                                              <p className="text-sm font-bold text-zinc-900 dark:text-zinc-100">
-                                                  Upgrade para Market
-                                              </p>
-                                              <p className="mt-1 text-xs text-zinc-600 dark:text-zinc-300">
-                                                  iFood + Aiqfome + Instagram/Messenger + mesa (
-                                                  {(
-                                                      (mp as Record<string, number>).market ?? 449
-                                                  ).toLocaleString("pt-BR", {
-                                                      style: "currency",
-                                                      currency: "BRL",
-                                                  })}
-                                                  /mês).
-                                              </p>
-                                              <button
-                                                  type="button"
-                                                  disabled={planSaving}
-                                                  onClick={() => {
-                                                      void changeRenthusPlan("market");
-                                                  }}
-                                                  className="mt-3 rounded-lg bg-amber-600 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-700 disabled:opacity-60"
-                                              >
-                                                  {planSaving ? "Salvando…" : "Ir para Market"}
-                                              </button>
-                                          </div>
-                                      ) : null}
-                                      {isPro ? (
-                                          <DowngradePlanSection
-                                              currentPlan="pro"
-                                              pendingPlanKey={
-                                                  billingData.pagarme_subscription
-                                                      ?.pending_plan_key
-                                              }
-                                              pendingPlanChangeAt={
-                                                  billingData.pagarme_subscription
-                                                      ?.pending_plan_change_at
-                                              }
-                                              nextBillingAt={
-                                                  billingData.pagarme_subscription
-                                                      ?.next_billing_at
-                                              }
-                                              planSaving={planSaving}
-                                              onScheduled={async () => {
-                                                  await loadBilling();
-                                                  invalidatePlanFeatures();
-                                              }}
-                                              onError={(msg) => setBillingErr(msg)}
-                                          />
-                                      ) : null}
-                                  </div>
-                              );
-                          })()
-                        : null}
+                    {variant === "full" &&
+                    (() => {
+                        const st = String(billingData.pagarme_subscription?.status ?? "");
+                        if (st !== "trial" && st !== "active" && st !== "overdue") return null;
+                        const cur =
+                            normalizePlanKey(
+                                String(billingData.pagarme_subscription?.plan ?? "")
+                            ) ?? "essencial";
+                        const mp = billingData.monthly_prices_brl ?? {};
+                        return (
+                            <PlanChangeCatalog
+                                currentPlan={cur}
+                                status={st}
+                                pendingPlanKey={
+                                    billingData.pagarme_subscription?.pending_plan_key
+                                }
+                                pendingPlanChangeAt={
+                                    billingData.pagarme_subscription?.pending_plan_change_at
+                                }
+                                nextBillingAt={
+                                    billingData.pagarme_subscription?.next_billing_at
+                                }
+                                prices={{
+                                    essencial: mp.essencial ?? 279,
+                                    pro: mp.pro ?? 349,
+                                    market: mp.market ?? 449,
+                                }}
+                                planSaving={planSaving}
+                                onUpgradeOrTrial={(plan) => void changeRenthusPlan(plan)}
+                                onReload={async () => {
+                                    await loadBilling();
+                                    invalidatePlanFeatures();
+                                }}
+                                onError={(msg) => setBillingErr(msg)}
+                            />
+                        );
+                    })()}
 
                     {variant === "full" ? (
                         <SectionTitle
