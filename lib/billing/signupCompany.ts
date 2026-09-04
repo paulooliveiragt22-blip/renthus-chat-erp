@@ -6,10 +6,12 @@
 import "server-only";
 import type { createAdminClient } from "@/lib/supabase/admin";
 import type { CommercialPlanKey } from "@/lib/billing/planCatalog";
-import { createInitialMonthlyInvoice } from "@/lib/billing/createInitialMonthlyInvoice";
+import { createInitialInvoice } from "@/lib/billing/createInitialInvoice";
 import { billingLog } from "@/lib/billing/billingLog";
 
 type Admin = ReturnType<typeof createAdminClient>;
+
+export type BillingPeriod = "month" | "year";
 
 export type SignupCompanyInput = {
     authUserId: string;
@@ -19,6 +21,8 @@ export type SignupCompanyInput = {
     whatsappDigits: string;
     plan: CommercialPlanKey;
     trialDays: number;
+    /** R2-3 anual: ciclo escolhido no signup (default mensal). */
+    billingPeriod?: BillingPeriod;
 };
 
 export type SignupCompanyResult = {
@@ -38,6 +42,8 @@ export async function signupCompany(
         ? input.whatsappDigits
         : `55${input.whatsappDigits}`;
 
+    const billingPeriod: BillingPeriod = input.billingPeriod === "year" ? "year" : "month";
+
     const { data: companyId, error } = await admin.rpc("rpc_signup_company_with_billing", {
         p_auth_user_id:   input.authUserId,
         p_company_name:   input.companyName.trim(),
@@ -46,6 +52,7 @@ export async function signupCompany(
         p_whatsapp_phone: whatsapp,
         p_plan:           input.plan,
         p_trial_days:     input.trialDays,
+        p_billing_period: billingPeriod,
     });
 
     if (error || !companyId) {
@@ -58,7 +65,7 @@ export async function signupCompany(
 
     if (paymentRequired) {
         try {
-            const inv = await createInitialMonthlyInvoice(admin, String(companyId));
+            const inv = await createInitialInvoice(admin, String(companyId));
             invoiceReady = Boolean(inv.invoiceId);
             if (!invoiceReady) {
                 billingLog("signup_billing", "invoice_not_ready", {
@@ -79,6 +86,7 @@ export async function signupCompany(
     billingLog("signup_billing", mode, {
         company_id: companyId,
         plan: input.plan,
+        billing_period: billingPeriod,
         trial_days: input.trialDays,
         invoice_ready: invoiceReady,
     });

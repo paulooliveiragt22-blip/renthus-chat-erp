@@ -37,11 +37,14 @@ export async function POST(req: Request) {
             whatsapp?: string;
             email?: string;
             plan?: string;
+            billing_period?: string;
             password?: string;
             password_confirm?: string;
         };
 
         const { company_name, cnpj, whatsapp, email, plan } = body;
+        const billingPeriod: "month" | "year" =
+            String(body.billing_period ?? "month").toLowerCase() === "year" ? "year" : "month";
         const password = body.password ?? "";
         const passwordConfirm = body.password_confirm ?? "";
 
@@ -138,6 +141,7 @@ export async function POST(req: Request) {
                 whatsappDigits,
                 plan: planKey,
                 trialDays,
+                billingPeriod,
             });
         } catch (rpcErr) {
             await admin.auth.admin.deleteUser(userId);
@@ -159,7 +163,7 @@ export async function POST(req: Request) {
                 `🆕 *${cadastroLabel}*\n\n` +
                     `Empresa: ${trimmedName}\n` +
                     `Email: ${emailNorm}\n` +
-                    `Plano: ${getPlanLabel(planKey)}\n` +
+                    `Plano: ${getPlanLabel(planKey)} (${billingPeriod === "year" ? "Anual" : "Mensal"})\n` +
                     `WhatsApp: ${whatsappDigits}\n\n` +
                     `Login: ${appUrl}/login`
             );
