@@ -351,6 +351,26 @@ export function isOrderCreditPaid(order: PagarmeOrder): boolean {
     return st === "paid";
 }
 
+const TERMINAL_FAILED_STATUSES = new Set([
+    "failed",
+    "canceled",
+    "cancelled",
+    "not_authorized",
+    "refused",
+]);
+
+/**
+ * Order/charge em estado terminal de falha no PSP (L3).
+ * Nunca true se já estiver paid — evita marcar local failed após race paid.
+ */
+export function isPagarmeOrderTerminalFailed(order: PagarmeOrder): boolean {
+    if (isOrderCreditPaid(order)) return false;
+    const orderSt = String(order.status ?? "").toLowerCase();
+    if (TERMINAL_FAILED_STATUSES.has(orderSt)) return true;
+    const chargeSt = String(order.charges?.[0]?.status ?? "").toLowerCase();
+    return TERMINAL_FAILED_STATUSES.has(chargeSt);
+}
+
 /** Cobrança com cartão já salvo no cliente Pagar.me (`card_id`). */
 export async function createOrderWithSavedCard(params: {
     amountCents: number;

@@ -16,8 +16,8 @@ Estado: `[ ]` pendente · `[~]` parcial · `[x]` feito + data · `[!]` bloqueado
 | # | Decisão | Estado |
 |---|---------|--------|
 | H0.1 | Cinco camadas L1–L5 (auth → consume → PSP GET → claim → DB) | [x] 2026-09-04 ADR |
-| H0.2 | HMAC **obrigatório em produção**; insecure só com flag explícita | [ ] código + env |
-| H0.3 | Side-effects de fulfill **somente** após claim | [ ] |
+| H0.2 | Auth webhook **obrigatório em produção** (Basic Auth v5; HMAC legado); insecure só com flag | [x] 2026-09-04 código + env |
+| H0.3 | Side-effects de fulfill **somente** após claim | [x] 2026-09-04 claim guards (setup/invoice) |
 | H0.4 | Uma obrigação PSP viva; cancel-before-create (exceto se já paid → fulfill) | [ ] |
 | H0.5 | Amount de checkout = catálogo, não pending stale | [ ] |
 | H0.6 | Unificar `setup_payments`∪`invoices` **neste** P1 (R3); sem Edge billing | [x] 2026-09-04 dono |
@@ -28,9 +28,9 @@ Estado: `[ ]` pendente · `[~]` parcial · `[x]` feito + data · `[!]` bloqueado
 
 | # | Item | Recursos / arquivos | Resolve | Camadas | DoD | Estado |
 |---|------|---------------------|---------|---------|-----|--------|
-| H0.10 | Definir `PAGARME_WEBHOOK_SECRET` em Vercel **Production** | env Vercel + painel Pagar.me (assinatura se houver) | POST anônimo deixa de ser aceito em prod | L1 | Secret set; redeploy | [ ] |
-| H0.11 | Preview/local: `ALLOW_INSECURE_PAGARME_WEBHOOK=1` só se necessário | `.env.local` / preview | Dev sem secret sem silêncio | L1 | Doc no smoke | [ ] |
-| H0.12 | Atualizar smoke: HMAC presente em prod checklist | `docs/SMOKE_BILLING_PAGARME_SANDBOX.md` | Ops não “esquece” secret | L1 | Seção HMAC | [ ] |
+| H0.10 | Definir `PAGARME_WEBHOOK_BASIC_USER` + `PASSWORD` em Vercel **Production** (+ Basic no painel) | env Vercel + painel Pagar.me | POST anônimo → 401; sem env → 503 | L1 | Secret set; redeploy | [x] 2026-09-04 |
+| H0.11 | Preview/local: `ALLOW_INSECURE_PAGARME_WEBHOOK=1` só se necessário | `.env.local` / preview | Dev sem Basic sem silêncio | L1 | Doc no smoke | [x] 2026-09-04 |
+| H0.12 | Atualizar smoke: Basic Auth presente em prod checklist | `docs/SMOKE_BILLING_PAGARME_SANDBOX.md` | Ops não esquece Basic | L1 | Seção auth | [x] 2026-09-04 |
 
 ---
 
@@ -38,10 +38,10 @@ Estado: `[ ]` pendente · `[~]` parcial · `[x]` feito + data · `[!]` bloqueado
 
 | # | Item | Arquivos | Resolve | Camadas | DoD | Estado |
 |---|------|----------|---------|---------|-----|--------|
-| H1.1 **R1a** | `verifyWebhookSignature`: `timingSafeEqual` + lengths iguais | `lib/billing/pagarme.ts` | Timing attack no HMAC | L1 | Teste unitário compare | [ ] |
-| H1.2 **R1b** | Prod: sem secret → 503; sem/ inválido HMAC → 401; flag insecure só non-prod | `pagarme.ts` + `webhook/route.ts` | Unauthenticated fulfill trigger | L1 | Teste env matrix | [ ] |
-| H1.3 **R2** | Stale lock takeover com CAS: `AND updated_at = $prev` + `RETURNING id`; vazio = skip | `tryConsumePagarmeWebhookEvent.ts` | Dois workers no mesmo evento | L2 | Teste concorrente ou mock duplo UPDATE | [ ] |
-| H1.4 **R3** | Fallback key = `pge:{orderId}` (não `eventType:orderId`) | `webhookIdempotencyKey.ts` | `order.paid` + `charge.paid` duplicam slot | L2 | Mesmo order → mesma key | [ ] |
+| H1.1 **R1a** | HMAC legado: `timingSafeEqual` + lengths iguais | `pagarmeWebhookAuth.ts` | Timing attack no HMAC | L1 | Teste unitário compare | [x] 2026-09-04 |
+| H1.2 **R1b** | Prod: Basic obrigatório → 503/401; HMAC se header; flag insecure | `pagarmeWebhookAuth.ts` + `webhook/route.ts` | Unauthenticated fulfill trigger | L1 | Smoke 401/200 | [x] 2026-09-04 |
+| H1.3 **R2** | Stale lock takeover com CAS: `AND updated_at = $prev` + `RETURNING id`; vazio = skip | `tryConsumePagarmeWebhookEvent.ts` | Dois workers no mesmo evento | L2 | Teste reclaim | [x] 2026-09-04 |
+| H1.4 **R3** | Fallback key = `pge:{orderId}` (não `eventType:orderId`) | `webhookIdempotencyKey.ts` | `order.paid` + `charge.paid` duplicam slot | L2 | Mesmo order → mesma key | [x] 2026-09-04 |
 
 **Ordem:** H1.1 → H1.2 → H1.3 → H1.4. Não pular H1.3.
 
@@ -64,10 +64,10 @@ Estado: `[ ]` pendente · `[~]` parcial · `[x]` feito + data · `[!]` bloqueado
 
 | # | Item | Arquivos | Resolve | Camadas | DoD | Estado |
 |---|------|----------|---------|---------|-----|--------|
-| H3.1 **R4a** | `activate` / `syncLogicalSubscription` / `provision` **só** se claim retornou row | `fulfillPayment.ts` | Double provision / overwrite `next_billing_at` | L4 | Claim vazio = early return sem writes | [ ] |
-| H3.2 **R4b** | `pagarme_customer_id` só de `extractOrderCustomerId(apiOrder)` — ignorar hint webhook | `fulfillPayment.ts`, webhook merge | Customer forjado | L3 | Teste: hint ≠ API → usa API | [ ] |
+| H3.1 **R4a** | `activate` / `syncLogicalSubscription` / `provision` **só** se claim retornou row | `fulfillPayment.ts` | Double provision / overwrite `next_billing_at` | L4 | Claim vazio = early return sem writes | [x] 2026-09-04 |
+| H3.2 **R4b** | `pagarme_customer_id` só de `extractOrderCustomerId(apiOrder)` — ignorar hint webhook | `fulfillPayment.ts`, webhook merge | Customer forjado | L3 | Customer só API | [x] 2026-09-04 |
 | H3.3 **R5** | Preferência: RPC `rpc_fulfill_setup` / `rpc_fulfill_invoice` (SECURITY DEFINER, search_path, REVOKE); mín.: sync sempre com `next_billing_at` | migration + `pagarmeSetupPaid.ts` | Crash mid-pipeline; upsert sem datas | L4 | Um call = sub coerente `active`+dates+plan | [ ] |
-| H3.4 **R8** | `handleOrderFailed`: GET order; só marcar failed se PSP confirma failed/canceled | `webhook/route.ts` | Fail forjado | L3 | Sem GET paid → não UPDATE local | [ ] |
+| H3.4 **R8** | `handleOrderFailed`: GET order; só marcar failed se PSP confirma failed/canceled | `webhook/route.ts` | Fail forjado | L3 | Sem GET paid → não UPDATE local | [x] 2026-09-04 |
 | H3.5 **R17** | `generateTempPassword` rejection sampling (sem modulo bias) | `pagarmeSetupPaid.ts` | Bias estatístico | — | Unit | [ ] |
 
 ---

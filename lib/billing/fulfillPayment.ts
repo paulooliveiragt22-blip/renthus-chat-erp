@@ -85,9 +85,15 @@ async function fulfillSetup(admin: Admin, order: OrderLike): Promise<FulfillPaym
         return { ok: true, kind: "setup", alreadyDone: true };
     }
 
+    // Side-effects só após claim (acima). Customer id só do order PSP (GET API).
     const companyId = sp.company_id as string;
-    const pagarmeCustomerId = order.customer?.id;
-    await activateAfterSetupPayment(admin, companyId, String(sp.plan), pagarmeCustomerId);
+    const pagarmeCustomerId = extractOrderCustomerId(order as PagarmeOrder);
+    await activateAfterSetupPayment(
+        admin,
+        companyId,
+        String(sp.plan),
+        pagarmeCustomerId ?? undefined
+    );
     await syncLogicalSubscription(admin, companyId, String(sp.plan));
     await provisionUserAfterPaymentIfNeeded(admin, companyId, String(sp.plan));
     return { ok: true, kind: "setup" };
@@ -224,8 +230,7 @@ export async function fulfillPayment(
     if (ai) return ai;
 
     if (metaType === "invoice" || metaType === undefined || metaType === "") {
-        const custId =
-            extractOrderCustomerId(order as PagarmeOrder) ?? order.customer?.id ?? null;
+        const custId = extractOrderCustomerId(order as PagarmeOrder);
         const inv = await fulfillInvoice(admin, orderId, custId);
         if (inv) return inv;
 
