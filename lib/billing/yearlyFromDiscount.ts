@@ -22,3 +22,27 @@ export function computeYearlyPriceCents(
     }
     return Math.max(0, listYear - delta);
 }
+
+/** % efetivo do anual vs 12× mensal (arredondado). Fonte de exibição do toggle. */
+export function yearlySavingsPercent(monthlyCents: number, yearlyCents: number): number {
+    const full = Math.max(0, Math.floor(monthlyCents)) * 12;
+    const year = Math.max(0, Math.floor(yearlyCents));
+    if (full <= 0 || year <= 0 || year >= full) return 0;
+    return Math.round((1 - year / full) * 100);
+}
+
+/**
+ * % canônico para UI: se o admin gravou `percent`, usa yearly_discount_value
+ * (2000 = 20%). Se `fixed_brl`, deriva de mensal vs price_year_cents.
+ */
+export function yearlyDiscountLabelPercent(
+    mode: YearlyDiscountMode | null | undefined,
+    discountValue: number | null | undefined,
+    monthlyCents: number,
+    yearlyCents: number
+): number {
+    if (mode === "percent" && typeof discountValue === "number" && discountValue > 0) {
+        return Math.round(discountValue / 100);
+    }
+    return yearlySavingsPercent(monthlyCents, yearlyCents);
+}

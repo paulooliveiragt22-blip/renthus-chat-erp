@@ -12,6 +12,7 @@ import type { Session } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/client";
 import PasswordInput from "@/components/PasswordInput";
 import { PLAN_CATALOG, PLAN_ORDER, type CommercialPlanKey } from "@/lib/billing/planCatalog";
+import { yearlySavingsPercent } from "@/lib/billing/yearlyFromDiscount";
 
 type TrialPolicy = { trial_days: number; payment_required: boolean };
 
@@ -25,6 +26,7 @@ type SignupPlanCard = {
     listMonthlyCents: number;
     offerMonthlyCents: number;
     listYearlyCents: number | null;
+    yearlySavingsPercent: number;
     promoLabel: string | null;
     features: string[];
 };
@@ -61,6 +63,10 @@ function catalogFallbackPlans(): SignupPlanCard[] {
             listMonthlyCents: c.monthlyPriceCents,
             offerMonthlyCents: c.monthlyPriceCents,
             listYearlyCents: c.yearlyPriceCents ?? null,
+            yearlySavingsPercent: yearlySavingsPercent(
+                c.monthlyPriceCents,
+                c.yearlyPriceCents
+            ),
             promoLabel: null,
             features: PLAN_FEATURE_BLURBS[key],
         };
@@ -161,6 +167,7 @@ export default function SignupPage() {
                         list_monthly_cents: number;
                         offer_monthly_cents: number;
                         list_yearly_cents: number | null;
+                        yearly_savings_percent?: number;
                         popular: boolean;
                         promo: { label_de_por: string } | null;
                     }>;
@@ -186,6 +193,14 @@ export default function SignupPage() {
                                 row.list_yearly_cents > 0
                                     ? row.list_yearly_cents
                                     : (c.yearlyPriceCents ?? null),
+                            yearlySavingsPercent:
+                                typeof row.yearly_savings_percent === "number" &&
+                                row.yearly_savings_percent > 0
+                                    ? row.yearly_savings_percent
+                                    : yearlySavingsPercent(
+                                          row.list_monthly_cents,
+                                          row.list_yearly_cents ?? c.yearlyPriceCents
+                                      ),
                             promoLabel: row.promo?.label_de_por ?? null,
                             features: PLAN_FEATURE_BLURBS[key],
                         });
@@ -202,6 +217,7 @@ export default function SignupPage() {
     }, []);
 
     const plan = selectedPlan ? plans.find((p) => p.key === selectedPlan)! : null;
+    const maxYearlyPct = Math.max(0, ...plans.map((p) => p.yearlySavingsPercent));
 
     function selectPlan(key: PlanKey) {
         setSelectedPlan(key);
@@ -346,7 +362,11 @@ export default function SignupPage() {
                         }}
                     >
                         Anual
-                        <span style={S.periodBtnHint}>economize até 20%</span>
+                        {maxYearlyPct > 0 ? (
+                            <span style={S.periodBtnHint}>
+                                economize até {maxYearlyPct}%
+                            </span>
+                        ) : null}
                     </button>
                 </div>
             </div>
@@ -426,13 +446,13 @@ export default function SignupPage() {
                                 )}
                             </div>
                             {showYear ? (
-                                <div style={{ ...S.setupLine, color: "#16a34a", fontWeight: 600 }}>
+                                <div style={{ ...S.setupLine, color: BRAND.accent, fontWeight: 600 }}>
                                     {fmtCents(p.listYearlyCents!)}/ano à vista
                                     {yearPct > 0 ? ` · economize ${yearPct}%` : ""}
                                 </div>
                             ) : (
                                 hasPromo && (
-                                    <div style={{ ...S.setupLine, color: "#57ff8f" }}>
+                                    <div style={{ ...S.setupLine, color: BRAND.accent, fontWeight: 600 }}>
                                         {p.promoLabel}
                                     </div>
                                 )
