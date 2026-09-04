@@ -2,10 +2,15 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { Loader2, RefreshCcw, Save } from "lucide-react";
+import { Loader2, Pencil, RefreshCcw, Save, X } from "lucide-react";
 import { platformApi } from "@/lib/platform/clientApi";
 import { toast } from "sonner";
-import type { UiSubscriptionRow, UiPlan, UiNeverPaidTenant } from "@/lib/billing/contracts/ui";
+import type {
+    UiSubscriptionRow,
+    UiPlan,
+    UiNeverPaidTenant,
+    UiPlanPromotionAdmin,
+} from "@/lib/billing/contracts/ui";
 import type { PagarmeSubStatus, PagarmeInvoiceStatus } from "@/lib/billing/contracts/status";
 import {
     brlInputToCents,
@@ -15,8 +20,37 @@ import {
     percentInputToHundredths,
 } from "@/lib/billing/moneyDisplay";
 import { computeYearlyPriceCents } from "@/lib/billing/yearlyFromDiscount";
+import { Switch } from "@/components/ui/switch";
 
 type SubRow = UiSubscriptionRow;
+
+type PromoFormState = {
+    plan_id: string;
+    name: string;
+    starts_at: string;
+    ends_at: string;
+    duration_months: string;
+    adjustment_mode: "fixed_brl" | "percent";
+    discount_display: string;
+};
+
+const EMPTY_PROMO_FORM: PromoFormState = {
+    plan_id: "",
+    name: "",
+    starts_at: "",
+    ends_at: "",
+    duration_months: "3",
+    adjustment_mode: "percent",
+    discount_display: "50,00",
+};
+
+/** ISO → valor de `<input type="datetime-local">` (fuso local). */
+function toDatetimeLocalValue(iso: string): string {
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return "";
+    const pad = (n: number) => String(n).padStart(2, "0");
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
 
 function PromoAdminPanel({
     plans,
@@ -32,38 +66,44 @@ function PromoAdminPanel({
         staleTime: 30_000,
         enabled: isSuperadmin,
     });
-    const [form, setForm] = useState({
-        plan_id: "",
-        name: "",
-        starts_at: "",
-        ends_at: "",
-        duration_months: "3",
-        adjustment_mode: "percent" as "fixed_brl" | "percent",
-        discount_display: "50,00",
-    });
+    const [form, setForm] = useState<PromoFormState>(EMPTY_PROMO_FORM);
+    const [editingId, setEditingId] = useState<string | null>(null);
+
+    function buildPayload() {
+        const value =
+            form.adjustment_mode === "percent"
+                ? percentInputToHundredths(form.discount_display)
+                : brlInputToCents(form.discount_display);
+        if (value == null) throw new Error("Informe o desconto (R$ ou %)");
+        if (!form.starts_at || !form.ends_at) throw new Error("Informe início e fim da campanha");
+        const duration = Number(form.duration_months);
+        if (!Number.isInteger(duration) || duration < 1) {
+            throw new Error("Meses de benefício inválidos");
+        }
+        return {
+            plan_id: form.plan_id || plans[0]?.id || "",
+            name: form.name,
+            starts_at: new Date(form.starts_at).toISOString(),
+            ends_at: new Date(form.ends_at).toISOString(),
+            duration_months: duration,
+            adjustment_kind: "discount" as const,
+            adjustment_mode: form.adjustment_mode,
+            adjustment_value: value,
+        };
+    }
 
     const save = useMutation({
-        mutationFn: () => {
-            const value =
-                form.adjustment_mode === "percent"
-                    ? percentInputToHundredths(form.discount_display)
-                    : brlInputToCents(form.discount_display);
-            if (value == null) throw new Error("Informe o desconto (R$ ou %)");
-            if (!form.starts_at || !form.ends_at) throw new Error("Informe início e fim da campanha");
-            return platformApi.upsertPromotion({
-                plan_id: form.plan_id || plans[0]?.id,
-                name: form.name,
-                starts_at: new Date(form.starts_at).toISOString(),
-                ends_at: new Date(form.ends_at).toISOString(),
-                duration_months: Number(form.duration_months),
-                adjustment_kind: "discount",
-                adjustment_mode: form.adjustment_mode,
-                adjustment_value: value,
-                active: true,
-            });
+        mutationFn: async () => {
+            const payload = buildPayload();
+            if (editingId) {
+                return platformApi.updatePromotion(editingId, payload);
+            }
+            return platformApi.upsertPromotion({ ...payload, active: true });
         },
         onSuccess: () => {
-            toast.success("Promo criada");
+            toast.success(editingId ? "Promo atualizada" : "Promo criada");
+            setEditingId(null);
+            setForm({ ...EMPTY_PROMO_FORM, plan_id: plans[0]?.id ?? "" });
             queryClient.invalidateQueries({ queryKey: ["platform", "billing", "promotions"] });
         },
         onError: (e: Error) => toast.error(e.message),
@@ -79,21 +119,31 @@ function PromoAdminPanel({
         onError: (e: Error) => toast.error(e.message),
     });
 
+    function startEdit(p: UiPlanPromotionAdmin) {
+        const mode = p.adjustment_mode === "fixed_brl" ? "fixed_brl" : "percent";
+        setEditingId(p.id);
+        setForm({
+            plan_id: p.plan_id,
+            name: p.name ?? "",
+            starts_at: toDatetimeLocalValue(p.starts_at),
+            ends_at: toDatetimeLocalValue(p.ends_at),
+            duration_months: String(p.duration_months),
+            adjustment_mode: mode,
+            discount_display:
+                mode === "percent"
+                    ? percentHundredthsToInput(p.adjustment_value)
+                    : centsToBrlInput(p.adjustment_value),
+        });
+    }
+
+    function cancelEdit() {
+        setEditingId(null);
+        setForm({ ...EMPTY_PROMO_FORM, plan_id: plans[0]?.id ?? "" });
+    }
+
     if (!isSuperadmin) return null;
 
-    const promotions = (data?.promotions ?? []) as Array<{
-        id: string;
-        name: string;
-        starts_at: string;
-        ends_at: string;
-        duration_months: number;
-        adjustment_kind: string;
-        adjustment_mode: string;
-        adjustment_value: number;
-        active: boolean;
-        plans?: { key?: string; name?: string } | null;
-    }>;
-
+    const promotions = (data?.promotions ?? []) as UiPlanPromotionAdmin[];
     const inputCls =
         "rounded border border-zinc-200 bg-white px-2 py-1.5 text-xs dark:border-zinc-700 dark:bg-zinc-950";
 
@@ -106,6 +156,11 @@ function PromoAdminPanel({
                 Aparece em /signup como “De R$ … por R$ …”. Desligar corta novas adesões; quem já
                 aderiu mantém os meses restantes. Anual sem promo.
             </p>
+            {editingId && (
+                <p className="mt-2 text-[11px] font-medium text-amber-700 dark:text-amber-300">
+                    Editando campanha — altere os campos e salve, ou cancele.
+                </p>
+            )}
             <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
                 <label className="flex flex-col gap-0.5 text-[10px] text-zinc-500">
                     Plano
@@ -167,7 +222,7 @@ function PromoAdminPanel({
                                 setForm((f) => ({
                                     ...f,
                                     adjustment_mode: mode,
-                                    discount_display: mode === "percent" ? "0,00" : "0,00",
+                                    discount_display: "0,00",
                                 }));
                             }}
                         >
@@ -187,15 +242,27 @@ function PromoAdminPanel({
                     </div>
                 </div>
             </div>
-            <button
-                type="button"
-                disabled={save.isPending}
-                onClick={() => save.mutate()}
-                className="mt-3 inline-flex items-center gap-1 rounded bg-zinc-900 px-3 py-1.5 text-[11px] font-semibold text-white dark:bg-zinc-100 dark:text-zinc-900"
-            >
-                <Save className="h-3 w-3" />
-                Criar promo
-            </button>
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+                <button
+                    type="button"
+                    disabled={save.isPending}
+                    onClick={() => save.mutate()}
+                    className="inline-flex items-center gap-1 rounded bg-zinc-900 px-3 py-1.5 text-[11px] font-semibold text-white dark:bg-zinc-100 dark:text-zinc-900"
+                >
+                    <Save className="h-3 w-3" />
+                    {editingId ? "Salvar alterações" : "Criar promo"}
+                </button>
+                {editingId && (
+                    <button
+                        type="button"
+                        onClick={cancelEdit}
+                        className="inline-flex items-center gap-1 rounded border border-zinc-200 px-3 py-1.5 text-[11px] font-semibold text-zinc-600 dark:border-zinc-700 dark:text-zinc-300"
+                    >
+                        <X className="h-3 w-3" />
+                        Cancelar
+                    </button>
+                )}
+            </div>
             {promotions.length > 0 && (
                 <ul className="mt-4 divide-y divide-zinc-100 dark:divide-zinc-800">
                     {promotions.slice(0, 12).map((p) => {
@@ -203,10 +270,13 @@ function PromoAdminPanel({
                             p.adjustment_mode === "percent"
                                 ? `% ${percentHundredthsToInput(p.adjustment_value)}`
                                 : formatBrlFromCents(p.adjustment_value);
+                        const isRowEditing = editingId === p.id;
                         return (
                             <li
                                 key={p.id}
-                                className="flex flex-wrap items-center justify-between gap-2 py-2 text-[11px] text-zinc-600 dark:text-zinc-400"
+                                className={`flex flex-wrap items-center justify-between gap-2 py-2 text-[11px] text-zinc-600 dark:text-zinc-400 ${
+                                    isRowEditing ? "bg-amber-50/60 dark:bg-amber-950/20" : ""
+                                }`}
                             >
                                 <span>
                                     <span className="font-medium text-zinc-800 dark:text-zinc-200">
@@ -219,20 +289,30 @@ function PromoAdminPanel({
                                     {" · "}
                                     {p.duration_months} meses
                                 </span>
-                                <button
-                                    type="button"
-                                    disabled={toggle.isPending}
-                                    onClick={() =>
-                                        toggle.mutate({ id: p.id, active: !p.active })
-                                    }
-                                    className={`rounded-full px-2.5 py-1 text-[10px] font-semibold ${
-                                        p.active
-                                            ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200"
-                                            : "bg-zinc-200 text-zinc-600 dark:bg-zinc-700 dark:text-zinc-300"
-                                    }`}
-                                >
-                                    {p.active ? "Ligada" : "Desligada"}
-                                </button>
+                                <div className="flex items-center gap-3">
+                                    <button
+                                        type="button"
+                                        title="Editar"
+                                        onClick={() => startEdit(p)}
+                                        className="inline-flex items-center gap-1 rounded px-1.5 py-1 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-800 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
+                                    >
+                                        <Pencil className="h-3 w-3" />
+                                        Editar
+                                    </button>
+                                    <label className="flex items-center gap-2 text-[10px] font-medium text-zinc-500">
+                                        <span>{p.active ? "Ligada" : "Desligada"}</span>
+                                        <Switch
+                                            checked={p.active}
+                                            disabled={toggle.isPending}
+                                            onCheckedChange={(checked) =>
+                                                toggle.mutate({ id: p.id, active: checked })
+                                            }
+                                            aria-label={
+                                                p.active ? "Desligar promo" : "Ligar promo"
+                                            }
+                                        />
+                                    </label>
+                                </div>
                             </li>
                         );
                     })}
