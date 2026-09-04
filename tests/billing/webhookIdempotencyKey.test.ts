@@ -13,14 +13,14 @@ describe("webhookConsumeKey", () => {
         );
     });
 
-    it("falls back to eventType:orderId", () => {
+    it("falls back to pge:{orderId} (shared across event types)", () => {
         assert.strictEqual(
             webhookConsumeKey(null, "order.paid", "or_abc"),
-            "order.paid:or_abc"
+            "pge:or_abc"
         );
         assert.strictEqual(
-            webhookConsumeKey("  ", "charge.paid", "or_x"),
-            "charge.paid:or_x"
+            webhookConsumeKey("  ", "charge.paid", "or_abc"),
+            "pge:or_abc"
         );
     });
 
