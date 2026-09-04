@@ -144,6 +144,9 @@ export async function POST(req: Request) {
             companies ( whatsapp_phone, is_active )
         `)
         .eq("status", "pending")
+        // BN-13: dunning/bloqueio só para obrigações de assinatura (mensal/anual).
+        // seat_add / plan_upgrade / ai_pack são PIX avulsos — não entram no D7.
+        .in("kind", ["subscription", "year"])
         .lte("due_at", now.toISOString())
         .order("due_at", { ascending: true })
         .limit(CHARGE_BATCH_LIMIT + 1);
