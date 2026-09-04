@@ -64,7 +64,7 @@ export async function POST(req: Request) {
         .from("pagarme_subscriptions")
         .select(`
             id, company_id, plan, status, activated_at, next_billing_at, trial_ends_at,
-            last_paid_at, pagarme_customer_id, default_card_id,
+            last_paid_at, pagarme_customer_id, default_card_id, seat_quantity,
             companies ( id, name, nome_fantasia, email, whatsapp_phone, meta, cnpj )
         `)
         .in("status", ["trial", "active"])
@@ -138,7 +138,7 @@ export async function POST(req: Request) {
         .select(`
             id, company_id, subscription_id, due_at, pagarme_payment_url, pix_qr_code,
             pagarme_subscriptions (
-              id, status, company_id, plan, pagarme_customer_id, default_card_id, last_paid_at,
+              id, status, company_id, plan, pagarme_customer_id, default_card_id, last_paid_at, seat_quantity,
               companies ( id, name, nome_fantasia, email, whatsapp_phone, meta, cnpj )
             ),
             companies ( whatsapp_phone, is_active )

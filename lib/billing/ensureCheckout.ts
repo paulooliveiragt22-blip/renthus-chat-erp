@@ -36,13 +36,14 @@ export type PendingCheckoutRow = {
  * Decide setup vs invoice a partir do status da assinatura e preço de setup.
  * - pending_setup legado, trial ou pending_payment nunca pago + setup>0 → setup
  * - demais → mensalidade
- * Amount **sempre** do catálogo (H4.3) — pending stale não dita preço.
+ * Amount: `opts.amountCents` (DB+seats) ou fallback catálogo (H4.3).
  */
 export function resolveCheckoutStrategy(
     status: string | null | undefined,
     plan: string | null | undefined,
     _pendingAmountBrl?: number | string | null,
-    lastPaidAt?: string | null
+    lastPaidAt?: string | null,
+    opts?: { amountCents?: number }
 ): CheckoutStrategy {
     const planKey = String(plan ?? "essencial");
     const setupCents = getSetupPriceCents(planKey);
@@ -56,7 +57,11 @@ export function resolveCheckoutStrategy(
 
     const chargesSetup = isFirstPayment && setupCents > 0;
     const kind: CheckoutObligationKind = chargesSetup ? "setup" : "invoice";
-    const amountCents = chargesSetup ? setupCents : getMonthlyPriceCents(planKey);
+    const amountCents = chargesSetup
+        ? setupCents
+        : typeof opts?.amountCents === "number" && opts.amountCents >= 0
+          ? Math.floor(opts.amountCents)
+          : getMonthlyPriceCents(planKey);
 
     return {
         kind,
@@ -89,18 +94,31 @@ export async function loadCheckoutContext(
 ): Promise<CheckoutContext | { error: string; status: number }> {
     const { data: sub, error: subErr } = await admin
         .from("pagarme_subscriptions")
-        .select("id, plan, status, pagarme_customer_id, next_billing_at, last_paid_at")
+        .select(
+            "id, plan, status, pagarme_customer_id, next_billing_at, last_paid_at, seat_quantity"
+        )
         .eq("company_id", companyId)
         .maybeSingle();
 
     if (subErr) return { error: subErr.message, status: 500 };
     if (!sub) return { error: "Assinatura não encontrada", status: 404 };
 
+    const { loadPlanPricing } = await import("@/lib/billing/loadPlanPricing");
+    const { computeMonthlyChargeCents } = await import("@/lib/billing/subscriptionAmount");
+    const pricing = await loadPlanPricing(admin, String(sub.plan ?? "essencial"));
+    const seatQty =
+        typeof (sub as { seat_quantity?: number }).seat_quantity === "number" &&
+        (sub as { seat_quantity: number }).seat_quantity >= 1
+            ? (sub as { seat_quantity: number }).seat_quantity
+            : pricing.includedSeats;
+    const chargeCents = computeMonthlyChargeCents(pricing, seatQty);
+
     const strategyProbe = resolveCheckoutStrategy(
         String(sub.status),
         String(sub.plan ?? "essencial"),
         null,
-        (sub.last_paid_at as string | null) ?? null
+        (sub.last_paid_at as string | null) ?? null,
+        { amountCents: chargeCents }
     );
     const { data: matchingPending } = await admin
         .from("invoices")
@@ -119,6 +137,7 @@ export async function loadCheckoutContext(
             .select("id, amount, pagarme_order_id, pagarme_payment_url, pix_qr_code")
             .eq("company_id", companyId)
             .eq("status", "pending")
+            .eq("kind", "subscription")
             .order("created_at", { ascending: false })
             .limit(1)
             .maybeSingle();
@@ -129,7 +148,8 @@ export async function loadCheckoutContext(
         String(sub.status),
         String(sub.plan ?? "essencial"),
         null,
-        (sub.last_paid_at as string | null) ?? null
+        (sub.last_paid_at as string | null) ?? null,
+        { amountCents: chargeCents }
     );
 
     // H4.3: se pending diverge do catálogo, alinha amount e limpa order stale.

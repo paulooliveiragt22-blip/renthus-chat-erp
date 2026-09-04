@@ -276,8 +276,41 @@ export const platformApi = {
         }),
     plans: () =>
         platformFetch<{
-            plans: Array<{ id: string; key: string; name: string; price_cents: number }>;
+            plans: Array<{
+                id: string;
+                key: string;
+                name: string;
+                price_cents: number;
+                price_year_cents: number | null;
+                included_seats: number | null;
+                seat_extra_cents: number | null;
+                description?: string | null;
+            }>;
         }>("/api/platform/plans"),
+    updatePlanPricing: (
+        id: string,
+        body: {
+            price_cents?: number;
+            price_year_cents?: number | null;
+            included_seats?: number;
+            seat_extra_cents?: number | null;
+        }
+    ) =>
+        platformFetch<{
+            ok: boolean;
+            plan: {
+                id: string;
+                key: string;
+                name: string;
+                price_cents: number;
+                price_year_cents: number | null;
+                included_seats: number | null;
+                seat_extra_cents: number | null;
+            };
+        }>(`/api/platform/plans/${id}`, {
+            method: "PATCH",
+            body: JSON.stringify(body),
+        }),
     channels: () => platformFetch<{ channels: unknown[] }>("/api/platform/channels"),
     createChannel: (data: Record<string, unknown>) =>
         platformFetch<{ ok: boolean }>("/api/platform/channels", {

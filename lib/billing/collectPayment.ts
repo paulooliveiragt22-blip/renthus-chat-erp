@@ -8,7 +8,6 @@ import type { createAdminClient } from "@/lib/supabase/admin";
 import {
     createOrderWithSavedCard,
     createPixInvoiceOrder,
-    getMonthlyPriceCents,
     centsToBRL,
     isOrderCreditPaid,
     resolvePixFromOrder,
@@ -42,6 +41,7 @@ export type CollectSub = {
     pagarme_customer_id: string | null;
     default_card_id: string | null;
     last_paid_at?: string | null;
+    seat_quantity?: number | null;
     companies?: CollectCompany | CollectCompany[] | null;
 };
 
@@ -55,6 +55,17 @@ function companyOf(sub: CollectSub): CollectCompany | null {
     const c = sub.companies;
     if (!c) return null;
     return Array.isArray(c) ? (c[0] ?? null) : c;
+}
+
+async function chargeCentsForSub(admin: Admin, sub: CollectSub): Promise<number> {
+    const { loadPlanPricing } = await import("@/lib/billing/loadPlanPricing");
+    const { computeMonthlyChargeCents } = await import("@/lib/billing/subscriptionAmount");
+    const pricing = await loadPlanPricing(admin, String(sub.plan ?? "essencial"));
+    const seatQty =
+        typeof sub.seat_quantity === "number" && sub.seat_quantity >= 1
+            ? sub.seat_quantity
+            : pricing.includedSeats;
+    return computeMonthlyChargeCents(pricing, seatQty);
 }
 
 function customerPayload(sub: CollectSub, company: CollectCompany | null) {
@@ -100,6 +111,7 @@ async function ensurePendingInvoice(
         .select("id, pagarme_order_id, pix_qr_code")
         .eq("subscription_id", sub.id)
         .eq("status", "pending")
+        .eq("kind", "subscription")
         .maybeSingle();
 
     if (existing?.id) {
@@ -111,7 +123,14 @@ async function ensurePendingInvoice(
         };
     }
 
-    const amountCents = getMonthlyPriceCents(String(sub.plan ?? "essencial"));
+    const { loadPlanPricing } = await import("@/lib/billing/loadPlanPricing");
+    const { computeMonthlyChargeCents } = await import("@/lib/billing/subscriptionAmount");
+    const pricing = await loadPlanPricing(admin, String(sub.plan ?? "essencial"));
+    const seatQty =
+        typeof sub.seat_quantity === "number" && sub.seat_quantity >= 1
+            ? sub.seat_quantity
+            : pricing.includedSeats;
+    const amountCents = computeMonthlyChargeCents(pricing, seatQty);
     const { data: claimed, error: claimErr } = await admin
         .from("invoices")
         .insert({
@@ -119,6 +138,7 @@ async function ensurePendingInvoice(
             subscription_id:     sub.id,
             amount:              centsToBRL(amountCents),
             status:              "pending",
+            kind:                "subscription",
             due_at:              now.toISOString(),
             pagarme_order_id:    null,
             pagarme_payment_url: null,
@@ -134,6 +154,7 @@ async function ensurePendingInvoice(
                 .select("id, pagarme_order_id, pix_qr_code")
                 .eq("subscription_id", sub.id)
                 .eq("status", "pending")
+                .eq("kind", "subscription")
                 .maybeSingle();
             if (again?.id) {
                 return {
@@ -173,7 +194,7 @@ async function attachPixToInvoice(
     }
 
     const company = companyOf(sub);
-    const amountCents = getMonthlyPriceCents(String(sub.plan ?? "essencial"));
+    const amountCents = await chargeCentsForSub(admin, sub);
     const compLabel = (company?.nome_fantasia ?? company?.name ?? "").trim() || "Renthus";
 
     const created = await createPixInvoiceOrder({
@@ -286,7 +307,7 @@ export async function collectPayment(
                 };
             }
 
-            const amountCents = getMonthlyPriceCents(String(sub.plan ?? "essencial"));
+            const amountCents = await chargeCentsForSub(admin, sub);
             const order = await createOrderWithSavedCard({
                 amountCents,
                 description: `Mensalidade Renthus — Plano ${sub.plan}`,

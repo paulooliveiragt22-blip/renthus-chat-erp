@@ -106,6 +106,41 @@ export async function POST(req: Request) {
         return NextResponse.json({ error: "role_not_allowed" }, { status: 403 });
     }
 
+    // R3-3 / BN-17: capacidade = seat_quantity; sem cobrir seat_add ainda → bloqueia no cap.
+    const [{ count: activeCount }, { data: subRow }] = await Promise.all([
+        admin
+            .from("company_users")
+            .select("id", { count: "exact", head: true })
+            .eq("company_id", companyId)
+            .eq("is_active", true),
+        admin
+            .from("pagarme_subscriptions")
+            .select("seat_quantity, plan")
+            .eq("company_id", companyId)
+            .maybeSingle(),
+    ]);
+    const { loadPlanPricing } = await import("@/lib/billing/loadPlanPricing");
+    const pricing = await loadPlanPricing(admin, String(subRow?.plan ?? "essencial"));
+    const capacity =
+        typeof subRow?.seat_quantity === "number" && subRow.seat_quantity >= 1
+            ? subRow.seat_quantity
+            : pricing.includedSeats;
+    if ((activeCount ?? 0) >= capacity) {
+        return NextResponse.json(
+            {
+                error: "seat_limit_reached",
+                message:
+                    pricing.seatExtraCents == null
+                        ? "Plano Essencial permite 1 usuário. Faça upgrade para adicionar equipe."
+                        : "Limite de usuários atingido. Compre um seat adicional (em breve no checkout) ou aumente a capacidade.",
+                seat_quantity: capacity,
+                active_users: activeCount ?? 0,
+                seat_extra_cents: pricing.seatExtraCents,
+            },
+            { status: 402 }
+        );
+    }
+
     const result = await inviteCompanyMember({
         admin,
         companyId,
