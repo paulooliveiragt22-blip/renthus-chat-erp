@@ -12,14 +12,18 @@ import { normalizePlanKey } from "@/lib/billing/planCatalog";
 
 const TEMP_PW_ALPHABET = "abcdefghijklmnopqrstuvwxyz0123456789";
 
-/** Senha temporária com entropia criptográfica (evita Math.random / S2245). */
+/** Senha temporária com entropia criptográfica + rejection sampling (sem bias de módulo). */
 function generateTempPassword(): string {
-    const bytes = randomBytes(16);
-    let s = "";
-    for (let i = 0; i < 12; i++) {
-        const b = bytes[i] ?? 0;
-        s += TEMP_PW_ALPHABET.charAt(b % TEMP_PW_ALPHABET.length);
+    const out: string[] = [];
+    while (out.length < 12) {
+        const bytes = randomBytes(32);
+        for (const b of bytes) {
+            if (b >= 256 - (256 % TEMP_PW_ALPHABET.length)) continue;
+            out.push(TEMP_PW_ALPHABET.charAt(b % TEMP_PW_ALPHABET.length));
+            if (out.length >= 12) break;
+        }
     }
+    const s = out.join("");
     return s.slice(0, 8) + s.slice(8, 12).toUpperCase() + "1!";
 }
 
