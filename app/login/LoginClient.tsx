@@ -129,15 +129,21 @@ export default function LoginPage() {
                 padding:      "32px 28px",
                 boxShadow:    "0 8px 32px rgba(0,0,0,0.08)",
             }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 20 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 24 }}>
                     <img
-                        src="/brand/renthus-mark-on-light.svg?v=mark9"
+                        src="/icons/icon-192.png?v=mark10"
                         alt=""
-                        width={28}
-                        height={28}
-                        style={{ height: 28, width: 28, display: "block", flexShrink: 0 }}
+                        width={56}
+                        height={56}
+                        style={{
+                            height: 56,
+                            width: 56,
+                            display: "block",
+                            flexShrink: 0,
+                            borderRadius: 14,
+                        }}
                     />
-                    <span style={{ fontSize: 16, fontWeight: 700, color: "#111827", letterSpacing: "-0.02em" }}>
+                    <span style={{ fontSize: 20, fontWeight: 700, color: "#111827", letterSpacing: "-0.02em" }}>
                         RenthusAgent
                     </span>
                 </div>

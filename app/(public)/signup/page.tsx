@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 /**
  * app/(public)/signup/page.tsx  →  rota: /signup
@@ -215,15 +215,21 @@ export default function SignupPage() {
 
     return (
         <div style={S.page}>
-            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 36 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 36 }}>
                 <img
-                    src="/brand/renthus-mark-on-dark.svg?v=mark9"
+                    src="/icons/icon-192.png?v=mark10"
                     alt=""
-                    width={32}
-                    height={32}
-                    style={{ height: 32, width: 32, display: "block", flexShrink: 0 }}
+                    width={64}
+                    height={64}
+                    style={{
+                        height: 64,
+                        width: 64,
+                        display: "block",
+                        flexShrink: 0,
+                        borderRadius: 16,
+                    }}
                 />
-                <span style={{ fontSize: 18, fontWeight: 700, color: "#ffffff", letterSpacing: "-0.02em" }}>
+                <span style={{ fontSize: 22, fontWeight: 700, color: "#ffffff", letterSpacing: "-0.02em" }}>
                     RenthusAgent
                 </span>
             </div>
