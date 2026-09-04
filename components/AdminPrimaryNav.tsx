@@ -13,6 +13,8 @@ type AdminPrimaryNavVariant = "desktop" | "dock";
 type AdminPrimaryNavProps = {
     variant: AdminPrimaryNavVariant;
     className?: string;
+    /** Dock mobile: false oculta barra (teclado / foco em campo). Default true. */
+    dockVisible?: boolean;
 };
 
 /**
@@ -23,6 +25,7 @@ type AdminPrimaryNavProps = {
 export default function AdminPrimaryNav({
     variant,
     className,
+    dockVisible = true,
 }: AdminPrimaryNavProps) {
     const pathname = usePathname();
 
@@ -65,12 +68,22 @@ export default function AdminPrimaryNav({
     return (
         <nav
             aria-label="Atalhos principais"
+            aria-hidden={!dockVisible}
             className={cn(
                 "pointer-events-none fixed inset-x-0 bottom-0 z-50 px-3 pt-2 pb-[max(0.75rem,env(safe-area-inset-bottom))] lg:hidden",
+                "transition-[transform,opacity] duration-200 ease-out",
+                dockVisible
+                    ? "translate-y-0 opacity-100"
+                    : "translate-y-full opacity-0",
                 className
             )}
         >
-            <div className="pointer-events-auto mx-auto flex max-w-md items-stretch justify-between gap-1 rounded-2xl border border-white/10 bg-[#11283B]/95 p-1.5 shadow-[0_12px_40px_rgba(0,0,0,0.35)] backdrop-blur-md sm:max-w-lg sm:gap-1.5 sm:p-2">
+            <div
+                className={cn(
+                    "pointer-events-auto mx-auto flex max-w-md items-stretch justify-between gap-1 rounded-2xl border border-white/10 bg-[#11283B]/95 p-1.5 shadow-[0_12px_40px_rgba(0,0,0,0.35)] backdrop-blur-md sm:max-w-lg sm:gap-1.5 sm:p-2",
+                    !dockVisible && "pointer-events-none"
+                )}
+            >
                 {ADMIN_PRIMARY_NAV.map(({ href, label, shortLabel, icon: Icon }) => {
                     const active = isAdminPrimaryNavActive(pathname, href);
                     return (

@@ -11,6 +11,8 @@ import AdminPrimaryNav from "@/components/AdminPrimaryNav";
 import BillingStatusBanner from "@/components/billing/BillingStatusBanner";
 import ImpersonationBanner from "@/components/platform/ImpersonationBanner";
 import { installBillingFetchInterceptor } from "@/lib/billing/installBillingFetchInterceptor";
+import { useAdminPrimaryDockVisible } from "@/lib/ui/useAdminPrimaryDockVisible";
+import { cn } from "@/lib/utils";
 
 // ── Wrapper externo: só lê pathname (resolve rules-of-hooks) ──────────────────
 export default function AdminShell({ children }: { children: React.ReactNode }) {
@@ -40,6 +42,7 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
 // ── Inner: todos os hooks ficam aqui ─────────────────────────────────────────
 function AdminShellInner({ children }: { children: React.ReactNode }) {
     const supabase = useMemo(() => createClient(), []);
+    const primaryDockVisible = useAdminPrimaryDockVisible();
 
     // ── Sidebar mobile ────────────────────────────────────────────────────────
     const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -59,6 +62,26 @@ function AdminShellInner({ children }: { children: React.ReactNode }) {
     useEffect(() => {
         installBillingFetchInterceptor();
     }, []);
+
+    useEffect(() => {
+        const root = document.documentElement;
+        const mq = window.matchMedia("(min-width: 1024px)");
+
+        const syncDockLayout = () => {
+            if (mq.matches || primaryDockVisible) {
+                root.removeAttribute("data-admin-dock-hidden");
+            } else {
+                root.setAttribute("data-admin-dock-hidden", "true");
+            }
+        };
+
+        syncDockLayout();
+        mq.addEventListener("change", syncDockLayout);
+        return () => {
+            mq.removeEventListener("change", syncDockLayout);
+            root.removeAttribute("data-admin-dock-hidden");
+        };
+    }, [primaryDockVisible]);
 
     // ── Fullscreen API ────────────────────────────────────────────────────────
     const [isFullscreen, setIsFullscreen] = useState(false);
@@ -168,14 +191,19 @@ function AdminShellInner({ children }: { children: React.ReactNode }) {
                         onToggleCollapse={() => setCollapsed((c) => !c)}
                     />
 
-                    <main className="relative flex flex-1 flex-col overflow-y-auto bg-zinc-100 pb-[calc(4.5rem+env(safe-area-inset-bottom))] transition-colors duration-300 dark:bg-zinc-950 lg:pb-0">
+                    <main
+                        className={cn(
+                            "relative flex flex-1 flex-col overflow-y-auto bg-zinc-100 pb-[var(--admin-primary-dock-height)] transition-[padding] duration-200 dark:bg-zinc-950",
+                            "lg:pb-0"
+                        )}
+                    >
                         <div className="mx-auto w-full max-w-screen-2xl px-3 py-3 md:px-5 md:py-4">
                             {children}
                         </div>
                     </main>
                 </div>
 
-                <AdminPrimaryNav variant="dock" />
+                <AdminPrimaryNav variant="dock" dockVisible={primaryDockVisible} />
             </div>
 
             {/* ── Modal de pedido ── */}

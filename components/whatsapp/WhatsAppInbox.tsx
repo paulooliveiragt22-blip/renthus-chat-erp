@@ -823,13 +823,10 @@ export default function WhatsAppInbox({ initialPhone }: { initialPhone?: string 
 
     return (
         /**
-         * `absolute inset-0` (mesmo padrão do PDV em `app/(admin)/pdv/page.tsx`) escapa do
-         * wrapper padded do `AdminShell` (`main > div.px-*.py-*`), que soma altura extra e
-         * fazia a página inteira rolar (cortando a caixa de digitar mensagem no fundo) em vez
-         * de só a lista de mensagens rolar internamente. Ancora relativo ao `<main>` (o único
-         * ancestor com `position: relative`), preenchendo exatamente o espaço disponível.
+         * `admin-shell-bleed` reserva `--admin-primary-dock-height` no mobile para o dock
+         * não cobrir o composer. Mesmo padrão do PDV.
          */
-        <div className="absolute inset-0 flex gap-3 overflow-hidden p-3 md:p-4">
+        <div className="admin-shell-bleed flex gap-3 overflow-hidden p-3 md:p-4">
 
             {/* ── SIDEBAR ESQUERDA: threads ─────────────────────────────── */}
             <aside

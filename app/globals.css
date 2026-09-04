@@ -15,6 +15,8 @@
   --foreground:      #18181b;  /* zinc-900 — texto principal                    */
   --foreground-muted:#71717a;  /* zinc-500 — texto secundário                   */
   --border:          #e4e4e7;  /* zinc-200 — bordas suaves                      */
+  /* Dock mobile (AdminPrimaryNav) — reserva espaço antes do toque no campo */
+  --admin-primary-dock-height: calc(5.75rem + env(safe-area-inset-bottom, 0px));
 }
 
 /* ── Design Tokens — Dark Mode ───────────────────────────────────────────── */
@@ -160,4 +162,28 @@ body {
 .fila-card-hover:hover {
   transform: translateY(-2px) scale(1.005);
   box-shadow: 0 8px 24px rgba(0,0,0,0.10);
+}
+
+/* ── Admin shell: dock mobile + páginas full-bleed (WhatsApp, PDV) ─────────── */
+@media (min-width: 1024px) {
+  :root {
+    --admin-primary-dock-height: 0px;
+  }
+}
+
+html[data-admin-dock-hidden="true"] {
+  --admin-primary-dock-height: env(safe-area-inset-bottom, 0px);
+}
+
+.admin-shell-bleed {
+  position: absolute;
+  inset-inline: 0;
+  top: 0;
+  bottom: var(--admin-primary-dock-height);
+}
+
+@media (min-width: 1024px) {
+  .admin-shell-bleed {
+    inset: 0;
+  }
 }

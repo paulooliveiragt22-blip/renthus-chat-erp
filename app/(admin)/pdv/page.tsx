@@ -733,7 +733,7 @@ export default function PDVPage() {
       description="Vendas no balcão com caixa e pagamentos à vista. A Prazo e impressão automática no Pro/Market."
       requiredPlanLabel="Essencial, Pro ou Market"
     >
-    <div className="dark absolute inset-0 flex flex-col bg-zinc-950 text-zinc-100 overflow-hidden z-10">
+    <div className="admin-shell-bleed dark flex flex-col bg-zinc-950 text-zinc-100 overflow-hidden z-10">
 
       {/* ── Caixa status bar ──────────────────────────────────────────── */}
       {!caixaLoading && (
