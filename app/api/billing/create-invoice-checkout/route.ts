@@ -32,6 +32,7 @@ import {
     loadCheckoutContext,
     checkoutOrderLabels,
 } from "@/lib/billing/ensureCheckout";
+import { isCheckoutIdempotencyFresh } from "@/lib/billing/checkoutIdempotency";
 
 export const runtime = "nodejs";
 
@@ -209,10 +210,16 @@ export async function POST(req: Request) {
         if (idemRowId) {
             const { data: cached } = await admin
                 .from("billing_checkout_idempotency")
-                .select("response")
+                .select("response, created_at")
                 .eq("id", idemRowId)
                 .maybeSingle();
-            if (cached?.response && typeof cached.response === "object") {
+            if (
+                cached?.response &&
+                typeof cached.response === "object" &&
+                isCheckoutIdempotencyFresh(
+                    typeof cached.created_at === "string" ? cached.created_at : null
+                )
+            ) {
                 return NextResponse.json(cached.response as Record<string, unknown>);
             }
         }
@@ -224,6 +231,7 @@ export async function POST(req: Request) {
                         id:         idemRowId,
                         company_id: companyId,
                         response:   payload,
+                        created_at: new Date().toISOString(),
                     },
                     { onConflict: "id" }
                 );
