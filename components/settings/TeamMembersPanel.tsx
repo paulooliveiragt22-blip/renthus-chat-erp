@@ -59,6 +59,14 @@ export default function TeamMembersPanel() {
         const json = await res.json().catch(() => ({}));
         setLoading(false);
         if (!res.ok) {
+            // R3-7: gestão de equipe/assentos é só owner/admin. Para member (403) o
+            // servidor já bloqueia e a UI não mostra convite/seat — mensagem clara.
+            if (res.status === 403) {
+                setMsg(
+                    "Somente proprietário e administrador podem gerenciar a equipe e comprar assentos adicionais."
+                );
+                return;
+            }
             setMsg(json?.hint ?? json?.error ?? "Não foi possível carregar a equipe");
             return;
         }

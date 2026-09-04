@@ -956,6 +956,13 @@ export default function PlanBillingPanel({ variant = "full" }: PlanBillingPanelP
 
                     {variant === "full" &&
                     (() => {
+                        // R3-7 defense-in-depth: upgrade/downgrade só owner/admin.
+                        // O servidor (change-plan/pending-plan-change) já bloqueia member;
+                        // aqui esconde o catálogo mesmo se o read for afrouxado no futuro.
+                        const callerRole = String(billingData.role ?? "").toLowerCase();
+                        if (callerRole && callerRole !== "owner" && callerRole !== "admin") {
+                            return null;
+                        }
                         const st = String(billingData.pagarme_subscription?.status ?? "");
                         if (st !== "trial" && st !== "active" && st !== "overdue") return null;
                         const cur =

@@ -100,6 +100,7 @@ export async function GET() {
         return NextResponse.json({
             ok: true,
             company_id: companyId,
+            role: ctx.role,
             subscription: sub,
             plan_key: planKey,
             plan_label: planKey ? getPlanLabel(planKey) : null,
