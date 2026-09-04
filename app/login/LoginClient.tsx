@@ -130,7 +130,7 @@ export default function LoginPage() {
                 boxShadow:    "0 8px 32px rgba(0,0,0,0.08)",
             }}>
                 <img
-                    src="/brand/zampell-wordmark.png?v=z1"
+                    src="/brand/renthus-wordmark-on-light.svg?v=mark3"
                     alt="RenthusAgent"
                     width={194}
                     height={28}

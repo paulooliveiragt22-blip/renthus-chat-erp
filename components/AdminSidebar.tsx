@@ -147,18 +147,27 @@ export default function AdminSidebar({
         collapsed ? "w-16" : "w-64 lg:w-60",
       ].join(" ")}
     >
-      {/* ── Logotipo (somente imagem) + fechar (mobile) ─────────────────────── */}
+      {/* ── Logo + fechar (mobile) ──────────────────────────────────────────── */}
       <div className={[
         "flex shrink-0 items-center border-b border-white/10 py-4",
-        collapsed ? "justify-center px-2" : "gap-2 px-4",
+        collapsed ? "justify-center px-0" : "gap-3 px-5",
       ].join(" ")}>
-        <Link href="/dashboard" className="flex min-w-0 flex-1 items-center" aria-label="Zampell">
+        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl shadow-[0_0_20px_rgba(87,255,143,0.3)]">
           <img
-            src="/brand/zampell-wordmark.png?v=z1"
-            alt="Zampell"
-            className={collapsed ? "h-5 w-auto max-w-full object-contain object-left" : "h-7 w-auto max-w-full object-contain"}
+            src="/brand/renthus-mark-on-dark.svg?v=mark4"
+            alt={collapsed ? "RenthusAgent" : ""}
+            width={36}
+            height={36}
+            className="h-9 w-9 object-contain object-center"
           />
-        </Link>
+        </span>
+
+        {!collapsed && (
+          <div className="min-w-0 flex-1">
+            <div className="truncate text-sm font-semibold tracking-wide">RenthusAgent</div>
+            <div className="text-[10px] font-medium text-white/50">Painel Administrativo</div>
+          </div>
+        )}
 
         {/* Fechar — mobile only */}
         {!collapsed && (

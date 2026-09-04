@@ -67,14 +67,20 @@ export default function PlatformSidebar({ isOpen, onClose }: Props) {
                 isOpen ? "translate-x-0 shadow-2xl" : "-translate-x-full",
             ].join(" ")}
         >
-            <div className="flex items-center gap-2 border-b border-white/10 px-4 py-4">
-                <Link href="/platform" className="min-w-0 flex-1" aria-label="Zampell">
+            <div className="flex items-center gap-3 border-b border-white/10 px-5 py-4">
+                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl shadow-[0_0_20px_rgba(87,255,143,0.3)]">
                     <img
-                        src="/brand/zampell-wordmark.png?v=z1"
-                        alt="Zampell"
-                        className="h-7 w-auto max-w-full object-contain"
+                        src="/brand/renthus-mark-on-dark.svg?v=mark4"
+                        alt=""
+                        width={40}
+                        height={40}
+                        className="h-10 w-10 object-contain object-center"
                     />
-                </Link>
+                </span>
+                <div className="flex-1">
+                    <div className="text-sm font-semibold tracking-wide">RenthusAgent</div>
+                    <div className="text-[10px] font-medium text-white/50">Platform Admin</div>
+                </div>
                 <button
                     type="button"
                     onClick={onClose}
