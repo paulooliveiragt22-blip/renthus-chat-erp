@@ -209,7 +209,7 @@ describe("billing/contracts/status — type guards", () => {
   });
 
   describe("isSubscriptionPlanKey", () => {
-    it("true para os 5 valores canônicos", () => {
+    it("true para os 3 valores comerciais", () => {
       for (const s of SUBSCRIPTION_PLAN_KEYS) {
         assert.strictEqual(isSubscriptionPlanKey(s), true);
       }
