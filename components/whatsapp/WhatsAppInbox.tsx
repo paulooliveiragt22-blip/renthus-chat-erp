@@ -860,7 +860,7 @@ export default function WhatsAppInbox({ initialPhone }: { initialPhone?: string 
                             </button>
                             <button
                                 onClick={() => { setErr(null); setNewOpen(true); setNewPhoneBR(""); setNewName(""); }}
-                                className="flex items-center gap-1 rounded-lg bg-accent px-2.5 py-1.5 text-[11px] font-semibold text-white hover:bg-orange-600 transition-colors focus:outline-none focus:ring-2 focus:ring-orange-400/50"
+                                className="flex items-center gap-1 rounded-lg bg-accent px-2.5 py-1.5 text-[11px] font-semibold text-primary hover:bg-orange-600 transition-colors focus:outline-none focus:ring-2 focus:ring-orange-400/50"
                             >
                                 + Nova
                             </button>
@@ -1375,7 +1375,7 @@ export default function WhatsAppInbox({ initialPhone }: { initialPhone?: string 
                         <button
                             onClick={createThread}
                             disabled={creatingThread || !newPhoneBR.trim()}
-                            className="rounded-lg bg-accent px-4 py-1.5 text-xs font-semibold text-white hover:bg-orange-600 disabled:opacity-50"
+                            className="rounded-lg bg-accent px-4 py-1.5 text-xs font-semibold text-primary hover:bg-orange-600 disabled:opacity-50"
                         >
                             {creatingThread ? "Criando..." : "Criar conversa"}
                         </button>
@@ -1684,7 +1684,7 @@ function CustomerProfileSidebar({
                         {profile.lastOrder && (
                             <button
                                 onClick={onRepeatOrder}
-                                className="flex w-full items-center justify-center gap-2 rounded-xl bg-accent px-4 py-3 text-sm font-bold text-white shadow-sm hover:bg-orange-600 transition-colors focus:outline-none focus:ring-2 focus:ring-orange-400/50"
+                                className="flex w-full items-center justify-center gap-2 rounded-xl bg-accent px-4 py-3 text-sm font-bold text-primary shadow-sm hover:bg-orange-600 transition-colors focus:outline-none focus:ring-2 focus:ring-orange-400/50"
                             >
                                 <RefreshCcw className="h-4 w-4" aria-hidden="true" />
                                 Repetir último pedido

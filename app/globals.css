@@ -47,6 +47,7 @@
   --color-primary-dark:   #0f2838;
   --color-accent:         #57ff8f;
   --color-accent-dark:    #2ee66f;
+  --color-accent-foreground: #16364D;
 
   /* aliases retrocompatíveis */
   --color-prodify-purple: #16364D;

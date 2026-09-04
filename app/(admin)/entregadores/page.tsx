@@ -244,7 +244,7 @@ export default function EntregadoresPage() {
                     <button type="button" onClick={load} className="flex h-8 w-8 items-center justify-center rounded-lg border border-zinc-200 text-zinc-500 hover:bg-zinc-50 dark:border-zinc-700">
                         <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
                     </button>
-                    <button type="button" onClick={openNew} className="flex items-center gap-1.5 rounded-lg bg-orange-500 px-3 py-1.5 text-xs font-bold text-white hover:bg-orange-600">
+                    <button type="button" onClick={openNew} className="flex items-center gap-1.5 rounded-lg bg-orange-500 px-3 py-1.5 text-xs font-bold text-primary hover:bg-orange-600">
                         <Plus className="h-3.5 w-3.5" /> Novo Entregador
                     </button>
                 </div>

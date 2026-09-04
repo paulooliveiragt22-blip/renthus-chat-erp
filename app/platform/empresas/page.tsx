@@ -290,7 +290,7 @@ export default function EmpresasPage() {
                     <button
                         type="button"
                         onClick={() => setShowModal(true)}
-                        className="flex items-center gap-2 rounded-xl bg-orange-500 px-4 py-2 text-sm font-bold text-white shadow-[0_0_14px_rgba(87,255,143,0.35)] transition-all hover:bg-orange-600"
+                        className="flex items-center gap-2 rounded-xl bg-orange-500 px-4 py-2 text-sm font-bold text-primary shadow-[0_0_14px_rgba(87,255,143,0.35)] transition-all hover:bg-orange-600"
                     >
                         <Plus className="h-4 w-4" />
                         Nova Empresa

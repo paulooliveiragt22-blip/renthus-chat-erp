@@ -830,7 +830,7 @@ export default function PDVPage() {
             onClick={() => setPdvMode("normal")}
             className={`flex items-center gap-1 rounded-md px-2 py-1 text-xs font-semibold transition-colors sm:px-2.5 ${
               pdvMode === "normal"
-                ? "bg-orange-500 text-white shadow"
+                ? "bg-orange-500 text-primary shadow"
                 : "text-zinc-400 hover:text-zinc-200"
             }`}
           >
@@ -941,7 +941,7 @@ export default function PDVPage() {
                 {categories.map(cat => (
                   <button key={cat} onClick={()=>setActiveCat(cat)}
                     className={`shrink-0 rounded-md px-2.5 py-0.5 text-[11px] font-medium transition-colors ${
-                      activeCat===cat ? "bg-orange-500 text-white" : "bg-zinc-800 text-zinc-400 hover:bg-zinc-700 hover:text-zinc-200"
+                      activeCat===cat ? "bg-orange-500 text-primary" : "bg-zinc-800 text-zinc-400 hover:bg-zinc-700 hover:text-zinc-200"
                     }`}>
                     {cat}
                   </button>
@@ -975,7 +975,7 @@ export default function PDVPage() {
                               : "border-zinc-700 bg-zinc-800/60 hover:border-zinc-600 hover:bg-zinc-800"
                           }`}>
                           {inCart && (
-                            <span className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-orange-500 text-[9px] font-black text-white">
+                            <span className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-orange-500 text-[9px] font-black text-primary">
                               {inCart.qty}
                             </span>
                           )}
@@ -998,7 +998,7 @@ export default function PDVPage() {
                               <span className="text-orange-400">{brlSplit(v.unit_price).value}</span>
                             </span>
                             <div className={`flex h-5 w-5 items-center justify-center rounded-md transition-colors ${
-                              inCart ? "bg-orange-500 text-white" : "bg-zinc-700 text-zinc-400 group-hover:bg-orange-500 group-hover:text-white"
+                              inCart ? "bg-orange-500 text-primary" : "bg-zinc-700 text-zinc-400 group-hover:bg-orange-500 group-hover:text-primary"
                             }`}>
                               <Plus className="h-3 w-3" />
                             </div>
@@ -1025,7 +1025,7 @@ export default function PDVPage() {
             <ShoppingCart className="h-3.5 w-3.5 text-orange-400" />
             <p className="text-xs font-bold text-zinc-100">Cupom</p>
             {cartCount > 0 && (
-              <span className="ml-auto rounded-full bg-orange-500 px-1.5 py-0.5 text-[9px] font-black text-white">
+              <span className="ml-auto rounded-full bg-orange-500 px-1.5 py-0.5 text-[9px] font-black text-primary">
                 {cartCount} it.
               </span>
             )}
@@ -1155,7 +1155,7 @@ export default function PDVPage() {
               </button>
             ) : (
               <button onClick={openCheckout} disabled={cart.length===0 || !caixa}
-                className="flex w-full items-center justify-center gap-2 rounded-xl bg-orange-500 py-3 text-sm font-black text-white shadow-[0_0_18px_rgba(87,255,143,0.45)] transition-all hover:bg-orange-600 active:scale-95 disabled:cursor-not-allowed disabled:opacity-25">
+                className="flex w-full items-center justify-center gap-2 rounded-xl bg-orange-500 py-3 text-sm font-black text-primary shadow-[0_0_18px_rgba(87,255,143,0.45)] transition-all hover:bg-orange-600 active:scale-95 disabled:cursor-not-allowed disabled:opacity-25">
                 <BadgeDollarSign className="h-4 w-4" />
                 Finalizar
                 <kbd className="ml-auto hidden rounded bg-orange-400/40 px-1.5 py-0.5 text-[10px] font-bold sm:inline">F2</kbd>
@@ -1187,7 +1187,7 @@ export default function PDVPage() {
           <span className="relative">
             <ShoppingCart className="h-4 w-4" />
             {cartCount > 0 && (
-              <span className="absolute -right-2.5 -top-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-orange-500 px-1 text-[9px] font-black text-white">
+              <span className="absolute -right-2.5 -top-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-orange-500 px-1 text-[9px] font-black text-primary">
                 {cartCount}
               </span>
             )}
@@ -1258,7 +1258,7 @@ export default function PDVPage() {
             <div className="border-t border-zinc-800 px-5 py-3.5 flex gap-3">
               <button onClick={() => setShowNewCust(false)} className="flex-1 rounded-xl border border-zinc-700 py-2.5 text-sm text-zinc-400 hover:text-zinc-200 transition-colors">Cancelar</button>
               <button onClick={saveNewCustomer} disabled={savingCust || !custForm.name.trim() || !custForm.phone.trim()}
-                className="flex-1 rounded-xl bg-orange-500 py-2.5 text-sm font-bold text-white hover:bg-orange-600 disabled:opacity-40 transition-all">
+                className="flex-1 rounded-xl bg-orange-500 py-2.5 text-sm font-bold text-primary hover:bg-orange-600 disabled:opacity-40 transition-all">
                 {savingCust ? "Salvando…" : "Cadastrar"}
               </button>
             </div>
@@ -1302,7 +1302,7 @@ export default function PDVPage() {
                   </div>
                 )}
                 <button onClick={closeSale}
-                  className="flex items-center gap-2 rounded-xl bg-orange-500 px-8 py-2.5 text-sm font-bold text-white hover:bg-orange-600">
+                  className="flex items-center gap-2 rounded-xl bg-orange-500 px-8 py-2.5 text-sm font-bold text-primary hover:bg-orange-600">
                   <Plus className="h-4 w-4" /> Nova venda
                 </button>
               </div>
@@ -1458,10 +1458,10 @@ export default function PDVPage() {
                 {/* Confirm */}
                 <div className="border-t border-zinc-800 px-5 pb-5 pt-3">
                   <button onClick={finalize} disabled={!canFinalize}
-                    className={`flex w-full items-center justify-center gap-2 rounded-2xl py-3.5 text-base font-black text-white transition-all active:scale-95 disabled:cursor-not-allowed ${
+                    className={`flex w-full items-center justify-center gap-2 rounded-2xl py-3.5 text-base font-black transition-all active:scale-95 disabled:cursor-not-allowed ${
                       canFinalize
-                        ? "bg-orange-500 hover:bg-orange-600 shadow-[0_0_24px_rgba(87,255,143,0.55)]"
-                        : "bg-zinc-700 opacity-40"
+                        ? "bg-orange-500 text-primary hover:bg-orange-600 shadow-[0_0_24px_rgba(87,255,143,0.55)]"
+                        : "bg-zinc-700 text-white opacity-40"
                     }`}>
                     {finalizing ? <>⏳ Processando…</> : <><CheckCircle2 className="h-5 w-5" /> Confirmar · {brl(cartTotal)}</>}
                   </button>
@@ -1614,7 +1614,7 @@ export default function PDVPage() {
               <button onClick={() => setShowMovimento(false)}
                 className="flex-1 rounded-xl border border-zinc-700 py-2.5 text-sm text-zinc-400 hover:text-zinc-200 transition-colors">Cancelar</button>
               <button onClick={handleMovimento} disabled={caixaSubmitting || !movForm.amount}
-                className="flex-1 rounded-xl bg-orange-500 py-2.5 text-sm font-bold text-white hover:bg-orange-600 disabled:opacity-50 transition-all">
+                className="flex-1 rounded-xl bg-orange-500 py-2.5 text-sm font-bold text-primary hover:bg-orange-600 disabled:opacity-50 transition-all">
                 {caixaSubmitting ? "Salvando…" : "Confirmar"}
               </button>
             </div>

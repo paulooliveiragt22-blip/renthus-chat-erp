@@ -17,6 +17,7 @@ module.exports = {
         accent: {
           DEFAULT: "#57ff8f",
           dark:    "#2ee66f",
+          foreground: "#16364D",
         },
       },
     },

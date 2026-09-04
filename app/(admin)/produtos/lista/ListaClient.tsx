@@ -1227,7 +1227,7 @@ export default function ProdutosListaPage() {
                     <button onClick={() => load()} className="flex h-8 w-8 items-center justify-center rounded-lg border border-zinc-200 text-zinc-500 hover:bg-zinc-50 dark:border-zinc-700">
                         <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
                     </button>
-                    <button onClick={openNew} className="flex items-center gap-1.5 rounded-lg bg-orange-500 px-3 py-1.5 text-xs font-bold text-white hover:bg-orange-600">
+                    <button onClick={openNew} className="flex items-center gap-1.5 rounded-lg bg-orange-500 px-3 py-1.5 text-xs font-bold text-primary hover:bg-orange-600">
                         <Plus className="h-3.5 w-3.5" /> Cadastrar novo
                     </button>
                 </div>
@@ -1400,7 +1400,7 @@ export default function ProdutosListaPage() {
                             <div>
                                 <p className="text-xs font-bold text-zinc-700 dark:text-zinc-300">Categoria</p>
                             </div>
-                            <button onClick={() => setAddCategoryOpen(true)} className="flex items-center gap-1 rounded-md bg-orange-500 px-2.5 py-1 text-xs font-bold text-white hover:bg-orange-600">
+                            <button onClick={() => setAddCategoryOpen(true)} className="flex items-center gap-1 rounded-md bg-orange-500 px-2.5 py-1 text-xs font-bold text-primary hover:bg-orange-600">
                                 <Plus className="h-3 w-3" /> Nova
                             </button>
                         </div>
@@ -1418,7 +1418,7 @@ export default function ProdutosListaPage() {
                                 <button type="button" onClick={() => setAddSiglaOpen(true)} className="rounded-md border border-zinc-200 px-2 py-1 text-xs font-semibold text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300">
                                     Nova sigla
                                 </button>
-                                <button type="button" onClick={addFormVolume} className="flex items-center gap-1 rounded-md bg-orange-500 px-2.5 py-1 text-xs font-bold text-white hover:bg-orange-600">
+                                <button type="button" onClick={addFormVolume} className="flex items-center gap-1 rounded-md bg-orange-500 px-2.5 py-1 text-xs font-bold text-primary hover:bg-orange-600">
                                     <Plus className="h-3 w-3" /> Adicionar embalagem
                                 </button>
                             </div>
@@ -1705,7 +1705,7 @@ export default function ProdutosListaPage() {
                                 <p className="text-xs text-zinc-400">O bot sugere estes itens após o pedido (até 2).</p>
                             </div>
                             <div className="flex items-center gap-2">
-                                <button type="button" onClick={() => setAcompModalOpen(true)} className="rounded-md bg-orange-500 px-2.5 py-1 text-xs font-bold text-white hover:bg-orange-600">Selecionar</button>
+                                <button type="button" onClick={() => setAcompModalOpen(true)} className="rounded-md bg-orange-500 px-2.5 py-1 text-xs font-bold text-primary hover:bg-orange-600">Selecionar</button>
                                 <Toggle checked={isAccomp} onChange={setIsAccomp} />
                             </div>
                         </div>
@@ -1778,7 +1778,7 @@ export default function ProdutosListaPage() {
                 <Modal title="Nova Categoria" open={addCategoryOpen} onClose={() => setAddCategoryOpen(false)}>
                     <input value={newCategoryName} onChange={(e) => setNewCategoryName(e.target.value)} placeholder="Ex: Cerveja" className={inputCls} />
                     <div className="mt-4 flex gap-2">
-                        <button onClick={async () => { const id = await quickCreateCategory(newCategoryName); if (id) { setCategoryId(id); setNewCategoryName(""); setAddCategoryOpen(false); } }} className="flex-1 rounded-lg bg-orange-500 py-2 text-sm font-bold text-white hover:bg-orange-600">Criar e selecionar</button>
+                        <button onClick={async () => { const id = await quickCreateCategory(newCategoryName); if (id) { setCategoryId(id); setNewCategoryName(""); setAddCategoryOpen(false); } }} className="flex-1 rounded-lg bg-orange-500 py-2 text-sm font-bold text-primary hover:bg-orange-600">Criar e selecionar</button>
                         <button onClick={() => setAddCategoryOpen(false)} className="rounded-lg border border-zinc-200 px-4 text-sm font-semibold text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700">Cancelar</button>
                     </div>
                 </Modal>
@@ -1817,7 +1817,7 @@ export default function ProdutosListaPage() {
                                     setAddSiglaOpen(false);
                                 }
                             }}
-                            className="flex-1 rounded-lg bg-orange-500 py-2 text-sm font-bold text-white hover:bg-orange-600"
+                            className="flex-1 rounded-lg bg-orange-500 py-2 text-sm font-bold text-primary hover:bg-orange-600"
                         >
                             Criar e selecionar
                         </button>
@@ -1906,7 +1906,7 @@ export default function ProdutosListaPage() {
                                 <p className="text-xs font-bold text-zinc-700 dark:text-zinc-300">Categoria</p>
                                 <p className="text-xs text-zinc-400">Selecione para compor o nome do produto</p>
                             </div>
-                            <button onClick={() => setAddCategoryOpen(true)} className="flex items-center gap-1 rounded-md bg-orange-500 px-2.5 py-1 text-xs font-bold text-white hover:bg-orange-600">
+                            <button onClick={() => setAddCategoryOpen(true)} className="flex items-center gap-1 rounded-md bg-orange-500 px-2.5 py-1 text-xs font-bold text-primary hover:bg-orange-600">
                                 <Plus className="h-3 w-3" /> Nova
                             </button>
                         </div>
@@ -1924,7 +1924,7 @@ export default function ProdutosListaPage() {
                                 <button type="button" onClick={() => setAddSiglaOpen(true)} className="rounded-md border border-zinc-200 px-2 py-1 text-xs font-semibold text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300">
                                     Nova sigla
                                 </button>
-                                <button type="button" onClick={addFormVolume} className="flex items-center gap-1 rounded-md bg-orange-500 px-2.5 py-1 text-xs font-bold text-white hover:bg-orange-600">
+                                <button type="button" onClick={addFormVolume} className="flex items-center gap-1 rounded-md bg-orange-500 px-2.5 py-1 text-xs font-bold text-primary hover:bg-orange-600">
                                     <Plus className="h-3 w-3" /> Adicionar embalagem
                                 </button>
                             </div>
@@ -2105,7 +2105,7 @@ export default function ProdutosListaPage() {
                                 <p className="text-[10px] text-zinc-400">O bot sugere estes itens após o pedido.</p>
                             </div>
                             <div className="flex items-center gap-2">
-                                <button type="button" onClick={() => setAcompModalOpen(true)} className="rounded-md bg-orange-500 px-2 py-1 text-xs font-bold text-white hover:bg-orange-600">Selecionar</button>
+                                <button type="button" onClick={() => setAcompModalOpen(true)} className="rounded-md bg-orange-500 px-2 py-1 text-xs font-bold text-primary hover:bg-orange-600">Selecionar</button>
                                 <Toggle checked={isAccomp} onChange={setIsAccomp} />
                             </div>
                         </div>
@@ -2130,7 +2130,7 @@ export default function ProdutosListaPage() {
                 <Modal title="Nova Categoria" open={addCategoryOpen} onClose={() => setAddCategoryOpen(false)}>
                     <input value={newCategoryName} onChange={(e) => setNewCategoryName(e.target.value)} placeholder="Ex: Cerveja" className={inputCls} />
                     <div className="mt-4 flex gap-2">
-                        <button onClick={async () => { const id = await quickCreateCategory(newCategoryName); if (id) { setCategoryId(id); setNewCategoryName(""); setAddCategoryOpen(false); } }} className="flex-1 rounded-lg bg-orange-500 py-2 text-sm font-bold text-white hover:bg-orange-600">Criar e selecionar</button>
+                        <button onClick={async () => { const id = await quickCreateCategory(newCategoryName); if (id) { setCategoryId(id); setNewCategoryName(""); setAddCategoryOpen(false); } }} className="flex-1 rounded-lg bg-orange-500 py-2 text-sm font-bold text-primary hover:bg-orange-600">Criar e selecionar</button>
                         <button onClick={() => setAddCategoryOpen(false)} className="rounded-lg border border-zinc-200 px-4 text-sm font-semibold text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700">Cancelar</button>
                     </div>
                 </Modal>
@@ -2146,7 +2146,7 @@ export default function ProdutosListaPage() {
                         </div>
                     </div>
                     <div className="mt-4 flex gap-2">
-                        <button onClick={async () => { const id = await quickCreateSigla(newSiglaValue, newSiglaDesc); if (id) { setNewSiglaValue(""); setNewSiglaDesc(""); setAddSiglaOpen(false); load(); } }} className="flex-1 rounded-lg bg-orange-500 py-2 text-sm font-bold text-white hover:bg-orange-600">Criar</button>
+                        <button onClick={async () => { const id = await quickCreateSigla(newSiglaValue, newSiglaDesc); if (id) { setNewSiglaValue(""); setNewSiglaDesc(""); setAddSiglaOpen(false); load(); } }} className="flex-1 rounded-lg bg-orange-500 py-2 text-sm font-bold text-primary hover:bg-orange-600">Criar</button>
                         <button onClick={() => setAddSiglaOpen(false)} className="rounded-lg border border-zinc-200 px-4 text-sm font-semibold text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700">Cancelar</button>
                     </div>
                 </Modal>

@@ -897,7 +897,7 @@ export default function ImpressorasPage() {
                         <button
                             onClick={saveSettings}
                             disabled={savingSettings || loadingSettings}
-                            className="flex items-center gap-1.5 rounded-lg bg-orange-500 px-4 py-2 text-xs font-semibold text-white transition hover:bg-orange-600 disabled:opacity-60"
+                            className="flex items-center gap-1.5 rounded-lg bg-orange-500 px-4 py-2 text-xs font-semibold text-primary transition hover:bg-orange-600 disabled:opacity-60"
                         >
                             {savingSettings ? <Loader2 className="h-3 w-3 animate-spin" /> : <ChevronRight className="h-3 w-3" />}
                             {savingSettings ? "Salvando…" : "Salvar Automação"}

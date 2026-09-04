@@ -99,7 +99,7 @@ export function btnOrange(disabled?: boolean): React.CSSProperties {
         ...btnBaseSlim(disabled),
         border: `1px solid ${ORANGE}`,
         background: disabled ? "#eefef4" : ORANGE,
-        color: disabled ? ORANGE : "#fff",
+        color: disabled ? ORANGE : PURPLE,
     };
 }
 export function btnOrangeOutline(disabled?: boolean): React.CSSProperties {

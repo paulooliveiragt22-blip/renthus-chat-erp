@@ -146,7 +146,7 @@ export default function MarketplaceAiqfomeSettings() {
                     type="button"
                     disabled={syncing}
                     onClick={() => void syncNow()}
-                    className="inline-flex items-center gap-2 rounded-lg bg-orange-600 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50"
+                    className="inline-flex items-center gap-2 rounded-lg bg-orange-600 px-4 py-2.5 text-sm font-semibold text-primary disabled:opacity-50"
                 >
                     {syncing ? (
                         <Loader2 className="h-4 w-4 animate-spin" />

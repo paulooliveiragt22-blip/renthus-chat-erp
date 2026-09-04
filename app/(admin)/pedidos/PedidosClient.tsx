@@ -1631,7 +1631,7 @@ export default function PedidosPage() {
                     <button
                         type="button"
                         onClick={() => { openPedidosNewModal(); }}
-                        className="flex items-center gap-1.5 rounded-lg bg-orange-500 px-4 py-1.5 text-xs font-semibold text-white shadow hover:bg-orange-600 transition-colors"
+                        className="flex items-center gap-1.5 rounded-lg bg-orange-500 px-4 py-1.5 text-xs font-semibold text-primary shadow hover:bg-orange-600 transition-colors"
                     >
                         <Plus className="h-3.5 w-3.5" />
                         Novo pedido
