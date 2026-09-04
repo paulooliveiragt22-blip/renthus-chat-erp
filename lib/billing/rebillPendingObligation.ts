@@ -32,54 +32,26 @@ async function maybeFulfillPaidOrder(
     return r.fulfilled;
 }
 
-/** Cancela obrigações pending do tipo errado (setup XOR invoice) pra não somar/mostrar valor velho. */
+/** Cancela invoice pending do tipo oposto para não manter obrigação obsoleta. */
 async function voidOppositePending(
     admin: Admin,
     companyId: string,
     keep: "setup" | "invoice"
 ): Promise<void> {
-    if (keep === "setup") {
-        const { data: rows } = await admin
-            .from("invoices")
-            .select("id, pagarme_order_id")
-            .eq("company_id", companyId)
-            .eq("status", "pending");
-
-        for (const row of rows ?? []) {
-            if (row.pagarme_order_id) {
-                await cancelPagarmeChargeBestEffort(String(row.pagarme_order_id));
-            }
-            await admin
-                .from("invoices")
-                .update({
-                    status: "cancelled",
-                    pagarme_order_id: null,
-                    pagarme_payment_url: null,
-                    pix_qr_code: null,
-                })
-                .eq("id", row.id);
-        }
-        if ((rows ?? []).length > 0) {
-            billingLog("rebill", "voided_orphan_invoices", {
-                company_id: companyId,
-                count: (rows ?? []).length,
-            });
-        }
-        return;
-    }
-
+    const oppositeKind = keep === "setup" ? "subscription" : "setup";
     const { data: rows } = await admin
-        .from("setup_payments")
+        .from("invoices")
         .select("id, pagarme_order_id")
         .eq("company_id", companyId)
-        .eq("status", "pending");
+        .eq("status", "pending")
+        .eq("kind", oppositeKind);
 
     for (const row of rows ?? []) {
         if (row.pagarme_order_id) {
             await cancelPagarmeChargeBestEffort(String(row.pagarme_order_id));
         }
         await admin
-            .from("setup_payments")
+            .from("invoices")
             .update({
                 status: "cancelled",
                 pagarme_order_id: null,
@@ -89,8 +61,9 @@ async function voidOppositePending(
             .eq("id", row.id);
     }
     if ((rows ?? []).length > 0) {
-        billingLog("rebill", "voided_orphan_setups", {
+        billingLog("rebill", "voided_opposite_invoices", {
             company_id: companyId,
+            kind: oppositeKind,
             count: (rows ?? []).length,
         });
     }
@@ -123,10 +96,11 @@ export async function rebillPendingObligationAfterPlanChange(
         await voidOppositePending(admin, companyId, "setup");
 
         const { data: setup } = await admin
-            .from("setup_payments")
+            .from("invoices")
             .select("id, amount, pagarme_order_id")
             .eq("company_id", companyId)
             .eq("status", "pending")
+            .eq("kind", "setup")
             .order("created_at", { ascending: false })
             .limit(1)
             .maybeSingle();
@@ -148,10 +122,9 @@ export async function rebillPendingObligationAfterPlanChange(
         }
 
         await admin
-            .from("setup_payments")
+            .from("invoices")
             .update({
                 amount: targetBrl,
-                plan: planKey,
                 pagarme_order_id: null,
                 pagarme_payment_url: null,
                 pix_qr_code: null,
@@ -174,6 +147,7 @@ export async function rebillPendingObligationAfterPlanChange(
         .select("id, amount, pagarme_order_id")
         .eq("company_id", companyId)
         .eq("status", "pending")
+        .eq("kind", "subscription")
         .order("created_at", { ascending: false })
         .limit(1)
         .maybeSingle();

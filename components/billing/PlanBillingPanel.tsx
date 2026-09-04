@@ -163,8 +163,7 @@ export default function PlanBillingPanel({ variant = "full" }: PlanBillingPanelP
             setBillingData(json);
             // PSP sync liberou / não há mais obrigação: limpa QR local (senão o gate não redireciona).
             const syncAction = json.psp_sync?.action;
-            const noObligation =
-                !json.pending_invoice && !json.pending_setup_payment;
+            const noObligation = !json.pending_invoice;
             if (syncAction === "fulfilled" || noObligation) {
                 setPixLiveCode(null);
                 setPixLiveUrl(null);
@@ -196,9 +195,7 @@ export default function PlanBillingPanel({ variant = "full" }: PlanBillingPanelP
         if (variant !== "pay") return;
         const st = billingData?.pagarme_subscription?.status;
         if (st !== "active" && st !== "trial") return;
-        const hasServerPending =
-            Boolean(billingData?.pending_invoice) ||
-            Boolean(billingData?.pending_setup_payment);
+        const hasServerPending = Boolean(billingData?.pending_invoice);
         if (hasServerPending) {
             const id = window.setInterval(() => {
                 void loadBilling({ silent: true });
@@ -210,7 +207,6 @@ export default function PlanBillingPanel({ variant = "full" }: PlanBillingPanelP
         variant,
         billingData?.pagarme_subscription?.status,
         billingData?.pending_invoice,
-        billingData?.pending_setup_payment,
         billingData?.psp_sync?.action,
         loadBilling,
     ]);
@@ -529,11 +525,9 @@ export default function PlanBillingPanel({ variant = "full" }: PlanBillingPanelP
                                   ? "Assinatura ativa"
                                   : st === "overdue"
                                     ? "Mensalidade em aberto"
-                                    : st === "pending_payment"
+                                    : st === "pending_payment" || st === "pending_setup"
                                       ? "Aguardando 1º pagamento"
-                                      : st === "pending_setup"
-                                        ? "Ativação pendente"
-                                        : st === "blocked"
+                                      : st === "blocked"
                                           ? "Acesso suspenso"
                                           : st || "—";
 
@@ -615,28 +609,16 @@ export default function PlanBillingPanel({ variant = "full" }: PlanBillingPanelP
 
                         const isFirstPayment =
                             st === "trial" || st === "pending_setup" || st === "pending_payment";
-                        const sp = billingData.setup_prices_brl ?? {};
                         const mp = billingData.monthly_prices_brl ?? {};
 
-                        const pendSetup = billingData.pending_setup_payment;
                         const pendInv = billingData.pending_invoice;
-                        const pendRecord =
-                            st === "pending_payment"
-                                ? (pendInv ?? pendSetup)
-                                : isFirstPayment
-                                  ? (pendSetup ?? pendInv)
-                                  : pendInv;
+                        const pendRecord = pendInv;
 
                         const priceFallback = pk === "market" ? 397 : pk === "pro" ? 279 : 197;
 
                         let refAmount: number;
                         if (pendRecord) {
                             refAmount = Number(pendRecord.amount);
-                        } else if (isFirstPayment) {
-                            refAmount =
-                                st === "pending_payment"
-                                    ? ((mp as Record<string, number | undefined>)[pk] ?? priceFallback)
-                                    : ((sp as Record<string, number | undefined>)[pk] ?? priceFallback);
                         } else {
                             refAmount =
                                 (mp as Record<string, number | undefined>)[pk] ?? priceFallback;
@@ -693,7 +675,7 @@ export default function PlanBillingPanel({ variant = "full" }: PlanBillingPanelP
                                         quando o banco confirmar.
                                     </div>
                                 ) : null}
-                                {st === "pending_payment" ? (
+                                {st === "pending_payment" || st === "pending_setup" ? (
                                     <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-900 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-200">
                                         Pagamento inicial pendente. Escolha PIX ou cartão para começar a usar o
                                         RenthusAgent.
@@ -702,11 +684,6 @@ export default function PlanBillingPanel({ variant = "full" }: PlanBillingPanelP
                                 {st === "overdue" ? (
                                     <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-900 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-200">
                                         Mensalidade em aberto. Escolha PIX ou cartão.
-                                    </div>
-                                ) : null}
-                                {st === "pending_setup" ? (
-                                    <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-900 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-200">
-                                        Taxa de ativação em aberto. Escolha PIX ou cartão para ativar.
                                     </div>
                                 ) : null}
                                 <h3 className="text-base font-bold text-zinc-900 dark:text-zinc-50">
@@ -1187,7 +1164,6 @@ export default function PlanBillingPanel({ variant = "full" }: PlanBillingPanelP
                                             ) : null}
                                             {c.id &&
                                             (billingData.pending_invoice ||
-                                                billingData.pending_setup_payment ||
                                                 billingData.is_blocked) ? (
                                                 <button
                                                     type="button"

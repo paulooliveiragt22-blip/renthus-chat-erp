@@ -61,7 +61,7 @@ before(() => {
 describe("syncPendingObligationFromPsp", () => {
     it("noop quando não há pending com order_id", async () => {
         fulfillCalls = [];
-        const db = makeMockAdmin({ setup_payments: [], invoices: [] });
+        const db = makeMockAdmin({ invoices: [] });
         const r = await syncPendingObligationFromPsp(
             db.client as unknown as SupabaseClient,
             "co-1"
@@ -78,7 +78,6 @@ describe("syncPendingObligationFromPsp", () => {
             charges: [{ status: "waiting" }],
         });
         const db = makeMockAdmin({
-            setup_payments: [],
             invoices: [
                 {
                     id: "inv-1",
@@ -107,7 +106,6 @@ describe("syncPendingObligationFromPsp", () => {
             customer: { id: "cus_1" },
         });
         const db = makeMockAdmin({
-            setup_payments: [],
             invoices: [
                 {
                     id: "inv-1",
@@ -128,25 +126,17 @@ describe("syncPendingObligationFromPsp", () => {
         assert.equal((fulfillCalls[0] as { id: string }).id, "or_paid");
     });
 
-    it("prioriza setup pending sobre invoice", async () => {
+    it("propaga kind setup da invoice pending", async () => {
         fulfillCalls = [];
         mockGetOrder = async () => ({ id: "or_setup", status: "paid" });
         const db = makeMockAdmin({
-            setup_payments: [
-                {
-                    id: "sp-1",
-                    company_id: "co-1",
-                    status: "pending",
-                    pagarme_order_id: "or_setup",
-                    created_at: "2026-09-02T00:00:00.000Z",
-                },
-            ],
             invoices: [
                 {
-                    id: "inv-1",
+                    id: "inv-setup",
                     company_id: "co-1",
                     status: "pending",
-                    pagarme_order_id: "or_inv",
+                    kind: "setup",
+                    pagarme_order_id: "or_setup",
                     created_at: "2026-09-02T00:00:00.000Z",
                 },
             ],

@@ -20,7 +20,7 @@ Estado: `[ ]` pendente · `[~]` parcial · `[x]` feito + data · `[!]` bloqueado
 | H0.3 | Side-effects de fulfill **somente** após claim | [x] 2026-09-04 claim guards (setup/invoice) |
 | H0.4 | Uma obrigação PSP viva; cancel-before-create (exceto se já paid → fulfill) | [ ] |
 | H0.5 | Amount de checkout = catálogo, não pending stale | [ ] |
-| H0.6 | Unificar `setup_payments`∪`invoices` **neste** P1 (R3); sem Edge billing | [x] 2026-09-04 dono |
+| H0.6 | Unificar `setup_payments`∪`invoices` **neste** P1 (R3); sem Edge billing | [x] 2026-09-04 EX2 mig+app |
 
 ---
 
@@ -51,7 +51,7 @@ Estado: `[ ]` pendente · `[~]` parcial · `[x]` feito + data · `[!]` bloqueado
 
 | # | Item | Arquivos | Resolve | Camadas | DoD | Estado |
 |---|------|----------|---------|---------|-----|--------|
-| H2.1 **R6** | Unique parcial: `CREATE UNIQUE INDEX … ON invoices (subscription_id) WHERE status = 'pending'` | migration + apply remoto | Dois pending no mesmo ciclo | L5 | `execute_sql` índice existe; insert duplicado falha | [ ] |
+| H2.1 **R6** | Unique parcial: `(company_id, kind) WHERE pending` em `invoices` (EX2) | migration EX2 | Dois pending no mesmo kind | L5 | índice `uq_invoices_one_pending_per_company_kind` | [x] 2026-09-04 EX2 |
 | H2.2 | `ensurePendingInvoice`: tratar unique violation → re-select (já parcial) | `collectPayment.ts` | Race SELECT+INSERT | L5 | Path retry documentado | [ ] |
 | H2.3 **R12a** | `billing_checkout_idempotency`: ENABLE+FORCE RLS + policy `service_role_only` + REVOKE anon/authenticated | migration | Leak de EMV / grants legados | L5 | `pg_policies` + grants audit | [x] 2026-08-28 mig |
 | H2.4 **R12b** | TTL no cache: lookup só se `created_at > now() - interval '7 days'` (ou coluna `expires_at`) | `checkoutIdempotency.ts` + `create-invoice-checkout/route.ts` | QR PIX morto reutilizado | L5 | Key antiga regenera PIX | [x] 2026-09-04 |

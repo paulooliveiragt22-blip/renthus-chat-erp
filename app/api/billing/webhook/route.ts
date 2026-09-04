@@ -154,7 +154,7 @@ export async function POST(req: Request) {
 
         const permanent =
             isPermanentFulfillError(err) ||
-            /sem (order\.id|setup_payments|invoice|ai_pack)|metadata\.(type|inválida)|não tratado/i.test(
+            /sem (?:order\.id|invoice|ai_pack)|metadata(?:\.type)?(?:=[^\s]+)? (?:sem|inválida)|não tratado/i.test(
                 msg
             );
 
@@ -277,12 +277,6 @@ async function handleOrderFailed(
 
     await admin
         .from("invoices")
-        .update({ status: "failed" })
-        .eq("pagarme_order_id", orderId)
-        .eq("status", "pending");
-
-    await admin
-        .from("setup_payments")
         .update({ status: "failed" })
         .eq("pagarme_order_id", orderId)
         .eq("status", "pending");

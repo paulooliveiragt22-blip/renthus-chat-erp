@@ -57,53 +57,14 @@ export async function fulfillIfPagarmeOrderPaid(
     }
 }
 
-/**
- * Para a company: setup pending ou invoice pending com order PSP → fulfill se paid.
- * Preferência: setup primeiro (primeiro pagamento).
- */
+/** Para a company: invoice pending com order PSP → fulfill se paid. */
 export async function syncPendingObligationFromPsp(
     admin: Admin,
     companyId: string
 ): Promise<SyncPendingFromPspResult> {
-    const { data: setup } = await admin
-        .from("setup_payments")
-        .select("id, pagarme_order_id")
-        .eq("company_id", companyId)
-        .eq("status", "pending")
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
-
-    if (setup?.pagarme_order_id) {
-        const r = await fulfillIfPagarmeOrderPaid(admin, setup.pagarme_order_id, "setup");
-        if (r.error) {
-            return {
-                action: "error",
-                kind: "setup",
-                order_id: setup.pagarme_order_id,
-                error: r.error,
-            };
-        }
-        if (r.fulfilled) {
-            billingLog("psp_sync", "fulfilled", {
-                company_id: companyId,
-                kind: "setup",
-                order_id: setup.pagarme_order_id,
-                already_done: r.alreadyDone ?? false,
-            });
-            return {
-                action: "fulfilled",
-                kind: "setup",
-                order_id: setup.pagarme_order_id,
-                alreadyDone: r.alreadyDone,
-            };
-        }
-        return { action: "pending", kind: "setup", order_id: setup.pagarme_order_id };
-    }
-
     const { data: inv } = await admin
         .from("invoices")
-        .select("id, pagarme_order_id")
+        .select("id, pagarme_order_id, kind")
         .eq("company_id", companyId)
         .eq("status", "pending")
         .order("created_at", { ascending: false })
@@ -114,11 +75,12 @@ export async function syncPendingObligationFromPsp(
         return { action: "noop" };
     }
 
-    const r = await fulfillIfPagarmeOrderPaid(admin, inv.pagarme_order_id, "invoice");
+    const kind = inv.kind === "setup" ? "setup" : "invoice";
+    const r = await fulfillIfPagarmeOrderPaid(admin, inv.pagarme_order_id, kind);
     if (r.error) {
         return {
             action: "error",
-            kind: "invoice",
+            kind,
             order_id: inv.pagarme_order_id,
             error: r.error,
         };
@@ -126,16 +88,16 @@ export async function syncPendingObligationFromPsp(
     if (r.fulfilled) {
         billingLog("psp_sync", "fulfilled", {
             company_id: companyId,
-            kind: "invoice",
+            kind,
             order_id: inv.pagarme_order_id,
             already_done: r.alreadyDone ?? false,
         });
         return {
             action: "fulfilled",
-            kind: "invoice",
+            kind,
             order_id: inv.pagarme_order_id,
             alreadyDone: r.alreadyDone,
         };
     }
-    return { action: "pending", kind: "invoice", order_id: inv.pagarme_order_id };
+    return { action: "pending", kind, order_id: inv.pagarme_order_id };
 }

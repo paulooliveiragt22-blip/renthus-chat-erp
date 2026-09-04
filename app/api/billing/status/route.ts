@@ -38,31 +38,16 @@ export async function GET() {
                 .then(({ data }) => data),
         ]);
 
-        const [{ data: invPending }, { data: setupPending }] = await Promise.all([
-            admin
-                .from("invoices")
-                .select("pagarme_payment_url, pix_qr_code, amount, due_at")
-                .eq("company_id", companyId)
-                .eq("status", "pending")
-                .order("created_at", { ascending: false })
-                .limit(1)
-                .maybeSingle(),
-            admin
-                .from("setup_payments")
-                .select("pagarme_payment_url, pix_qr_code, amount")
-                .eq("company_id", companyId)
-                .eq("status", "pending")
-                .order("created_at", { ascending: false })
-                .limit(1)
-                .maybeSingle(),
-        ]);
+        const { data: invPending } = await admin
+            .from("invoices")
+            .select("pagarme_payment_url, pix_qr_code, amount, due_at, kind")
+            .eq("company_id", companyId)
+            .eq("status", "pending")
+            .order("created_at", { ascending: false })
+            .limit(1)
+            .maybeSingle();
 
         const pendingInvoice = invPending ?? null;
-        const pendingSetupPayment: {
-            pagarme_payment_url: string | null;
-            pix_qr_code: string | null;
-            amount: number;
-        } | null = setupPending ?? null;
 
         const { data: invoiceRows } = await admin
             .from("invoices")
@@ -83,12 +68,6 @@ export async function GET() {
             pro: getMonthlyPriceCents("pro") / 100,
             market: getMonthlyPriceCents("market") / 100,
         };
-        const setupPricesBRL = {
-            essencial: getSetupPriceCents("essencial") / 100,
-            pro: getSetupPriceCents("pro") / 100,
-            market: getSetupPriceCents("market") / 100,
-        };
-
         let aiWallet = null;
         try {
             aiWallet = await ensureAiWallet(admin, companyId);
@@ -101,24 +80,9 @@ export async function GET() {
         );
 
         const subStatus = String(pagarmeSubRaw?.status ?? "");
-        // Mesma precedência da UI (PlanBillingPanel): setup no 1º pagamento, invoice no restante.
-        const isFirstPayment =
-            subStatus === "trial" ||
-            subStatus === "pending_setup" ||
-            subStatus === "pending_payment";
-        const usingSetup =
-            subStatus === "pending_payment"
-                ? pendingInvoice == null && pendingSetupPayment != null
-                : isFirstPayment
-                  ? pendingSetupPayment != null
-                  : false;
-        const obligationAmount = usingSetup
-            ? Number(pendingSetupPayment!.amount)
-            : pendingInvoice?.amount != null
-              ? Number(pendingInvoice.amount)
-              : pendingSetupPayment?.amount != null
-                ? Number(pendingSetupPayment.amount)
-                : null;
+        const usingSetup = pendingInvoice?.kind === "setup";
+        const obligationAmount =
+            pendingInvoice?.amount != null ? Number(pendingInvoice.amount) : null;
         const canonicalObligationBrl =
             planKey == null
                 ? null
@@ -147,7 +111,6 @@ export async function GET() {
             ai_wallet: aiWallet,
             pagarme_subscription: pagarmeSubRaw ?? null,
             pending_invoice: pendingInvoice,
-            pending_setup_payment: pendingSetupPayment,
             psp_sync: pspSync,
             obligation_amount_brl: obligationAmount,
             canonical_monthly_brl: canonicalMonthly,
@@ -178,7 +141,6 @@ export async function GET() {
                 (pagarmeSubRaw as { default_card_id?: string | null } | null)?.default_card_id ??
                 null,
             monthly_prices_brl: monthlyPricesBRL,
-            setup_prices_brl: setupPricesBRL,
             enabled_features: Array.from(features.values()),
             enabled_features_count: features.size,
             usage: {
