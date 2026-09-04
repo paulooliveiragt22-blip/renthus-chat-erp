@@ -154,7 +154,7 @@ export default function AdminSidebar({
       ].join(" ")}>
         <span className="flex h-9 w-9 shrink-0 items-center justify-center">
           <img
-            src="/brand/renthus-mark-on-dark.svg?v=mark6"
+            src="/brand/renthus-mark-on-dark.svg?v=mark9"
             alt={collapsed ? "RenthusAgent" : ""}
             width={36}
             height={36}

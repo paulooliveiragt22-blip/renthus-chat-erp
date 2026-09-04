@@ -70,7 +70,7 @@ export default function PlatformSidebar({ isOpen, onClose }: Props) {
             <div className="flex items-center gap-3 border-b border-white/10 px-5 py-4">
                 <span className="flex h-10 w-10 shrink-0 items-center justify-center">
                     <img
-                        src="/brand/renthus-mark-on-dark.svg?v=mark6"
+                        src="/brand/renthus-mark-on-dark.svg?v=mark9"
                         alt=""
                         width={40}
                         height={40}

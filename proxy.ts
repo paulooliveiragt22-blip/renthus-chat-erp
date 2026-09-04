@@ -161,6 +161,8 @@ function handlePlatformDedicatedHost(
         pathname.startsWith("/workbox-") ||
         pathname.startsWith("/fallback-") ||
         pathname.startsWith("/icons/") ||
+        pathname.startsWith("/brand/") ||
+        pathname.startsWith("/assets/") ||
         pathname === "/offline" ||
         pathname.startsWith("/offline/") ||
         isTechnicalApiPublic(pathname)
@@ -366,6 +368,8 @@ function isPublicAppRoute(pathname: string): boolean {
         pathname.startsWith("/workbox-") ||
         pathname.startsWith("/fallback-") ||
         pathname.startsWith("/icons/") ||
+        pathname.startsWith("/brand/") ||
+        pathname.startsWith("/assets/") ||
         pathname === "/offline" ||
         pathname.startsWith("/offline/")
     );

@@ -131,7 +131,7 @@ export default function LoginPage() {
             }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 20 }}>
                     <img
-                        src="/brand/renthus-mark-on-light.svg?v=mark8"
+                        src="/brand/renthus-mark-on-light.svg?v=mark9"
                         alt=""
                         width={28}
                         height={28}

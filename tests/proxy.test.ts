@@ -139,6 +139,22 @@ describe("proxy auth routing", () => {
         assert.strictEqual(factory.mock.calls.length, 0);
     });
 
+    it("exempts public brand/assets without auth (login/signup logos)", async () => {
+        const paths = [
+            "/brand/renthus-mark-on-light.svg",
+            "/brand/renthus-mark-on-dark.svg",
+            "/brand/zampell-wordmark.png",
+            "/assets/ICONE512X512.png",
+        ];
+        for (const path of paths) {
+            const response = await proxy(createRequest(path), undefined, {
+                createClient: factory,
+            });
+            assert.strictEqual(response.headers.get("location"), null, path);
+        }
+        assert.strictEqual(factory.mock.calls.length, 0);
+    });
+
     it("keeps session-backed chatbot routes behind auth", async () => {
         for (const path of ["/api/chatbot/config", "/api/chatbot/resolve"]) {
             const { factory: protectedFactory } = createMockClient(null);
