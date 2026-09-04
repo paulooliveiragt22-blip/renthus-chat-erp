@@ -37,6 +37,9 @@ function makeSub(id: string, companyId: string): PagarmeSubscriptionWithCompany 
     companyName: `Company ${companyId}`,
     companySlug: null,
     companyIsActive: true,
+    companyEmail: null,
+    planName: null,
+    planPriceCents: null,
   };
 }
 

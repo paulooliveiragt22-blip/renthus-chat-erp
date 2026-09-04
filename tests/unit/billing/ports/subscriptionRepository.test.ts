@@ -44,6 +44,9 @@ function withCompany(
     companyName: name,
     companySlug: null,
     companyIsActive: isActive,
+    companyEmail: null,
+    planName: null,
+    planPriceCents: null,
   };
 }
 

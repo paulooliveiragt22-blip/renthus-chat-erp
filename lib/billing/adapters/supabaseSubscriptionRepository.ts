@@ -18,8 +18,17 @@ import { normalizePlanKey } from "../planCatalog";
 
 type CompanyEmbed = {
   name: string | null;
+  nome_fantasia: string | null;
   slug: string | null;
+  email: string | null;
   is_active: boolean | null;
+};
+
+type PlanEmbed = {
+  id: string;
+  key: string;
+  name: string;
+  price_cents: number;
 };
 
 type SubRow = {
@@ -35,6 +44,7 @@ type SubRow = {
   activated_at: string | null;
   started_at: string | null;
   companies: CompanyEmbed | CompanyEmbed[] | null;
+  plans: PlanEmbed | PlanEmbed[] | null;
 };
 
 type InvoiceRow = {
@@ -51,6 +61,20 @@ function pickCompany(emb: SubRow["companies"]): CompanyEmbed | null {
   if (!emb) return null;
   if (Array.isArray(emb)) return emb[0] ?? null;
   return emb;
+}
+
+function pickPlan(emb: SubRow["plans"]): PlanEmbed | null {
+  if (!emb) return null;
+  if (Array.isArray(emb)) return emb[0] ?? null;
+  return emb;
+}
+
+function resolveCompanyName(c: CompanyEmbed | null): string {
+  if (!c) return "(sem nome)";
+  const fantasia = c.nome_fantasia?.trim();
+  if (fantasia) return fantasia;
+  const name = c.name?.trim();
+  return name || "(sem nome)";
 }
 
 function parseDate(v: string | null | undefined): Date | null {
@@ -91,7 +115,8 @@ export class SupabaseSubscriptionRepository implements SubscriptionRepositoryPor
       "next_billing_at",
       "activated_at",
       "started_at",
-      "companies (name, slug, is_active)",
+      "companies (name, nome_fantasia, slug, email, is_active)",
+      "plans (id, key, name, price_cents)",
     ].join(",");
   }
 
@@ -194,10 +219,14 @@ export class SupabaseSubscriptionRepository implements SubscriptionRepositoryPor
 function rowToDomainWithCompany(row: SubRow): PagarmeSubscriptionWithCompany {
   const base = rowToDomain(row);
   const c = pickCompany(row.companies);
+  const p = pickPlan(row.plans);
   return {
     ...base,
-    companyName: c?.name ?? "(sem nome)",
+    companyName: resolveCompanyName(c),
     companySlug: c?.slug ?? null,
     companyIsActive: c?.is_active ?? false,
+    companyEmail: c?.email?.trim() || null,
+    planName: p?.name ?? null,
+    planPriceCents: p != null ? Number(p.price_cents) : null,
   };
 }
