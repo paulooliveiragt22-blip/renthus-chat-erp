@@ -17,18 +17,28 @@ type Member = {
 
 type Prices = { essencial?: number; pro?: number; market?: number };
 
+type ViewPeriod = "month" | "year";
+
 type Props = {
     currentPlan: CommercialPlanKey;
     status: string;
+    /** Ciclo atual da assinatura (month|year). */
+    billingPeriod?: string | null;
     pendingPlanKey?: string | null;
     pendingPlanChangeAt?: string | null;
     nextBillingAt?: string | null;
     prices: Prices;
+    /** Preço anual à vista por plano (R2-3). */
+    yearlyPrices?: Prices;
     planSaving: boolean;
     onUpgradeOrTrial: (plan: CommercialPlanKey) => Promise<void> | void;
     onReload: () => Promise<void>;
     onError: (msg: string) => void;
 };
+
+function brl(n: number) {
+    return n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+}
 
 const BLURBS: Record<CommercialPlanKey, string> = {
     essencial: "WhatsApp + cardápio + IA",
@@ -39,15 +49,29 @@ const BLURBS: Record<CommercialPlanKey, string> = {
 export function PlanChangeCatalog({
     currentPlan,
     status,
+    billingPeriod,
     pendingPlanKey,
     pendingPlanChangeAt,
     nextBillingAt,
     prices,
+    yearlyPrices,
     planSaving,
     onUpgradeOrTrial,
     onReload,
     onError,
 }: Props) {
+    const isAnnualSub = String(billingPeriod ?? "month").toLowerCase() === "year";
+    const [viewPeriod, setViewPeriod] = useState<ViewPeriod>(isAnnualSub ? "year" : "year");
+    const [switchPix, setSwitchPix] = useState<{
+        plan: string;
+        amount_brl: number;
+        annual_cents: number;
+        credit_cents: number;
+        pix_qr_code: string | null;
+        pix_url: string | null;
+        message?: string;
+    } | null>(null);
+    const [switching, setSwitching] = useState(false);
     const [downgradeTo, setDowngradeTo] = useState<CommercialPlanKey | null>(null);
     const [members, setMembers] = useState<Member[]>([]);
     const [included, setIncluded] = useState(1);
@@ -200,6 +224,47 @@ export function PlanChangeCatalog({
         }
     }
 
+    async function startPeriodSwitch() {
+        setSwitching(true);
+        setSwitchPix(null);
+        try {
+            const res = await fetch("/api/billing/switch-period", {
+                method: "POST",
+                credentials: "include",
+            });
+            const json = (await res.json().catch(() => ({}))) as {
+                error?: string;
+                action?: string;
+                plan?: string;
+                amount_brl?: number;
+                annual_cents?: number;
+                credit_cents?: number;
+                pix_qr_code?: string | null;
+                pix_url?: string | null;
+                message?: string;
+            };
+            if (!res.ok) {
+                onError(json.error ?? "Não foi possível migrar para o anual.");
+                return;
+            }
+            if (json.action === "period_switch_checkout") {
+                setSwitchPix({
+                    plan: String(json.plan ?? currentPlan),
+                    amount_brl: Number(json.amount_brl ?? 0),
+                    annual_cents: Number(json.annual_cents ?? 0),
+                    credit_cents: Number(json.credit_cents ?? 0),
+                    pix_qr_code: json.pix_qr_code ?? null,
+                    pix_url: json.pix_url ?? null,
+                    message: json.message,
+                });
+                return;
+            }
+            await onReload();
+        } finally {
+            setSwitching(false);
+        }
+    }
+
     function onSelectPlan(key: CommercialPlanKey) {
         if (key === currentPlan) return;
         const rankDiff = planRank(key) - planRank(currentPlan);
@@ -233,13 +298,47 @@ export function PlanChangeCatalog({
     const subtitle =
         status === "trial"
             ? "Durante o teste você pode trocar o plano a qualquer momento."
-            : "Upgrade vale na hora. Downgrade agenda para o fim do ciclo atual.";
+            : viewPeriod === "year"
+              ? isAnnualSub
+                  ? "Você está no plano anual. Upgrade vale na hora; downgrade no fim do ciclo."
+                  : "Plano anual à vista com desconto. Ao migrar, abatemos o mês já pago."
+              : "Upgrade vale na hora. Downgrade agenda para o fim do ciclo atual.";
+
+    const canSwitchToAnnual = status === "active" && !isAnnualSub;
 
     return (
         <div className="space-y-3">
-            <div>
-                <p className="text-xs font-bold uppercase tracking-wide text-zinc-500">{title}</p>
-                <p className="mt-1 text-xs text-zinc-500">{subtitle}</p>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                    <p className="text-xs font-bold uppercase tracking-wide text-zinc-500">
+                        {title}
+                    </p>
+                    <p className="mt-1 text-xs text-zinc-500">{subtitle}</p>
+                </div>
+                <div className="inline-flex rounded-full border border-zinc-200 bg-zinc-100 p-1 dark:border-zinc-700 dark:bg-zinc-800">
+                    <button
+                        type="button"
+                        onClick={() => setViewPeriod("month")}
+                        className={`rounded-full px-3 py-1 text-xs font-semibold transition ${
+                            viewPeriod === "month"
+                                ? "bg-white text-zinc-900 shadow-sm dark:bg-zinc-900 dark:text-zinc-100"
+                                : "text-zinc-500"
+                        }`}
+                    >
+                        Mensal
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => setViewPeriod("year")}
+                        className={`rounded-full px-3 py-1 text-xs font-semibold transition ${
+                            viewPeriod === "year"
+                                ? "bg-white text-zinc-900 shadow-sm dark:bg-zinc-900 dark:text-zinc-100"
+                                : "text-zinc-500"
+                        }`}
+                    >
+                        Anual <span className="text-emerald-600">-20%</span>
+                    </button>
+                </div>
             </div>
 
             {pendingPlanKey ? (
@@ -262,15 +361,24 @@ export function PlanChangeCatalog({
                 {PLAN_ORDER.map((key) => {
                     const active = key === currentPlan;
                     const pending = pendingPlanKey === key;
-                    const price = prices[key] ?? 0;
+                    const monthlyPrice = prices[key] ?? 0;
+                    const yearPrice = yearlyPrices?.[key] ?? 0;
+                    const showYear = viewPeriod === "year" && yearPrice > 0;
+                    const yearPerMonth = showYear ? yearPrice / 12 : 0;
                     const higher = planRank(key) > planRank(currentPlan);
                     const lower = planRank(key) < planRank(currentPlan);
+                    // Ação anual específica: plano atual, sub mensal ativa, view anual.
+                    const isMigrateCta = active && showYear && canSwitchToAnnual;
                     let cta = "Selecionar";
-                    if (active) cta = "Plano atual";
+                    if (isMigrateCta) cta = switching ? "Gerando PIX…" : "Migrar para anual";
+                    else if (active) cta = isAnnualSub ? "Plano anual atual" : "Plano atual";
                     else if (status === "trial") cta = "Usar este plano";
                     else if (higher) cta = "Fazer upgrade";
                     else if (lower) cta = "Agendar downgrade";
                     else cta = "Indisponível";
+                    const btnDisabled = isMigrateCta
+                        ? planSaving || switching
+                        : planSaving || active || (lower && status !== "active");
 
                     return (
                         <div
@@ -292,13 +400,22 @@ export function PlanChangeCatalog({
                                 {getPlanLabel(key)}
                             </p>
                             <p className="mt-0.5 text-xs text-zinc-500">{BLURBS[key]}</p>
-                            <p className="mt-2 text-sm font-semibold text-zinc-800 dark:text-zinc-200">
-                                {price.toLocaleString("pt-BR", {
-                                    style: "currency",
-                                    currency: "BRL",
-                                })}
-                                /mês
-                            </p>
+                            {showYear ? (
+                                <>
+                                    <p className="mt-2 text-sm font-semibold text-zinc-800 dark:text-zinc-200">
+                                        {brl(yearPerMonth)}
+                                        /mês
+                                    </p>
+                                    <p className="mt-0.5 text-[11px] font-medium text-emerald-600">
+                                        {brl(yearPrice)}/ano à vista
+                                    </p>
+                                </>
+                            ) : (
+                                <p className="mt-2 text-sm font-semibold text-zinc-800 dark:text-zinc-200">
+                                    {brl(monthlyPrice)}
+                                    /mês
+                                </p>
+                            )}
                             {pending ? (
                                 <p className="mt-1 text-[10px] font-medium text-amber-700 dark:text-amber-300">
                                     Agendado para {whenLabel}
@@ -306,8 +423,12 @@ export function PlanChangeCatalog({
                             ) : null}
                             <button
                                 type="button"
-                                disabled={planSaving || active || (lower && status !== "active")}
-                                onClick={() => onSelectPlan(key)}
+                                disabled={btnDisabled}
+                                onClick={() =>
+                                    isMigrateCta
+                                        ? void startPeriodSwitch()
+                                        : onSelectPlan(key)
+                                }
                                 className="mt-3 w-full rounded-lg bg-violet-600 py-2 text-sm font-semibold text-white hover:bg-violet-700 disabled:cursor-default disabled:opacity-50"
                             >
                                 {cta}
@@ -316,6 +437,58 @@ export function PlanChangeCatalog({
                     );
                 })}
             </div>
+
+            {switchPix ? (
+                <div className="space-y-2 rounded-xl border border-emerald-200 bg-emerald-50 p-4 dark:border-emerald-800 dark:bg-emerald-950/30">
+                    <p className="text-sm font-bold text-zinc-900 dark:text-zinc-100">
+                        Migrar {getPlanLabel(switchPix.plan)} para o plano anual
+                    </p>
+                    <p className="text-xs text-zinc-600 dark:text-zinc-300">
+                        Anual à vista {brl(switchPix.annual_cents / 100)} − crédito do mês pago{" "}
+                        {brl(switchPix.credit_cents / 100)} ={" "}
+                        <span className="font-semibold">{brl(switchPix.amount_brl)}</span>. Após o
+                        pagamento a renovação passa a ser anual (reinicia por 12 meses).
+                    </p>
+                    {switchPix.pix_qr_code ? (
+                        <p className="break-all rounded-lg bg-white p-2 font-mono text-[10px] text-zinc-700 dark:bg-zinc-900 dark:text-zinc-200">
+                            {switchPix.pix_qr_code}
+                        </p>
+                    ) : null}
+                    <div className="flex flex-wrap gap-2">
+                        {switchPix.pix_url ? (
+                            <a
+                                href={switchPix.pix_url}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white"
+                            >
+                                Abrir PIX
+                            </a>
+                        ) : null}
+                        <button
+                            type="button"
+                            onClick={() => {
+                                void navigator.clipboard.writeText(
+                                    switchPix.pix_qr_code ?? switchPix.pix_url ?? ""
+                                );
+                            }}
+                            className="rounded-lg border border-zinc-300 px-3 py-1.5 text-xs font-semibold dark:border-zinc-600"
+                        >
+                            Copiar código
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => {
+                                setSwitchPix(null);
+                                void onReload();
+                            }}
+                            className="rounded-lg border border-zinc-300 px-3 py-1.5 text-xs font-semibold dark:border-zinc-600"
+                        >
+                            Já paguei / fechar
+                        </button>
+                    </div>
+                </div>
+            ) : null}
 
             {upgradePix ? (
                 <div className="space-y-2 rounded-xl border border-violet-200 bg-violet-50 p-4 dark:border-violet-800 dark:bg-violet-950/30">

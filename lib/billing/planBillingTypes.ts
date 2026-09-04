@@ -9,6 +9,8 @@ export type BillingStatusJson = {
     pagarme_subscription?: {
         plan: string;
         status: string;
+        /** month | year (R2-3). Toggle de ciclo no /plano. */
+        billing_period?: string | null;
         trial_ends_at: string | null;
         next_billing_at: string | null;
         last_paid_at: string | null;
@@ -54,6 +56,12 @@ export type BillingStatusJson = {
     plan_key?: string | null;
     plan_label?: string | null;
     monthly_prices_brl?: {
+        essencial?: number;
+        pro?: number;
+        market?: number;
+    };
+    /** Preço anual à vista por plano (R2-3), canônico do banco. */
+    yearly_prices_brl?: {
         essencial?: number;
         pro?: number;
         market?: number;

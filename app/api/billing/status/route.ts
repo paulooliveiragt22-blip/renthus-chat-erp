@@ -31,12 +31,31 @@ export async function GET() {
             admin
                 .from("pagarme_subscriptions")
                 .select(
-                    "id, plan, status, trial_ends_at, next_billing_at, last_paid_at, activated_at, pagarme_customer_id, default_card_id, pending_plan_key, pending_plan_change_at, pending_keep_user_ids, seat_quantity"
+                    "id, plan, status, billing_period, trial_ends_at, next_billing_at, last_paid_at, activated_at, pagarme_customer_id, default_card_id, pending_plan_key, pending_plan_change_at, pending_keep_user_ids, seat_quantity"
                 )
                 .eq("company_id", companyId)
                 .maybeSingle()
                 .then(({ data }) => data),
         ]);
+
+        // Preços anuais canônicos do banco (R2-3): price_year_cents por plano.
+        const { data: planYearRows } = await admin
+            .from("plans")
+            .select("key, price_year_cents")
+            .in("key", ["essencial", "pro", "market"]);
+        const yearlyByKey = new Map(
+            (planYearRows ?? []).map((r) => [String(r.key), r.price_year_cents])
+        );
+        const yearlyPriceBrl = (key: "essencial" | "pro" | "market") => {
+            const cents = yearlyByKey.get(key);
+            if (typeof cents === "number" && cents > 0) return cents / 100;
+            return PLAN_CATALOG[key].yearlyPriceCents / 100;
+        };
+        const yearlyPricesBRL = {
+            essencial: yearlyPriceBrl("essencial"),
+            pro: yearlyPriceBrl("pro"),
+            market: yearlyPriceBrl("market"),
+        };
 
         const { data: invPending } = await admin
             .from("invoices")
@@ -142,6 +161,7 @@ export async function GET() {
                 (pagarmeSubRaw as { default_card_id?: string | null } | null)?.default_card_id ??
                 null,
             monthly_prices_brl: monthlyPricesBRL,
+            yearly_prices_brl: yearlyPricesBRL,
             enabled_features: Array.from(features.values()),
             enabled_features_count: features.size,
             usage: {

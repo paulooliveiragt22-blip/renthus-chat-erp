@@ -1,6 +1,6 @@
 # Decisões de negócio — Billing
 
-**Atualizado:** 2026-09-04 (Pacote 4 — modelo anual seat/upgrade opção A + RBAC R3-7/R3-8)  
+**Atualizado:** 2026-09-04 (Pacote 5 — UI anual /signup + /plano toggle + troca mensal→anual pay-to-switch R2-5)  
 **Gate:** `.cursor/rules/decisoes-negocio-antes-codigo.mdc`  
 **Status:** Rodadas 1–3 **fechadas**. Este arquivo é a fonte de verdade comercial.
 
@@ -59,6 +59,14 @@ Uma única obrigação no ano (PIX/cartão valor cheio).
 `kind` / period = `year` (não 12 invoices).
 
 **Resolvido (Pacote 2/4):** `fn_billing_next_due(paid_at, period)` (+1m|+1y), `rpc_fulfill_obligation` period-aware, `rpc_create_billing_obligation` promove `kind=year` com valor anual canônico e dunning anual no cron (`kind in (subscription,year)`). Validado end-to-end via RPC.
+
+**UI anual (Pacote 5 — 2026-09-04):** `/signup` ganhou toggle Mensal/Anual (default Anual): card mostra `price_year_cents/12` /mês + total/ano à vista + −20%; `rpc_signup_company_with_billing` recebe `p_billing_period` (grava `billing_period`), 1ª fatura via `createInitialInvoice` (period-aware). `/plano` (PlanChangeCatalog) ganhou o mesmo toggle e a ação **migrar mensal→anual** (ver R2-5).
+
+### R2-5 — Troca de ciclo mensal→anual (pay-to-switch) `[i]`
+
+**Decidido 2026-09-04:** assinante **mensal ativo** pode migrar para anual pagando o **anual à vista − crédito do mês já pago** (`credit = prorate(mensal_efetivo, dias_restantes≤30, 30)`). Ao pagar, `billing_period='year'` e o ciclo reinicia (+1 ano). Só `owner/admin`. Anual→mensal **não** nesta rodada.
+
+**Resolvido (Pacote 5):** `rpc_quote_period_switch` (amount canônico no banco), `rpc_fulfill_obligation` branch `kind=period_switch` (flip período + `next=+1y`), `ensurePeriodSwitchCheckout` + `POST /api/billing/switch-period` (RBAC owner/admin), UI toggle no `PlanChangeCatalog`. Validado o quote em subs reais via RPC.
 
 ### R2-4 — Seats Pro
 

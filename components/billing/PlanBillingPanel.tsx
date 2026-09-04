@@ -970,10 +970,14 @@ export default function PlanBillingPanel({ variant = "full" }: PlanBillingPanelP
                                 String(billingData.pagarme_subscription?.plan ?? "")
                             ) ?? "essencial";
                         const mp = billingData.monthly_prices_brl ?? {};
+                        const yp = billingData.yearly_prices_brl ?? {};
                         return (
                             <PlanChangeCatalog
                                 currentPlan={cur}
                                 status={st}
+                                billingPeriod={
+                                    billingData.pagarme_subscription?.billing_period
+                                }
                                 pendingPlanKey={
                                     billingData.pagarme_subscription?.pending_plan_key
                                 }
@@ -987,6 +991,11 @@ export default function PlanBillingPanel({ variant = "full" }: PlanBillingPanelP
                                     essencial: mp.essencial ?? 279,
                                     pro: mp.pro ?? 349,
                                     market: mp.market ?? 449,
+                                }}
+                                yearlyPrices={{
+                                    essencial: yp.essencial,
+                                    pro: yp.pro,
+                                    market: yp.market,
                                 }}
                                 planSaving={planSaving}
                                 onUpgradeOrTrial={(plan) => void changeRenthusPlan(plan)}
