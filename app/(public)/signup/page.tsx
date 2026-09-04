@@ -83,13 +83,6 @@ function yearlyPerMonthCents(yearlyCents: number) {
     return Math.round(yearlyCents / 12);
 }
 
-/** % de desconto do anual vs 12× mensal de lista. 0 se não houver ganho. */
-function yearlyDiscountPct(monthlyListCents: number, yearlyCents: number) {
-    const full = monthlyListCents * 12;
-    if (full <= 0 || yearlyCents <= 0 || yearlyCents >= full) return 0;
-    return Math.round((1 - yearlyCents / full) * 100);
-}
-
 async function syncServerSession(session: Session | null) {
     if (!session) return false;
     try {
@@ -381,9 +374,7 @@ export default function SignupPage() {
                         p.listYearlyCents != null &&
                         p.listYearlyCents > 0;
                     const yearPerMonth = showYear ? yearlyPerMonthCents(p.listYearlyCents!) : 0;
-                    const yearPct = showYear
-                        ? yearlyDiscountPct(p.listMonthlyCents, p.listYearlyCents!)
-                        : 0;
+                    const yearPct = showYear ? p.yearlySavingsPercent : 0;
                     return (
                         <div
                             key={p.key}

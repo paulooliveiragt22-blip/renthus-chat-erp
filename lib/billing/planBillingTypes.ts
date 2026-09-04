@@ -66,6 +66,12 @@ export type BillingStatusJson = {
         pro?: number;
         market?: number;
     };
+    /** % canônico do anual (plans.yearly_discount_*). Mesma fonte do /signup. */
+    yearly_savings_percent?: {
+        essencial?: number;
+        pro?: number;
+        market?: number;
+    };
 };
 
 export type PlanBillingVariant = "full" | "pay";

@@ -3,6 +3,10 @@ import { requireCompanyAccess } from "@/lib/workspace/requireCompanyAccess";
 import { getActiveSubscription, getEnabledFeatures, checkLimit } from "@/lib/billing/entitlements";
 import { getMonthlyPriceCents, getSetupPriceCents, listCustomerCards } from "@/lib/billing/pagarme";
 import { PLAN_CATALOG, getPlanLabel, normalizePlanKey } from "@/lib/billing/planCatalog";
+import {
+    yearlyDiscountLabelPercent,
+    type YearlyDiscountMode,
+} from "@/lib/billing/yearlyFromDiscount";
 import { ensureAiWallet } from "@/lib/billing/aiWallet";
 import { jsonAccessError } from "@/lib/api/errors";
 import { syncPendingObligationFromPsp } from "@/lib/billing/syncPendingObligationFromPsp";
@@ -41,13 +45,15 @@ export async function GET() {
         // Preços anuais canônicos do banco (R2-3): price_year_cents por plano.
         const { data: planYearRows } = await admin
             .from("plans")
-            .select("key, price_year_cents")
+            .select(
+                "key, price_cents, price_year_cents, yearly_discount_mode, yearly_discount_value"
+            )
             .in("key", ["essencial", "pro", "market"]);
-        const yearlyByKey = new Map(
-            (planYearRows ?? []).map((r) => [String(r.key), r.price_year_cents])
+        const planByKey = new Map(
+            (planYearRows ?? []).map((r) => [String(r.key), r as Record<string, unknown>])
         );
         const yearlyPriceBrl = (key: "essencial" | "pro" | "market") => {
-            const cents = yearlyByKey.get(key);
+            const cents = planByKey.get(key)?.price_year_cents;
             if (typeof cents === "number" && cents > 0) return cents / 100;
             return PLAN_CATALOG[key].yearlyPriceCents / 100;
         };
@@ -55,6 +61,30 @@ export async function GET() {
             essencial: yearlyPriceBrl("essencial"),
             pro: yearlyPriceBrl("pro"),
             market: yearlyPriceBrl("market"),
+        };
+        const yearlySavingsOf = (key: "essencial" | "pro" | "market") => {
+            const row = planByKey.get(key);
+            const monthly =
+                typeof row?.price_cents === "number" && row.price_cents > 0
+                    ? row.price_cents
+                    : PLAN_CATALOG[key].monthlyPriceCents;
+            const yearly =
+                typeof row?.price_year_cents === "number" && row.price_year_cents > 0
+                    ? row.price_year_cents
+                    : PLAN_CATALOG[key].yearlyPriceCents;
+            return yearlyDiscountLabelPercent(
+                row?.yearly_discount_mode as YearlyDiscountMode | undefined,
+                typeof row?.yearly_discount_value === "number"
+                    ? row.yearly_discount_value
+                    : null,
+                monthly,
+                yearly
+            );
+        };
+        const yearlySavingsPercent = {
+            essencial: yearlySavingsOf("essencial"),
+            pro: yearlySavingsOf("pro"),
+            market: yearlySavingsOf("market"),
         };
 
         const { data: invPending } = await admin
@@ -162,6 +192,7 @@ export async function GET() {
                 null,
             monthly_prices_brl: monthlyPricesBRL,
             yearly_prices_brl: yearlyPricesBRL,
+            yearly_savings_percent: yearlySavingsPercent,
             enabled_features: Array.from(features.values()),
             enabled_features_count: features.size,
             usage: {

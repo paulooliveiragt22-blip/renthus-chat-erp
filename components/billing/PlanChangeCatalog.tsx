@@ -30,6 +30,8 @@ type Props = {
     prices: Prices;
     /** Preço anual à vista por plano (R2-3). */
     yearlyPrices?: Prices;
+    /** % canônico do anual (plans.yearly_discount_*) — mesma fonte do /signup. */
+    yearlySavingsPercent?: Prices;
     planSaving: boolean;
     onUpgradeOrTrial: (plan: CommercialPlanKey) => Promise<void> | void;
     onReload: () => Promise<void>;
@@ -64,6 +66,7 @@ export function PlanChangeCatalog({
     nextBillingAt,
     prices,
     yearlyPrices,
+    yearlySavingsPercent,
     planSaving,
     onUpgradeOrTrial,
     onReload,
@@ -321,9 +324,11 @@ export function PlanChangeCatalog({
         (status === "trial" && Boolean(onPrepayPeriodChange));
     const maxYearlyPct = Math.max(
         0,
-        ...PLAN_ORDER.map((k) =>
-            yearlyDiscountPct(prices[k] ?? 0, yearlyPrices?.[k] ?? 0)
-        )
+        ...PLAN_ORDER.map((k) => {
+            const fromDb = yearlySavingsPercent?.[k];
+            if (typeof fromDb === "number" && fromDb > 0) return fromDb;
+            return yearlyDiscountPct(prices[k] ?? 0, yearlyPrices?.[k] ?? 0);
+        })
     );
 
     async function selectViewPeriod(next: ViewPeriod) {
@@ -356,7 +361,7 @@ export function PlanChangeCatalog({
                             onClick={() => void selectViewPeriod("month")}
                             className={`rounded-full px-4 py-1.5 text-sm font-semibold transition ${
                                 viewPeriod === "month"
-                                    ? "bg-white text-zinc-900 shadow-sm dark:bg-zinc-900 dark:text-zinc-100"
+                                    ? "bg-[#57ff8f] text-[#16364D] shadow-sm"
                                     : "text-zinc-500"
                             }`}
                         >
@@ -369,13 +374,20 @@ export function PlanChangeCatalog({
                             onClick={() => void selectViewPeriod("year")}
                             className={`rounded-full px-4 py-1.5 text-sm font-semibold transition ${
                                 viewPeriod === "year"
-                                    ? "bg-white text-zinc-900 shadow-sm dark:bg-zinc-900 dark:text-zinc-100"
+                                    ? "bg-[#57ff8f] text-[#16364D] shadow-sm"
                                     : "text-zinc-500"
                             }`}
                         >
                             Anual
                             {maxYearlyPct > 0 ? (
-                                <span className="ml-1 text-emerald-600">
+                                <span
+                                    className="ml-1 text-[10px] font-bold"
+                                    style={{
+                                        color:
+                                            viewPeriod === "year" ? "#16364D" : "#57ff8f",
+                                        opacity: 0.85,
+                                    }}
+                                >
                                     economize até {maxYearlyPct}%
                                 </span>
                             ) : null}
@@ -409,7 +421,9 @@ export function PlanChangeCatalog({
                     const showYear = viewPeriod === "year" && yearPrice > 0;
                     const yearPerMonth = showYear ? yearPrice / 12 : 0;
                     const yearPct = showYear
-                        ? yearlyDiscountPct(monthlyPrice, yearPrice)
+                        ? yearlySavingsPercent?.[key] && yearlySavingsPercent[key]! > 0
+                            ? yearlySavingsPercent[key]!
+                            : yearlyDiscountPct(monthlyPrice, yearPrice)
                         : 0;
                     const higher = planRank(key) > planRank(currentPlan);
                     const lower = planRank(key) < planRank(currentPlan);
@@ -457,7 +471,10 @@ export function PlanChangeCatalog({
                                             /mês
                                         </span>
                                     </p>
-                                    <p className="mt-0.5 text-[11px] font-medium text-emerald-600">
+                                    <p
+                                        className="mt-0.5 text-[11px] font-semibold"
+                                        style={{ color: "#57ff8f" }}
+                                    >
                                         {brl(yearPrice)}/ano à vista
                                         {yearPct > 0 ? ` · economize ${yearPct}%` : ""}
                                     </p>
