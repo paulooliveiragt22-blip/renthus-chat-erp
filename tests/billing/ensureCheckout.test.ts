@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { afterEach, describe, it } from "node:test";
 import { resolveCheckoutStrategy, checkoutOrderLabels } from "../../lib/billing/ensureCheckout";
+import { getMonthlyPriceCents } from "../../lib/billing/pagarme";
 
 describe("resolveCheckoutStrategy (B3.6)", () => {
     const prev = { ...process.env };
@@ -63,12 +64,14 @@ describe("resolveCheckoutStrategy (B3.6)", () => {
         assert.equal(s.isFirstPayment, false);
     });
 
-    it("overdue/active → invoice (renovação)", () => {
+    it("overdue/active → invoice (renovação); amount do catálogo (não pending stale)", () => {
         const a = resolveCheckoutStrategy("active", "market", 197);
         const o = resolveCheckoutStrategy("overdue", "market", null);
         assert.equal(a.kind, "invoice");
         assert.equal(o.kind, "invoice");
-        assert.equal(a.amountCents, 19700);
+        // H4.3: pending 197 BRL não sobrescreve catálogo
+        assert.equal(a.amountCents, getMonthlyPriceCents("market"));
+        assert.equal(a.amountCents, o.amountCents);
     });
 
     it("checkoutOrderLabels alinhado", () => {

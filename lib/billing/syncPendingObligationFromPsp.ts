@@ -18,6 +18,8 @@ export type SyncPendingFromPspResult = {
     order_id?: string;
     error?: string;
     alreadyDone?: boolean;
+    /** Quantos pending com order_id foram inspecionados (H4.5). */
+    checked?: number;
 };
 
 function isPspPaid(order: PagarmeOrder): boolean {
@@ -57,47 +59,63 @@ export async function fulfillIfPagarmeOrderPaid(
     }
 }
 
-/** Para a company: invoice pending com order PSP → fulfill se paid. */
+/**
+ * Para a company: todos os invoices pending com order PSP (≤2 por R6 kind unique).
+ */
 export async function syncPendingObligationFromPsp(
     admin: Admin,
     companyId: string
 ): Promise<SyncPendingFromPspResult> {
-    const { data: inv } = await admin
+    const { data: rows } = await admin
         .from("invoices")
         .select("id, pagarme_order_id, kind")
         .eq("company_id", companyId)
         .eq("status", "pending")
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
+        .order("created_at", { ascending: false });
 
-    if (!inv?.pagarme_order_id) {
-        return { action: "noop" };
+    const withOrder = (rows ?? []).filter(
+        (r) => typeof r.pagarme_order_id === "string" && r.pagarme_order_id.trim()
+    );
+
+    if (withOrder.length === 0) {
+        return { action: "noop", checked: 0 };
     }
 
-    const kind = inv.kind === "setup" ? "setup" : "invoice";
-    const r = await fulfillIfPagarmeOrderPaid(admin, inv.pagarme_order_id, kind);
-    if (r.error) {
-        return {
-            action: "error",
-            kind,
-            order_id: inv.pagarme_order_id,
-            error: r.error,
-        };
+    let lastPending: SyncPendingFromPspResult | null = null;
+    let lastError: SyncPendingFromPspResult | null = null;
+
+    for (const inv of withOrder) {
+        const orderId = String(inv.pagarme_order_id);
+        const kind = inv.kind === "setup" ? ("setup" as const) : ("invoice" as const);
+        const r = await fulfillIfPagarmeOrderPaid(admin, orderId, kind);
+        if (r.error) {
+            lastError = {
+                action: "error",
+                kind,
+                order_id: orderId,
+                error: r.error,
+                checked: withOrder.length,
+            };
+            continue;
+        }
+        if (r.fulfilled) {
+            billingLog("psp_sync", "fulfilled", {
+                company_id: companyId,
+                kind,
+                order_id: orderId,
+                already_done: r.alreadyDone ?? false,
+            });
+            return {
+                action: "fulfilled",
+                kind,
+                order_id: orderId,
+                alreadyDone: r.alreadyDone,
+                checked: withOrder.length,
+            };
+        }
+        lastPending = { action: "pending", kind, order_id: orderId, checked: withOrder.length };
     }
-    if (r.fulfilled) {
-        billingLog("psp_sync", "fulfilled", {
-            company_id: companyId,
-            kind,
-            order_id: inv.pagarme_order_id,
-            already_done: r.alreadyDone ?? false,
-        });
-        return {
-            action: "fulfilled",
-            kind,
-            order_id: inv.pagarme_order_id,
-            alreadyDone: r.alreadyDone,
-        };
-    }
-    return { action: "pending", kind, order_id: inv.pagarme_order_id };
+
+    if (lastError && !lastPending) return lastError;
+    return lastPending ?? { action: "noop", checked: withOrder.length };
 }

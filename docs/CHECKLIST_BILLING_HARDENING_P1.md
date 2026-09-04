@@ -76,12 +76,12 @@ Estado: `[ ]` pendente · `[~]` parcial · `[x]` feito + data · `[!]` bloqueado
 
 | # | Item | Arquivos | Resolve | Camadas | DoD | Estado |
 |---|------|----------|---------|---------|-----|--------|
-| H4.1 **R7a** | `attachPixToInvoice`: se `pagarme_order_id` → GET; paid→fulfill; else cancel → create | `collectPayment.ts` | Múltiplos PIX abertos no cron | L3+D4 | No máximo 1 order vivo por obrigação | [ ] |
-| H4.2 **R7b** | Path cartão em create-invoice-checkout: mesmo cancel-before-create | `create-invoice-checkout/route.ts` | Orders cartão acumulados | L3+D4 | Idem | [ ] |
-| H4.3 **R9a** | `resolveCheckoutStrategy` / ensure: `amountCents` **sempre** do catálogo; se pending diverge, update/rebill antes do order | `ensureCheckout.ts` | Cobra preço stale | D5 | Status mismatch → checkout corrige | [ ] |
-| H4.4 **R9b** | Platform change-plan chama `rebillPendingObligationAfterPlanChange` (mesmo tenant) | `platform/.../change-plan` + use case | Admin muda plano sem rebill | D5 | Amount alinhado pós-change | [ ] |
-| H4.5 **R15** | Sync: reconciliar **todos** pending da company (ou confiar em R6) | `syncPendingObligationFromPsp.ts` | Órfão antigo | L3 | Segundo pending pago → fulfill | [ ] |
-| H4.6 **R16** | Rebill/change-plan: GET order; se paid → fulfill e **não** cancel | `rebillPendingObligation.ts`, `change-plan` | Pagamento em trânsito órfão | L3+D4 | Paid mid-cancel → active | [ ] |
+| H4.1 **R7a** | `attachPixToInvoice`: se `pagarme_order_id` → GET; paid→fulfill; else cancel → create | `collectPayment.ts` + `reconcileLivePagarmeOrder.ts` | Múltiplos PIX abertos no cron | L3+D4 | No máximo 1 order vivo por obrigação | [x] 2026-09-04 |
+| H4.2 **R7b** | Path cartão (e PIX) em create-invoice-checkout: mesmo cancel-before-create | `create-invoice-checkout/route.ts` | Orders cartão acumulados | L3+D4 | Idem | [x] 2026-09-04 |
+| H4.3 **R9a** | `resolveCheckoutStrategy` / ensure: `amountCents` **sempre** do catálogo; se pending diverge, update/rebill antes do order | `ensureCheckout.ts` | Cobra preço stale | D5 | Status mismatch → checkout corrige | [x] 2026-09-04 |
+| H4.4 **R9b** | Platform change-plan chama `rebillPendingObligationAfterPlanChange` (mesmo tenant) | `platform/.../change-plan` + use case | Admin muda plano sem rebill | D5 | Amount alinhado pós-change | [x] 2026-09-04 |
+| H4.5 **R15** | Sync: reconciliar **todos** pending da company (ou confiar em R6) | `syncPendingObligationFromPsp.ts` | Órfão antigo | L3 | Segundo pending pago → fulfill | [x] 2026-09-04 |
+| H4.6 **R16** | Rebill/change-plan: GET order; se paid → fulfill e **não** cancel | `rebillPendingObligation.ts`, `change-plan` | Pagamento em trânsito órfão | L3+D4 | Paid mid-cancel → active | [x] 2026-09-04 |
 
 ---
 

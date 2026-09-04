@@ -48,6 +48,20 @@ async function voidOppositePending(
 
     for (const row of rows ?? []) {
         if (row.pagarme_order_id) {
+            const metaType = oppositeKind === "setup" ? "setup" : "invoice";
+            const paid = await fulfillIfPagarmeOrderPaid(
+                admin,
+                String(row.pagarme_order_id),
+                metaType
+            );
+            if (paid.fulfilled) {
+                billingLog("rebill", "opposite_fulfilled_instead_of_void", {
+                    company_id: companyId,
+                    kind: oppositeKind,
+                    order_id: row.pagarme_order_id,
+                });
+                continue;
+            }
             await cancelPagarmeChargeBestEffort(String(row.pagarme_order_id));
         }
         await admin
@@ -58,7 +72,8 @@ async function voidOppositePending(
                 pagarme_payment_url: null,
                 pix_qr_code: null,
             })
-            .eq("id", row.id);
+            .eq("id", row.id)
+            .eq("status", "pending");
     }
     if ((rows ?? []).length > 0) {
         billingLog("rebill", "voided_opposite_invoices", {
