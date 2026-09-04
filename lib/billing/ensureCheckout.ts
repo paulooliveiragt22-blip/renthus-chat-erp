@@ -158,11 +158,8 @@ export async function loadCheckoutContext(
                 ? (subRow as { seat_quantity: number }).seat_quantity
                 : pricing.includedSeats;
         chargeCents = computeMonthlyChargeCents(pricing, seatQty);
-    } else if (pendingForKind) {
-        chargeCents = Math.round(Number(pendingForKind.amount) * 100);
     } else {
-        // Fonte canônica: banco calcula amount + kind (subscription|year), aplica
-        // plano efetivo (pending downgrade), seats, promo e período (governanca §2).
+        // Sempre a RPC: cria ou realinha amount (plano/seats/promo/período).
         const { data: oblig, error: obligErr } = await admin.rpc(
             "rpc_create_billing_obligation",
             { p_company_id: companyId, p_kind: "subscription", p_seat_qty: null }

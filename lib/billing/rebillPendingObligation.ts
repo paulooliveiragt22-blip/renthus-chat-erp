@@ -1,16 +1,12 @@
 /**
- * Após change-plan: alinha obrigação pending ao preço canônico do novo plano.
- * Se order PSP já estiver paid → fulfill. Senão tenta cancelar charge e limpa PIX stale.
+ * Após change-plan: alinha obrigação pending ao preço canônico (RPC).
+ * Se order PSP já estiver paid → fulfill. Senão cancela charge e a RPC
+ * realinha amount + limpa PIX stale.
  */
 
 import "server-only";
 import type { createAdminClient } from "@/lib/supabase/admin";
-import {
-    cancelPagarmeChargeBestEffort,
-    centsToBRL,
-    getMonthlyPriceCents,
-    getSetupPriceCents,
-} from "@/lib/billing/pagarme";
+import { cancelPagarmeChargeBestEffort } from "@/lib/billing/pagarme";
 import { fulfillIfPagarmeOrderPaid } from "@/lib/billing/syncPendingObligationFromPsp";
 import { billingLog } from "@/lib/billing/billingLog";
 import { normalizePlanKey } from "@/lib/billing/planCatalog";
@@ -23,41 +19,25 @@ export type RebillResult = {
     amount_brl?: number;
 };
 
-async function maybeFulfillPaidOrder(
-    admin: Admin,
-    orderId: string,
-    metaType: "invoice" | "setup"
-): Promise<boolean> {
-    const r = await fulfillIfPagarmeOrderPaid(admin, orderId, metaType);
-    return r.fulfilled;
-}
-
-/** Cancela invoice pending do tipo oposto para não manter obrigação obsoleta. */
-async function voidOppositePending(
-    admin: Admin,
-    companyId: string,
-    keep: "setup" | "invoice"
-): Promise<void> {
-    const oppositeKind = keep === "setup" ? "subscription" : "setup";
+/** Cancela leftover kind=setup (BN-05 abolido). */
+async function voidLegacySetupPending(admin: Admin, companyId: string): Promise<void> {
     const { data: rows } = await admin
         .from("invoices")
         .select("id, pagarme_order_id")
         .eq("company_id", companyId)
         .eq("status", "pending")
-        .eq("kind", oppositeKind);
+        .eq("kind", "setup");
 
     for (const row of rows ?? []) {
         if (row.pagarme_order_id) {
-            const metaType = oppositeKind === "setup" ? "setup" : "invoice";
             const paid = await fulfillIfPagarmeOrderPaid(
                 admin,
                 String(row.pagarme_order_id),
-                metaType
+                "setup"
             );
             if (paid.fulfilled) {
-                billingLog("rebill", "opposite_fulfilled_instead_of_void", {
+                billingLog("rebill", "setup_fulfilled_instead_of_void", {
                     company_id: companyId,
-                    kind: oppositeKind,
                     order_id: row.pagarme_order_id,
                 });
                 continue;
@@ -75,17 +55,11 @@ async function voidOppositePending(
             .eq("id", row.id)
             .eq("status", "pending");
     }
-    if ((rows ?? []).length > 0) {
-        billingLog("rebill", "voided_opposite_invoices", {
-            company_id: companyId,
-            kind: oppositeKind,
-            count: (rows ?? []).length,
-        });
-    }
 }
 
 /**
- * Rebill invoice/setup pending da company após mudança de plano.
+ * Rebill invoice pending da company após mudança de plano.
+ * Amount só via rpc_create_billing_obligation (realign no banco).
  */
 export async function rebillPendingObligationAfterPlanChange(
     admin: Admin,
@@ -96,108 +70,72 @@ export async function rebillPendingObligationAfterPlanChange(
 
     const { data: sub } = await admin
         .from("pagarme_subscriptions")
-        .select("id, status, plan")
+        .select("id, status, plan, billing_period")
         .eq("company_id", companyId)
         .maybeSingle();
 
     if (!sub?.id) return { ok: true, action: "noop" };
 
     const st = String(sub.status ?? "").toLowerCase();
-    const setupCents = getSetupPriceCents(planKey);
-    const isSetupPath =
-        st === "pending_setup" || (st === "trial" && setupCents > 0);
-
-    if (isSetupPath) {
-        await voidOppositePending(admin, companyId, "setup");
-
-        const { data: setup } = await admin
-            .from("invoices")
-            .select("id, amount, pagarme_order_id")
-            .eq("company_id", companyId)
-            .eq("status", "pending")
-            .eq("kind", "setup")
-            .order("created_at", { ascending: false })
-            .limit(1)
-            .maybeSingle();
-
-        if (!setup) return { ok: true, action: "skipped_setup" };
-
-        const targetCents = setupCents > 0 ? setupCents : getMonthlyPriceCents(planKey);
-        const targetBrl = centsToBRL(targetCents);
-        const current = Number(setup.amount);
-
-        if (setup.pagarme_order_id) {
-            const fulfilled = await maybeFulfillPaidOrder(admin, setup.pagarme_order_id, "setup");
-            if (fulfilled) return { ok: true, action: "fulfilled", amount_brl: targetBrl };
-            await cancelPagarmeChargeBestEffort(setup.pagarme_order_id);
-        }
-
-        if (Math.abs(current - targetBrl) < 0.009 && !setup.pagarme_order_id) {
-            return { ok: true, action: "noop", amount_brl: targetBrl };
-        }
-
-        await admin
-            .from("invoices")
-            .update({
-                amount: targetBrl,
-                pagarme_order_id: null,
-                pagarme_payment_url: null,
-                pix_qr_code: null,
-            })
-            .eq("id", setup.id);
-
-        billingLog("rebill", "setup_rebilled", {
-            company_id: companyId,
-            from: current,
-            to: targetBrl,
-            plan: planKey,
-        });
-        return { ok: true, action: "rebilled", amount_brl: targetBrl };
-    }
-
-    await voidOppositePending(admin, companyId, "invoice");
+    await voidLegacySetupPending(admin, companyId);
 
     const { data: inv } = await admin
         .from("invoices")
-        .select("id, amount, pagarme_order_id")
+        .select("id, amount, pagarme_order_id, kind")
         .eq("company_id", companyId)
         .eq("status", "pending")
-        .eq("kind", "subscription")
+        .in("kind", ["subscription", "year"])
         .order("created_at", { ascending: false })
         .limit(1)
         .maybeSingle();
 
-    if (!inv) return { ok: true, action: "noop" };
+    const needsObligation =
+        st === "pending_payment" || st === "pending_setup" || st === "trial";
+    if (!inv && !needsObligation) return { ok: true, action: "noop" };
 
-    const targetCents = getMonthlyPriceCents(planKey);
-    const targetBrl = centsToBRL(targetCents);
-    const current = Number(inv.amount);
-
-    if (inv.pagarme_order_id) {
-        const fulfilled = await maybeFulfillPaidOrder(admin, inv.pagarme_order_id, "invoice");
-        if (fulfilled) return { ok: true, action: "fulfilled", amount_brl: targetBrl };
-        await cancelPagarmeChargeBestEffort(inv.pagarme_order_id);
+    if (inv?.pagarme_order_id) {
+        const fulfilled = await fulfillIfPagarmeOrderPaid(
+            admin,
+            String(inv.pagarme_order_id),
+            "invoice"
+        );
+        if (fulfilled.fulfilled) {
+            return { ok: true, action: "fulfilled" };
+        }
+        await cancelPagarmeChargeBestEffort(String(inv.pagarme_order_id));
     }
 
-    if (Math.abs(current - targetBrl) < 0.009 && !inv.pagarme_order_id) {
-        return { ok: true, action: "noop", amount_brl: targetBrl };
-    }
-
-    await admin
-        .from("invoices")
-        .update({
-            amount: targetBrl,
-            pagarme_order_id: null,
-            pagarme_payment_url: null,
-            pix_qr_code: null,
-        })
-        .eq("id", inv.id);
-
-    billingLog("rebill", "invoice_rebilled", {
-        company_id: companyId,
-        from: current,
-        to: targetBrl,
-        plan: planKey,
+    const { data: rpc, error } = await admin.rpc("rpc_create_billing_obligation", {
+        p_company_id: companyId,
+        p_kind: "subscription",
+        p_seat_qty: null,
     });
-    return { ok: true, action: "rebilled", amount_brl: targetBrl };
+    if (error) throw new Error(error.message);
+
+    const result = (rpc ?? {}) as {
+        status?: string;
+        amount_cents?: number;
+        invoice_id?: string;
+        realigned?: boolean;
+    };
+    const amountCents = Number(result.amount_cents ?? 0);
+    const amountBrl = amountCents / 100;
+    const changed =
+        result.status === "realigned" ||
+        result.realigned === true ||
+        result.status === "created";
+
+    billingLog("rebill", changed ? "invoice_rebilled" : "invoice_aligned", {
+        company_id: companyId,
+        plan: planKey,
+        amount_cents: amountCents,
+        rpc_status: result.status,
+        invoice_id: result.invoice_id,
+    });
+
+    return {
+        ok: true,
+        action: changed ? "rebilled" : "noop",
+        amount_brl: Number.isFinite(amountBrl) ? amountBrl : undefined,
+    };
 }

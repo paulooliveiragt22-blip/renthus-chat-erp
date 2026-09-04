@@ -18,7 +18,6 @@ import {
     getPagarmeOrder,
     extractOrderCustomerId,
     extractCardIdFromOrder,
-    centsToBRL,
     isOrderCreditPaid,
     listCustomerCards,
 } from "@/lib/billing/pagarme";
@@ -51,79 +50,26 @@ function resolveCheckoutIdempotencyKey(
     return raw;
 }
 
-async function persistCardBillingOrder(
+/** Só anexa order/PIX. Amount e kind já vieram de rpc_create_billing_obligation. */
+async function attachPspToPendingInvoice(
     admin: ReturnType<typeof createAdminClient>,
     p: {
-        companyId: string;
-        subId: string;
-        amountCents: number;
+        invoiceId: string;
         orderId: string;
-        kind: "setup" | "subscription" | "year";
-        pendingInv: { id: string } | null;
+        pixUrl?: string | null;
+        pixCode?: string | null;
     }
 ) {
-    const brlAmount = centsToBRL(p.amountCents);
-    if (p.pendingInv) {
-        await admin.from("invoices")
-            .update({
-                pagarme_order_id: p.orderId,
-                pagarme_payment_url: "",
-                pix_qr_code: null,
-                kind: p.kind,
-            })
-            .eq("id", p.pendingInv.id);
-    } else {
-        await admin.from("invoices").insert({
-            company_id:          p.companyId,
-            subscription_id:     p.subId,
-            amount:              brlAmount,
-            status:              "pending",
-            due_at:              new Date().toISOString(),
-            pagarme_order_id:    p.orderId,
-            pagarme_payment_url: "",
-            pix_qr_code:         null,
-            kind:                p.kind,
-        });
-    }
-}
-
-async function persistPixBillingOrder(
-    admin: ReturnType<typeof createAdminClient>,
-    p: {
-        companyId: string;
-        subId: string;
-        amountCents: number;
-        orderId: string;
-        pixUrl: string | null;
-        pixCode: string | null;
-        kind: "setup" | "subscription" | "year";
-        pendingInv: { id: string } | null;
-    }
-) {
-    const brlAmount = centsToBRL(p.amountCents);
-    if (p.pendingInv) {
-        await admin.from("invoices")
-            .update({
-                pagarme_order_id:    p.orderId,
-                pagarme_payment_url: p.pixUrl ?? "",
-                pix_qr_code:         p.pixCode,
-                kind:                p.kind,
-            })
-            .eq("id", p.pendingInv.id);
-    } else {
-        const { error } = await admin.from("invoices").insert({
-            company_id:          p.companyId,
-            subscription_id:     p.subId,
-            amount:              brlAmount,
-            status:              "pending",
-            due_at:              new Date().toISOString(),
-            pagarme_order_id:    p.orderId,
+    const { error } = await admin
+        .from("invoices")
+        .update({
+            pagarme_order_id: p.orderId,
             pagarme_payment_url: p.pixUrl ?? "",
-            pix_qr_code:         p.pixCode,
-            kind:                p.kind,
-        });
-        if (error) throw error;
-    }
+            pix_qr_code: p.pixCode ?? null,
+        })
+        .eq("id", p.invoiceId)
+        .eq("status", "pending");
+    if (error) throw error;
 }
 
 type Body = {
@@ -382,13 +328,15 @@ export async function POST(req: Request) {
 
             const custId = extractOrderCustomerId(order);
 
-            await persistCardBillingOrder(admin, {
-                companyId,
-                subId: sub.id,
-                amountCents,
+            if (!pendingInv?.id) {
+                return NextResponse.json(
+                    { error: "obligation_missing" },
+                    { status: 500 }
+                );
+            }
+            await attachPspToPendingInvoice(admin, {
+                invoiceId: pendingInv.id,
                 orderId: order.id,
-                kind: strategy.invoiceKind,
-                pendingInv:   pendingInv ? { id: pendingInv.id } : null,
             });
 
             const subPatch: Record<string, unknown> = {};
@@ -501,16 +449,15 @@ export async function POST(req: Request) {
         const { order, pixCode, pixUrl, gatewayStub } = await resolvePixFromOrder(created);
 
         // ADR-0004 B3: vincular order_id local ANTES de falhar por EMV (anti-órfão)
+        if (!pendingInv?.id) {
+            return NextResponse.json({ error: "obligation_missing" }, { status: 500 });
+        }
         try {
-            await persistPixBillingOrder(admin, {
-                companyId,
-                subId: sub.id,
-                amountCents,
+            await attachPspToPendingInvoice(admin, {
+                invoiceId: pendingInv.id,
                 orderId: order.id,
                 pixUrl,
                 pixCode: pixCode && String(pixCode).trim() ? pixCode : null,
-                kind: strategy.invoiceKind,
-                pendingInv:   pendingInv ? { id: pendingInv.id } : null,
             });
         } catch (persistErr: unknown) {
             const pe = persistErr as { code?: string; message?: string };

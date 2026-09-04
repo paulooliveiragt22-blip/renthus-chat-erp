@@ -123,17 +123,25 @@ export function makeMockAdmin(tables: Tables): MockAdminHandle {
                         (r) => r.status === "pending" && (r.kind == null || r.kind === kind)
                     );
                     if (existing) {
-                        const cents = Number.isFinite(Number(existing.amount))
-                            ? Math.round(Number(existing.amount) * 100) || 27900
-                            : 27900;
+                        const cents = 27900;
+                        const stored = Number.isFinite(Number(existing.amount))
+                            ? Math.round(Number(existing.amount) * 100)
+                            : 0;
+                        const realigned = Math.abs(stored - cents) > 2;
+                        if (realigned) {
+                            existing.amount = cents / 100;
+                            existing.pagarme_order_id = null;
+                            existing.pix_qr_code = null;
+                        }
                         return {
                             data: {
-                                status: "exists",
+                                status: realigned ? "realigned" : "exists",
                                 invoice_id: existing.id,
                                 company_id: companyId,
                                 kind,
                                 amount_cents: cents,
                                 created: false,
+                                realigned,
                             },
                             error: null,
                         };
