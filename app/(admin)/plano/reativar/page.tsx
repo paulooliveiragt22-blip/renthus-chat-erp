@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 import Link from "next/link";
 import { useState } from "react";
 export default function PlanoReativarPage() {
@@ -30,8 +30,8 @@ export default function PlanoReativarPage() {
     <div className="min-h-screen bg-zinc-50 dark:bg-zinc-950">
       <header className="border-b border-zinc-200 bg-white px-4 py-4 dark:border-zinc-800 dark:bg-zinc-900">
         <div className="mx-auto flex max-w-lg items-center justify-between">
-          <img src="/brand/renthus-wordmark-on-light.svg?v=mark3" alt="RenthusAgent" className="h-7 w-auto dark:hidden" />
-          <img src="/brand/renthus-wordmark-on-dark.svg?v=mark3" alt="RenthusAgent" className="hidden h-7 w-auto dark:block" />
+          <img src="/brand/renthus-wordmark-on-light.svg?v=mark8" alt="RenthusAgent" className="h-7 w-auto dark:hidden" />
+          <img src="/brand/renthus-wordmark-on-dark.svg?v=mark8" alt="RenthusAgent" className="hidden h-7 w-auto dark:block" />
           <Link href="/logout" className="text-xs font-semibold text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200">Sair</Link>
         </div>
       </header>

@@ -17,7 +17,8 @@ Sempre que pedirem **nova** funcionalidade, tela, agente, integração ou recurs
 1. **Estrutura de pastas** no padrão hexagonal / Clean Architecture **desta stack** (não forçar pastas Flutter se o alvo for Next.js).
 2. **Componentes:** contratos/ports, adapters, use cases, Route Handlers / controllers, entidades.
 3. **Sugestão de elite** (1 parágrafo: padrão de mercado e por quê).
-4. **Pergunta de validação:** “Aprova esta estrutura antes de eu implementar?”
+4. **Gate de negócio:** se a mudança depende de preço/trial/features/ciclo comercial ainda aberto em `docs/DECISOES_NEGOCIO_*_PENDENTES.md`, **não** propor implementação dessa parte — listar IDs e opções (`decisoes-negocio-antes-codigo.mdc`).
+5. **Pergunta de validação:** “Aprova esta estrutura antes de eu implementar?”
 
 ### FASE 2 — Só após aprovação ou comando explícito (“implementa”, “faz”, “executa”, “aplica”)
 - Código aderente às regras abaixo.

@@ -1,0 +1,56 @@
+---
+description: Bloquear código/DB/migration que dependa de regra de negócio ainda não decidida pelo dono — evita gambiarra e retrabalho.
+alwaysApply: true
+---
+
+# Decisões de negócio antes de código / schema
+
+## Regra (obrigatória)
+
+Se uma mudança de **código**, **migration**, **RPC**, **seed**, **contrato de API** ou **UI de produto** **depende** de uma regra de negócio ainda **não fechada pelo dono do produto**, o agente **NÃO implementa** essa parte.
+
+Permitido sem decisão fechada:
+- Hardening técnico com regra já canônica (HMAC, CAS, claim, RLS, unique, RPC que só move lógica **já** definida no app).
+- Refactors mecânicos sem mudar comportamento comercial.
+- Documentar opções e pedir decisão.
+
+Proibido sem decisão fechada:
+- Seed / alteração de `plan_features`, preços, trial days default, setup fee, cotas.
+- Novos status de assinatura, fluxos de downgrade/proration, gates de feature “chutados”.
+- Dual-path “por enquanto cobre os dois comportamentos até o dono decidir”.
+- Colunas/tabelas cujo **significado comercial** ainda é ambíguo (ex.: unificar obrigações **depois** de mudar o que é setup vs mensalidade sem o dono ter fechado o modelo).
+- Defaults “razoáveis” inventados pelo agente quando o doc marca TBD / pendente / próxima rodada.
+
+## Como detectar dependência
+
+A mudança **depende** de regra de negócio se alterar qualquer um de:
+
+| Sinal | Exemplos |
+|-------|----------|
+| Dinheiro | `price_cents`, setup fee, proration, amount de obrigação |
+| Acesso / plano | quem entra em trial, N dias, `pending_*`, downgrade mid-cycle |
+| Features / cotas | qual `feature_key` em qual plano; limites em `feature_limits` |
+| Ciclo de vida comercial | abandoned, courtesy, reativação, grace period |
+| Catálogo | matriz em `BILLING_PLANS.md` / `planCatalog` ainda marcada como próxima rodada |
+
+Se o item está em `docs/DECISOES_NEGOCIO_*_PENDENTES.md` (ou checklist com “próxima rodada” / TBD) → **parar**.
+
+## Protocolo
+
+1. **Identificar** a decisão em aberto (ID do doc de decisões, se existir).
+2. **Listar** opções concretas (A/B/C) + impacto técnico de cada uma (arquivos/tabelas).
+3. **Perguntar** ao usuário; **não** escolher “a mais comum do mercado” no lugar dele.
+4. Só após resposta explícita (ou doc marcado `[x] decidido`): implementar.
+5. Registrar a decisão no doc de decisões / ADR / checklist **na mesma entrega** do código.
+
+## Exceção estreita
+
+Hardening / unificação estrutural **já decidida** pelo dono (ex.: “unificar setup+invoices agora”, “RPC fulfill radical”) **pode** seguir, desde que:
+- não invente preços, features ou política de trial novos;
+- preserve comportamento comercial **atual** documentado como canônico;
+- qualquer ambiguidade comercial encontrada no caminho → **escalar**, não “resolver com default”.
+
+## Conflito
+
+Técnico × produto → `docs/business_rules.md` e docs de domínio.  
+Se não houver decisão escrita → tratar como **pendente** (esta rule vence “implementar rápido”).

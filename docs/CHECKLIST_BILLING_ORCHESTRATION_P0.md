@@ -129,6 +129,14 @@ Não abrir O5.2/O5.3 como atalho se O1 estiver vermelho.
 
 ---
 
+## Continuação (pós-O6)
+
+Hardening de concorrência/segurança (CAS webhook, HMAC prod, unique pending, fulfill atômico, cancel-before-create):  
+→ [`ADR/0006-billing-hardening-idempotency-security.md`](./ADR/0006-billing-hardening-idempotency-security.md)  
+→ [`CHECKLIST_BILLING_HARDENING_P1.md`](./CHECKLIST_BILLING_HARDENING_P1.md)
+
+---
+
 ## Referências
 
 - `docs/ADR/0004-billing-route-handlers-only.md`

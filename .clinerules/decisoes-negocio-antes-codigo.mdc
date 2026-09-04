@@ -1,0 +1,44 @@
+---
+description: Bloquear código/DB/migration que dependa de regra de negócio ainda não decidida pelo dono do produto — evita gambiarra e retrabalho.
+alwaysApply: true
+---
+
+# Decisões de negócio antes de código / schema
+
+## Regra (obrigatória)
+
+Se uma mudança de **código**, **migration**, **RPC**, **seed**, **contrato de API** ou **UI de produto** **depende** de uma regra de negócio ainda **não fechada pelo dono do produto**, o agente **NÃO implementa** essa parte.
+
+Permitido sem decisão fechada:
+- Hardening técnico com regra já canônica (HMAC, CAS, claim, RLS, unique, RPC que só move lógica **já** definida no app).
+- Refactors mecânicos sem mudar comportamento comercial.
+- Documentar opções e pedir decisão.
+
+Proibido sem decisão fechada:
+- Seed / alteração de `plan_features`, preços, trial days default, setup fee, cotas.
+- Novos status de assinatura, fluxos de downgrade/proration, gates de feature “chutados”.
+- Dual-path “por enquanto cobre os dois comportamentos até o dono decidir”.
+- Colunas/tabelas cujo **significado comercial** ainda é ambíguo.
+- Defaults “razoáveis” inventados pelo agente quando o doc marca TBD / pendente / próxima rodada.
+
+## Como detectar dependência
+
+A mudança **depende** de regra de negócio se alterar: dinheiro (preço/setup/proration), acesso/plano (trial, pending, downgrade), features/cotas, ciclo de vida comercial, ou catálogo marcado como próxima rodada.
+
+Se o item está em `docs/DECISOES_NEGOCIO_*_PENDENTES.md` (ou checklist “próxima rodada” / TBD) → **parar**.
+
+## Protocolo
+
+1. Identificar a decisão em aberto (ID do doc).
+2. Listar opções A/B/C + impacto técnico.
+3. Perguntar ao usuário; não escolher no lugar dele.
+4. Só após resposta explícita: implementar.
+5. Registrar a decisão no doc / ADR / checklist na mesma entrega.
+
+## Exceção estreita
+
+Hardening / unificação **já decidida** pelo dono pode seguir sem inventar preços/features/trial; ambiguidade comercial no caminho → escalar.
+
+## Conflito
+
+Técnico × produto → `docs/business_rules.md`. Sem decisão escrita → **pendente** (esta rule vence “implementar rápido”).

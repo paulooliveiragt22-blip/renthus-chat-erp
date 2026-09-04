@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 /**
  * app/(public)/onboarding/page.tsx  →  rota: /onboarding
@@ -68,7 +68,7 @@ export default function OnboardingPage() {
             {/* Logo */}
             <div style={{ marginBottom: 32 }}>
                 <img
-                    src="/brand/renthus-wordmark-on-light.svg?v=mark3"
+                    src="/brand/renthus-wordmark-on-light.svg?v=mark8"
                     alt="RenthusAgent"
                     width={194}
                     height={28}

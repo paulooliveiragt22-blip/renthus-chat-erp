@@ -129,13 +129,18 @@ export default function LoginPage() {
                 padding:      "32px 28px",
                 boxShadow:    "0 8px 32px rgba(0,0,0,0.08)",
             }}>
-                <img
-                    src="/brand/renthus-wordmark-on-light.svg?v=mark3"
-                    alt="RenthusAgent"
-                    width={194}
-                    height={28}
-                    style={{ height: 28, width: "auto", display: "block", marginBottom: 20 }}
-                />
+                <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 20 }}>
+                    <img
+                        src="/brand/renthus-mark-on-light.svg?v=mark8"
+                        alt=""
+                        width={28}
+                        height={28}
+                        style={{ height: 28, width: 28, display: "block", flexShrink: 0 }}
+                    />
+                    <span style={{ fontSize: 16, fontWeight: 700, color: "#111827", letterSpacing: "-0.02em" }}>
+                        RenthusAgent
+                    </span>
+                </div>
                 <h1 style={{ fontSize: 22, fontWeight: 800, color: "#111827", margin: "0 0 6px" }}>
                     Entrar na sua conta
                 </h1>

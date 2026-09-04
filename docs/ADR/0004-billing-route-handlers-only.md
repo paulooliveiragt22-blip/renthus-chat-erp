@@ -1,8 +1,9 @@
 # ADR 0004 — Billing: runtime Route Handlers + orquestração canônica
 
-**Status:** aceito (emenda 2026-09-02)  
+**Status:** aceito (emenda 2026-09-04 — HMAC prod + ponte para hardening)  
 **Data original:** 2026-08-28  
-**Emenda:** 2026-09-02 — calibração pós-diagnóstico sandbox (webhook morto, órfãos PIX, preço stale, RPC features errada)
+**Emenda:** 2026-09-02 — calibração pós-diagnóstico sandbox (webhook morto, órfãos PIX, preço stale, RPC features errada)  
+**Emenda:** 2026-09-04 — B2.5 supersedido parcialmente por [ADR-0006](./0006-billing-hardening-idempotency-security.md) (HMAC obrigatório em produção; CAS/claim/unique pending)
 
 **Contexto:** R6.3 — cobrança, webhook Pagar.me, cron de renovação e fulfill compartilham `service_role`, idempotência e Sentry. Emenda incorpora falhas reais: `pagarme_webhook_events` vazio com orders pagos no PSP; invoice pendente com valor ≠ plano; UI QR sem EMV; entitlements lendo a tabela errada.
 
@@ -59,7 +60,7 @@ Alinhado a E1 (`CHECKLIST_TENANT_ACCESS_SIGNUP_PAYMENTS`) e à lição do ADR-00
 2. **Sync sob demanda (rede de segurança UX):** `GET /api/billing/status` e reentrada em `create-invoice-checkout` chamam `syncPendingObligationFromPsp` — se obrigação pending tem `pagarme_order_id` e o order no PSP está `paid`, roda o mesmo `FulfillPayment` (idempotente). O paywall já polla status ~5s; webhook morto não deixa o tenant eternamente travado após pagar.
 3. **Watchdog / replay** (ops): cron Route Handler com `CRON_SECRET` **ou** ação platform “Replay fulfill(`order_id`)” — dead-letter / órfãos; alerta Sentry se checkouts criados e **zero** eventos webhook em janela N.
 4. **Proibido no P0:** cron que lista “todos paid no PSP” como caminho feliz de liberação de plano.
-5. **`PAGARME_WEBHOOK_SECRET`:** opcional/legado. Só rejeita body se `X-Hub-Signature` vier **e** o HMAC não bater. Sem header / sem env → aceita e confirma na API. **Não** guardar secret no Postgres.
+5. **`PAGARME_WEBHOOK_SECRET`:** **emenda 2026-09-04 (ADR-0006 D2)** — em **produção** o secret é **obrigatório**; HMAC inválido/ausente → 401; comparação com `timingSafeEqual`. Preview/local só pode aceitar sem secret com `ALLOW_INSECURE_PAGARME_WEBHOOK=1`. Gate de verdade do pago continua sendo GET `/orders/:id` antes de `FulfillPayment`. **Não** guardar secret no Postgres. (Texto anterior “opcional/legado” aplica-se só a ambientes com flag insecure.)
 
 ### B3 — EnsureCheckout anti-órfão + PIX EMV
 
@@ -114,6 +115,7 @@ não apenas presença de `img` QR ou toast de UI.
 - Novos crons de cobrança / watchdog → `vercel.json` + `app/api/billing/*` + `validateCronAuthorization`.
 - Smoke e testes de contrato: `tests/billing/`, `scripts/billing-sandbox-smoke.mjs`, E2E com assert de fulfill (B6).
 - Checklist de execução desta emenda: `docs/CHECKLIST_BILLING_ORCHESTRATION_P0.md`.
+- Hardening P1 (races, HMAC, fulfill atômico, unique pending): [ADR-0006](./0006-billing-hardening-idempotency-security.md) + `docs/CHECKLIST_BILLING_HARDENING_P1.md`.
 - Checklist de **features por plano** (próxima rodada): documento novo quando produto fechar a matriz — não reabrir seed ad hoc aqui.
 
 ---
@@ -124,6 +126,7 @@ não apenas presença de `img` QR ou toast de UI.
 - `docs/CHECKLIST_TENANT_ACCESS_SIGNUP_PAYMENTS.md` (B3 FulfillPayment, E1 webhook híbrido)
 - `docs/CHECKLIST_BILLING_PAYWALL_P0.md` (D1/D2 — D2: features ← `plan_features`)
 - `docs/CHECKLIST_BILLING_ORCHESTRATION_P0.md` (execução desta emenda)
+- `docs/ADR/0006-billing-hardening-idempotency-security.md` / `docs/CHECKLIST_BILLING_HARDENING_P1.md` (P1 races/HMAC/claim)
 - `docs/ADR/0003-sqs-outbox-lambda.md` (lição: reconciler não mascara ingestão)
 - `docs/BILLING_PLANS.md` / `lib/billing/planCatalog.ts` (preços; features comerciais TBD na próxima rodada)
 - `lib/security/cronAuth.ts`

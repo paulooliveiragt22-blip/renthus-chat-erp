@@ -12,13 +12,13 @@ export default function PlanoPagarPage() {
                 <div className="mx-auto flex max-w-lg items-center justify-between">
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img
-                        src="/brand/renthus-wordmark-on-light.svg?v=mark3"
+                        src="/brand/renthus-wordmark-on-light.svg?v=mark8"
                         alt="RenthusAgent"
                         className="h-7 w-auto dark:hidden"
                     />
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img
-                        src="/brand/renthus-wordmark-on-dark.svg?v=mark3"
+                        src="/brand/renthus-wordmark-on-dark.svg?v=mark8"
                         alt="RenthusAgent"
                         className="hidden h-7 w-auto dark:block"
                     />
