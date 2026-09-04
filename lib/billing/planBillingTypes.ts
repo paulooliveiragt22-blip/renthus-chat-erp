@@ -4,6 +4,8 @@ export type BillingStatusJson = {
     ok?: boolean;
     error?: string;
     is_blocked?: boolean;
+    /** Papel do caller na empresa (owner|admin — status é gated a esses). R3-7 UI. */
+    role?: string;
     pagarme_subscription?: {
         plan: string;
         status: string;

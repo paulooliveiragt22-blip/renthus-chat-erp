@@ -108,10 +108,11 @@ Promo só no fluxo **mensal**.
 ### R3-7 — Quem pode fazer upgrade/downgrade — **só owner/admin** `[i]`
 
 Mudança de plano (upgrade proration ou downgrade agendado) e compra de seat são
-operações **owner/admin**. Já enforçado no servidor: `POST /api/billing/change-plan`,
+operações **owner/admin**. Enforçado no servidor: `POST /api/billing/change-plan`,
 `POST /api/billing/seats/purchase` e `pending-plan-change` usam
-`requireCompanyAccess(["owner","admin"])`. Falta apenas esconder botões na UI para
-`member` (defense-in-depth; servidor já bloqueia com 403).
+`requireCompanyAccess(["owner","admin"])`. UI defense-in-depth `[i]`: `/api/billing/status`
+devolve `role`; `PlanBillingPanel` esconde `PlanChangeCatalog` p/ não-owner/admin;
+`TeamMembersPanel` já não mostra convite/seat p/ member (`inviteable=[]`) + msg clara no 403.
 
 ### R3-8 — Upgrade dentro do anual — rateio/abatimento `[i]`
 
@@ -191,7 +192,7 @@ Se o superadmin **editar** a lista mensal do plano (R3-5), o 10% passa a usar o 
 | Downgrade com seleção de users | `[i]` BN-12 — pending_* + apply no fulfill + UI /plano |
 | Upgrade mid-cycle com proration (BN-11) | `[i]` plan_upgrade + PIX pay-to-unlock; anual = delta anual /365 (`rpc_quote_plan_upgrade`, R3-8) |
 | Ciclo anual R2-3 (kind=year, +1y no fulfill) | `[i]` Pacote 2/4 — fulfill period-aware, `kind=year`, dunning anual, seat/upgrade anual |
-| RBAC upgrade/downgrade só owner/admin (R3-7) | `[i]` server-side nas 3 rotas; UI (esconder botão p/ member) pendente |
+| RBAC upgrade/downgrade só owner/admin (R3-7) | `[i]` server-side nas 3 rotas + UI defense-in-depth (status.role → esconde catálogo; painel de equipe já oculta convite/seat p/ member) |
 | Cortesia BN-08 1–30d | `[i]` RPC + use case + UI + testes alinhados a 1–30 |
 | BN-13 dunning D7 | `[i]` `fn_billing_collection_action` D1/D3/D5 retry + D7 block; cron filtra `kind∈{subscription,year}` |
 | BN-14 reativação pós-bloqueio (ciclo cheio) | `[i]` checkout interativo puxa obrigação canônica (subscription\|year); fulfill → `active` + `next=paid+período`; **≠** `self-reactivate` (abandoned→trial) |
