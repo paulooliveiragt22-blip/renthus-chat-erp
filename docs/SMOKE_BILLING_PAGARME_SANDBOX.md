@@ -84,7 +84,7 @@ Regras oficiais ([docs](https://docs.pagar.me/docs/simulador-psp)):
 | PIX sucesso | valor **≤ R$ 500,00** — simulador paga sozinho em segundos |
 | PIX falha | valor **> R$ 500,00** |
 
-Planos Renthus (Essencial R$ 197, Pro R$ 279, Market R$ 397) estão dentro do limite PIX.
+Planos Renthus (Essencial R$ 279, Pro R$ 349, Market R$ 449) estão dentro do limite PIX.
 
 ### Domínio (tokenização no browser)
 

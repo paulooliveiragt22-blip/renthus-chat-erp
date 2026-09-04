@@ -3,7 +3,7 @@
 **Atualizado:** 2026-09-04 (rodada 2 — dono)  
 **Gate:** `.cursor/rules/decisoes-negocio-antes-codigo.mdc`  
 **Rodada 3 (só furos):** renovação com promo?; seats mid-cycle/downgrade com extras — § Rodada 3.  
-**Não implementar** até comando “implementa” (+ fechar R3 se a feature tocada depender disso).
+**Não implementar** promo/seats mid-cycle/IA-anual até fechar R3 (§ Rodada 3). Fatia BN-04/05/06/07 + seats-as-data: **implementada** 2026-09-04.
 
 Estado: `[ ]` aberto · `[x] decidido` · `[~]` parcial · `[>]` adiado.
 
@@ -118,7 +118,7 @@ Ex.: 12 users → 449 + 2×99 = **R$ 647**/mês.
 
 ---
 
-## Preços de referência (ainda não seedar)
+## Preços de referência (seedados 2026-09-04)
 
 | Plano | Mensal lista | Anual lista (default 20% off, editável) | Users inclusos | Seat extra |
 |-------|--------------|------------------------------------------|----------------|------------|
@@ -145,14 +145,17 @@ Responda só o que faltar; o resto da R2 está fechado.
 
 ---
 
-## O que **não** fazer ainda (gate)
+## O que **não** fazer ainda (gate R3 / adiado)
 
-- Seed `plans.price_cents` / promo / seats no DB  
-- UI superadmin de preços  
-- Mudar `collectionPolicy` / change-plan / signup trial  
+- UI superadmin de preços/promo (R2-A modelo ok; R3-1/2/5 abertos)
+- Cobrança de seat mid-cycle / proration seats (R3-3)
+- Downgrade com users acima do incluso (R3-4)
+- Crédito IA no ciclo anual (R3-6)
 - Packs (BN-15)
 
-Hardening técnico (HMAC, CAS, unificação **sem** inventar setup, RPC fulfill) pode seguir **preservando comportamento atual de preço** até “implementa” a trilha comercial — ou esperar um único “implementa” conjunto; dono escolhe.
+**Já implementado (comando “implementar comercial” 2026-09-04):** seed `plans` 279/349/449 + `price_year_cents` (−20%) + seats cols; `planCatalog` / signup / setup=0 / trial DB=0 / AI 10% mensal.
+
+Hardening técnico permanece independente da trilha comercial restante (R3).
 
 ---
 

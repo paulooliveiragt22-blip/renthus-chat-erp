@@ -1,18 +1,24 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { getMonthlyPriceCents } from "@/lib/billing/pagarme";
+import {
+    getMonthlyPriceCentsForPlan,
+    getYearlyPriceCentsForPlan,
+    PLAN_CATALOG,
+} from "@/lib/billing/planCatalog";
 
-describe("getMonthlyPriceCents canônico (ADR-0004 B4)", () => {
-    it("ignora MONTHLY_PRICE_BOT_CENTS legado e usa catálogo", () => {
-        const prev = process.env.MONTHLY_PRICE_BOT_CENTS;
-        process.env.MONTHLY_PRICE_BOT_CENTS = "29700";
-        try {
-            assert.equal(getMonthlyPriceCents("essencial"), 19700);
-            assert.equal(getMonthlyPriceCents("market"), 39700);
-            assert.equal(getMonthlyPriceCents("pro"), 27900);
-        } finally {
-            if (prev === undefined) delete process.env.MONTHLY_PRICE_BOT_CENTS;
-            else process.env.MONTHLY_PRICE_BOT_CENTS = prev;
-        }
+describe("preços canônicos BN-04/05 (sem pagarme server-only)", () => {
+    it("mensal do catálogo + aliases", () => {
+        assert.equal(getMonthlyPriceCentsForPlan("essencial"), 27900);
+        assert.equal(getMonthlyPriceCentsForPlan("pro"), 34900);
+        assert.equal(getMonthlyPriceCentsForPlan("market"), 44900);
+        assert.equal(getMonthlyPriceCentsForPlan("bot"), 27900);
+        assert.equal(getMonthlyPriceCentsForPlan("complete"), 34900);
+    });
+
+    it("anual −20% default; setup canônico = 0 no app via getSetupPriceCents", () => {
+        assert.equal(getYearlyPriceCentsForPlan("essencial"), 267840);
+        assert.equal(getYearlyPriceCentsForPlan("pro"), 335040);
+        assert.equal(getYearlyPriceCentsForPlan("market"), 431040);
+        assert.equal(PLAN_CATALOG.pro.seatExtraCents, 9900);
     });
 });

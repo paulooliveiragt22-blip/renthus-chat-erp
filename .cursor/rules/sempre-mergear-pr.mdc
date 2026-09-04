@@ -1,0 +1,13 @@
+---
+description: Após abrir PR no GitHub, sempre fazer merge (preferência do dono)
+alwaysApply: true
+---
+
+# Sempre mergear PR
+
+Quando o usuário pedir para criar/abrir um PR (ou o fluxo natural da tarefa for “ship” via PR):
+
+1. Abrir o PR com `gh pr create`.
+2. **Em seguida mergear** com `gh pr merge <n> --merge --delete-branch` (sem esperar o usuário pedir “faz o merge”).
+3. Se branch protection / checks bloquearem: tentar `--admin` se a conta tiver permissão; se ainda falhar, reportar o bloqueio e o motivo do CI — não abandonar o merge em silêncio.
+4. Após merge: `git checkout main && git pull origin main` no workspace local quando fizer sentido continuar na main.

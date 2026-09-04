@@ -41,7 +41,7 @@ export default function MarketPlanGate({ featureKey, title, description, childre
                     <p className="text-sm font-bold text-zinc-900 dark:text-zinc-100">{title}</p>
                     <p className="mt-0.5 text-xs text-zinc-600 dark:text-zinc-400">{description}</p>
                     <p className="mt-2 text-xs text-amber-800 dark:text-amber-200">
-                        Disponível no plano Market (R$ 397/mês).
+                        Disponível no plano Market (R$ 449/mês).
                     </p>
                     <Link
                         href="/configuracoes?tab=plano"

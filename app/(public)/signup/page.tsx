@@ -11,53 +11,44 @@ import { useRouter } from "next/navigation";
 import type { Session } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/client";
 import PasswordInput from "@/components/PasswordInput";
+import { PLAN_CATALOG, PLAN_ORDER, type CommercialPlanKey } from "@/lib/billing/planCatalog";
 
 type TrialPolicy = { trial_days: number; payment_required: boolean };
 
-const PLANS = [
-    {
-        key:          "essencial" as const,
-        name:         "Essencial",
-        popular:      false,
-        description:  "WhatsApp + cardápio web + IA com crédito e packs",
-        monthlyPrice: 197,
-        features: [
-            "Pedidos no WhatsApp (Flow + IA)",
-            "Cardápio web com capa e foto",
-            "Crédito IA incluso (10%) + packs R$10/20/50",
-            "PDV básico · 1 usuário",
-        ],
-    },
-    {
-        key:          "pro" as const,
-        name:         "Pro",
-        popular:      true,
-        description:  "ERP completo + impressão + IA no canal próprio",
-        monthlyPrice: 279,
-        features: [
-            "Tudo do Essencial",
-            "PDV, estoque e financeiro",
-            "Impressão automática",
-            "Relatórios avançados",
-        ],
-    },
-    {
-        key:          "market" as const,
-        name:         "Market",
-        popular:      false,
-        description:  "Omnichannel: iFood, redes e atendimento de mesa",
-        monthlyPrice: 397,
-        features: [
-            "Tudo do Pro",
-            "iFood + Aiqfome",
-            "Instagram + Messenger",
-            "Atendimento de mesa / salão",
-        ],
-    },
-] as const;
+const PLAN_FEATURE_BLURBS: Record<CommercialPlanKey, string[]> = {
+    essencial: [
+        "Pedidos no WhatsApp (Flow + IA)",
+        "Cardápio web com capa e foto",
+        "Crédito IA incluso (10%) + packs R$10/20/50",
+        "PDV básico · 1 usuário",
+    ],
+    pro: [
+        "Tudo do Essencial",
+        "PDV, estoque e financeiro",
+        "Impressão automática",
+        "Relatórios avançados · seat extra R$ 99",
+    ],
+    market: [
+        "Tudo do Pro",
+        "iFood + Aiqfome",
+        "Instagram + Messenger",
+        "Atendimento de mesa / salão · 10 usuários",
+    ],
+};
 
-type PlanKey = "essencial" | "pro" | "market";
+const PLANS = PLAN_ORDER.map((key) => {
+    const c = PLAN_CATALOG[key];
+    return {
+        key,
+        name: c.name,
+        popular: Boolean(c.popular),
+        description: c.description,
+        monthlyPrice: c.monthlyPriceCents / 100,
+        features: PLAN_FEATURE_BLURBS[key],
+    };
+});
 
+type PlanKey = CommercialPlanKey;
 function fmt(v: number) {
     return v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }

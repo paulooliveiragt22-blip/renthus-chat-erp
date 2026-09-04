@@ -1,6 +1,7 @@
 /**
  * Catálogo comercial canônico — Essencial / Pro / Market.
  * Fonte única para preços, labels e mapeamento legado bot/complete.
+ * Preços BN-04 (2026-09): 279 / 349 / 449; anual default −20% (editável no DB).
  */
 
 export type CommercialPlanKey = "essencial" | "pro" | "market";
@@ -10,22 +11,36 @@ export type PlanInputKey = CommercialPlanKey | "bot" | "complete" | "starter";
 
 export const PLAN_ORDER: CommercialPlanKey[] = ["essencial", "pro", "market"];
 
+/** Default anual = mensal × 12 × 0,8 (R2-B). */
+export function defaultYearlyCentsFromMonthly(monthlyCents: number): number {
+    return Math.round(monthlyCents * 12 * 0.8);
+}
+
 export const PLAN_CATALOG: Record<
     CommercialPlanKey,
     {
         name: string;
         monthlyPriceCents: number;
+        /** Lista anual (default 20% off; canônico no código até admin gravar `plans.price_year_cents`). */
+        yearlyPriceCents: number;
         description: string;
         popular?: boolean;
         /** Features booleanas do plano (além das comuns). */
         features: string[];
-        /** Crédito IA incluso = 10% do mensal (centavos BRL). */
+        /** Crédito IA incluso = 10% do mensal de lista (BN-06). */
         aiIncludedCents: number;
+        /** Usuários inclusos no preço (BN-17 / R2-C). */
+        includedSeats: number;
+        /**
+         * Seat adicional R$/mês (centavos). `null` = Essencial hard-cap (sem compra de extra).
+         */
+        seatExtraCents: number | null;
     }
 > = {
     essencial: {
         name: "Essencial",
-        monthlyPriceCents: 19700,
+        monthlyPriceCents: 27900,
+        yearlyPriceCents: defaultYearlyCentsFromMonthly(27900),
         description: "WhatsApp + cardápio web + IA com crédito + packs",
         features: [
             "whatsapp_messages",
@@ -35,11 +50,14 @@ export const PLAN_CATALOG: Record<
             "ai_credit_packs",
             "pdv_basic",
         ],
-        aiIncludedCents: 1970,
+        aiIncludedCents: 2790,
+        includedSeats: 1,
+        seatExtraCents: null,
     },
     pro: {
         name: "Pro",
-        monthlyPriceCents: 27900,
+        monthlyPriceCents: 34900,
+        yearlyPriceCents: defaultYearlyCentsFromMonthly(34900),
         description: "ERP completo + impressão + IA (canal próprio)",
         popular: true,
         features: [
@@ -54,11 +72,14 @@ export const PLAN_CATALOG: Record<
             "financeiro_full",
             "whatsapp_templates_broadcast",
         ],
-        aiIncludedCents: 2790,
+        aiIncludedCents: 3490,
+        includedSeats: 1,
+        seatExtraCents: 9900,
     },
     market: {
         name: "Market",
-        monthlyPriceCents: 39700,
+        monthlyPriceCents: 44900,
+        yearlyPriceCents: defaultYearlyCentsFromMonthly(44900),
         description: "Tudo do Pro + iFood/Aiqfome + IG/Messenger + mesa",
         features: [
             "whatsapp_messages",
@@ -76,7 +97,9 @@ export const PLAN_CATALOG: Record<
             "table_service",
             "whatsapp_templates_broadcast",
         ],
-        aiIncludedCents: 3970,
+        aiIncludedCents: 4490,
+        includedSeats: 10,
+        seatExtraCents: 9900,
     },
 };
 
@@ -107,6 +130,12 @@ export function getMonthlyPriceCentsForPlan(plan: PlanInputKey | string): number
     const key = normalizePlanKey(plan);
     if (!key) return PLAN_CATALOG.essencial.monthlyPriceCents;
     return PLAN_CATALOG[key].monthlyPriceCents;
+}
+
+export function getYearlyPriceCentsForPlan(plan: PlanInputKey | string): number {
+    const key = normalizePlanKey(plan);
+    if (!key) return PLAN_CATALOG.essencial.yearlyPriceCents;
+    return PLAN_CATALOG[key].yearlyPriceCents;
 }
 
 export function getPlanLabel(plan: PlanInputKey | string): string {

@@ -1,35 +1,27 @@
 import assert from "node:assert/strict";
-import { afterEach, describe, it } from "node:test";
+import { describe, it } from "node:test";
 import { resolveCheckoutStrategy, checkoutOrderLabels } from "../../lib/billing/ensureCheckout";
 import { getMonthlyPriceCents } from "../../lib/billing/pagarme";
 
-describe("resolveCheckoutStrategy (B3.6)", () => {
-    const prev = { ...process.env };
-
-    afterEach(() => {
-        process.env = { ...prev };
-    });
-
-    it("pending_setup legado com SETUP=0 cobra mensalidade em invoice", () => {
-        process.env.SETUP_PRICE_ESSENCIAL_CENTS = "0";
+describe("resolveCheckoutStrategy (BN-05 setup=0)", () => {
+    it("pending_setup legado cobra mensalidade em invoice (setup fee abolido)", () => {
         const s = resolveCheckoutStrategy("pending_setup", "essencial", null);
         assert.equal(s.kind, "invoice");
         assert.equal(s.isFirstPayment, true);
         assert.equal(s.metaType, "invoice");
         assert.equal(s.invoiceKind, "subscription");
+        assert.equal(s.amountCents, getMonthlyPriceCents("essencial"));
     });
 
-    it("pending_payment nunca pago → setup quando configurado", () => {
-        process.env.SETUP_PRICE_ESSENCIAL_CENTS = "49700";
+    it("pending_payment nunca pago → invoice mensal (não setup)", () => {
         const s = resolveCheckoutStrategy("pending_payment", "essencial", null);
-        assert.equal(s.kind, "setup");
+        assert.equal(s.kind, "invoice");
         assert.equal(s.isFirstPayment, true);
-        assert.equal(s.metaType, "setup");
-        assert.equal(s.amountCents, 49700);
+        assert.equal(s.metaType, "invoice");
+        assert.equal(s.amountCents, getMonthlyPriceCents("essencial"));
     });
 
-    it("pending_payment já pago → invoice mensal", () => {
-        process.env.SETUP_PRICE_ESSENCIAL_CENTS = "49700";
+    it("pending_payment já pago → invoice mensal renovação", () => {
         const s = resolveCheckoutStrategy(
             "pending_payment",
             "essencial",
@@ -41,43 +33,26 @@ describe("resolveCheckoutStrategy (B3.6)", () => {
         assert.equal(s.metaType, "invoice");
     });
 
-    it("pending_payment nunca pago com setup zero continua primeiro pagamento mensal", () => {
-        process.env.SETUP_PRICE_ESSENCIAL_CENTS = "0";
-        const s = resolveCheckoutStrategy("pending_payment", "essencial", null);
-        assert.equal(s.isFirstPayment, true);
-        assert.equal(s.kind, "invoice");
-        assert.equal(s.invoiceKind, "subscription");
-    });
-
-    it("trial + setup>0 → setup", () => {
-        process.env.SETUP_PRICE_PRO_CENTS = "10000";
+    it("trial → invoice (setup=0)", () => {
         const s = resolveCheckoutStrategy("trial", "pro", null);
-        assert.equal(s.kind, "setup");
-        assert.equal(s.isFirstPayment, true);
-    });
-
-    it("trial + setup=0 → invoice", () => {
-        process.env.SETUP_PRICE_ESSENCIAL_CENTS = "0";
-        process.env.SETUP_PRICE_BOT_CENTS = "0";
-        const s = resolveCheckoutStrategy("trial", "essencial", null);
         assert.equal(s.kind, "invoice");
         assert.equal(s.isFirstPayment, false);
+        assert.equal(s.amountCents, getMonthlyPriceCents("pro"));
     });
 
-    it("overdue/active → invoice (renovação); amount do catálogo (não pending stale)", () => {
+    it("overdue/active → invoice; amount do catálogo (não pending stale)", () => {
         const a = resolveCheckoutStrategy("active", "market", 197);
         const o = resolveCheckoutStrategy("overdue", "market", null);
         assert.equal(a.kind, "invoice");
         assert.equal(o.kind, "invoice");
-        // H4.3: pending 197 BRL não sobrescreve catálogo
         assert.equal(a.amountCents, getMonthlyPriceCents("market"));
+        assert.equal(a.amountCents, 44900);
         assert.equal(a.amountCents, o.amountCents);
     });
 
-    it("checkoutOrderLabels alinhado", () => {
-        process.env.SETUP_PRICE_ESSENCIAL_CENTS = "49700";
-        const setup = resolveCheckoutStrategy("pending_setup", "essencial", null);
-        assert.match(checkoutOrderLabels(setup, "Essencial").description, /Taxa de ativação/);
+    it("checkoutOrderLabels mensalidade (sem taxa de ativação)", () => {
+        const setupLegacy = resolveCheckoutStrategy("pending_setup", "essencial", null);
+        assert.match(checkoutOrderLabels(setupLegacy, "Essencial").description, /Mensalidade/);
         const inv = resolveCheckoutStrategy(
             "pending_payment",
             "essencial",
