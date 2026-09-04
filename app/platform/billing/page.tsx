@@ -1056,7 +1056,7 @@ export default function PlatformBillingPage() {
                 <div className="overflow-hidden rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
                     {!isSuperadmin && (
                         <p className="border-b border-zinc-100 px-3 py-2 text-[11px] text-amber-700 dark:border-zinc-800 dark:text-amber-400">
-                            Trial cortesia (1–14d) só para superadmin. Checkout disponível para billing write.
+                            Trial cortesia (1–30d) só para superadmin. Checkout disponível para billing write.
                         </p>
                     )}
                     <table className="w-full text-sm">

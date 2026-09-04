@@ -64,7 +64,7 @@ function makeRpc(): RpcExecutor {
 /**
  * POST /api/platform/tenants/[companyId]/courtesy-trial
  * Body: { days: number, plan_key: "essencial"|"pro"|"market", reason?: string }
- * Superadmin only — 1 a 14 dias (validado no use case).
+ * Superadmin only — 1 a 30 dias (validado no use case).
  */
 export async function POST(
     req: Request,

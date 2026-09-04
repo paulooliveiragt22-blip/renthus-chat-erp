@@ -192,7 +192,7 @@ Se o superadmin **editar** a lista mensal do plano (R3-5), o 10% passa a usar o 
 | Upgrade mid-cycle com proration (BN-11) | `[i]` plan_upgrade + PIX pay-to-unlock; anual = delta anual /365 (`rpc_quote_plan_upgrade`, R3-8) |
 | Ciclo anual R2-3 (kind=year, +1y no fulfill) | `[i]` Pacote 2/4 — fulfill period-aware, `kind=year`, dunning anual, seat/upgrade anual |
 | RBAC upgrade/downgrade só owner/admin (R3-7) | `[i]` server-side nas 3 rotas; UI (esconder botão p/ member) pendente |
-| Cortesia BN-08 1–30d | `[~]` RPC 30; use case/UI parcial 14 |
+| Cortesia BN-08 1–30d | `[i]` RPC + use case + UI + testes alinhados a 1–30 |
 | BN-13 dunning D7 | pendente |
 | BN-14 reativação pós-bloqueio (ciclo cheio) | pendente — **≠** `self-reactivate` (abandoned→trial) |
 | BN-15 packs | `[>]` |
@@ -245,7 +245,7 @@ Never-paid / abandoned (BN-09) **fora** desta matriz — não misturar com D7 de
 
 | # | Item | Ação |
 |---|------|------|
-| C1 | BN-08 courtesy 1–30 | `grantCourtesyTrial.ts` + testes: max **30** (RPC já ok) |
+| C1 | BN-08 courtesy 1–30 | `[i]` `grantCourtesyTrial.ts` (>30), route/UI label, teste 31 inválido + 30 válido |
 | C2 | BN-05 limpeza setup | Filtrar overdue; remover/dead-code `generateSetupCharge` path; cancelar setup pending no DB |
 | C3 | R2-3 anual | `[i]` `fn_billing_next_due(period)`; fulfill period-aware; `rpc_create_billing_obligation` promove `kind=year` + valor anual; dunning `kind in (subscription,year)` |
 | C4 | R3-3 seat × anual | `[i]` `rpc_quote_seat_add` período-aware (ano = seat×12 / 365); renew anual soma extras |

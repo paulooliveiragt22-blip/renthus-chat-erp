@@ -2,7 +2,7 @@
  * Use Case — GrantCourtesyTrial
  *
  * Concede trial cortesia para uma empresa. Validações de negócio:
- *  - days: 1..14
+ *  - days: 1..30 (BN-08 — alinhado à RPC rpc_platform_grant_courtesy_trial)
  *  - planKey: essencial | pro | market
  *  - companyId: obrigatório
  *
@@ -42,7 +42,7 @@ export class GrantCourtesyTrial {
 
   async execute(input: GrantCourtesyTrialInput): Promise<GrantCourtesyTrialResult> {
     if (!input.companyId) throw new Error("companyId required");
-    if (!Number.isFinite(input.days) || input.days < 1 || input.days > 14) {
+    if (!Number.isFinite(input.days) || input.days < 1 || input.days > 30) {
       throw new Error("courtesy_trial_days_invalid");
     }
 

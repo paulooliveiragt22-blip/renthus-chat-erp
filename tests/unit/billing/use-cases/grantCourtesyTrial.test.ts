@@ -56,20 +56,31 @@ describe("GrantCourtesyTrial — validações + RPC + notifier", () => {
     );
   });
 
-  it("execute(): rejeita days fora de [1, 14]", async () => {
+  it("execute(): rejeita days fora de [1, 30]", async () => {
     const uc = new GrantCourtesyTrial(fakeRpc(), new InMemoryNotifier());
     await assert.rejects(
       uc.execute({ companyId: "c-1", days: 0, planKey: "essencial", actor: fakeActor() }),
       /courtesy_trial_days_invalid/
     );
     await assert.rejects(
-      uc.execute({ companyId: "c-1", days: 15, planKey: "essencial", actor: fakeActor() }),
+      uc.execute({ companyId: "c-1", days: 31, planKey: "essencial", actor: fakeActor() }),
       /courtesy_trial_days_invalid/
     );
     await assert.rejects(
       uc.execute({ companyId: "c-1", days: NaN, planKey: "essencial", actor: fakeActor() }),
       /courtesy_trial_days_invalid/
     );
+  });
+
+  it("execute(): aceita days=30 (limite superior BN-08)", async () => {
+    const uc = new GrantCourtesyTrial(fakeRpc(), new InMemoryNotifier());
+    const result = await uc.execute({
+      companyId: "c-1",
+      days: 30,
+      planKey: "pro",
+      actor: fakeActor(),
+    });
+    assert.strictEqual(result.days, 30);
   });
 
   it("execute(): propaga erro do RPC", async () => {
