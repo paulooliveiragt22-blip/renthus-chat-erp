@@ -12,6 +12,7 @@ import { SupabaseInvoiceRepository } from "../../../../lib/billing/adapters/supa
 function makeClient(responses: {
   list?: { data: unknown[]; error: null | { message: string } };
   byId?: { data: unknown | null; error: null | { message: string } };
+  rpc?: { data: unknown[]; error: null | { message: string } };
 }): SupabaseClient {
   return {
     from() {
@@ -26,6 +27,7 @@ function makeClient(responses: {
       };
       return builder;
     },
+    rpc: async () => responses.rpc ?? responses.list ?? { data: [], error: null },
   } as unknown as SupabaseClient;
 }
 
@@ -121,12 +123,11 @@ describe("SupabaseInvoiceRepository — mapeamento row → domain", () => {
     assert.strictEqual(rows[0]!.hasPix, false);
   });
 
-  it("lastByCompany(): retorna só a mais recente por empresa", async () => {
+  it("lastByCompany(): retorna só a mais recente por empresa (via RPC)", async () => {
     const client = makeClient({
-      list: {
+      rpc: {
         data: [
           { id: "i-1", company_id: "c-A", subscription_id: null, amount: 100, status: "pending", due_at: FIXED, paid_at: null, pagarme_order_id: null, pix_qr_code: null, pagarme_payment_url: null, created_at: "2026-04-15T10:00:00Z" },
-          { id: "i-2", company_id: "c-A", subscription_id: null, amount: 100, status: "paid", due_at: FIXED, paid_at: FIXED, pagarme_order_id: null, pix_qr_code: null, pagarme_payment_url: null, created_at: "2026-04-10T10:00:00Z" },
           { id: "i-3", company_id: "c-B", subscription_id: null, amount: 50, status: "pending", due_at: FIXED, paid_at: null, pagarme_order_id: null, pix_qr_code: null, pagarme_payment_url: null, created_at: "2026-04-12T10:00:00Z" },
         ],
         error: null,

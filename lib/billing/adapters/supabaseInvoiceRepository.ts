@@ -81,18 +81,14 @@ export class SupabaseInvoiceRepository implements InvoiceRepositoryPort {
 
   async lastByCompany(companyIds: readonly string[]): Promise<Map<string, Invoice>> {
     if (companyIds.length === 0) return new Map();
-    const { data, error } = await this.admin
-      .from("invoices")
-      .select(this.baseSelect())
-      .in("company_id", [...companyIds])
-      .order("created_at", { ascending: false });
+    const { data, error } = await this.admin.rpc("rpc_last_invoices_by_company", {
+      p_company_ids: [...companyIds],
+    });
     if (error) throw new Error(error.message);
 
     const result = new Map<string, Invoice>();
     for (const row of (data ?? []) as unknown as InvoiceRow[]) {
-      if (!result.has(row.company_id)) {
-        result.set(row.company_id, rowToDomain(row));
-      }
+      result.set(row.company_id, rowToDomain(row));
     }
     return result;
   }

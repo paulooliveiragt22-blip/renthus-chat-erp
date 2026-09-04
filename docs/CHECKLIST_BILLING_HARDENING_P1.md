@@ -89,13 +89,13 @@ Estado: `[ ]` pendente · `[~]` parcial · `[x]` feito + data · `[!]` bloqueado
 
 | # | Item | Arquivos | Resolve | Camadas | DoD | Estado |
 |---|------|----------|---------|---------|-----|--------|
-| H5.1 **R10a** | `charge`: set de `invoiceId` processados no run; overdue loop ignora esses | `charge/route.ts` | D0 tratado como D1 no mesmo cron | D6 | Um run ≠ double card retry | [ ] |
-| H5.2 **R10b** | `neverPaid` → `fallbackSubStatus: "pending_payment"` (não `overdue`) | `charge/route.ts` + alinhar `resolveBillingAccess` | Stuck fora do dunning | D6 | Status efetivo coerente | [ ] |
-| H5.3 **R10c** | `blockCompany`: **um** UPDATE `pagarme_subscriptions` por `company_id` | `charge/route.ts` | Double UPDATE / dead code | — | Diff limpo | [ ] |
-| H5.4 **R11a** | `listNeverPaid`: filtro SQL + limite; respeitar `SubscriptionFilter` | `supabaseSubscriptionRepository.ts` | Full table scan | — | Query plana / teste | [ ] |
-| H5.5 **R11b** | `lastByCompany`: DISTINCT ON / RPC / limite por company | `supabaseInvoiceRepository.ts` | 24k rows em Node | — | 1 latest/company | [ ] |
-| H5.6 **R13** | Implementar (ou restaurar) `POST …/change-plan` e `…/replay-fulfill` não-vazios | `app/api/platform/billing/subscriptions/[id]/` | Ops sem replay; falso `[x]` no O5.2 | L3 | 401/403 auth + fulfill real | [ ] |
-| H5.7 **R14** | Remover `bot`/`complete` de `SUBSCRIPTION_PLAN_KEYS`; aliases só em `PlanInputKey` + normalize | `contracts/status.ts`, `planCatalog.ts` | Raw legado no DB | — | Typecheck | [ ] |
+| H5.1 **R10a** | `charge`: set de `invoiceId` processados no run; overdue loop ignora esses | `charge/route.ts` | D0 tratado como D1 no mesmo cron | D6 | Um run ≠ double card retry | [x] 2026-09-04 |
+| H5.2 **R10b** | `neverPaid` → `fallbackSubStatus: "pending_payment"` (não `overdue`) | `charge/route.ts` + alinhar `resolveBillingAccess` | Stuck fora do dunning | D6 | Status efetivo coerente | [x] 2026-09-04 |
+| H5.3 **R10c** | `blockCompany`: **um** UPDATE `pagarme_subscriptions` por `company_id` | `charge/route.ts` | Double UPDATE / dead code | — | Diff limpo | [x] 2026-09-04 |
+| H5.4 **R11a** | `listNeverPaid`: filtro SQL + limite; respeitar `SubscriptionFilter` | `supabaseSubscriptionRepository.ts` | Full table scan | — | Query plana / teste | [x] 2026-09-04 |
+| H5.5 **R11b** | `lastByCompany`: DISTINCT ON / RPC / limite por company | `rpc_last_invoices_by_company` + adapters | 24k rows em Node | — | 1 latest/company | [x] 2026-09-04 |
+| H5.6 **R13** | `POST …/change-plan` + `POST …/replay-fulfill` (ops) | `subscriptions/[id]/change-plan`, `billing/replay-fulfill` | Ops sem replay; falso `[x]` no O5.2 | L3 | 401/403 auth + fulfill real | [x] 2026-09-04 |
+| H5.7 **R14** | Remover `bot`/`complete` de `SUBSCRIPTION_PLAN_KEYS`; aliases só em `PlanInputKey` + normalize | `contracts/status.ts`, `planCatalog.ts` | Raw legado no DB | — | Typecheck | [x] 2026-09-04 |
 
 ---
 

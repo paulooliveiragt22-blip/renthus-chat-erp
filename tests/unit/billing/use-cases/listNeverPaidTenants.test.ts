@@ -40,12 +40,22 @@ function makeSub(overrides: Partial<PagarmeSubscriptionWithCompany>): PagarmeSub
 class NeverPaidRepo implements SubscriptionRepositoryPort {
   constructor(public rows: PagarmeSubscriptionWithCompany[] = []) {}
   async list() { return this.rows; }
-  async listNeverPaid(): Promise<PagarmeSubscriptionWithCompany[]> {
-    return this.rows.filter((r) => isNeverPaid({
+  async listNeverPaid(filter?: SubscriptionFilter): Promise<PagarmeSubscriptionWithCompany[]> {
+    let rows = this.rows.filter((r) => isNeverPaid({
       status: r.status,
       last_paid_at: r.lastPaidAt ? r.lastPaidAt.toISOString() : null,
       trial_ends_at: r.trialEndsAt ? r.trialEndsAt.toISOString() : null,
     }));
+    if (filter?.statuses?.length) {
+      const allowed = new Set(filter.statuses);
+      rows = rows.filter((r) => allowed.has(r.status));
+    }
+    if (filter?.companyId) rows = rows.filter((r) => r.companyId === filter.companyId);
+    if (filter?.planKey) rows = rows.filter((r) => r.planKey === filter.planKey);
+    const offset = filter?.offset ?? 0;
+    if (filter?.limit != null) rows = rows.slice(offset, offset + filter.limit);
+    else if (offset > 0) rows = rows.slice(offset);
+    return rows;
   }
   async listWithLastInvoice() { return []; }
   async findById(id: string) { return this.rows.find((r) => r.id === id) ?? null; }
