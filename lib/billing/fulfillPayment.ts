@@ -1,16 +1,12 @@
 /**
  * FulfillPayment — único efeito pós-pago (webhook + checkout sync).
- * Setup | invoice mensal | ai_pack.
+ * Invoice/setup: RPC `rpc_fulfill_obligation` (claim + sub atômico).
+ * ai_pack: ledger no Node. Provision auth: pós-claim no Node.
  */
 
 import "server-only";
 import type { createAdminClient } from "@/lib/supabase/admin";
-import {
-    activateAfterSetupPayment,
-    syncLogicalSubscription,
-    provisionUserAfterPaymentIfNeeded,
-} from "@/lib/billing/pagarmeSetupPaid";
-import { computeNextBillingAt } from "@/lib/billing/computeNextBillingAt";
+import { provisionUserAfterPaymentIfNeeded } from "@/lib/billing/pagarmeSetupPaid";
 import { creditAiPack } from "@/lib/billing/aiWallet";
 import { billingLog } from "@/lib/billing/billingLog";
 import { extractOrderCustomerId, type PagarmeOrder } from "@/lib/billing/pagarme";
@@ -34,13 +30,21 @@ export class RetryableFulfillError extends Error {
 }
 
 export function isPermanentFulfillError(e: unknown): e is PermanentFulfillError {
-    return e instanceof PermanentFulfillError ||
-        (typeof e === "object" && e != null && (e as { permanent?: boolean }).permanent === true);
+    return (
+        e instanceof PermanentFulfillError ||
+        (typeof e === "object" &&
+            e != null &&
+            (e as { permanent?: boolean }).permanent === true)
+    );
 }
 
 export function isRetryableFulfillError(e: unknown): e is RetryableFulfillError {
-    return e instanceof RetryableFulfillError ||
-        (typeof e === "object" && e != null && (e as { retryable?: boolean }).retryable === true);
+    return (
+        e instanceof RetryableFulfillError ||
+        (typeof e === "object" &&
+            e != null &&
+            (e as { retryable?: boolean }).retryable === true)
+    );
 }
 
 export type FulfillPaymentResult =
@@ -53,96 +57,14 @@ type OrderLike = {
     customer?: { id?: string };
 };
 
-async function fulfillInvoice(
-    admin: Admin,
-    orderId: string,
-    metadata: Record<string, string>,
-    pagarmeCustomerId?: string | null
-): Promise<FulfillPaymentResult | null> {
-    const { data: inv, error } = await admin
-        .from("invoices")
-        .select("id, subscription_id, company_id, status, kind")
-        .eq("pagarme_order_id", orderId)
-        .maybeSingle();
-
-    if (error) throw new RetryableFulfillError(error.message);
-    if (!inv) return null;
-
-    const isSetup = inv.kind === "setup" || metadata.type === "setup";
-    const resultKind = isSetup ? "setup" as const : "invoice" as const;
-    if (inv.status === "paid") {
-        return { ok: true, kind: resultKind, alreadyDone: true };
-    }
-
-    const paidAt = new Date();
-    const { data: claimed, error: claimErr } = await admin
-        .from("invoices")
-        .update({ status: "paid", paid_at: paidAt.toISOString() })
-        .eq("id", inv.id)
-        .eq("status", "pending")
-        .select("id")
-        .maybeSingle();
-
-    if (claimErr) throw new RetryableFulfillError(claimErr.message);
-    if (!claimed) {
-        return { ok: true, kind: resultKind, alreadyDone: true };
-    }
-
-    const { data: sub } = await admin
-        .from("pagarme_subscriptions")
-        .select("id, plan")
-        .eq("id", inv.subscription_id)
-        .maybeSingle();
-
-    const companyId = inv.company_id as string;
-    if (isSetup) {
-        const plan = String(sub?.plan ?? metadata.plan ?? "");
-        if (!plan) {
-            throw new PermanentFulfillError(
-                `invoice de setup sem plano para order ${orderId}`
-            );
-        }
-        await activateAfterSetupPayment(
-            admin,
-            companyId,
-            plan,
-            pagarmeCustomerId ?? undefined
-        );
-        await syncLogicalSubscription(admin, companyId, plan);
-        await provisionUserAfterPaymentIfNeeded(admin, companyId, plan);
-        return { ok: true, kind: "setup" };
-    }
-
-    const nextBillingAt = computeNextBillingAt(paidAt);
-    const subPatch: Record<string, unknown> = {
-        status: "active",
-        last_paid_at: paidAt.toISOString(),
-        next_billing_at: nextBillingAt.toISOString(),
-    };
-    const cid = pagarmeCustomerId?.trim();
-    if (cid) subPatch.pagarme_customer_id = cid;
-
-    const { error: subErr } = await admin
-        .from("pagarme_subscriptions")
-        .update(subPatch)
-        .eq("id", inv.subscription_id);
-    if (subErr) throw new RetryableFulfillError(subErr.message);
-
-    await admin.from("companies").update({ is_active: true }).eq("id", companyId);
-
-    if (sub?.plan) {
-        await syncLogicalSubscription(admin, companyId, sub.plan as string);
-    }
-
-    billingLog("invoice_paid", "monthly invoice marked paid", {
-        invoice_id: inv.id,
-        order_id: orderId,
-        company_id: companyId,
-        next_billing_at: nextBillingAt.toISOString(),
-    });
-
-    return { ok: true, kind: "invoice" };
-}
+type RpcFulfillRow = {
+    status?: string;
+    kind?: string;
+    company_id?: string;
+    plan?: string;
+    order_id?: string;
+    next_billing_at?: string;
+};
 
 async function fulfillAiPack(
     admin: Admin,
@@ -177,8 +99,65 @@ async function fulfillAiPack(
     return { ok: true, kind: "ai_pack" };
 }
 
+async function fulfillInvoiceViaRpc(
+    admin: Admin,
+    orderId: string,
+    metadata: Record<string, string>,
+    pagarmeCustomerId?: string | null
+): Promise<FulfillPaymentResult | null> {
+    const { data, error } = await admin.rpc("rpc_fulfill_obligation", {
+        p_pagarme_order_id: orderId,
+        p_pagarme_customer_id: pagarmeCustomerId?.trim() || null,
+        p_meta_type: metadata.type ?? null,
+        p_meta_plan: metadata.plan ?? null,
+    });
+
+    if (error) {
+        const msg = error.message ?? String(error);
+        if (/plan missing|pagarme_subscription not found|pagarme_order_id required/i.test(msg)) {
+            throw new PermanentFulfillError(msg);
+        }
+        throw new RetryableFulfillError(msg);
+    }
+
+    const row = (data ?? {}) as RpcFulfillRow;
+    const status = String(row.status ?? "");
+
+    if (status === "not_found") {
+        return null;
+    }
+
+    const kind = row.kind === "setup" ? ("setup" as const) : ("invoice" as const);
+
+    if (status === "already_done") {
+        return { ok: true, kind, alreadyDone: true };
+    }
+
+    if (status !== "fulfilled") {
+        throw new RetryableFulfillError(
+            `rpc_fulfill_obligation status inesperado: ${status || "(empty)"}`
+        );
+    }
+
+    const companyId = typeof row.company_id === "string" ? row.company_id : "";
+    const plan = typeof row.plan === "string" ? row.plan : "";
+
+    if (kind === "setup" && companyId && plan) {
+        await provisionUserAfterPaymentIfNeeded(admin, companyId, plan);
+    }
+
+    billingLog("invoice_paid", "obligation fulfilled via rpc", {
+        order_id: orderId,
+        kind,
+        company_id: companyId || null,
+        next_billing_at: row.next_billing_at ?? null,
+    });
+
+    return { ok: true, kind };
+}
+
 /**
- * Aplica efeitos de order.paid. Idempotente via optimistic lock.
+ * Aplica efeitos de order.paid. Idempotente via RPC claim (L4).
  */
 export async function fulfillPayment(
     admin: Admin,
@@ -202,7 +181,7 @@ export async function fulfillPayment(
         metaType === ""
     ) {
         const custId = extractOrderCustomerId(order as PagarmeOrder);
-        const inv = await fulfillInvoice(admin, orderId, metadata, custId);
+        const inv = await fulfillInvoiceViaRpc(admin, orderId, metadata, custId);
         if (inv) return inv;
 
         if (metaType === "invoice" || metaType === "setup") {

@@ -66,9 +66,9 @@ Estado: `[ ]` pendente · `[~]` parcial · `[x]` feito + data · `[!]` bloqueado
 |---|------|----------|---------|---------|-----|--------|
 | H3.1 **R4a** | `activate` / `syncLogicalSubscription` / `provision` **só** se claim retornou row | `fulfillPayment.ts` | Double provision / overwrite `next_billing_at` | L4 | Claim vazio = early return sem writes | [x] 2026-09-04 |
 | H3.2 **R4b** | `pagarme_customer_id` só de `extractOrderCustomerId(apiOrder)` — ignorar hint webhook | `fulfillPayment.ts`, webhook merge | Customer forjado | L3 | Customer só API | [x] 2026-09-04 |
-| H3.3 **R5** | Preferência: RPC `rpc_fulfill_setup` / `rpc_fulfill_invoice` (SECURITY DEFINER, search_path, REVOKE); mín.: sync sempre com `next_billing_at` | migration + `pagarmeSetupPaid.ts` | Crash mid-pipeline; upsert sem datas | L4 | Um call = sub coerente `active`+dates+plan | [ ] |
+| H3.3 **R5** | Preferência: RPC `rpc_fulfill_obligation` (SECURITY DEFINER, search_path, REVOKE); Node thin + provision pós-claim | migration + `fulfillPayment.ts` | Crash mid-pipeline; upsert sem datas | L4 | Um call = sub coerente `active`+dates+plan | [x] 2026-09-04 EX3 |
 | H3.4 **R8** | `handleOrderFailed`: GET order; só marcar failed se PSP confirma failed/canceled | `webhook/route.ts` | Fail forjado | L3 | Sem GET paid → não UPDATE local | [x] 2026-09-04 |
-| H3.5 **R17** | `generateTempPassword` rejection sampling (sem modulo bias) | `pagarmeSetupPaid.ts` | Bias estatístico | — | Unit | [ ] |
+| H3.5 **R17** | `generateTempPassword` rejection sampling (sem modulo bias) | `pagarmeSetupPaid.ts` | Bias estatístico | — | Unit | [x] 2026-09-04 |
 
 ---
 
