@@ -29,6 +29,10 @@ export interface PagarmeSubscriptionWithCompany extends PagarmeSubscription {
   companyName: string;
   companySlug: string | null;
   companyIsActive: boolean;
+  companyEmail: string | null;
+  /** Nome do plano (embed `plans`), se disponível. */
+  planName: string | null;
+  planPriceCents: number | null;
 }
 
 /** Subscription enriquecida com a última invoice conhecida (lista da UI). */

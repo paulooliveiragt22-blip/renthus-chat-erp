@@ -33,6 +33,9 @@ function makeSub(overrides: Partial<PagarmeSubscriptionWithCompany>): PagarmeSub
     companyName: overrides.companyName ?? "X",
     companySlug: overrides.companySlug ?? null,
     companyIsActive: overrides.companyIsActive ?? true,
+    companyEmail: overrides.companyEmail ?? null,
+    planName: overrides.planName ?? null,
+    planPriceCents: overrides.planPriceCents ?? null,
   };
 }
 

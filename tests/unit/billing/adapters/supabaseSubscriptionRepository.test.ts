@@ -76,7 +76,14 @@ describe("SupabaseSubscriptionRepository — mapeamento row → domain", () => {
             next_billing_at: FIXED,
             activated_at: FIXED,
             started_at: FIXED,
-            companies: { name: "Loja X", slug: "loja-x", is_active: true },
+            companies: {
+              name: "Loja X",
+              nome_fantasia: null,
+              slug: "loja-x",
+              email: "loja@x.com",
+              is_active: true,
+            },
+            plans: { id: "p-1", key: "essencial", name: "Essencial", price_cents: 27900 },
           },
         ],
         error: null,
@@ -94,7 +101,45 @@ describe("SupabaseSubscriptionRepository — mapeamento row → domain", () => {
     assert.strictEqual(r.companyName, "Loja X");
     assert.strictEqual(r.companySlug, "loja-x");
     assert.strictEqual(r.companyIsActive, true);
+    assert.strictEqual(r.companyEmail, "loja@x.com");
+    assert.strictEqual(r.planName, "Essencial");
+    assert.strictEqual(r.planPriceCents, 27900);
     assert.strictEqual(r.lastPaidAt?.toISOString(), FIXED);
+  });
+
+  it("list(): prefer nome_fantasia como companyName", async () => {
+    const client = makeClient({
+      list: {
+        data: [
+          {
+            id: "s-1",
+            company_id: "c-1",
+            plan_key: "pro",
+            plan_id: "p-2",
+            status: "active",
+            allow_overage: false,
+            trial_ends_at: null,
+            last_paid_at: null,
+            next_billing_at: null,
+            activated_at: null,
+            started_at: null,
+            companies: {
+              name: "Razao Social LTDA",
+              nome_fantasia: "Fantasia Bar",
+              slug: "fantasia",
+              email: "a@b.com",
+              is_active: true,
+            },
+            plans: null,
+          },
+        ],
+        error: null,
+      },
+    });
+    const repo = new SupabaseSubscriptionRepository(client);
+    const rows = await repo.list({});
+    assert.strictEqual(rows[0]!.companyName, "Fantasia Bar");
+    assert.strictEqual(rows[0]!.companyEmail, "a@b.com");
   });
 
   it("list(): aceita company embed como array (Supabase retorna [] quando null)", async () => {
@@ -114,6 +159,7 @@ describe("SupabaseSubscriptionRepository — mapeamento row → domain", () => {
             activated_at: null,
             started_at: null,
             companies: [], // array vazio quando LEFT JOIN null
+            plans: null,
           },
         ],
         error: null,
@@ -125,6 +171,7 @@ describe("SupabaseSubscriptionRepository — mapeamento row → domain", () => {
     // Sem company embed → fallback "(sem nome)" + is_active false
     assert.strictEqual(rows[0]!.companyName, "(sem nome)");
     assert.strictEqual(rows[0]!.companyIsActive, false);
+    assert.strictEqual(rows[0]!.companyEmail, null);
   });
 
   it("findById(): retorna null quando não encontrado", async () => {

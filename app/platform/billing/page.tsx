@@ -903,13 +903,13 @@ export default function PlatformBillingPage() {
                                     Empresa
                                 </th>
                                 <th className="px-3 py-2 text-left text-[11px] font-semibold uppercase text-zinc-400">
+                                    E-mail
+                                </th>
+                                <th className="px-3 py-2 text-left text-[11px] font-semibold uppercase text-zinc-400">
                                     Plano
                                 </th>
                                 <th className="px-3 py-2 text-left text-[11px] font-semibold uppercase text-zinc-400">
                                     Status
-                                </th>
-                                <th className="px-3 py-2 text-left text-[11px] font-semibold uppercase text-zinc-400">
-                                    Pagamento
                                 </th>
                                 <th className="px-3 py-2 text-left text-[11px] font-semibold uppercase text-zinc-400">
                                     Última fatura
@@ -944,6 +944,9 @@ export default function PlatformBillingPage() {
                                                     </span>
                                                 )}
                                             </div>
+                                        </td>
+                                        <td className="px-3 py-2 text-xs text-zinc-600 dark:text-zinc-400">
+                                            {s.company?.email ?? "—"}
                                         </td>
                                         <td className="px-3 py-2 text-xs">{s.plan?.name ?? "—"}</td>
                                         <td className="px-3 py-2 text-xs">
@@ -1025,7 +1028,7 @@ export default function PlatformBillingPage() {
                             {subscriptions.length === 0 && (
                                 <tr>
                                     <td
-                                        colSpan={7}
+                                        colSpan={8}
                                         className="px-3 py-8 text-center text-xs text-zinc-400"
                                     >
                                         Nenhuma assinatura.
@@ -1063,6 +1066,9 @@ export default function PlatformBillingPage() {
                                     Empresa
                                 </th>
                                 <th className="px-3 py-2 text-left text-[11px] font-semibold uppercase text-zinc-400">
+                                    E-mail
+                                </th>
+                                <th className="px-3 py-2 text-left text-[11px] font-semibold uppercase text-zinc-400">
                                     Plano / status
                                 </th>
                                 <th className="px-3 py-2 text-left text-[11px] font-semibold uppercase text-zinc-400">
@@ -1093,8 +1099,16 @@ export default function PlatformBillingPage() {
                                                 {t.companyName}
                                             </div>
                                             <div className="text-[11px] text-zinc-400">
-                                                {t.email ?? "—"} · {t.companyId.slice(0, 8)}
+                                                {t.companyId.slice(0, 8)}
+                                                {!t.isActive && (
+                                                    <span className="ml-1 inline-flex items-center rounded bg-red-100 px-1.5 py-0.5 text-[9px] font-bold uppercase text-red-700 dark:bg-red-900/30 dark:text-red-300">
+                                                        Inativa
+                                                    </span>
+                                                )}
                                             </div>
+                                        </td>
+                                        <td className="px-3 py-2 text-xs text-zinc-600 dark:text-zinc-400">
+                                            {t.email ?? "—"}
                                         </td>
                                         <td className="px-3 py-2 text-xs">
                                             <div>{t.plan}</div>

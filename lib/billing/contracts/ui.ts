@@ -17,6 +17,7 @@ export interface UiCompany {
     id: string;
     name: string;
     slug: string | null;
+    email: string | null;
     is_active: boolean;
 }
 

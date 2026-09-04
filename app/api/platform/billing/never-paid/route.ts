@@ -13,6 +13,7 @@ import { SupabaseSubscriptionRepository } from "@/lib/billing/adapters/supabaseS
 import { SupabaseInvoiceRepository } from "@/lib/billing/adapters/supabaseInvoiceRepository";
 import { ConsoleBillingNotifier } from "@/lib/billing/adapters/consoleBillingNotifier";
 import { ListNeverPaidTenants } from "@/lib/billing/use-cases/listNeverPaidTenants";
+import { neverPaidTenantToUi } from "@/lib/billing/contracts/uiMappers";
 
 export const runtime = "nodejs";
 
@@ -27,7 +28,8 @@ export async function GET(req: Request) {
         const notifier = new ConsoleBillingNotifier();
 
         const uc = new ListNeverPaidTenants(subs, invoices, notifier);
-        const tenants = await uc.execute({ limit: Number.isFinite(limit) ? limit : 50 });
+        const rows = await uc.execute({ limit: Number.isFinite(limit) ? limit : 50 });
+        const tenants = rows.map(neverPaidTenantToUi);
 
         return NextResponse.json({
             ok: true,
