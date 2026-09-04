@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 /**
  * app/(public)/signup/page.tsx  →  rota: /signup
@@ -215,14 +215,17 @@ export default function SignupPage() {
 
     return (
         <div style={S.page}>
-            <div style={{ marginBottom: 36 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 36 }}>
                 <img
-                    src="/brand/renthus-wordmark-on-light.svg?v=mark8"
-                    alt="RenthusAgent"
-                    width={194}
-                    height={28}
-                    style={{ height: 32, width: "auto", display: "block" }}
+                    src="/brand/renthus-mark-on-dark.svg?v=mark8"
+                    alt=""
+                    width={32}
+                    height={32}
+                    style={{ height: 32, width: 32, display: "block", flexShrink: 0 }}
                 />
+                <span style={{ fontSize: 18, fontWeight: 700, color: "#ffffff", letterSpacing: "-0.02em" }}>
+                    RenthusAgent
+                </span>
             </div>
 
             <div style={{ textAlign: "center", marginBottom: 32 }}>
@@ -271,7 +274,7 @@ export default function SignupPage() {
                                             height="14"
                                             viewBox="0 0 24 24"
                                             fill="none"
-                                            stroke="#FF6B00"
+                                            stroke="#57ff8f"
                                             strokeWidth="2.5"
                                             strokeLinecap="round"
                                             strokeLinejoin="round"
@@ -423,10 +426,17 @@ export default function SignupPage() {
     );
 }
 
+const BRAND = {
+    primary:   "#16364D",
+    primaryDeep: "#11283B",
+    accent:    "#57ff8f",
+    accentFg:  "#16364D",
+} as const;
+
 const S = {
     page: {
         minHeight:     "100vh",
-        background:    "#1A123D",
+        background:    BRAND.primaryDeep,
         display:       "flex",
         flexDirection: "column" as const,
         alignItems:    "center",
@@ -467,8 +477,8 @@ const S = {
         transition:    "box-shadow 0.15s, border-color 0.15s",
     },
     planCardActive: {
-        border:    "2.5px solid #FF6B00",
-        boxShadow: "0 8px 32px rgba(255,107,0,0.25)",
+        border:    `2.5px solid ${BRAND.accent}`,
+        boxShadow: "0 8px 32px rgba(87,255,143,0.28)",
     },
     planCardInactive: {
         border:    "2px solid rgba(255,255,255,0.12)",
@@ -479,8 +489,8 @@ const S = {
         top:           -13,
         left:          "50%",
         transform:     "translateX(-50%)",
-        background:    "#FF6B00",
-        color:         "#fff",
+        background:    BRAND.accent,
+        color:         BRAND.accentFg,
         fontSize:      10,
         fontWeight:    800,
         padding:       "4px 14px",
@@ -549,13 +559,13 @@ const S = {
         transition:   "all 0.15s",
     },
     planBtnInactive: {
-        background: "#FF6B00",
-        color:      "#fff",
-        boxShadow:  "0 3px 10px rgba(255,107,0,0.30)",
+        background: BRAND.accent,
+        color:      BRAND.accentFg,
+        boxShadow:  "0 3px 10px rgba(87,255,143,0.35)",
     },
     planBtnActive: {
-        background: "#c75200",
-        color:      "#fff",
+        background: BRAND.primary,
+        color:      BRAND.accent,
     },
     form: {
         background:      "#fff",
@@ -594,22 +604,22 @@ const S = {
         boxSizing:    "border-box" as const,
     },
     resumoBox: {
-        background:   "#fff7ed",
-        border:       "1px solid #fed7aa",
+        background:   "#ecfdf5",
+        border:       `1px solid ${BRAND.accent}`,
         borderRadius: 12,
         padding:      "14px 16px",
         marginBottom: 20,
     },
     resumoQuestion: {
         fontSize:     11,
-        color:        "#9a6830",
+        color:        "#3d6b52",
         marginBottom: 6,
         fontWeight:   500,
     },
     resumoHighlight: {
         fontSize:     13,
         fontWeight:   600,
-        color:        "#7c2d12",
+        color:        BRAND.primary,
         lineHeight:   1.6,
         marginBottom: 6,
     },
@@ -635,14 +645,14 @@ const S = {
     submitBtn: {
         width:        "100%",
         padding:      "15px 20px",
-        background:   "#FF6B00",
-        color:        "#fff",
+        background:   BRAND.accent,
+        color:        BRAND.accentFg,
         border:       "none",
         borderRadius: 12,
         fontSize:     16,
         fontWeight:   700,
         cursor:       "pointer",
-        boxShadow:    "0 4px 14px rgba(255,107,0,0.40)",
+        boxShadow:    "0 4px 14px rgba(87,255,143,0.40)",
         marginBottom: 12,
     },
     secureNote: {
