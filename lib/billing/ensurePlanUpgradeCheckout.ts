@@ -12,7 +12,6 @@ import {
 } from "@/lib/billing/pagarme";
 import { buildPagarmeCustomerPayload } from "@/lib/billing/buildPagarmeCustomerFromCompany";
 import { loadPlanPricing } from "@/lib/billing/loadPlanPricing";
-import { proratePlanUpgradeCentsDb } from "@/lib/billing/proratePlanUpgrade";
 import { reconcileOrCancelLiveOrder } from "@/lib/billing/reconcileLivePagarmeOrder";
 import { isUniqueViolation } from "@/lib/billing/isUniqueViolation";
 import {
@@ -79,24 +78,20 @@ export async function ensurePlanUpgradeCheckout(
     if (!fromPlan) throw new Error("plan_invalid");
     if (planRank(toPlan) <= planRank(fromPlan)) throw new Error("not_an_upgrade");
 
-    const fromPricing = await loadPlanPricing(admin, fromPlan);
-    const toPricing = await loadPlanPricing(admin, toPlan);
-
-    const nextBillingAt = sub.next_billing_at
-        ? new Date(String(sub.next_billing_at))
-        : new Date(Date.now() + 30 * 86_400_000);
-
-    const amountCents = await proratePlanUpgradeCentsDb(
-        admin,
-        fromPricing.monthlyPriceCents,
-        toPricing.monthlyPriceCents,
-        nextBillingAt,
-        new Date(),
-        30
-    );
+    // Fonte canônica do valor: banco. DELTA período-aware — anual só sobe para
+    // anual (upgrade preserva billing_period) e rateia o já pago (só a diferença
+    // anual, prorateada por dias/365). Mensal: delta mensal / 30.
+    const { data: quoteRaw, error: quoteErr } = await admin.rpc("rpc_quote_plan_upgrade", {
+        p_company_id: params.companyId,
+        p_target_plan: toPlan,
+    });
+    if (quoteErr) throw new Error(quoteErr.message);
+    const quote = (quoteRaw ?? {}) as { amount_cents?: number; applied_free?: boolean };
+    const amountCents = Math.floor(Number(quote.amount_cents ?? 0));
 
     // Delta zero → aplica na hora (preços iguais / edge).
-    if (amountCents <= 0) {
+    if (quote.applied_free === true || amountCents <= 0) {
+        const toPricing = await loadPlanPricing(admin, toPlan);
         const { error: upErr } = await admin
             .from("pagarme_subscriptions")
             .update({

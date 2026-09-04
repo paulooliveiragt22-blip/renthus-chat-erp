@@ -1,6 +1,6 @@
 # Decisões de negócio — Billing
 
-**Atualizado:** 2026-09-04 (auditoria cruzada BN + clarificações BN-13)  
+**Atualizado:** 2026-09-04 (Pacote 4 — modelo anual seat/upgrade opção A + RBAC R3-7/R3-8)  
 **Gate:** `.cursor/rules/decisoes-negocio-antes-codigo.mdc`  
 **Status:** Rodadas 1–3 **fechadas**. Este arquivo é a fonte de verdade comercial.
 
@@ -52,13 +52,13 @@ Modelo preferível: tabela `plan_promotions` (ou registro rico por plano) — n�
 `price_year_cents` **editável** no superadmin.  
 Default sugerido na UI: `mensal × 12 × 0,8` (20% off); depois o admin muda livremente.
 
-### R2-3 — Anual = 1 parcela `[~]`
+### R2-3 — Anual = 1 parcela `[i]`
 
 Uma única obrigação no ano (PIX/cartão valor cheio).  
 `next_billing_at` ≈ `paid_at + 1 year`.  
 `kind` / period = `year` (não 12 invoices).
 
-**Desvio atual:** `rpc_fulfill_obligation` e `computeNextBillingAt` sempre fazem **+1 month**; `collectPayment` grava `kind=subscription` com valor mensal mesmo se `billing_period=year`. Catálogo/UI anual existem; **ciclo anual de cobrança/fulfill incompleto**.
+**Resolvido (Pacote 2/4):** `fn_billing_next_due(paid_at, period)` (+1m|+1y), `rpc_fulfill_obligation` period-aware, `rpc_create_billing_obligation` promove `kind=year` com valor anual canônico e dunning anual no cron (`kind in (subscription,year)`). Validado end-to-end via RPC.
 
 ### R2-4 — Seats Pro
 
@@ -94,14 +94,33 @@ Snapshot na subscription (`promo_id` / `promo_months_remaining` / regra congelad
 **Não misturar.** Anual **separado**, sem promo.  
 Promo só no fluxo **mensal**.
 
-### R3-3 — Seat adicional (cobrança) `[~]`
+### R3-3 — Seat adicional (cobrança) `[i]`
 
 **Cobra na hora** → **paga para liberar** a criação/ativação do usuário.
 
 - Mid-cycle: obrigação `seat_add` com **proration** até o próximo `next_billing_at` (alinha BN-11).
 - **Após adesão:** o valor adicional passa a ser **mensalidade recorrente junto com o plano** (N seats × preço do seat somados ao renew `subscription`).
 
-**Desvio atual:** `prorateSeatExtraCents` usa denominador **30** e `min(daysLeft, 30)` — em ciclo **anual** (R2-3) pode cobrir só ~1 mês de seat apesar de meses restantes até `next_billing_at`. Corrigir junto do anual.
+**Modelo anual do seat — decidido 2026-09-04 (opção A):** no plano anual o seat extra custa `seat_extra_cents × 12` (preço anual do assento), prorateado por `dias_restantes / 365` até a renovação; a renovação anual (`kind=year`) soma `(seats − included) × (seat_extra_cents × 12)`.
+
+**Resolvido (Pacote 4):** proration período-aware no banco (`rpc_quote_seat_add`: mês → unit=seat, cycle=30; ano → unit=seat×12, cycle=365) chamando `fn_billing_prorate_cents`; renovação anual com extras em `rpc_create_billing_obligation`. Espelho puro mensal `prorateSeatExtraCents` mantido só para teste.
+
+### R3-7 — Quem pode fazer upgrade/downgrade — **só owner/admin** `[i]`
+
+Mudança de plano (upgrade proration ou downgrade agendado) e compra de seat são
+operações **owner/admin**. Já enforçado no servidor: `POST /api/billing/change-plan`,
+`POST /api/billing/seats/purchase` e `pending-plan-change` usam
+`requireCompanyAccess(["owner","admin"])`. Falta apenas esconder botões na UI para
+`member` (defense-in-depth; servidor já bloqueia com 403).
+
+### R3-8 — Upgrade dentro do anual — rateio/abatimento `[i]`
+
+Cliente que já pagou o anual e faz upgrade **paga só a diferença**: cobra-se o
+**delta anual** (`year(destino) − year(atual)`) prorateado por `dias_restantes / 365`
+— o valor já pago é abatido implicitamente. **Anual só sobe para anual** (o upgrade
+preserva `billing_period` da assinatura; não há troca de período nesse fluxo).
+Resolvido (Pacote 4): `rpc_quote_plan_upgrade` período-aware (mês → delta mensal / 30;
+ano → delta anual / 365) no banco.
 
 ### R3-4 — Downgrade com excesso de users
 
@@ -165,13 +184,14 @@ Se o superadmin **editar** a lista mensal do plano (R3-5), o 10% passa a usar o 
 | Superadmin editar mensal/anual/seat (R3-5) + cobrança lê DB+seats | `[i]` C1 → UX C1-fix: anual via desconto %/R$ |
 | `seat_quantity` + gate invite no cap | `[i]` C1 |
 | Tabela `plan_promotions` (schema) | `[i]` C1 schema |
-| Seat mid-cycle checkout `seat_add` + renew | `[~]` C2 — proration OK no mensal; **quebrada no anual** |
+| Seat mid-cycle checkout `seat_add` + renew | `[i]` Pacote 4 — proration período-aware no banco (`rpc_quote_seat_add`); renew anual com extras |
 | Promo engine + snapshot adesão | `[i]` C3 — attach na adesão + apply no charge + admin UI |
 | Promo toggle kill-switch + signup De/por | `[i]` C1-fix — `active` + `/api/billing/public-plans` |
 | Promo Switch UI + editar campanha (PATCH full) | `[i]` C1-fix2 |
 | Downgrade com seleção de users | `[i]` BN-12 — pending_* + apply no fulfill + UI /plano |
-| Upgrade mid-cycle com proration (BN-11) | `[i]` plan_upgrade + PIX pay-to-unlock |
-| Ciclo anual R2-3 (kind=year, +1y no fulfill) | `[~]` **incompleto** — ver auditoria |
+| Upgrade mid-cycle com proration (BN-11) | `[i]` plan_upgrade + PIX pay-to-unlock; anual = delta anual /365 (`rpc_quote_plan_upgrade`, R3-8) |
+| Ciclo anual R2-3 (kind=year, +1y no fulfill) | `[i]` Pacote 2/4 — fulfill period-aware, `kind=year`, dunning anual, seat/upgrade anual |
+| RBAC upgrade/downgrade só owner/admin (R3-7) | `[i]` server-side nas 3 rotas; UI (esconder botão p/ member) pendente |
 | Cortesia BN-08 1–30d | `[~]` RPC 30; use case/UI parcial 14 |
 | BN-13 dunning D7 | pendente |
 | BN-14 reativação pós-bloqueio (ciclo cheio) | pendente — **≠** `self-reactivate` (abandoned→trial) |
@@ -227,8 +247,8 @@ Never-paid / abandoned (BN-09) **fora** desta matriz — não misturar com D7 de
 |---|------|------|
 | C1 | BN-08 courtesy 1–30 | `grantCourtesyTrial.ts` + testes: max **30** (RPC já ok) |
 | C2 | BN-05 limpeza setup | Filtrar overdue; remover/dead-code `generateSetupCharge` path; cancelar setup pending no DB |
-| C3 | R2-3 anual | `computeNextBillingAt(period)`; fulfill `+1 year` se `billing_period=year` ou `kind=year`; collect/ensureCheckout valor anual + kind |
-| C4 | R3-3 seat × anual | Ajustar `prorateSeatExtraCents` / caller com `cycleDays` real |
+| C3 | R2-3 anual | `[i]` `fn_billing_next_due(period)`; fulfill period-aware; `rpc_create_billing_obligation` promove `kind=year` + valor anual; dunning `kind in (subscription,year)` |
+| C4 | R3-3 seat × anual | `[i]` `rpc_quote_seat_add` período-aware (ano = seat×12 / 365); renew anual soma extras |
 | C5 | Marcar BN-12 `[i]` | já refletido acima |
 
 ### C) Ainda não aplicados — estrutura alvo

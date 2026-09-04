@@ -39,9 +39,9 @@ export function daysRemainingInCycle(nextBillingAt: Date, now = new Date()): num
  * Proration de 1 seat até o próximo vencimento do plano.
  * Denominador = 30 dias (simples, estável em sandbox/pré-prod).
  *
- * Espelho puro (spec de teste). A aritmética canônica em runtime é
- * `prorateSeatExtraCentsDb`, que roteia pela função do banco
- * `fn_billing_prorate_cents` (ADR-0006 D12 / governanca Regra 2).
+ * Espelho puro (spec de teste do caso mensal). A fonte canônica em runtime é a
+ * RPC do banco `rpc_quote_seat_add`, que é período-aware (anual = seat×12 / 365)
+ * e chama `fn_billing_prorate_cents` internamente (ADR-0006 D12 / governanca §2).
  */
 export function prorateSeatExtraCents(
     seatExtraCents: number,
@@ -55,47 +55,6 @@ export function prorateSeatExtraCents(
     if (left <= 0) return unit;
     const denom = Math.max(1, cycleDays);
     return Math.max(1, Math.round((unit * Math.min(left, denom)) / denom));
-}
-
-/** Proration de seat via banco (fn_billing_prorate_cents) — fonte canônica. */
-export async function prorateSeatExtraCentsDb(
-    admin: ProrationRpcClient,
-    seatExtraCents: number,
-    nextBillingAt: Date,
-    now = new Date(),
-    cycleDays = 30
-): Promise<number> {
-    const unit = Math.max(0, Math.floor(seatExtraCents));
-    if (unit <= 0) return 0;
-    const left = daysRemainingInCycle(nextBillingAt, now);
-    return prorateViaDb(admin, unit, left, cycleDays);
-}
-
-/**
- * Client mínimo aceito pelas funções de proration DB. Compatível com o
- * `SupabaseClient` real (cujo `rpc` retorna um thenable PostgrestBuilder) e com
- * os mocks de teste.
- */
-export type ProrationRpcClient = {
-    rpc: (
-        fn: string,
-        args?: Record<string, unknown>
-    ) => PromiseLike<{ data: unknown; error: { message: string } | null }>;
-};
-
-export async function prorateViaDb(
-    admin: ProrationRpcClient,
-    unitCents: number,
-    daysLeft: number,
-    cycleDays: number
-): Promise<number> {
-    const { data, error } = await admin.rpc("fn_billing_prorate_cents", {
-        p_unit_cents: Math.max(0, Math.floor(unitCents)),
-        p_days_left: Math.floor(daysLeft),
-        p_cycle_days: Math.max(1, Math.floor(cycleDays)),
-    });
-    if (error) throw new Error(error.message);
-    return Number(data ?? 0);
 }
 
 /** Aplica promo mensal (fixed_brl centavos ou percent em basis points). */

@@ -11,8 +11,6 @@ import {
     centsToBRL,
 } from "@/lib/billing/pagarme";
 import { buildPagarmeCustomerPayload } from "@/lib/billing/buildPagarmeCustomerFromCompany";
-import { loadPlanPricing } from "@/lib/billing/loadPlanPricing";
-import { prorateSeatExtraCentsDb } from "@/lib/billing/subscriptionAmount";
 import { reconcileOrCancelLiveOrder } from "@/lib/billing/reconcileLivePagarmeOrder";
 import { isUniqueViolation } from "@/lib/billing/isUniqueViolation";
 
@@ -58,27 +56,24 @@ export async function ensureSeatAddCheckout(
         throw new Error("subscription_not_eligible");
     }
 
-    const pricing = await loadPlanPricing(admin, String(sub.plan ?? "essencial"));
-    if (pricing.seatExtraCents == null || pricing.seatExtraCents <= 0) {
-        throw new Error("seat_not_available");
-    }
-
-    const nextBillingAt = sub.next_billing_at
-        ? new Date(String(sub.next_billing_at))
-        : new Date(Date.now() + 30 * 86_400_000);
-    const amountCents = await prorateSeatExtraCentsDb(
-        admin,
-        pricing.seatExtraCents,
-        nextBillingAt,
-        new Date(),
-        30
-    );
+    // Fonte canônica do valor: banco (período-aware; anual = seat×12 / 365).
+    const { data: quoteRaw, error: quoteErr } = await admin.rpc("rpc_quote_seat_add", {
+        p_company_id: params.companyId,
+    });
+    if (quoteErr) throw new Error(quoteErr.message);
+    const quote = (quoteRaw ?? {}) as {
+        amount_cents?: number;
+        seat_quantity_after?: number;
+    };
+    const amountCents = Math.floor(Number(quote.amount_cents ?? 0));
     if (amountCents <= 0) throw new Error("amount_invalid");
 
-    const currentSeats =
-        typeof sub.seat_quantity === "number" && sub.seat_quantity >= 1
-            ? sub.seat_quantity
-            : pricing.includedSeats;
+    const seatQuantityAfter =
+        typeof quote.seat_quantity_after === "number" && quote.seat_quantity_after >= 1
+            ? quote.seat_quantity_after
+            : (typeof sub.seat_quantity === "number" && sub.seat_quantity >= 1
+                  ? sub.seat_quantity
+                  : 1) + 1;
 
     let invoiceId: string | null = null;
     let priorOrderId: string | null = null;
@@ -198,7 +193,7 @@ export async function ensureSeatAddCheckout(
         amountBrl: centsToBRL(amountCents),
         pixQrCode: pixCode,
         pixUrl,
-        seatQuantityAfter: currentSeats + 1,
+        seatQuantityAfter,
         nextBillingAt: sub.next_billing_at ? String(sub.next_billing_at) : null,
     };
 }

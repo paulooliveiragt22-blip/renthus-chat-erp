@@ -165,6 +165,16 @@ App só passa **o que** cobrar (kind/plan/period), nunca **quanto**.
   seguindo **BN-13** (retry D1/D3/D5; block **D7**). Fonte única; TS não reimplementa.
 - `fn_billing_prorate_cents(unit_cents, days_left, cycle_days)` → proration (seat R3-3, upgrade
   BN-11). Cron/RPC chamam; TS não recalcula dinheiro.
+- **Proration período-aware no banco (Pacote 4 / modelo anual opção A):**
+  - `rpc_quote_seat_add(company)` → seat mid-cycle. Mês: `unit=seat_extra`, `cycle=30`. Ano:
+    `unit=seat_extra*12`, `cycle=365`. `days_left = ceil(next_billing_at − now)`.
+  - `rpc_quote_plan_upgrade(company, target)` → **delta** entre planos prorateado. Mês:
+    `delta mensal / 30`. Ano: `delta anual / 365` (rateia/abate o já pago; anual só sobe para
+    anual pois o upgrade preserva `billing_period`). Guards: só `active`, só rank destino > atual.
+  - `rpc_create_billing_obligation` (ramo `year`) soma extras anuais:
+    `year_price + (seats − included) * seat_extra*12`.
+  - App (`ensureSeatAddCheckout`, `ensurePlanUpgradeCheckout`) só chama a quote e grava o amount
+    do banco; `prorate*CentsDb`/`prorateViaDb` removidos (espelhos puros mensais mantidos p/ teste).
 
 **Consequência:** `collectionPolicy.ts`, `subscriptionAmount.ts`, `computeNextBillingAt.ts` deixam
 de ser fonte — viram wrappers finos que chamam a RPC/função, ou saem do hot path. Testes migram
