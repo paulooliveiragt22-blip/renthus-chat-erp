@@ -249,7 +249,7 @@ export default function HeaderClient({
             {/* centro — atalhos */}
             <nav
                 aria-label="Atalhos principais"
-                className="flex items-center justify-center gap-1 justify-self-center sm:gap-1.5"
+                className="flex items-center justify-center gap-2 justify-self-center sm:gap-3"
             >
                 {HEADER_NAV.map(({ href, label, shortLabel, icon: Icon }) => {
                     const active = isNavActive(pathname, href);
