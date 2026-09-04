@@ -228,11 +228,11 @@ Never-paid / abandoned (BN-09) **fora** desta matriz — não misturar com D7 de
 
 | Par | Problema | Resolução proposta |
 |-----|----------|-------------------|
-| **BN-05 × kind=setup no schema/cron** | Fee=0 mas invoices/`generateSetupCharge`/`pending_setup` vivem | Radical pré-prod: overdue só `subscription`\|`year`; cancelar setup pending; morto o branch setup no charge |
+| **BN-05 × kind=setup no schema/cron** | `[i]` Fee=0; `generateSetupCharge` + `resolveTrialDueKind` removidos; trial vencido → 1ª mensalidade via `collectPayment`; overdue só `subscription`\|`year` (kind=setup nunca gerado) |
 | **BN-08 × GrantCourtesyTrial 1..14** | Decisão/RPC = 30d; use case rejeita 15–30 | Alinhar use case + UI a **1..30** |
 | **BN-13 × checklist renewal / collectionPolicy** | Docs+código block **D5**; canônico **D7** | Atualizar política, testes, WA, checklist |
 | **BN-13 × WA templates** | Texto “bloqueio em D5” / “faltam 2 dias” no D3 | Reescrever para D7; D5 = penúltimo aviso |
-| **BN-13 × BN-09 / stale 5d block** | Cron bloqueia `pending_*` stale em **5d** (parece D5 setup) | Separar: never-paid → abandoned (BN-09); **não** usar blockCompany D5 de renovação |
+| **BN-13 × BN-09 / stale 5d block** | `[i]` Loop `stalePendingSetups` (5d) removido do charge; `processOverdueInvoiceRow` checa `neverPaid` **antes** do block → D7 bloqueia só quem já pagou; never-paid → abandoned via `mark-abandoned` (14d) |
 | **BN-14 × self-reactivate** | Self-reactivate = abandoned→**trial**; BN-14 = blocked overdue→**paga ciclo cheio** | Dois fluxos: manter self-reactivate p/ abandoned; BN-14 = checkout renew full + fulfill com `next_billing_at=paid_at+(1m\|1y)` |
 | **R2-3 × fulfill/charge** | Anual no catálogo; fulfill sempre +1 mês; invoice sempre mensal | Pacote “anual completo”: charge amount year, `kind=year`, `next=+1 year` |
 | **R2-3 × R3-3 seat proration** | Seat mid-cycle com cap 30d em ciclo anual subcobra | Proration `daysLeft / cycleDays` sem cap artificial; `cycleDays` = 30 (mês) ou dias do ciclo anual |
@@ -246,7 +246,7 @@ Never-paid / abandoned (BN-09) **fora** desta matriz — não misturar com D7 de
 | # | Item | Ação |
 |---|------|------|
 | C1 | BN-08 courtesy 1–30 | `[i]` `grantCourtesyTrial.ts` (>30), route/UI label, teste 31 inválido + 30 válido |
-| C2 | BN-05 limpeza setup | Filtrar overdue; remover/dead-code `generateSetupCharge` path; cancelar setup pending no DB |
+| C2 | BN-05 limpeza setup | `[i]` `generateSetupCharge`/`resolveTrialDueKind` removidos; trial→1ª mensalidade; stale 5d block removido; D7 só p/ quem já pagou |
 | C3 | R2-3 anual | `[i]` `fn_billing_next_due(period)`; fulfill period-aware; `rpc_create_billing_obligation` promove `kind=year` + valor anual; dunning `kind in (subscription,year)`; **checkout interativo** (`loadCheckoutContext`) também puxa amount+kind do banco |
 | C4 | R3-3 seat × anual | `[i]` `rpc_quote_seat_add` período-aware (ano = seat×12 / 365); renew anual soma extras |
 | C5 | Marcar BN-12 `[i]` | já refletido acima |
