@@ -22,6 +22,8 @@ import {
     Zap,
 } from "lucide-react";
 import PlanFeatureGate from "@/components/billing/PlanFeatureGate";
+import { Switch } from "@/components/ui/switch";
+import { Skeleton } from "@/components/ui/skeleton";
 import { loadAdminListSnapshotEntries } from "@/lib/offline/browserStores";
 import {
     DEFAULT_AUTO_PRINT_COPIES,
@@ -105,29 +107,13 @@ function JobBadge({ status }: { status: string }) {
 
 function Toggle({ checked, onChange, disabled }: { checked: boolean; onChange: (v: boolean) => void; disabled?: boolean }) {
     return (
-        <button
-            type="button"
-            role="switch"
-            aria-checked={checked}
+        <Switch
+            checked={checked}
             disabled={disabled}
-            onClick={() => onChange(!checked)}
-            className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none disabled:opacity-50 ${
-                checked ? "bg-violet-600" : "bg-zinc-300 dark:bg-zinc-600"
-            }`}
-        >
-            <span
-                className={`pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow ring-0 transition-transform duration-200 ${
-                    checked ? "translate-x-5" : "translate-x-0"
-                }`}
-            />
-        </button>
+            onCheckedChange={onChange}
+            aria-checked={checked}
+        />
     );
-}
-
-// ─── skeleton ─────────────────────────────────────────────────────────────────
-
-function Skeleton({ className = "" }: { className?: string }) {
-    return <div className={`animate-pulse rounded bg-zinc-200 dark:bg-zinc-700 ${className}`} />;
 }
 
 // ─── main component ───────────────────────────────────────────────────────────

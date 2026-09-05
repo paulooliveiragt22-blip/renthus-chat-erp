@@ -11,6 +11,13 @@ import {
     type PlatformOrdersFilter,
     type PlatformOrderStatusFilter,
 } from "@/lib/platform/ordersFilters";
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from "@/components/ui/select";
 
 type CompanyOpt = { id: string; name: string };
 
@@ -124,20 +131,22 @@ export default function PlatformOrdersFiltersBar({
                         <Building2 className="h-3 w-3" />
                         Empresa
                     </span>
-                    <select
+                    <Select
                         value={value.companyId}
-                        onChange={(e) =>
-                            onChange({ ...value, companyId: e.target.value })
-                        }
-                        className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-800 focus:border-violet-400 focus:outline-none dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100"
+                        onValueChange={(v) => onChange({ ...value, companyId: v })}
                     >
-                        <option value="all">Todas</option>
-                        {companies.map((c) => (
-                            <option key={c.id} value={c.id}>
-                                {c.name}
-                            </option>
-                        ))}
-                    </select>
+                        <SelectTrigger className="rounded-xl">
+                            <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="all">Todas</SelectItem>
+                            {companies.map((c) => (
+                                <SelectItem key={c.id} value={c.id}>
+                                    {c.name}
+                                </SelectItem>
+                            ))}
+                        </SelectContent>
+                    </Select>
                 </label>
             </div>
 

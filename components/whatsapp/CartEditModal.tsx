@@ -28,6 +28,13 @@ import {
 import type { CartItem, DraftQty, PaymentMethod, Variant } from "@/lib/orders/types";
 import type { ActiveCart } from "@/lib/whatsapp/types";
 import { Search } from "lucide-react";
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from "@/components/ui/select";
 
 type ModalPaymentMethod = "pix" | "cash" | "card";
 
@@ -256,11 +263,19 @@ export default function CartEditModal({
                 {/* ── Pagamento ── */}
                 <div className={sectionCls}>
                     <div className={labelCls}>Pagamento</div>
-                    <select value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value as ModalPaymentMethod)} className={inputCls}>
-                        <option value="pix">PIX</option>
-                        <option value="card">Cartão</option>
-                        <option value="cash">Dinheiro</option>
-                    </select>
+                    <Select
+                        value={paymentMethod}
+                        onValueChange={(v) => setPaymentMethod(v as ModalPaymentMethod)}
+                    >
+                        <SelectTrigger>
+                            <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="pix">PIX</SelectItem>
+                            <SelectItem value="card">Cartão</SelectItem>
+                            <SelectItem value="cash">Dinheiro</SelectItem>
+                        </SelectContent>
+                    </Select>
                     {paymentMethod === "cash" && (
                         <div className="mt-3 space-y-2">
                             <label className="text-xs font-semibold text-zinc-600 dark:text-zinc-400">Cliente paga com (R$)</label>

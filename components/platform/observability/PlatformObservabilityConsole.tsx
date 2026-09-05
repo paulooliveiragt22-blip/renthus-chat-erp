@@ -18,6 +18,13 @@ import {
     semaphoreStyle,
 } from "@/lib/platform/observabilityFormat";
 import { classifyQueueHealth } from "@/lib/platform/observabilityThresholds";
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from "@/components/ui/select";
 
 type CompanyOpt = { id: string; name: string };
 type QueueSortBy = "severity" | "failed" | "pending";
@@ -127,36 +134,45 @@ export default function PlatformObservabilityConsole({
         <div className="space-y-6">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div className="flex flex-wrap items-center gap-2">
-                    <select
-                        value={companyId}
-                        onChange={(e) => setCompanyId(e.target.value)}
-                        className="rounded-lg border border-zinc-200 bg-white px-2 py-1.5 text-xs dark:border-zinc-700 dark:bg-zinc-900"
-                    >
-                        <option value="all">Todas empresas</option>
-                        {companies.map((c) => (
-                            <option key={c.id} value={c.id}>
-                                {c.name}
-                            </option>
-                        ))}
-                    </select>
-                    <select
+                    <Select value={companyId} onValueChange={setCompanyId}>
+                        <SelectTrigger className="h-8 w-auto min-w-[10rem] text-xs">
+                            <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="all">Todas empresas</SelectItem>
+                            {companies.map((c) => (
+                                <SelectItem key={c.id} value={c.id}>
+                                    {c.name}
+                                </SelectItem>
+                            ))}
+                        </SelectContent>
+                    </Select>
+                    <Select
                         value={String(periodMinutes)}
-                        onChange={(e) => setPeriodMinutes(Number(e.target.value))}
-                        className="rounded-lg border border-zinc-200 bg-white px-2 py-1.5 text-xs dark:border-zinc-700 dark:bg-zinc-900"
+                        onValueChange={(v) => setPeriodMinutes(Number(v))}
                     >
-                        <option value="15">15m</option>
-                        <option value="60">1h</option>
-                        <option value="1440">24h</option>
-                    </select>
-                    <select
+                        <SelectTrigger className="h-8 w-auto text-xs">
+                            <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="15">15m</SelectItem>
+                            <SelectItem value="60">1h</SelectItem>
+                            <SelectItem value="1440">24h</SelectItem>
+                        </SelectContent>
+                    </Select>
+                    <Select
                         value={sortBy}
-                        onChange={(e) => setSortBy(e.target.value as QueueSortBy)}
-                        className="rounded-lg border border-zinc-200 bg-white px-2 py-1.5 text-xs dark:border-zinc-700 dark:bg-zinc-900"
+                        onValueChange={(v) => setSortBy(v as QueueSortBy)}
                     >
-                        <option value="severity">Ordenar: severidade</option>
-                        <option value="failed">Ordenar: falhas</option>
-                        <option value="pending">Ordenar: backlog</option>
-                    </select>
+                        <SelectTrigger className="h-8 w-auto text-xs">
+                            <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="severity">Ordenar: severidade</SelectItem>
+                            <SelectItem value="failed">Ordenar: falhas</SelectItem>
+                            <SelectItem value="pending">Ordenar: backlog</SelectItem>
+                        </SelectContent>
+                    </Select>
                     <button
                         type="button"
                         onClick={() => setAutoRefresh((v) => !v)}

@@ -6,12 +6,26 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
     ArrowLeft, Building2, CheckCircle2, Eye, Loader2, MessageSquare,
-    Pencil, Plus, Receipt, RefreshCcw, Save, ShieldOff, ShieldCheck, Wifi, WifiOff, X,
+    Pencil, Plus, Receipt, RefreshCcw, Save, ShieldOff, ShieldCheck, Wifi, WifiOff,
 } from "lucide-react";
 import { platformApi } from "@/lib/platform/clientApi";
 import { formatDistanceToNow } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { toast } from "sonner";
+import {
+    Dialog,
+    DialogContent,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
+} from "@/components/ui/dialog";
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from "@/components/ui/select";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -101,14 +115,22 @@ function AdicionarCanalModal({
     const canSubmit = form.phone_number_id.trim() && form.access_token.trim();
 
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
-            <div className="w-full max-w-md rounded-2xl border border-zinc-200 bg-white shadow-2xl dark:border-zinc-800 dark:bg-zinc-900">
-                <div className="flex items-center justify-between border-b border-zinc-100 px-5 py-4 dark:border-zinc-800">
-                    <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">Adicionar Canal WhatsApp</h2>
-                    <button onClick={onClose} className="rounded-lg p-1 text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800">
-                        <X className="h-4 w-4" />
-                    </button>
-                </div>
+        <Dialog
+            open
+            onOpenChange={(next) => {
+                if (!next) onClose();
+            }}
+        >
+            <DialogContent
+                hideClose
+                className="max-w-md gap-0 overflow-hidden rounded-2xl p-0"
+                aria-describedby={undefined}
+            >
+                <DialogHeader className="border-b border-border px-5 py-4 text-left">
+                    <DialogTitle className="text-sm font-semibold">
+                        Adicionar Canal WhatsApp
+                    </DialogTitle>
+                </DialogHeader>
 
                 <div className="space-y-3 p-5">
                     <div className="rounded-lg bg-zinc-50 p-3 text-xs text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400">
@@ -142,14 +164,16 @@ function AdicionarCanalModal({
                     />
                 </div>
 
-                <div className="flex justify-end gap-2 border-t border-zinc-100 px-5 py-4 dark:border-zinc-800">
+                <DialogFooter className="flex-row justify-end gap-2 border-t border-border px-5 py-4 sm:justify-end">
                     <button
+                        type="button"
                         onClick={onClose}
                         className="rounded-lg border border-zinc-200 px-4 py-2 text-xs font-medium text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800"
                     >
                         Cancelar
                     </button>
                     <button
+                        type="button"
                         onClick={() => create.mutate()}
                         disabled={!canSubmit || create.isPending}
                         className="flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-xs font-semibold text-white hover:bg-primary-light disabled:opacity-50"
@@ -157,9 +181,9 @@ function AdicionarCanalModal({
                         {create.isPending && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
                         Adicionar canal
                     </button>
-                </div>
-            </div>
-        </div>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
     );
 }
 
@@ -193,14 +217,20 @@ function EditarCredenciaisModal({
     function set(k: string, v: string) { setForm((f) => ({ ...f, [k]: v })); }
 
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
-            <div className="w-full max-w-md rounded-2xl border border-zinc-200 bg-white shadow-2xl dark:border-zinc-800 dark:bg-zinc-900">
-                <div className="flex items-center justify-between border-b border-zinc-100 px-5 py-4 dark:border-zinc-800">
-                    <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">Editar Credenciais</h2>
-                    <button onClick={onClose} className="rounded-lg p-1 text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800">
-                        <X className="h-4 w-4" />
-                    </button>
-                </div>
+        <Dialog
+            open
+            onOpenChange={(next) => {
+                if (!next) onClose();
+            }}
+        >
+            <DialogContent
+                hideClose
+                className="max-w-md gap-0 overflow-hidden rounded-2xl p-0"
+                aria-describedby={undefined}
+            >
+                <DialogHeader className="border-b border-border px-5 py-4 text-left">
+                    <DialogTitle className="text-sm font-semibold">Editar Credenciais</DialogTitle>
+                </DialogHeader>
 
                 <div className="space-y-3 p-5">
                     <Field
@@ -228,11 +258,16 @@ function EditarCredenciaisModal({
                     </p>
                 </div>
 
-                <div className="flex justify-end gap-2 border-t border-zinc-100 px-5 py-4 dark:border-zinc-800">
-                    <button onClick={onClose} className="rounded-lg border border-zinc-200 px-4 py-2 text-xs font-medium text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800">
+                <DialogFooter className="flex-row justify-end gap-2 border-t border-border px-5 py-4 sm:justify-end">
+                    <button
+                        type="button"
+                        onClick={onClose}
+                        className="rounded-lg border border-zinc-200 px-4 py-2 text-xs font-medium text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800"
+                    >
                         Cancelar
                     </button>
                     <button
+                        type="button"
                         onClick={() => save.mutate()}
                         disabled={save.isPending}
                         className="flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-xs font-semibold text-white hover:bg-primary-light disabled:opacity-50"
@@ -240,9 +275,9 @@ function EditarCredenciaisModal({
                         {save.isPending && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
                         Salvar
                     </button>
-                </div>
-            </div>
-        </div>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
     );
 }
 
@@ -642,29 +677,46 @@ export default function CompanyDetailPage({ params }: { params: Promise<{ id: st
                                 <div className="space-y-2.5">
                                     <div>
                                         <label className="mb-1 block text-xs text-zinc-400">Plano</label>
-                                        <select
-                                            value={subForm.plan_id}
-                                            onChange={(e) => setSubForm((f) => ({ ...f, plan_id: e.target.value }))}
-                                            className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100"
+                                        <Select
+                                            value={subForm.plan_id || undefined}
+                                            onValueChange={(v) =>
+                                                setSubForm((f) => ({ ...f, plan_id: v }))
+                                            }
                                         >
-                                            {plans.map((p: any) => (
-                                                <option key={p.id} value={p.id}>
-                                                    {p.name} — R$ {(p.price_cents / 100).toFixed(2).replaceAll(".", ",")}
-                                                </option>
-                                            ))}
-                                        </select>
+                                            <SelectTrigger>
+                                                <SelectValue placeholder="Selecione" />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                {plans.map((p: { id: string; name: string; price_cents: number }) => (
+                                                    <SelectItem key={p.id} value={p.id}>
+                                                        {p.name} — R${" "}
+                                                        {(p.price_cents / 100)
+                                                            .toFixed(2)
+                                                            .replaceAll(".", ",")}
+                                                    </SelectItem>
+                                                ))}
+                                            </SelectContent>
+                                        </Select>
                                     </div>
                                     <div>
                                         <label className="mb-1 block text-xs text-zinc-400">Status</label>
-                                        <select
-                                            value={subForm.status}
-                                            onChange={(e) => setSubForm((f) => ({ ...f, status: e.target.value }))}
-                                            className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100"
+                                        <Select
+                                            value={subForm.status || undefined}
+                                            onValueChange={(v) =>
+                                                setSubForm((f) => ({ ...f, status: v }))
+                                            }
                                         >
-                                            {SUB_STATUS.map((s) => (
-                                                <option key={s} value={s}>{s}</option>
-                                            ))}
-                                        </select>
+                                            <SelectTrigger>
+                                                <SelectValue />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                {SUB_STATUS.map((s) => (
+                                                    <SelectItem key={s} value={s}>
+                                                        {s}
+                                                    </SelectItem>
+                                                ))}
+                                            </SelectContent>
+                                        </Select>
                                     </div>
                                 </div>
                             ) : (

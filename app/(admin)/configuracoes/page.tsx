@@ -38,6 +38,16 @@ import MarketplaceAiqfomeSettings from "@/components/menu/MarketplaceAiqfomeSett
 import MarketPlanGate from "@/components/menu/MarketPlanGate";
 import ChannelsSettings from "@/components/channels/ChannelsSettings";
 import ChatbotMessageTemplatesPanel from "@/components/menu/ChatbotMessageTemplatesPanel";
+import { Switch } from "@/components/ui/switch";
+import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
+} from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
 import TeamMembersPanel from "@/components/settings/TeamMembersPanel";
 import StaffProfilesPanel from "@/components/settings/StaffProfilesPanel";
 import ServiceFeesPanel from "@/components/settings/ServiceFeesPanel";
@@ -100,18 +110,12 @@ function Field({
 
 function Toggle({ checked, onChange, disabled }: { checked: boolean; onChange: (v: boolean) => void; disabled?: boolean }) {
     return (
-        <button
-            type="button"
-            role="switch"
-            aria-checked={checked}
+        <Switch
+            checked={checked}
             disabled={disabled}
-            onClick={() => onChange(!checked)}
-            className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none disabled:opacity-50 ${
-                checked ? "bg-violet-600" : "bg-zinc-300 dark:bg-zinc-600"
-            }`}
-        >
-            <span className={`pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow transition-transform duration-200 ${checked ? "translate-x-5" : "translate-x-0"}`} />
-        </button>
+            onCheckedChange={onChange}
+            aria-checked={checked}
+        />
     );
 }
 
@@ -132,30 +136,25 @@ function ConfirmDialog({
     onCancel: () => void;
     onConfirm: () => void;
 }) {
-    if (!open) return null;
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4">
-            <div className="w-full max-w-md rounded-xl border border-zinc-200 bg-white p-5 shadow-xl dark:border-zinc-700 dark:bg-zinc-900">
-                <h3 className="text-base font-semibold text-zinc-900 dark:text-zinc-100">{title}</h3>
-                {description && <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-300">{description}</p>}
-                <div className="mt-5 flex justify-end gap-2">
-                    <button
-                        type="button"
-                        onClick={onCancel}
-                        className="rounded-lg border border-zinc-300 px-3 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800"
-                    >
+        <Dialog open={open} onOpenChange={(next) => !next && onCancel()}>
+            <DialogContent className="max-w-md">
+                <DialogHeader>
+                    <DialogTitle>{title}</DialogTitle>
+                    {description ? (
+                        <DialogDescription>{description}</DialogDescription>
+                    ) : null}
+                </DialogHeader>
+                <DialogFooter>
+                    <Button type="button" variant="outline" onClick={onCancel}>
                         {cancelLabel}
-                    </button>
-                    <button
-                        type="button"
-                        onClick={onConfirm}
-                        className="rounded-lg bg-red-600 px-3 py-2 text-sm font-semibold text-white hover:bg-red-700"
-                    >
+                    </Button>
+                    <Button type="button" variant="destructive" onClick={onConfirm}>
                         {confirmLabel ?? "Confirmar"}
-                    </button>
-                </div>
-            </div>
-        </div>
+                    </Button>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
     );
 }
 
@@ -1635,22 +1634,11 @@ function ConfiguracoesPageContent() {
                                             Desligada = só cardápio web (não consome crédito).
                                         </p>
                                     </div>
-                                    <button
-                                        type="button"
-                                        role="switch"
-                                        aria-checked={aiEnabled}
+                                    <Toggle
+                                        checked={aiEnabled}
                                         disabled={!chatbotId}
-                                        onClick={() => setAiEnabled((v) => !v)}
-                                        className={`relative h-6 w-11 shrink-0 rounded-full transition-colors disabled:opacity-50 ${
-                                            aiEnabled ? "bg-violet-600" : "bg-zinc-300 dark:bg-zinc-600"
-                                        }`}
-                                    >
-                                        <span
-                                            className={`absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-white transition-transform ${
-                                                aiEnabled ? "translate-x-5" : "translate-x-0"
-                                            }`}
-                                        />
-                                    </button>
+                                        onChange={setAiEnabled}
+                                    />
                                 </div>
 
                                 <div className="flex flex-col gap-1">
@@ -1950,14 +1938,11 @@ function ConfiguracoesPageContent() {
                                                 cartão salvo o valor escolhido abaixo.
                                             </p>
                                         </div>
-                                        <button
-                                            type="button"
-                                            role="switch"
-                                            aria-checked={Boolean(aiWallet?.autoRechargeEnabled)}
+                                        <Toggle
+                                            checked={Boolean(aiWallet?.autoRechargeEnabled)}
                                             disabled={!aiWallet}
-                                            onClick={async () => {
+                                            onChange={async (next) => {
                                                 if (!aiWallet) return;
-                                                const next = !aiWallet.autoRechargeEnabled;
                                                 const pack =
                                                     aiWallet.autoRechargePackCents ?? 2000;
                                                 const res = await fetch("/api/admin/ai-wallet", {
@@ -1974,20 +1959,7 @@ function ConfiguracoesPageContent() {
                                                 const json = await res.json().catch(() => ({}));
                                                 if (json?.wallet) setAiWallet(json.wallet);
                                             }}
-                                            className={`relative h-6 w-11 shrink-0 rounded-full transition-colors disabled:opacity-50 ${
-                                                aiWallet?.autoRechargeEnabled
-                                                    ? "bg-violet-600"
-                                                    : "bg-zinc-300 dark:bg-zinc-600"
-                                            }`}
-                                        >
-                                            <span
-                                                className={`absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-white transition-transform ${
-                                                    aiWallet?.autoRechargeEnabled
-                                                        ? "translate-x-5"
-                                                        : "translate-x-0"
-                                                }`}
-                                            />
-                                        </button>
+                                        />
                                     </div>
                                     {aiWallet?.autoRechargeEnabled ? (
                                         <label className="mt-3 block">
@@ -2045,24 +2017,11 @@ function ConfiguracoesPageContent() {
                                             Pedidos acima do valor pedem confirmação reforçada no WhatsApp.
                                         </p>
                                     </div>
-                                    <button
-                                        type="button"
-                                        role="switch"
-                                        aria-checked={highValueConfirmEnabled}
+                                    <Toggle
+                                        checked={highValueConfirmEnabled}
                                         disabled={!chatbotId}
-                                        onClick={() => setHighValueConfirmEnabled((v) => !v)}
-                                        className={`relative h-6 w-11 shrink-0 rounded-full transition-colors disabled:opacity-50 ${
-                                            highValueConfirmEnabled
-                                                ? "bg-violet-600"
-                                                : "bg-zinc-300 dark:bg-zinc-600"
-                                        }`}
-                                    >
-                                        <span
-                                            className={`absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-white transition-transform ${
-                                                highValueConfirmEnabled ? "translate-x-5" : "translate-x-0"
-                                            }`}
-                                        />
-                                    </button>
+                                        onChange={setHighValueConfirmEnabled}
+                                    />
                                 </div>
                                 {highValueConfirmEnabled ? (
                                     <label className="block max-w-xs">

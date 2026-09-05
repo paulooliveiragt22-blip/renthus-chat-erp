@@ -12,7 +12,6 @@ import {
     Loader2,
     Plus,
     RefreshCcw,
-    X,
 } from "lucide-react";
 import { platformApi } from "@/lib/platform/clientApi";
 import PlatformCompaniesFiltersBar from "@/components/platform/PlatformCompaniesFiltersBar";
@@ -26,6 +25,20 @@ import {
 import { formatDistanceToNow } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { toast } from "sonner";
+import {
+    Dialog,
+    DialogContent,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
+} from "@/components/ui/dialog";
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from "@/components/ui/select";
 
 const SUB_STYLES: Record<string, string> = {
     active: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400",
@@ -87,20 +100,20 @@ function NovaEmpresaModal({
     const canSubmit = form.name.trim() && form.plan_id;
 
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
-            <div className="w-full max-w-md rounded-2xl border border-zinc-200 bg-white shadow-2xl dark:border-zinc-800 dark:bg-zinc-900">
-                <div className="flex items-center justify-between border-b border-zinc-100 px-5 py-4 dark:border-zinc-800">
-                    <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
-                        Nova Empresa
-                    </h2>
-                    <button
-                        type="button"
-                        onClick={onClose}
-                        className="rounded-lg p-1 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-600 dark:hover:bg-zinc-800"
-                    >
-                        <X className="h-4 w-4" />
-                    </button>
-                </div>
+        <Dialog
+            open
+            onOpenChange={(next) => {
+                if (!next) onClose();
+            }}
+        >
+            <DialogContent
+                hideClose
+                className="max-w-md gap-0 overflow-hidden rounded-2xl p-0"
+                aria-describedby={undefined}
+            >
+                <DialogHeader className="flex flex-row items-center justify-between space-y-0 border-b border-border px-5 py-4 text-left">
+                    <DialogTitle className="text-sm font-semibold">Nova Empresa</DialogTitle>
+                </DialogHeader>
 
                 <div className="space-y-3 p-5">
                     <Field
@@ -148,24 +161,28 @@ function NovaEmpresaModal({
                         <label className="mb-1.5 block text-xs font-medium text-zinc-600 dark:text-zinc-400">
                             Plano *
                         </label>
-                        <select
-                            value={form.plan_id}
-                            onChange={(e) => set("plan_id", e.target.value)}
-                            className="w-full rounded-lg border border-zinc-300 bg-zinc-50 px-3 py-2 text-sm text-zinc-900 outline-none focus:border-violet-400 focus:ring-2 focus:ring-violet-400/20 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100"
+                        <Select
+                            value={form.plan_id || undefined}
+                            onValueChange={(v) => set("plan_id", v)}
                         >
-                            {plans.map((p) => (
-                                <option key={p.id} value={p.id}>
-                                    {p.name} — R${" "}
-                                    {(p.price_cents / 100)
-                                        .toFixed(2)
-                                        .replaceAll(".", ",")}
-                                </option>
-                            ))}
-                        </select>
+                            <SelectTrigger>
+                                <SelectValue placeholder="Selecione um plano" />
+                            </SelectTrigger>
+                            <SelectContent>
+                                {plans.map((p) => (
+                                    <SelectItem key={p.id} value={p.id}>
+                                        {p.name} — R${" "}
+                                        {(p.price_cents / 100)
+                                            .toFixed(2)
+                                            .replaceAll(".", ",")}
+                                    </SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
                     </div>
                 </div>
 
-                <div className="flex justify-end gap-2 border-t border-zinc-100 px-5 py-4 dark:border-zinc-800">
+                <DialogFooter className="flex-row justify-end gap-2 border-t border-border px-5 py-4 sm:justify-end">
                     <button
                         type="button"
                         onClick={onClose}
@@ -184,9 +201,9 @@ function NovaEmpresaModal({
                         )}
                         Criar empresa
                     </button>
-                </div>
-            </div>
-        </div>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
     );
 }
 

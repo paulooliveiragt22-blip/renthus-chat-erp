@@ -2,6 +2,13 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { Loader2, Megaphone, RefreshCw } from "lucide-react";
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from "@/components/ui/select";
 
 type TemplateOpt = {
     id: string;
@@ -204,34 +211,39 @@ export default function CampaignsClient() {
                         </label>
                         <label className="block text-sm sm:col-span-2">
                             <span className="mb-1 block text-zinc-600">Template</span>
-                            <select
-                                className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900"
-                                value={templateId}
-                                onChange={(e) => setTemplateId(e.target.value)}
-                            >
-                                {templates.map((t) => (
-                                    <option key={t.id} value={t.id}>
-                                        {t.name} ({t.language}) · {t.category}
-                                    </option>
-                                ))}
-                            </select>
+                            <Select value={templateId || undefined} onValueChange={setTemplateId}>
+                                <SelectTrigger>
+                                    <SelectValue placeholder="Selecione um template" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    {templates.map((t) => (
+                                        <SelectItem key={t.id} value={t.id}>
+                                            {t.name} ({t.language}) · {t.category}
+                                        </SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
                         </label>
                         <label className="block text-sm sm:col-span-2">
                             <span className="mb-1 block text-zinc-600">Audiência</span>
-                            <select
-                                className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900"
+                            <Select
                                 value={audienceMode}
-                                onChange={(e) =>
-                                    setAudienceMode(
-                                        e.target.value as "all_with_phone" | "ordered_last_days"
-                                    )
+                                onValueChange={(v) =>
+                                    setAudienceMode(v as "all_with_phone" | "ordered_last_days")
                                 }
                             >
-                                <option value="all_with_phone">Todos clientes com telefone</option>
-                                <option value="ordered_last_days">
-                                    Quem pediu nos últimos N dias
-                                </option>
-                            </select>
+                                <SelectTrigger>
+                                    <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="all_with_phone">
+                                        Todos clientes com telefone
+                                    </SelectItem>
+                                    <SelectItem value="ordered_last_days">
+                                        Quem pediu nos últimos N dias
+                                    </SelectItem>
+                                </SelectContent>
+                            </Select>
                         </label>
                         {audienceMode === "ordered_last_days" && (
                             <label className="block text-sm">

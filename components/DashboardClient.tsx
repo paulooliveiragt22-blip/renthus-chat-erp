@@ -23,6 +23,7 @@ import {
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { usePlanFeatures } from "@/lib/billing/usePlanFeatures";
+import { Skeleton } from "@/components/ui/skeleton";
 
 // ─── types ────────────────────────────────────────────────────────────────────
 
@@ -102,14 +103,14 @@ function ChartTooltip({
 
 function SkeletonCard() {
     return (
-        <div className="rounded-xl border-l-4 border-zinc-200 bg-white p-5 shadow-sm dark:bg-zinc-900 dark:border-zinc-700">
+        <div className="rounded-xl border-l-4 border-zinc-200 bg-white p-5 shadow-sm dark:border-zinc-700 dark:bg-zinc-900">
             <div className="flex items-start justify-between">
                 <div className="space-y-2">
-                    <div className="h-3 w-24 animate-pulse rounded bg-zinc-100 dark:bg-zinc-800" />
-                    <div className="h-7 w-32 animate-pulse rounded-md bg-zinc-100 dark:bg-zinc-800" />
-                    <div className="h-2.5 w-20 animate-pulse rounded bg-zinc-50 dark:bg-zinc-800/60" />
+                    <Skeleton className="h-3 w-24 bg-zinc-100 dark:bg-zinc-800" />
+                    <Skeleton className="h-7 w-32 rounded-md bg-zinc-100 dark:bg-zinc-800" rounded="md" />
+                    <Skeleton className="h-2.5 w-20 bg-zinc-50 dark:bg-zinc-800/60" />
                 </div>
-                <div className="h-10 w-10 animate-pulse rounded-xl bg-zinc-100 dark:bg-zinc-800" />
+                <Skeleton className="h-10 w-10 rounded-xl bg-zinc-100 dark:bg-zinc-800" />
             </div>
         </div>
     );
@@ -466,7 +467,7 @@ export default function DashboardClient() {
                     </div>
 
                     {loading ? (
-                        <div className="h-56 animate-pulse rounded-xl bg-zinc-100 dark:bg-zinc-800" />
+                        <Skeleton className="h-56 rounded-xl bg-zinc-100 dark:bg-zinc-800" />
                     ) : (
                         <ResponsiveContainer width="100%" height={224}>
                             <AreaChart
@@ -533,8 +534,11 @@ export default function DashboardClient() {
                         <div className="space-y-5">
                             {Array.from({ length: 5 }).map((_, i) => (
                                 <div key={i} className="space-y-1.5">
-                                    <div className="h-3 w-36 animate-pulse rounded bg-zinc-100 dark:bg-zinc-800" />
-                                    <div className="h-2 w-full animate-pulse rounded-full bg-zinc-100 dark:bg-zinc-800" />
+                                    <Skeleton className="h-3 w-36 bg-zinc-100 dark:bg-zinc-800" />
+                                    <Skeleton
+                                        className="h-2 w-full bg-zinc-100 dark:bg-zinc-800"
+                                        rounded="full"
+                                    />
                                 </div>
                             ))}
                         </div>

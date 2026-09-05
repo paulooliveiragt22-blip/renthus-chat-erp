@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { Loader2, PackagePlus, RefreshCw, Save } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
 
 type Connection = {
     merchantId: string;
@@ -31,24 +32,12 @@ function Toggle({
     disabled?: boolean;
 }) {
     return (
-        <button
-            type="button"
-            role="switch"
-            aria-checked={checked}
+        <Switch
+            checked={checked}
             disabled={disabled}
-            onClick={() => {
-                if (!disabled) onChange(!checked);
-            }}
-            className={`relative h-6 w-11 shrink-0 rounded-full transition-colors disabled:opacity-40 ${
-                checked ? "bg-violet-600" : "bg-zinc-300 dark:bg-zinc-600"
-            }`}
-        >
-            <span
-                className={`absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-white transition-transform ${
-                    checked ? "translate-x-5" : "translate-x-0"
-                }`}
-            />
-        </button>
+            onCheckedChange={onChange}
+            aria-checked={checked}
+        />
     );
 }
 

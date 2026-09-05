@@ -1,6 +1,6 @@
 # ADR 0009 — UI moderna: design system Radix/CVA + polish SaaS
 
-**Status:** em implementação (Ondas A–C entregues 2026-09-05)  
+**Status:** em implementação (Ondas A–D entregues 2026-09-05; Onda E pendente)  
 **Data:** 2026-09-05  
 **Escopo técnico:** primitivos `components/ui`, shell admin, feedback (toast/skeleton), command palette, animações `data-state`.  
 **Escopo comercial:** **não** — sem mudar preço, planos, trial, features ou fluxo de cobrança. Atalhos de UI para billing só **navegam** para `/plano` (mutação continua nas RPCs/APIs canônicas).

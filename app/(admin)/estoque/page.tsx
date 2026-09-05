@@ -8,6 +8,13 @@ import {
     DollarSign, Loader2, Package, Plus, RefreshCw, Search, Settings2,
     TrendingDown, X,
 } from "lucide-react";
+import {
+    Dialog,
+    DialogClose,
+    DialogContent,
+    DialogTitle,
+} from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
 import PlanFeatureGate from "@/components/billing/PlanFeatureGate";
 
 // ─── types ────────────────────────────────────────────────────────────────────
@@ -49,34 +56,30 @@ function stockColorClass(atual: number, minimo: number) {
 const inputCls = "w-full rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-violet-400 focus:outline-none focus:ring-1 focus:ring-violet-400 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100 disabled:opacity-50";
 
 function Modal({ title, open, onClose, children }: Readonly<{ title: string; open: boolean; onClose: () => void; children: React.ReactNode }>) {
-    const ref = useRef<HTMLDialogElement>(null);
-    useEffect(() => {
-        const el = ref.current;
-        if (!el) return;
-        if (open) {
-            if (!el.open) el.showModal();
-        } else if (el.open) {
-            el.close();
-        }
-    }, [open]);
-
     return (
-        <dialog
-            ref={ref}
-            className="fixed left-1/2 top-1/2 z-50 w-full max-w-md -translate-x-1/2 -translate-y-1/2 rounded-xl border border-zinc-200 bg-white p-0 shadow-2xl backdrop:bg-black/40 dark:border-zinc-700 dark:bg-zinc-900"
-            onCancel={(e) => {
-                e.preventDefault();
-                onClose();
-            }}
-        >
-            <div className="flex items-center justify-between border-b border-zinc-100 px-5 py-4 dark:border-zinc-800">
-                <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100">{title}</h3>
-                <button type="button" onClick={onClose} className="flex h-7 w-7 items-center justify-center rounded-lg border border-zinc-200 text-zinc-500 hover:bg-zinc-50 dark:border-zinc-700">
-                    <X className="h-3.5 w-3.5" />
-                </button>
-            </div>
-            <div className="p-5">{children}</div>
-        </dialog>
+        <Dialog open={open} onOpenChange={(next) => { if (!next) onClose(); }}>
+            <DialogContent
+                hideClose
+                className="max-h-[90vh] max-w-md gap-0 overflow-y-auto rounded-xl border-zinc-200 bg-white p-0 shadow-2xl dark:border-zinc-700 dark:bg-zinc-900"
+                aria-describedby={undefined}
+            >
+                <div className="flex items-center justify-between border-b border-zinc-100 px-5 py-4 pr-14 dark:border-zinc-800">
+                    <DialogTitle className="text-sm font-bold text-zinc-900 dark:text-zinc-100">{title}</DialogTitle>
+                    <DialogClose asChild>
+                        <Button
+                            type="button"
+                            variant="outline"
+                            size="icon"
+                            className="absolute right-4 top-3 h-7 w-7"
+                            aria-label="Fechar"
+                        >
+                            <X className="h-3.5 w-3.5" />
+                        </Button>
+                    </DialogClose>
+                </div>
+                <div className="p-5">{children}</div>
+            </DialogContent>
+        </Dialog>
     );
 }
 

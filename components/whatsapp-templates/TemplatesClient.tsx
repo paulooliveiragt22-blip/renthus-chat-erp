@@ -3,6 +3,13 @@
 import { useCallback, useEffect, useState } from "react";
 import { Loader2, Plus, RefreshCw, Save, Trash2 } from "lucide-react";
 import { formatMetaClientError } from "@/lib/whatsapp-templates/metaGraphError";
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from "@/components/ui/select";
 
 type TemplateRow = {
     id: string;
@@ -279,17 +286,19 @@ export default function TemplatesClient() {
                     </label>
                     <label className="block text-sm">
                         <span className="mb-1 block text-zinc-600">Categoria</span>
-                        <select
-                            className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900"
+                        <Select
                             value={category}
-                            onChange={(e) =>
-                                setCategory(e.target.value as typeof category)
-                            }
+                            onValueChange={(v) => setCategory(v as typeof category)}
                         >
-                            <option value="UTILITY">UTILITY</option>
-                            <option value="MARKETING">MARKETING</option>
-                            <option value="AUTHENTICATION">AUTHENTICATION</option>
-                        </select>
+                            <SelectTrigger>
+                                <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="UTILITY">UTILITY</SelectItem>
+                                <SelectItem value="MARKETING">MARKETING</SelectItem>
+                                <SelectItem value="AUTHENTICATION">AUTHENTICATION</SelectItem>
+                            </SelectContent>
+                        </Select>
                     </label>
                     <label className="block text-sm">
                         <span className="mb-1 block text-zinc-600">Rodapé (opcional)</span>

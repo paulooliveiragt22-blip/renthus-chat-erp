@@ -6,6 +6,21 @@ import {
   Home, Mail, MapPin, Phone, Plus, Search, Trash2, User, Users, X,
   CreditCard, Clock, TrendingDown, FileText,
 } from "lucide-react";
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Skeleton } from "@/components/ui/skeleton";
 import { useWorkspace } from "@/lib/workspace/useWorkspace";
 import { loadAdminListSnapshotEntries } from "@/lib/offline/browserStores";
 
@@ -183,7 +198,7 @@ function CustomerListSkeleton() {
   return (
     <div className="flex flex-col gap-3 p-4">
       {rowKeys.map((key) => (
-        <div key={key} className="h-16 animate-pulse rounded-xl bg-zinc-100 dark:bg-zinc-800" />
+        <Skeleton key={key} className="h-16 w-full rounded-xl bg-zinc-100 dark:bg-zinc-800" />
       ))}
     </div>
   );
@@ -223,21 +238,31 @@ function CustomerFormModal({
   if (saving) submitLabel = "Salvando…";
   else if (editingId) submitLabel = "Salvar";
 
-  if (!open) return null;
-
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-      <div className="w-full max-w-lg rounded-3xl border border-zinc-700 bg-zinc-900 shadow-2xl overflow-hidden">
-        <div className="flex items-center gap-3 border-b border-zinc-800 px-6 py-4">
+    <Dialog open={open} onOpenChange={(next) => { if (!next) onClose(); }}>
+      <DialogContent
+        hideClose
+        className="max-h-[90vh] max-w-lg gap-0 overflow-hidden rounded-3xl border-zinc-700 bg-zinc-900 p-0 text-zinc-100 shadow-2xl"
+        aria-describedby={undefined}
+      >
+        <DialogHeader className="flex flex-row items-center gap-3 space-y-0 border-b border-zinc-800 px-6 py-4 pr-14 text-left">
           <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-violet-500/20 text-violet-400">
             <User className="h-4 w-4" />
           </div>
-          <p className="font-bold text-zinc-100">{editingId ? "Editar Cliente" : "Novo Cliente"}</p>
-          <button type="button" onClick={onClose} className="ml-auto text-zinc-500 hover:text-zinc-200">
-            <X className="h-5 w-5" />
-          </button>
-        </div>
-        <div className="overflow-y-auto max-h-[70vh] p-6 space-y-4">
+          <DialogTitle className="font-bold text-zinc-100">
+            {editingId ? "Editar Cliente" : "Novo Cliente"}
+          </DialogTitle>
+          <DialogClose asChild>
+            <button
+              type="button"
+              className="absolute right-4 top-3 text-zinc-500 hover:text-zinc-200"
+              aria-label="Fechar"
+            >
+              <X className="h-5 w-5" />
+            </button>
+          </DialogClose>
+        </DialogHeader>
+        <div className="max-h-[70vh] space-y-4 overflow-y-auto p-6">
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4">
             <div className="col-span-2">
               <label htmlFor={idName} className="mb-1 block text-[11px] font-semibold uppercase tracking-widest text-zinc-400">
@@ -291,15 +316,21 @@ function CustomerFormModal({
               <label htmlFor={idTipo} className="mb-1 block text-[11px] font-semibold uppercase tracking-widest text-zinc-400">
                 Tipo
               </label>
-              <select
-                id={idTipo}
+              <Select
                 value={form.tipo_pessoa}
-                onChange={(e) => setForm((p) => ({ ...p, tipo_pessoa: e.target.value as "PF"|"PJ" }))}
-                className="w-full rounded-xl border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-100 focus:border-violet-500 focus:outline-none"
+                onValueChange={(v) => setForm((p) => ({ ...p, tipo_pessoa: v as "PF" | "PJ" }))}
               >
-                <option value="PF">Pessoa Física</option>
-                <option value="PJ">Pessoa Jurídica</option>
-              </select>
+                <SelectTrigger
+                  id={idTipo}
+                  className="h-auto w-full rounded-xl border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-100 focus:ring-violet-500/40"
+                >
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent className="border-zinc-700 bg-zinc-900 text-zinc-100">
+                  <SelectItem value="PF">Pessoa Física</SelectItem>
+                  <SelectItem value="PJ">Pessoa Jurídica</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
             <div className="col-span-2">
               <label htmlFor={idLimite} className="mb-1 block text-[11px] font-semibold uppercase tracking-widest text-zinc-400">
@@ -327,17 +358,17 @@ function CustomerFormModal({
                 value={form.notes}
                 onChange={(e) => setForm((p) => ({ ...p, notes: e.target.value }))}
                 rows={2}
-                className="w-full rounded-xl border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-100 placeholder-zinc-500 focus:border-violet-500 focus:outline-none resize-none"
+                className="w-full resize-none rounded-xl border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-100 placeholder-zinc-500 focus:border-violet-500 focus:outline-none"
                 placeholder="Preferências, restrições…"
               />
             </div>
           </div>
         </div>
-        <div className="border-t border-zinc-800 px-6 py-4 flex gap-3">
+        <div className="flex gap-3 border-t border-zinc-800 px-6 py-4">
           <button
             type="button"
             onClick={onClose}
-            className="flex-1 rounded-xl border border-zinc-700 py-2.5 text-sm text-zinc-400 hover:text-zinc-200 transition-colors"
+            className="flex-1 rounded-xl border border-zinc-700 py-2.5 text-sm text-zinc-400 transition-colors hover:text-zinc-200"
           >
             Cancelar
           </button>
@@ -345,13 +376,13 @@ function CustomerFormModal({
             type="button"
             onClick={onSave}
             disabled={saving || !form.name.trim() || !form.phone.trim()}
-            className="flex-1 rounded-xl bg-orange-500 py-2.5 text-sm font-bold text-primary hover:bg-orange-600 disabled:opacity-40 transition-all"
+            className="flex-1 rounded-xl bg-orange-500 py-2.5 text-sm font-bold text-primary transition-all hover:bg-orange-600 disabled:opacity-40"
           >
             {submitLabel}
           </button>
         </div>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -385,19 +416,27 @@ function AddressFormModal({
   const idCidade = `${uid}-cidade`;
   const idUf = `${uid}-uf`;
 
-  if (!open) return null;
-
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-      <div className="w-full max-w-md rounded-3xl border border-zinc-700 bg-zinc-900 shadow-2xl overflow-hidden">
-        <div className="flex items-center gap-3 border-b border-zinc-800 px-6 py-4">
+    <Dialog open={open} onOpenChange={(next) => { if (!next) onClose(); }}>
+      <DialogContent
+        hideClose
+        className="max-h-[90vh] max-w-md gap-0 overflow-hidden rounded-3xl border-zinc-700 bg-zinc-900 p-0 text-zinc-100 shadow-2xl"
+        aria-describedby={undefined}
+      >
+        <DialogHeader className="flex flex-row items-center gap-3 space-y-0 border-b border-zinc-800 px-6 py-4 pr-14 text-left">
           <Home className="h-5 w-5 text-violet-400" />
-          <p className="font-bold text-zinc-100">Novo Endereço</p>
-          <button type="button" onClick={onClose} className="ml-auto text-zinc-500 hover:text-zinc-200">
-            <X className="h-5 w-5" />
-          </button>
-        </div>
-        <div className="p-6 space-y-4">
+          <DialogTitle className="font-bold text-zinc-100">Novo Endereço</DialogTitle>
+          <DialogClose asChild>
+            <button
+              type="button"
+              className="absolute right-4 top-3 text-zinc-500 hover:text-zinc-200"
+              aria-label="Fechar"
+            >
+              <X className="h-5 w-5" />
+            </button>
+          </DialogClose>
+        </DialogHeader>
+        <div className="space-y-4 p-6">
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4">
             <div className="col-span-2">
               <label htmlFor={idApelido} className="mb-1 block text-[11px] font-semibold uppercase tracking-widest text-zinc-400">
@@ -480,7 +519,7 @@ function AddressFormModal({
                   id={idUf}
                   value={addrForm.estado}
                   onChange={(e) => setAddrForm((p) => ({ ...p, estado: e.target.value }))}
-                  className="w-full rounded-xl border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-100 focus:border-violet-500 focus:outline-none uppercase"
+                  className="w-full rounded-xl border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm uppercase text-zinc-100 focus:border-violet-500 focus:outline-none"
                   placeholder="UF"
                   maxLength={2}
                 />
@@ -488,24 +527,24 @@ function AddressFormModal({
             </div>
           </div>
         </div>
-        <div className="border-t border-zinc-800 px-6 py-4 flex gap-3">
+        <div className="flex gap-3 border-t border-zinc-800 px-6 py-4">
           <button
             type="button"
             onClick={onClose}
-            className="flex-1 rounded-xl border border-zinc-700 py-2.5 text-sm text-zinc-400 hover:text-zinc-200 transition-colors"
+            className="flex-1 rounded-xl border border-zinc-700 py-2.5 text-sm text-zinc-400 transition-colors hover:text-zinc-200"
           >
             Cancelar
           </button>
           <button
             type="button"
             onClick={onSave}
-            className="flex-1 rounded-xl bg-orange-500 py-2.5 text-sm font-bold text-primary hover:bg-orange-600 transition-all"
+            className="flex-1 rounded-xl bg-orange-500 py-2.5 text-sm font-bold text-primary transition-all hover:bg-orange-600"
           >
             Salvar
           </button>
         </div>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 

@@ -4,6 +4,13 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Loader2, Plus, Users } from "lucide-react";
 import PlanFeatureGate from "@/components/billing/PlanFeatureGate";
 import { roleLabel, type CompanyRole } from "@/lib/workspace/staffRoles";
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from "@/components/ui/select";
 
 type Profile = {
     id: string;
@@ -291,36 +298,41 @@ export default function TeamMembersPanel() {
                         </div>
                         <div>
                             <label className="text-[11px] font-semibold text-zinc-500">Papel</label>
-                            <select
+                            <Select
                                 value={role}
-                                onChange={(e) => setRole(e.target.value as CompanyRole)}
-                                className="mt-1 w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-800"
+                                onValueChange={(v) => setRole(v as CompanyRole)}
                             >
-                                {inviteable.map((r) => (
-                                    <option key={r} value={r}>
-                                        {roleLabel(r)}
-                                    </option>
-                                ))}
-                            </select>
+                                <SelectTrigger className="mt-1">
+                                    <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    {inviteable.map((r) => (
+                                        <SelectItem key={r} value={r}>
+                                            {roleLabel(r)}
+                                        </SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
                         </div>
                         {role === "member" && (
                             <div className="min-w-[10rem]">
                                 <label className="text-[11px] font-semibold text-zinc-500">Perfil</label>
-                                <select
-                                    value={profileId}
-                                    onChange={(e) => setProfileId(e.target.value)}
-                                    className="mt-1 w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-800"
+                                <Select
+                                    value={profileId || undefined}
+                                    onValueChange={setProfileId}
+                                    disabled={activeProfiles.length === 0}
                                 >
-                                    {activeProfiles.length === 0 ? (
-                                        <option value="">Crie um perfil primeiro</option>
-                                    ) : (
-                                        activeProfiles.map((p) => (
-                                            <option key={p.id} value={p.id}>
+                                    <SelectTrigger className="mt-1">
+                                        <SelectValue placeholder="Crie um perfil primeiro" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        {activeProfiles.map((p) => (
+                                            <SelectItem key={p.id} value={p.id}>
                                                 {p.name}
-                                            </option>
-                                        ))
-                                    )}
-                                </select>
+                                            </SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
                             </div>
                         )}
                         <button
@@ -367,11 +379,11 @@ export default function TeamMembersPanel() {
                                     </div>
                                     <div className="flex flex-wrap items-center gap-2">
                                         {canEditRole && m.is_active && (
-                                            <select
+                                            <Select
                                                 value={r}
                                                 disabled={saving}
-                                                onChange={(e) => {
-                                                    const next = e.target.value as CompanyRole;
+                                                onValueChange={(v) => {
+                                                    const next = v as CompanyRole;
                                                     if (next === "member") {
                                                         const pid =
                                                             m.profile_id || activeProfiles[0]?.id || "";
@@ -392,31 +404,39 @@ export default function TeamMembersPanel() {
                                                         });
                                                     }
                                                 }}
-                                                className="rounded-lg border border-zinc-200 bg-white px-2 py-1 text-xs dark:border-zinc-700 dark:bg-zinc-800"
                                             >
-                                                <option value="admin">{roleLabel("admin")}</option>
-                                                <option value="member">{roleLabel("member")}</option>
-                                            </select>
+                                                <SelectTrigger className="h-8 w-auto min-w-[7rem] px-2 text-xs">
+                                                    <SelectValue />
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                    <SelectItem value="admin">{roleLabel("admin")}</SelectItem>
+                                                    <SelectItem value="member">{roleLabel("member")}</SelectItem>
+                                                </SelectContent>
+                                            </Select>
                                         )}
                                         {r === "member" &&
                                             m.is_active &&
                                             activeProfiles.length > 0 && (
-                                                <select
-                                                    value={m.profile_id ?? ""}
+                                                <Select
+                                                    value={m.profile_id ?? undefined}
                                                     disabled={saving}
-                                                    onChange={(e) =>
+                                                    onValueChange={(v) =>
                                                         void patchMember(m.id, {
-                                                            profile_id: e.target.value,
+                                                            profile_id: v,
                                                         })
                                                     }
-                                                    className="rounded-lg border border-zinc-200 bg-white px-2 py-1 text-xs dark:border-zinc-700 dark:bg-zinc-800"
                                                 >
-                                                    {activeProfiles.map((p) => (
-                                                        <option key={p.id} value={p.id}>
-                                                            {p.name}
-                                                        </option>
-                                                    ))}
-                                                </select>
+                                                    <SelectTrigger className="h-8 w-auto min-w-[7rem] px-2 text-xs">
+                                                        <SelectValue />
+                                                    </SelectTrigger>
+                                                    <SelectContent>
+                                                        {activeProfiles.map((p) => (
+                                                            <SelectItem key={p.id} value={p.id}>
+                                                                {p.name}
+                                                            </SelectItem>
+                                                        ))}
+                                                    </SelectContent>
+                                                </Select>
                                             )}
                                         {r !== "owner" && (
                                             <>

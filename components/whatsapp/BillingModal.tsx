@@ -2,8 +2,14 @@
 
 import React from "react";
 import Link from "next/link";
-import { X } from "lucide-react";
 import type { Usage } from "@/lib/whatsapp/types";
+import {
+    Dialog,
+    DialogContent,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
+} from "@/components/ui/dialog";
 
 interface BillingModalProps {
     usage: Usage | null;
@@ -29,29 +35,22 @@ export function BillingModal({
     })();
 
     return (
-        <div
-            className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
-            onMouseDown={(e) => {
-                if (e.currentTarget === e.target && !busy) onClose();
+        <Dialog
+            open
+            onOpenChange={(next) => {
+                if (!next && !busy) onClose();
             }}
         >
-            <div
-                className="w-full max-w-md overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-2xl dark:border-zinc-700 dark:bg-zinc-900"
-                role="dialog"
-                aria-modal="true"
-                aria-label="Limite do plano atingido"
+            <DialogContent
+                hideClose
+                className="max-w-md gap-0 overflow-hidden rounded-2xl p-0"
+                aria-describedby={undefined}
             >
-                <div className="flex items-center justify-between border-b border-zinc-100 px-4 py-3 dark:border-zinc-800">
-                    <p className="text-sm font-bold text-primary">Limite do plano atingido</p>
-                    <button
-                        onClick={onClose}
-                        disabled={busy}
-                        aria-label="Fechar modal"
-                        className="rounded-lg p-1 text-zinc-400 hover:bg-zinc-100 disabled:opacity-50 dark:hover:bg-zinc-800"
-                    >
-                        <X className="h-4 w-4" />
-                    </button>
-                </div>
+                <DialogHeader className="flex flex-row items-center justify-between space-y-0 border-b border-border px-4 py-3 text-left">
+                    <DialogTitle className="text-sm font-bold text-primary">
+                        Limite do plano atingido
+                    </DialogTitle>
+                </DialogHeader>
 
                 <div className="space-y-3 p-4 text-sm text-zinc-700 dark:text-zinc-300">
                     <p>Você atingiu o limite mensal de mensagens. Escolha uma opção para continuar:</p>
@@ -69,8 +68,9 @@ export function BillingModal({
                     )}
                 </div>
 
-                <div className="flex flex-wrap justify-end gap-2 border-t border-zinc-100 px-4 py-3 dark:border-zinc-800">
+                <DialogFooter className="flex-row flex-wrap justify-end gap-2 border-t border-border px-4 py-3 sm:justify-end">
                     <button
+                        type="button"
                         onClick={onClose}
                         disabled={busy}
                         className="rounded-lg border border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
@@ -78,6 +78,7 @@ export function BillingModal({
                         Cancelar
                     </button>
                     <button
+                        type="button"
                         onClick={onAcceptOverage}
                         disabled={busy}
                         className="rounded-lg border border-orange-400 px-3 py-1.5 text-xs font-semibold text-orange-600 hover:bg-orange-50 disabled:opacity-50 dark:border-orange-500 dark:text-orange-400"
@@ -91,8 +92,8 @@ export function BillingModal({
                     >
                         Ver planos (upgrade)
                     </Link>
-                </div>
-            </div>
-        </div>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
     );
 }

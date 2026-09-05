@@ -6,6 +6,13 @@ import { Loader2, UserPlus, Users } from "lucide-react";
 import { platformApi } from "@/lib/platform/clientApi";
 import { PLATFORM_ROLES } from "@/lib/platform/platformRoles";
 import { toast } from "sonner";
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from "@/components/ui/select";
 
 export default function PlatformUsuariosPage() {
     const queryClient = useQueryClient();
@@ -87,19 +94,23 @@ export default function PlatformUsuariosPage() {
                     </label>
                     <label className="text-xs text-zinc-500">
                         Role
-                        <select
+                        <Select
                             value={role}
-                            onChange={(e) =>
-                                setRole(e.target.value as (typeof PLATFORM_ROLES)[number])
+                            onValueChange={(v) =>
+                                setRole(v as (typeof PLATFORM_ROLES)[number])
                             }
-                            className="mt-1 w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-950"
                         >
-                            {PLATFORM_ROLES.map((r) => (
-                                <option key={r} value={r}>
-                                    {r}
-                                </option>
-                            ))}
-                        </select>
+                            <SelectTrigger className="mt-1">
+                                <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                                {PLATFORM_ROLES.map((r) => (
+                                    <SelectItem key={r} value={r}>
+                                        {r}
+                                    </SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
                     </label>
                     <button
                         type="submit"

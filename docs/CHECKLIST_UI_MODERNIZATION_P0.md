@@ -96,15 +96,15 @@ Estado: `[ ]` pendente · `[~]` parcial · `[x]` feito + data · `[!]` bloqueado
 
 | # | Item | Arquivos criar / alterar | DoD | Estado |
 |---|------|--------------------------|-----|--------|
-| D1 | Config toggles → Switch | **Alterar** `app/(admin)/configuracoes/page.tsx`, `impressoras/page.tsx`, `components/menu/MenuCardapioSettings.tsx`, `MarketplaceIfoodSettings.tsx` | Sem `role="switch"` caseiro | [ ] |
-| D2 | Config ConfirmDialog → Dialog | **Alterar** `configuracoes/page.tsx` | Dialog ui | [ ] |
-| D3 | Financeiro modais/selects | **Alterar** `JournalEntryModal.tsx`, `PagarTab.tsx`, `ReceberTab.tsx` | Dialog + Select | [ ] |
-| D4 | Clientes / entregadores / estoque | **Alterar** `clientes/page.tsx`, `entregadores/page.tsx`, `estoque/page.tsx` | Dialog (+ Select clientes) | [ ] |
-| D5 | Settings panels Select | **Alterar** `TeamMembersPanel.tsx`, `ServiceFeesPanel.tsx` | Select ui | [ ] |
-| D6 | WhatsApp inbox | **Alterar** `WhatsAppInbox.tsx`, `CartEditModal.tsx`, `BillingModal.tsx`, `QuickReplyModal.tsx` | Dialog/Select/Switch; toast | [ ] |
-| D7 | Templates / Campaigns Select | **Alterar** `TemplatesClient.tsx`, `CampaignsClient.tsx` | Select ui | [ ] |
-| D8 | Platform filters + empresas | **Alterar** `PlatformCompaniesFiltersBar.tsx`, `PlatformOrdersFiltersBar.tsx`, `PlatformObservabilityConsole.tsx`, `platform/empresas/*`, `platform/billing/page.tsx` (selects), `usuarios`, `feature-flags` | Select/Dialog/Switch | [ ] |
-| D9 | Skeletons locais → ui | **Alterar** `ListaClient`, `DashboardClient`, `impressoras` (remover Skeleton local) | Só `ui/skeleton` | [ ] |
+| D1 | Config toggles → Switch | **Alterar** `app/(admin)/configuracoes/page.tsx`, `impressoras/page.tsx`, `components/menu/MenuCardapioSettings.tsx`, `MarketplaceIfoodSettings.tsx` | Sem `role="switch"` caseiro | [x] 2026-09-05 |
+| D2 | Config ConfirmDialog → Dialog | **Alterar** `configuracoes/page.tsx` | Dialog ui | [x] 2026-09-05 |
+| D3 | Financeiro modais/selects | **Alterar** `JournalEntryModal.tsx`, `PagarTab.tsx`, `ReceberTab.tsx` | Dialog + Select | [x] 2026-09-05 |
+| D4 | Clientes / entregadores / estoque | **Alterar** `clientes/page.tsx`, `entregadores/page.tsx`, `estoque/page.tsx` | Dialog (+ Select clientes) | [x] 2026-09-05 |
+| D5 | Settings panels Select | **Alterar** `TeamMembersPanel.tsx`, `ServiceFeesPanel.tsx` | Select ui | [x] 2026-09-05 |
+| D6 | WhatsApp inbox | **Alterar** `WhatsAppInbox.tsx`, `CartEditModal.tsx`, `BillingModal.tsx`, `QuickReplyModal.tsx` | Dialog/Select/Switch; toast | [x] 2026-09-05 |
+| D7 | Templates / Campaigns Select | **Alterar** `TemplatesClient.tsx`, `CampaignsClient.tsx` | Select ui | [x] 2026-09-05 |
+| D8 | Platform filters + empresas | **Alterar** `PlatformCompaniesFiltersBar.tsx`, `PlatformOrdersFiltersBar.tsx`, `PlatformObservabilityConsole.tsx`, `platform/empresas/*`, `platform/billing/page.tsx` (selects), `usuarios`, `feature-flags` | Select/Dialog/Switch | [x] 2026-09-05 |
+| D9 | Skeletons locais → ui | **Alterar** `ListaClient`, `DashboardClient`, `impressoras` (remover Skeleton local) | Só `ui/skeleton` | [x] 2026-09-05 |
 
 **Melhora da onda:** consistência total do ERP + platform.
 
@@ -186,8 +186,9 @@ PDV, produtos lista, mesa, plano/signup (tokens), configuracoes, impressoras, fi
 
 ## Critérios de fechamento P0
 
-- [ ] Ondas A + B `[x]`
-- [ ] Pelo menos PDV **ou** produtos (C1–C3) `[x]`
+- [x] Ondas A + B `[x]`
+- [x] Pelo menos PDV **ou** produtos (C1–C3) `[x]`
+- [x] Onda D (admin/platform/WhatsApp) `[x]` 2026-09-05
 - [ ] Zero `alert(` nos hubs AdminShell / WorkspaceSwitcher / orders Modal
 - [ ] Cmd+K (E) opcional para fechar P0 — se adiado, marcar `[~]` no ADR e abrir P1 UI
 - [ ] `npm test` / e2e críticos verdes nos módulos tocados

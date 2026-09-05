@@ -57,6 +57,20 @@ import { parseOptionalUuid } from "@/lib/whatsapp/urlSafety";
 import { META_MEDIA_ID_PATH_RE, sanitizeWhatsAppMediaPathId } from "@/lib/whatsapp/mediaIdPath";
 import { buildWaMediaRelativePath } from "@/lib/whatsapp/waMediaUrl";
 import { BillingModal } from "./BillingModal";
+import { Switch } from "@/components/ui/switch";
+import {
+    Dialog,
+    DialogContent,
+    DialogHeader,
+    DialogTitle,
+} from "@/components/ui/dialog";
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from "@/components/ui/select";
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
@@ -1068,20 +1082,19 @@ export default function WhatsAppInbox({ initialPhone }: { initialPhone?: string 
                                 {/* Toggle bot */}
                                 <div className="flex items-center gap-2 rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-1.5 dark:border-zinc-700 dark:bg-zinc-800">
                                     <span className="text-[11px] font-medium text-zinc-600 dark:text-zinc-400">Bot</span>
-                                    <button
-                                        onClick={() => toggleBot(selectedThread.id, selectedThread.bot_active === false)}
+                                    <Switch
+                                        checked={selectedThread.bot_active !== false}
                                         disabled={botToggling}
-                                        aria-label={selectedThread.bot_active !== false ? "Pausar bot" : "Ativar bot"}
-                                        aria-checked={selectedThread.bot_active !== false}
-                                        role="switch"
-                                        className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-primary/40 disabled:opacity-50 ${
-                                            selectedThread.bot_active !== false ? "bg-emerald-500" : "bg-zinc-300 dark:bg-zinc-600"
-                                        }`}
-                                    >
-                                        <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform duration-200 ${
-                                            selectedThread.bot_active !== false ? "translate-x-4" : "translate-x-1"
-                                        }`} />
-                                    </button>
+                                        onCheckedChange={(checked) =>
+                                            toggleBot(selectedThread.id, checked)
+                                        }
+                                        aria-label={
+                                            selectedThread.bot_active !== false
+                                                ? "Pausar bot"
+                                                : "Ativar bot"
+                                        }
+                                        className="data-[state=checked]:bg-emerald-500"
+                                    />
                                     <span className={`text-[10px] font-semibold ${selectedThread.bot_active !== false ? "text-emerald-600" : "text-zinc-400"}`}>
                                         {selectedThread.bot_active !== false ? "Ativo" : "Pausado"}
                                     </span>
@@ -1803,17 +1816,18 @@ function TemplateQuickSend({
                         </p>
                     ) : (
                         <>
-                            <select
-                                className="w-full rounded-md border border-zinc-200 bg-white px-2 py-1.5 text-xs dark:border-zinc-700 dark:bg-zinc-950"
-                                value={selected}
-                                onChange={(e) => setSelected(e.target.value)}
-                            >
-                                {templates.map((t) => (
-                                    <option key={t.id} value={`${t.name}::${t.language}`}>
-                                        {t.name} ({t.language})
-                                    </option>
-                                ))}
-                            </select>
+                            <Select value={selected || undefined} onValueChange={setSelected}>
+                                <SelectTrigger className="h-8 text-xs">
+                                    <SelectValue placeholder="Selecione um template" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    {templates.map((t) => (
+                                        <SelectItem key={t.id} value={`${t.name}::${t.language}`}>
+                                            {t.name} ({t.language})
+                                        </SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
                             <div className="grid grid-cols-2 gap-2">
                                 <input
                                     className="rounded-md border border-zinc-200 bg-white px-2 py-1.5 text-xs dark:border-zinc-700 dark:bg-zinc-950"
@@ -2058,41 +2072,23 @@ function InlineModal({
     children: React.ReactNode;
     onClose: () => void;
 }) {
-    // Focus trap: focus first focusable element on mount
-    const dialogRef = useRef<HTMLDivElement>(null);
-    useEffect(() => {
-        const el = dialogRef.current;
-        if (!el) return;
-        const focusable = el.querySelectorAll<HTMLElement>(
-            'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
-        );
-        focusable[0]?.focus();
-    }, []);
-
     return (
-        <div
-            className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
-            onMouseDown={(e) => { if (e.currentTarget === e.target) onClose(); }}
-            role="dialog"
-            aria-modal="true"
-            aria-label={title}
+        <Dialog
+            open
+            onOpenChange={(next) => {
+                if (!next) onClose();
+            }}
         >
-            <div
-                ref={dialogRef}
-                className="w-full max-w-md overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-2xl dark:border-zinc-700 dark:bg-zinc-900"
+            <DialogContent
+                hideClose
+                className="max-w-md gap-0 overflow-hidden rounded-2xl p-0"
+                aria-describedby={undefined}
             >
-                <div className="flex items-center justify-between border-b border-zinc-100 px-4 py-3 dark:border-zinc-800">
-                    <p className="text-sm font-bold text-primary">{title}</p>
-                    <button
-                        onClick={onClose}
-                        aria-label="Fechar"
-                        className="rounded-lg p-1 text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 focus:outline-none focus:ring-2 focus:ring-primary/40"
-                    >
-                        <X className="h-4 w-4" aria-hidden="true" />
-                    </button>
-                </div>
+                <DialogHeader className="flex flex-row items-center justify-between space-y-0 border-b border-border px-4 py-3 pr-12 text-left">
+                    <DialogTitle className="text-sm font-bold text-primary">{title}</DialogTitle>
+                </DialogHeader>
                 <div className="p-4">{children}</div>
-            </div>
-        </div>
+            </DialogContent>
+        </Dialog>
     );
 }

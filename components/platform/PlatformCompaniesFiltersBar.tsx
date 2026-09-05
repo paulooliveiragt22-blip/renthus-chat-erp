@@ -25,6 +25,13 @@ import {
     type PlatformCompaniesFilter,
     type PlatformCompanySort,
 } from "@/lib/platform/companiesFilters";
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from "@/components/ui/select";
 
 type PlanOpt = { id: string; name: string; key?: string };
 type Summary = {
@@ -361,17 +368,18 @@ function SelectField({
     return (
         <label className="text-xs font-medium text-zinc-500">
             {label}
-            <select
-                value={value}
-                onChange={(e) => onChange(e.target.value)}
-                className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-800 focus:border-violet-400 focus:outline-none dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100"
-            >
-                {options.map((o) => (
-                    <option key={o.value} value={o.value}>
-                        {o.label}
-                    </option>
-                ))}
-            </select>
+            <Select value={value} onValueChange={onChange}>
+                <SelectTrigger className="mt-1 rounded-xl">
+                    <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                    {options.map((o) => (
+                        <SelectItem key={o.value} value={o.value}>
+                            {o.label}
+                        </SelectItem>
+                    ))}
+                </SelectContent>
+            </Select>
         </label>
     );
 }

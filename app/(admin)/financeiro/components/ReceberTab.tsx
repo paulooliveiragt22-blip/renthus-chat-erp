@@ -2,6 +2,21 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { ArrowDownCircle, CheckCircle2, X } from "lucide-react";
+import {
+    Dialog,
+    DialogClose,
+    DialogContent,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
+} from "@/components/ui/dialog";
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from "@/components/ui/select";
 import { brl, isoDate, PAY_META } from "../lib/format";
 import type { AgingSummary, Bill } from "../lib/types";
 import { Skeleton } from "./Skeleton";
@@ -171,62 +186,80 @@ export default function ReceberTab({ companyId, refreshKey }: Props) {
                 )}
             </div>
 
-            {payBill && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
-                    <div className="w-full max-w-sm rounded-2xl bg-white p-0 shadow-2xl dark:bg-zinc-900">
-                        <div className="flex items-center gap-3 border-b border-zinc-100 px-5 py-4 dark:border-zinc-800">
-                            <CheckCircle2 className="h-5 w-5 text-emerald-600" />
-                            <p className="text-sm font-bold">Registrar recebimento</p>
-                            <button type="button" onClick={() => setPayBill(null)} className="ml-auto text-zinc-400">
-                                <X className="h-4 w-4" />
-                            </button>
-                        </div>
-                        <div className="space-y-3 p-5">
-                            <p className="text-sm">
-                                Saldo: <b className="text-amber-600">{brl(payBill.saldo_devedor)}</b>
-                            </p>
-                            <input
-                                type="number"
-                                min={0.01}
-                                step={0.01}
-                                value={payForm.amount}
-                                onChange={(e) => setPayForm((p) => ({ ...p, amount: e.target.value }))}
-                                className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-800"
-                            />
-                            <select
-                                value={payForm.payment_method}
-                                onChange={(e) => setPayForm((p) => ({ ...p, payment_method: e.target.value }))}
-                                className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-800"
-                            >
-                                {Object.entries(PAY_META).map(([k, v]) => (
-                                    <option key={k} value={k}>
-                                        {v.label}
-                                    </option>
-                                ))}
-                            </select>
-                            <input
-                                type="date"
-                                value={payForm.received_at}
-                                onChange={(e) => setPayForm((p) => ({ ...p, received_at: e.target.value }))}
-                                className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-800"
-                            />
-                        </div>
-                        <div className="flex gap-3 border-t border-zinc-100 px-5 py-4 dark:border-zinc-800">
-                            <button type="button" onClick={() => setPayBill(null)} className="flex-1 rounded-xl border py-2.5 text-sm">
-                                Cancelar
-                            </button>
-                            <button
-                                type="button"
-                                onClick={handlePay}
-                                disabled={paying || !payForm.amount}
-                                className="flex-1 rounded-xl bg-emerald-600 py-2.5 text-sm font-bold text-white disabled:opacity-50"
-                            >
-                                {paying ? "Salvando…" : "Confirmar"}
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            )}
+            <Dialog open={!!payBill} onOpenChange={(next) => !next && setPayBill(null)}>
+                <DialogContent
+                    hideClose
+                    className="max-w-sm gap-0 rounded-2xl p-0 shadow-2xl"
+                    aria-describedby={undefined}
+                >
+                    {payBill ? (
+                        <>
+                            <div className="flex items-center gap-3 border-b border-zinc-100 px-5 py-4 dark:border-zinc-800">
+                                <CheckCircle2 className="h-5 w-5 text-emerald-600" />
+                                <DialogHeader className="flex-1 space-y-0">
+                                    <DialogTitle className="text-sm font-bold">Registrar recebimento</DialogTitle>
+                                </DialogHeader>
+                                <DialogClose asChild>
+                                    <button type="button" className="text-zinc-400" aria-label="Fechar">
+                                        <X className="h-4 w-4" />
+                                    </button>
+                                </DialogClose>
+                            </div>
+                            <div className="space-y-3 p-5">
+                                <p className="text-sm">
+                                    Saldo: <b className="text-amber-600">{brl(payBill.saldo_devedor)}</b>
+                                </p>
+                                <input
+                                    type="number"
+                                    min={0.01}
+                                    step={0.01}
+                                    value={payForm.amount}
+                                    onChange={(e) => setPayForm((p) => ({ ...p, amount: e.target.value }))}
+                                    className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-800"
+                                />
+                                <Select
+                                    value={payForm.payment_method}
+                                    onValueChange={(v) => setPayForm((p) => ({ ...p, payment_method: v }))}
+                                >
+                                    <SelectTrigger className="w-full rounded-xl border-zinc-200 dark:border-zinc-700 dark:bg-zinc-800">
+                                        <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        {Object.entries(PAY_META).map(([k, v]) => (
+                                            <SelectItem key={k} value={k}>
+                                                {v.label}
+                                            </SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                                <input
+                                    type="date"
+                                    value={payForm.received_at}
+                                    onChange={(e) => setPayForm((p) => ({ ...p, received_at: e.target.value }))}
+                                    className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-800"
+                                />
+                            </div>
+                            <DialogFooter className="flex-row gap-3 border-t border-zinc-100 px-5 py-4 dark:border-zinc-800 sm:justify-stretch">
+                                <button
+                                    type="button"
+                                    onClick={() => setPayBill(null)}
+                                    className="flex-1 rounded-xl border py-2.5 text-sm"
+                                >
+                                    Cancelar
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={handlePay}
+                                    disabled={paying || !payForm.amount}
+                                    className="flex-1 rounded-xl bg-emerald-600 py-2.5 text-sm font-bold text-white disabled:opacity-50"
+                                >
+                                    {paying ? "Salvando…" : "Confirmar"}
+                                </button>
+                            </DialogFooter>
+                        </>
+                    ) : null}
+                </DialogContent>
+            </Dialog>
         </div>
     );
 }

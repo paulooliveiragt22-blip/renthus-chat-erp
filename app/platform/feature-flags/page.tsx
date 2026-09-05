@@ -5,6 +5,14 @@ import { useState } from "react";
 import { Flag, Loader2, Plus } from "lucide-react";
 import { platformApi, type PlatformFeatureFlag } from "@/lib/platform/clientApi";
 import { toast } from "sonner";
+import { Switch } from "@/components/ui/switch";
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from "@/components/ui/select";
 
 export default function PlatformFeatureFlagsPage() {
     const queryClient = useQueryClient();
@@ -152,15 +160,14 @@ export default function PlatformFeatureFlagsPage() {
                                         </p>
                                     </div>
                                     <label className="flex items-center gap-2 text-sm text-zinc-700 dark:text-zinc-200">
-                                        <input
-                                            type="checkbox"
+                                        <Switch
                                             checked={flag.enabled_global}
                                             disabled={upsert.isPending}
-                                            onChange={(e) =>
+                                            onCheckedChange={(checked) =>
                                                 upsert.mutate({
                                                     key: flag.key,
                                                     description: flag.description,
-                                                    enabled_global: e.target.checked,
+                                                    enabled_global: checked,
                                                 })
                                             }
                                         />
@@ -208,24 +215,27 @@ export default function PlatformFeatureFlagsPage() {
                     className="grid gap-2 sm:grid-cols-4 sm:items-end"
                     onSubmit={(e) => {
                         e.preventDefault();
+                        if (!overrideKey.trim() || !overrideCompanyId.trim()) return;
                         setOverride.mutate();
                     }}
                 >
                     <label className="text-xs text-zinc-500 sm:col-span-1">
                         Flag
-                        <select
-                            value={overrideKey}
-                            onChange={(e) => setOverrideKey(e.target.value)}
-                            className="mt-1 w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-950"
-                            required
+                        <Select
+                            value={overrideKey || undefined}
+                            onValueChange={setOverrideKey}
                         >
-                            <option value="">Selecione</option>
-                            {flags.map((f) => (
-                                <option key={f.key} value={f.key}>
-                                    {f.key}
-                                </option>
-                            ))}
-                        </select>
+                            <SelectTrigger className="mt-1">
+                                <SelectValue placeholder="Selecione" />
+                            </SelectTrigger>
+                            <SelectContent>
+                                {flags.map((f) => (
+                                    <SelectItem key={f.key} value={f.key}>
+                                        {f.key}
+                                    </SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
                     </label>
                     <label className="text-xs text-zinc-500 sm:col-span-2">
                         Company ID (UUID)
@@ -237,10 +247,9 @@ export default function PlatformFeatureFlagsPage() {
                         />
                     </label>
                     <label className="flex items-center gap-2 pb-2 text-sm text-zinc-700 dark:text-zinc-200">
-                        <input
-                            type="checkbox"
+                        <Switch
                             checked={overrideEnabled}
-                            onChange={(e) => setOverrideEnabled(e.target.checked)}
+                            onCheckedChange={setOverrideEnabled}
                         />
                         Enabled
                     </label>

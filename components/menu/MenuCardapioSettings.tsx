@@ -14,24 +14,15 @@ import {
     UserCircle,
 } from "lucide-react";
 import type { MenuProfileAdmin } from "@/src/types/contracts.public-menu";
+import { Switch } from "@/components/ui/switch";
 
 function Toggle({ checked, onChange }: { checked: boolean; onChange: (v: boolean) => void }) {
     return (
-        <button
-            type="button"
-            role="switch"
+        <Switch
+            checked={checked}
+            onCheckedChange={onChange}
             aria-checked={checked}
-            onClick={() => onChange(!checked)}
-            className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${
-                checked ? "bg-violet-600" : "bg-zinc-300 dark:bg-zinc-600"
-            }`}
-        >
-            <span
-                className={`absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-white transition-transform ${
-                    checked ? "translate-x-5" : "translate-x-0"
-                }`}
-            />
-        </button>
+        />
     );
 }
 

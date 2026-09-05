@@ -21,6 +21,13 @@ import {
 } from "@/lib/billing/moneyDisplay";
 import { computeYearlyPriceCents } from "@/lib/billing/yearlyFromDiscount";
 import { Switch } from "@/components/ui/switch";
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from "@/components/ui/select";
 
 type SubRow = UiSubscriptionRow;
 
@@ -164,17 +171,21 @@ function PromoAdminPanel({
             <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
                 <label className="flex flex-col gap-0.5 text-[10px] text-zinc-500">
                     Plano
-                    <select
-                        className={inputCls}
-                        value={form.plan_id || plans[0]?.id || ""}
-                        onChange={(e) => setForm((f) => ({ ...f, plan_id: e.target.value }))}
+                    <Select
+                        value={form.plan_id || plans[0]?.id || undefined}
+                        onValueChange={(v) => setForm((f) => ({ ...f, plan_id: v }))}
                     >
-                        {plans.map((p) => (
-                            <option key={p.id} value={p.id}>
-                                {p.name}
-                            </option>
-                        ))}
-                    </select>
+                        <SelectTrigger className={inputCls}>
+                            <SelectValue placeholder="Plano" />
+                        </SelectTrigger>
+                        <SelectContent>
+                            {plans.map((p) => (
+                                <SelectItem key={p.id} value={p.id}>
+                                    {p.name}
+                                </SelectItem>
+                            ))}
+                        </SelectContent>
+                    </Select>
                 </label>
                 <label className="flex flex-col gap-0.5 text-[10px] text-zinc-500">
                     Nome da campanha
@@ -214,11 +225,10 @@ function PromoAdminPanel({
                 <div className="flex flex-col gap-0.5 text-[10px] text-zinc-500">
                     Desconto
                     <div className="flex gap-1">
-                        <select
-                            className={inputCls}
+                        <Select
                             value={form.adjustment_mode}
-                            onChange={(e) => {
-                                const mode = e.target.value as "fixed_brl" | "percent";
+                            onValueChange={(v) => {
+                                const mode = v as "fixed_brl" | "percent";
                                 setForm((f) => ({
                                     ...f,
                                     adjustment_mode: mode,
@@ -226,9 +236,14 @@ function PromoAdminPanel({
                                 }));
                             }}
                         >
-                            <option value="percent">%</option>
-                            <option value="fixed_brl">R$</option>
-                        </select>
+                            <SelectTrigger className={`${inputCls} w-auto`}>
+                                <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="percent">%</SelectItem>
+                                <SelectItem value="fixed_brl">R$</SelectItem>
+                            </SelectContent>
+                        </Select>
                         <input
                             className={`${inputCls} flex-1`}
                             placeholder={
@@ -682,13 +697,10 @@ export default function PlatformBillingPage() {
                                             </td>
                                             <td className="py-2 pr-3">
                                                 <div className="flex items-center gap-1">
-                                                    <select
-                                                        className="rounded border border-zinc-200 bg-white px-1 py-1 text-[10px] dark:border-zinc-700 dark:bg-zinc-950"
+                                                    <Select
                                                         value={mode}
-                                                        onChange={(e) => {
-                                                            const m = e.target.value as
-                                                                | "percent"
-                                                                | "fixed_brl";
+                                                        onValueChange={(v) => {
+                                                            const m = v as "percent" | "fixed_brl";
                                                             setPriceEdits((prev) => ({
                                                                 ...prev,
                                                                 [p.id]: {
@@ -702,9 +714,14 @@ export default function PlatformBillingPage() {
                                                             }));
                                                         }}
                                                     >
-                                                        <option value="percent">%</option>
-                                                        <option value="fixed_brl">R$</option>
-                                                    </select>
+                                                        <SelectTrigger className="h-7 w-auto px-1 text-[10px]">
+                                                            <SelectValue />
+                                                        </SelectTrigger>
+                                                        <SelectContent>
+                                                            <SelectItem value="percent">%</SelectItem>
+                                                            <SelectItem value="fixed_brl">R$</SelectItem>
+                                                        </SelectContent>
+                                                    </Select>
                                                     <input
                                                         className={inputCls}
                                                         placeholder={
@@ -976,22 +993,26 @@ export default function PlatformBillingPage() {
                                         </td>
                                         <td className="px-3 py-2">
                                             <div className="flex flex-wrap items-center gap-2">
-                                                <select
+                                                <Select
                                                     value={selected}
-                                                    onChange={(e) =>
+                                                    onValueChange={(v) =>
                                                         setPlanEdits((m) => ({
                                                             ...m,
-                                                            [s.id]: e.target.value,
+                                                            [s.id]: v,
                                                         }))
                                                     }
-                                                    className="rounded border border-zinc-200 bg-zinc-50 px-2 py-1 text-xs dark:border-zinc-700 dark:bg-zinc-800"
                                                 >
-                                                    {plans.map((p) => (
-                                                        <option key={p.id} value={p.key}>
-                                                            {p.name} ({p.key})
-                                                        </option>
-                                                    ))}
-                                                </select>
+                                                    <SelectTrigger className="h-7 w-auto min-w-[8rem] px-2 text-xs">
+                                                        <SelectValue />
+                                                    </SelectTrigger>
+                                                    <SelectContent>
+                                                        {plans.map((p) => (
+                                                            <SelectItem key={p.id} value={p.key}>
+                                                                {p.name} ({p.key})
+                                                            </SelectItem>
+                                                        ))}
+                                                    </SelectContent>
+                                                </Select>
                                                 <button
                                                     type="button"
                                                     disabled={changePlan.isPending}
@@ -1150,26 +1171,35 @@ export default function PlatformBillingPage() {
                                                 </button>
                                                 {isSuperadmin ? (
                                                     <>
-                                                        <select
+                                                        <Select
                                                             value={courtesyPlan}
-                                                            onChange={(e) =>
+                                                            onValueChange={(v) =>
                                                                 setCourtesyPlanByCompany((m) => ({
                                                                     ...m,
-                                                                    [t.companyId]: e.target
-                                                                        .value as
+                                                                    [t.companyId]: v as
                                                                         | "essencial"
                                                                         | "pro"
                                                                         | "market",
                                                                 }))
                                                             }
-                                                            className="rounded border border-zinc-200 bg-zinc-50 px-1 py-1 text-xs dark:border-zinc-700 dark:bg-zinc-800"
-                                                            title="Plano do trial"
-                                                            aria-label="Plano do trial"
                                                         >
-                                                            <option value="essencial">Essencial</option>
-                                                            <option value="pro">Pro</option>
-                                                            <option value="market">Market</option>
-                                                        </select>
+                                                            <SelectTrigger
+                                                                className="h-7 w-auto px-1 text-xs"
+                                                                title="Plano do trial"
+                                                                aria-label="Plano do trial"
+                                                            >
+                                                                <SelectValue />
+                                                            </SelectTrigger>
+                                                            <SelectContent>
+                                                                <SelectItem value="essencial">
+                                                                    Essencial
+                                                                </SelectItem>
+                                                                <SelectItem value="pro">Pro</SelectItem>
+                                                                <SelectItem value="market">
+                                                                    Market
+                                                                </SelectItem>
+                                                            </SelectContent>
+                                                        </Select>
                                                         <input
                                                             type="number"
                                                             min={1}

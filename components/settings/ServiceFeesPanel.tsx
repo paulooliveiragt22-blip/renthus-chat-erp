@@ -2,6 +2,13 @@
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Loader2, Percent, Plus, Trash2 } from "lucide-react";
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from "@/components/ui/select";
 
 type FeeDef = {
     id: string;
@@ -224,16 +231,20 @@ export default function ServiceFeesPanel() {
                                 </p>
                                 <label className="block text-sm">
                                     <span className="text-zinc-600 dark:text-zinc-400">Cálculo</span>
-                                    <select
-                                        className="mt-1 w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 dark:border-zinc-700 dark:bg-zinc-950"
+                                    <Select
                                         value={deliveryCalc}
-                                        onChange={(e) =>
-                                            setDeliveryCalc(e.target.value as "fixed" | "percent")
+                                        onValueChange={(v) =>
+                                            setDeliveryCalc(v as "fixed" | "percent")
                                         }
                                     >
-                                        <option value="fixed">Valor fixo (R$)</option>
-                                        <option value="percent">Percentual (%)</option>
-                                    </select>
+                                        <SelectTrigger className="mt-1">
+                                            <SelectValue />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            <SelectItem value="fixed">Valor fixo (R$)</SelectItem>
+                                            <SelectItem value="percent">Percentual (%)</SelectItem>
+                                        </SelectContent>
+                                    </Select>
                                 </label>
                                 <label className="block text-sm">
                                     <span className="text-zinc-600 dark:text-zinc-400">
@@ -296,16 +307,20 @@ export default function ServiceFeesPanel() {
                                 </label>
                                 <label className="block text-sm">
                                     <span className="text-zinc-600 dark:text-zinc-400">Cálculo</span>
-                                    <select
-                                        className="mt-1 w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 dark:border-zinc-700 dark:bg-zinc-950"
+                                    <Select
                                         value={calcMode}
-                                        onChange={(e) =>
-                                            setCalcMode(e.target.value as "fixed" | "percent")
+                                        onValueChange={(v) =>
+                                            setCalcMode(v as "fixed" | "percent")
                                         }
                                     >
-                                        <option value="fixed">Valor fixo (R$)</option>
-                                        <option value="percent">Percentual (%)</option>
-                                    </select>
+                                        <SelectTrigger className="mt-1">
+                                            <SelectValue />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            <SelectItem value="fixed">Valor fixo (R$)</SelectItem>
+                                            <SelectItem value="percent">Percentual (%)</SelectItem>
+                                        </SelectContent>
+                                    </Select>
                                 </label>
                                 <label className="block text-sm">
                                     <span className="text-zinc-600 dark:text-zinc-400">
