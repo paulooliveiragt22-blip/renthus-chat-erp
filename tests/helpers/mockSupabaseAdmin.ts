@@ -169,6 +169,78 @@ export function makeMockAdmin(tables: Tables): MockAdminHandle {
                         error: null,
                     };
                 }
+                if (name === "rpc_transition_billing_status") {
+                    const companyId = params.p_company_id;
+                    const to = String(params.p_to ?? "");
+                    const cas = params.p_cas_updated_at;
+                    const subs = tables.pagarme_subscriptions ?? (tables.pagarme_subscriptions = []);
+                    const sub = subs.find((r) => r.company_id === companyId) ?? subs[0];
+                    if (!sub) {
+                        return { data: null, error: { message: "subscription_not_found" } };
+                    }
+                    const from = String(sub.status ?? "");
+                    if (cas != null && sub.updated_at != null && sub.updated_at !== cas) {
+                        return {
+                            data: {
+                                status: "conflict",
+                                claimed: false,
+                                from,
+                                to,
+                                reason: "cas_mismatch",
+                            },
+                            error: null,
+                        };
+                    }
+                    if (from === to) {
+                        if (to === "blocked") {
+                            const companies = tables.companies ?? (tables.companies = []);
+                            const co = companies.find((c) => c.id === companyId);
+                            if (co) co.is_active = false;
+                        }
+                        return {
+                            data: { status: "already", claimed: false, from, to },
+                            error: null,
+                        };
+                    }
+                    sub.status = to;
+                    if (to === "blocked") {
+                        const companies = tables.companies ?? (tables.companies = []);
+                        const co = companies.find((c) => c.id === companyId);
+                        if (co) co.is_active = false;
+                    }
+                    writes.push({
+                        table: "pagarme_subscriptions",
+                        operation: "rpc_transition_billing_status",
+                        data: { company_id: companyId, from, to },
+                    });
+                    return {
+                        data: { status: "transitioned", claimed: true, from, to },
+                        error: null,
+                    };
+                }
+                if (name === "rpc_mark_abandoned_due") {
+                    const subs = tables.pagarme_subscriptions ?? [];
+                    const companies = tables.companies ?? [];
+                    const cutoff = Date.now() - 14 * 86_400_000;
+                    const companyIds: string[] = [];
+                    for (const sub of subs) {
+                        const from = String(sub.status ?? "");
+                        if (from !== "pending_payment" && from !== "pending_setup") continue;
+                        if (sub.last_paid_at != null) continue;
+                        if (sub.abandoned_at != null) continue;
+                        const created = sub.created_at ? new Date(String(sub.created_at)).getTime() : 0;
+                        if (created > cutoff) continue;
+                        const co = companies.find((c) => c.id === sub.company_id);
+                        if (!co || co.is_active !== false) continue;
+                        sub.status = "abandoned";
+                        sub.abandoned_at = new Date().toISOString();
+                        companyIds.push(String(sub.company_id));
+                    }
+                    return {
+                        data: { status: "ok", marked: companyIds.length, company_ids: companyIds },
+                        error: null,
+                    };
+                }
                 if (name !== "claim_chatbot_queue_jobs") return { data: null, error: { message: "rpc not found" } };
                 const batch = Number(params.batch_size ?? 5);
                 const maxAttempts = Number(params.max_attempts ?? 3);

@@ -96,6 +96,7 @@ Estado: `[ ]` pendente · `[~]` parcial · `[x]` feito + data · `[!]` bloqueado
 | H5.5 **R11b** | `lastByCompany`: DISTINCT ON / RPC / limite por company | `rpc_last_invoices_by_company` + adapters | 24k rows em Node | — | 1 latest/company | [x] 2026-09-04 |
 | H5.6 **R13** | `POST …/change-plan` + `POST …/replay-fulfill` (ops) | `subscriptions/[id]/change-plan`, `billing/replay-fulfill` | Ops sem replay; falso `[x]` no O5.2 | L3 | 401/403 auth + fulfill real | [x] 2026-09-04 |
 | H5.7 **R14** | Remover `bot`/`complete` de `SUBSCRIPTION_PLAN_KEYS`; aliases só em `PlanInputKey` + normalize | `contracts/status.ts`, `planCatalog.ts` | Raw legado no DB | — | Typecheck | [x] 2026-09-04 |
+| H5.8 **R18** | Status crítico só via RPC CAS (`overdue`/`pending_payment`/`blocked`/`abandoned`) | `rpc_transition_billing_status`, `rpc_mark_abandoned_due`, collect/charge/mark-abandoned | Cron sobrescreve `active` pós-pago | D11 | EXECUTE só `service_role`; collect/charge sem `.update({ status })` | [x] 2026-09-04 |
 
 ---
 

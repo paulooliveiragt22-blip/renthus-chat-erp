@@ -157,7 +157,9 @@ App só passa **o que** cobrar (kind/plan/period), nunca **quanto**.
   ≥1 admin/owner, users pertencem à company) e grava `pending_*` atômico.
 - Seat cap (BN-17): trigger em `company_users` (ou constraint) contra `seat_quantity` — bloqueia
   race de convite concorrente que o gate TS deixa passar.
-- Transições de `status` críticas (block dunning, reativação) por RPC com claim/CAS.
+- Transições de `status` críticas (block dunning, overdue, abandoned) por
+  `rpc_transition_billing_status` / `rpc_mark_abandoned_due` com claim/CAS em `updated_at`.
+  App não faz `.update({ status })` em `pagarme_subscriptions` no cron/collect.
 
 ### D12 — Matriz de dunning e proration no banco
 
@@ -195,7 +197,8 @@ para `execute_sql` (unit SQL) + smoke.
 | R7 | Cancel-before-create (PIX cron + card checkout) | QRs/orders órfãos; double-pay PSP | L3+D4 | `collectPayment.ts`, `create-invoice-checkout/route.ts` |
 | R8 | `handleOrderFailed` só após GET failed | Fail forjado bloqueia tenant | L3 | `app/api/billing/webhook/route.ts` |
 | R9 | Checkout amount = catálogo; rebill no platform change-plan | Cobrança com preço stale | D5 | `ensureCheckout.ts`, platform `change-plan`, `rebillPendingObligation.ts` |
-| R10 | Cron: set processados + `neverPaid`→`pending_payment`; `blockCompany` único UPDATE | Double-pass D0/D1; UPDATE morto | D6 | `app/api/billing/charge/route.ts` |
+| R10 | Cron: set processados + `neverPaid`→`pending_payment`; block via RPC CAS | Double-pass D0/D1; fulfill vs block | D6 | `charge/route.ts`, `rpc_transition_billing_status` |
+| R18 | `rpc_transition_billing_status` + `rpc_mark_abandoned_due` | Race cron overdue/block vs fulfill `active`; grace 14d só em TS | D11 | `transitionBillingStatus.ts`, `collectPayment.ts`, `mark-abandoned` |
 | R11 | Filtro SQL + limite em repositories | OOM / timeout platform list | — | `supabaseSubscriptionRepository.ts`, `supabaseInvoiceRepository.ts` |
 | R12 | TTL cache `billing_checkout_idempotency` + RLS FORCE | PIX EMV eterno / leak via grant | L5 | migration + `create-invoice-checkout/route.ts` |
 | R13 | Platform routes reais (change-plan + replay-fulfill) | Ops sem ferramenta; checklist falso-verde | L3 | `app/api/platform/billing/subscriptions/[id]/*` |

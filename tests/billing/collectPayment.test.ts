@@ -124,7 +124,15 @@ function adminWithPending(invoice?: Record<string, unknown> | null) {
     const handle = makeMockAdmin({
         invoices,
         payment_attempts: [],
-        pagarme_subscriptions: [{ id: SUB.id, status: "active" }],
+        pagarme_subscriptions: [
+            {
+                id: SUB.id,
+                company_id: SUB.company_id,
+                status: "active",
+                last_paid_at: SUB.last_paid_at,
+                updated_at: "2026-08-01T00:00:00.000Z",
+            },
+        ],
     });
     return handle;
 }
@@ -187,6 +195,15 @@ describe("collectPayment (R2.5)", () => {
         const attempts = db.tables.payment_attempts ?? [];
         assert.ok(attempts.some((a) => a.channel === "card" && a.status === "failed"));
         assert.ok(attempts.some((a) => a.channel === "pix" && a.status === "pending"));
+        assert.ok(
+            db.writes.some(
+                (w) =>
+                    w.table === "pagarme_subscriptions" &&
+                    w.operation === "rpc_transition_billing_status"
+            ),
+            "fallback de status via RPC, não .update direto"
+        );
+        assert.equal(db.tables.pagarme_subscriptions?.[0]?.status, "overdue");
     });
 
     it("unique pending: reusa invoice existente sem criar outra", async () => {
