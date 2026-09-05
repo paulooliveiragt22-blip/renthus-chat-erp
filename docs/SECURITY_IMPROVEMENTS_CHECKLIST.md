@@ -79,9 +79,10 @@ Use como guia de implementação e revisão periódica. Itens derivados da anál
 
 ## 9. Cabeçalhos HTTP globais
 
-- [x] HSTS (prod), `X-Frame-Options: SAMEORIGIN`, `nosniff`, `Referrer-Policy`, `Permissions-Policy`. → `next.config.js`
-- [x] **P2 S1:** `Content-Security-Policy-Report-Only` (`lib/security/cspPolicy.ts` + `cspPolicy.cjs`). Guia Next.js (Context7): sem nonce → `'unsafe-inline'`; PWA `worker-src`.
-- [ ] **P2 S10–S11:** enforce + nonce no `proxy.ts`; alinhar `X-Frame-Options` com `frame-ancestors 'none'`.
+- [x] HSTS (prod), `nosniff`, `Referrer-Policy`, `Permissions-Policy`. → `next.config.js`
+- [x] **P2 S1:** Report-Only primeiro (histórico). Substituído por S10.
+- [x] **P2 S10:** `Content-Security-Policy` enforce no `proxy.ts` (`lib/security/cspProxy.ts`): nonce por request + `strict-dynamic`; `x-nonce` no `app/layout.tsx`. Sem CSP em `next.config.js` (AND com nonce quebraria a página).
+- [x] **P2 S11:** `X-Frame-Options: DENY` alinhado a `frame-ancestors 'none'`.
 
 ---
 
@@ -109,7 +110,7 @@ Use como guia de implementação e revisão periódica. Itens derivados da anál
 Caminho seguro: UI → `fetch("/api/...")` → RPC/view via `service_role`. Achados 2026-09-04:
 
 - [x] **P2 S8:** `AdminShell` lê pedido via `GET /api/orders/[id]` (cookie). Sem `createClient().from` no shell.
-- [ ] **P2 S9:** `createClient()` residual — Lista (Realtime), Configurações, Dashboard, login/signup (Auth ok).
+- [x] **P2 S9:** browser `createClient()` só Auth. Lista/Config/Dashboard via `/api`. Removidos `lib/supabaseClient.ts` e `src/lib/supabaseClient.ts`.
 
 ---
 
@@ -130,4 +131,4 @@ Inventário de rotas: `docs/SECURITY_CREATEADMIN_INVENTORY.md`.
 
 ---
 
-*Última atualização: auditoria 2026-09-04 + estrutura P2 (CSP Report-Only, grants, Storage, proxy crons).*
+*Última atualização: 2026-09-05 — S10/S11 CSP enforce + X-Frame-Options DENY.*

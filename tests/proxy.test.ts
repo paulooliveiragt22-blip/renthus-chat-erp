@@ -56,6 +56,11 @@ describe("proxy auth routing", () => {
 
         assert.strictEqual(factory.mock.calls.length, 0);
         assert.strictEqual(response.headers.get("location"), null);
+        assert.match(
+            response.headers.get("content-security-policy") ?? "",
+            /script-src 'self' 'nonce-/
+        );
+        assert.strictEqual(response.headers.get("x-frame-options"), "DENY");
     });
 
     it("exempts webhook and print endpoints", async () => {

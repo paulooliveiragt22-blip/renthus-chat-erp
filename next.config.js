@@ -68,10 +68,7 @@ const withPWA = require("@ducanh2912/next-pwa").default({
   },
 });
 
-const {
-  CSP_REPORT_ONLY_HEADER,
-  buildContentSecurityPolicy,
-} = require("./lib/security/cspPolicy.cjs");
+const { X_FRAME_OPTIONS_DENY } = require("./lib/security/cspPolicy.cjs");
 
 const isProd =
   process.env.VERCEL_ENV === "production" || process.env.NODE_ENV === "production";
@@ -83,11 +80,8 @@ const securityHeaders = [
     key:   "Permissions-Policy",
     value: "camera=(), microphone=(), geolocation=(), interest-cohort=()",
   },
-  { key: "X-Frame-Options", value: "SAMEORIGIN" },
-  {
-    key: CSP_REPORT_ONLY_HEADER,
-    value: buildContentSecurityPolicy({ isDev: !isProd }),
-  },
+  /** S11: alinhado a frame-ancestors 'none' (CSP enforce no proxy). */
+  { key: "X-Frame-Options", value: X_FRAME_OPTIONS_DENY },
 ];
 
 if (isProd) {

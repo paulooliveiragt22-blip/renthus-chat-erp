@@ -1,9 +1,8 @@
 ﻿// app/(admin)/configuracoes/page.tsx
 "use client";
 
-import React, { Suspense, useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import React, { Suspense, useCallback, useEffect, useId, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { createClient } from "@/lib/supabase/client";
 import { useWorkspace } from "@/lib/workspace/useWorkspace";
 import { lookupCep } from "@/lib/address/cepLookup";
 import {
@@ -286,7 +285,6 @@ const TAB_QUERY_MAP: Record<string, Tab> = {
 };
 
 function ConfiguracoesPageContent() {
-    const supabase = useMemo(() => createClient(), []);
     const searchParams = useSearchParams();
     const router = useRouter();
     const { currentCompanyId: companyId } = useWorkspace();
@@ -909,7 +907,7 @@ function ConfiguracoesPageContent() {
                 );
             })
             .catch(() => {});
-    }, [companyId, supabase]);
+    }, [companyId]);
 
     async function saveOrderSettings() {
         if (!companyId) return;

@@ -20,6 +20,13 @@ import {
 } from "@/lib/public-menu/menuHostRewrite";
 import { resolveTenantAccess } from "@/lib/billing/tenantAccess";
 import { isPrintAgentMachineApi } from "@/lib/security/printAgentMachineApi";
+import {
+    createCspContext,
+    nextWithCsp,
+    rewriteWithCsp,
+    stampCspResponse,
+    type CspContext,
+} from "@/lib/security/cspProxy";
 
 type AuthClient = {
     auth: {
@@ -136,7 +143,8 @@ async function checkCompanyAccess(
 /** Rotas tenant / APIs internas não devem ser servidas no host dedicado platform.* */
 function handlePlatformDedicatedHost(
     request: NextRequest,
-    pathname: string
+    pathname: string,
+    csp: CspContext
 ): NextResponse | null {
     if (
         !isPlatformDedicatedHostRequest(
@@ -168,13 +176,16 @@ function handlePlatformDedicatedHost(
         pathname.startsWith("/offline/") ||
         isTechnicalApiPublic(pathname)
     ) {
-        return NextResponse.next();
+        return nextWithCsp(request, csp);
     }
 
     if (pathname.startsWith("/api/")) {
-        return NextResponse.json(
-            { error: "Host not allowed", code: "host_not_allowed" },
-            { status: 403 }
+        return stampCspResponse(
+            NextResponse.json(
+                { error: "Host not allowed", code: "host_not_allowed" },
+                { status: 403 }
+            ),
+            csp.value
         );
     }
 
@@ -185,13 +196,14 @@ function handlePlatformDedicatedHost(
         url.pathname = "/platform";
         url.search = "";
     }
-    return NextResponse.redirect(url, 307);
+    return stampCspResponse(NextResponse.redirect(url, 307), csp.value);
 }
 
 async function handlePlatformBranch(
     request: NextRequest,
     pathname: string,
-    options?: { createClient?: SupabaseClientFactory }
+    options: { createClient?: SupabaseClientFactory } | undefined,
+    csp: CspContext
 ): Promise<NextResponse | null> {
     if (!pathname.startsWith("/platform") && !pathname.startsWith("/api/platform/")) {
         return null;
@@ -204,7 +216,7 @@ async function handlePlatformBranch(
 
     // Página de diagnóstico do allowlist — sempre acessível (mesmo Host errado ajuda ops)
     if (pathname === "/platform/forbidden") {
-        return NextResponse.next({ request: { headers: requestHeaders } });
+        return nextWithCsp(request, csp, requestHeaders);
     }
 
     // Crons + impersonation status no host tenant (AdminShell banner em app.*)
@@ -213,7 +225,7 @@ async function handlePlatformBranch(
         pathname === "/api/platform/audit/archive" ||
         pathname === "/api/platform/impersonate"
     ) {
-        return NextResponse.next({ request: { headers: requestHeaders } });
+        return nextWithCsp(request, csp, requestHeaders);
     }
 
     // Host dedicado: UI redireciona para platform.*; API → 403
@@ -224,16 +236,19 @@ async function handlePlatformBranch(
             request.nextUrl.hostname.toLowerCase();
         if (reqHost && reqHost !== adminHost) {
             if (pathname.startsWith("/api/")) {
-                return NextResponse.json(
-                    { error: "Host not allowed", code: "host_not_allowed" },
-                    { status: 403 }
+                return stampCspResponse(
+                    NextResponse.json(
+                        { error: "Host not allowed", code: "host_not_allowed" },
+                        { status: 403 }
+                    ),
+                    csp.value
                 );
             }
             const target = platformAdminCanonicalUrl(
                 pathname,
                 request.nextUrl.search
             );
-            return NextResponse.redirect(target, 307);
+            return stampCspResponse(NextResponse.redirect(target, 307), csp.value);
         }
     }
 
@@ -242,15 +257,18 @@ async function handlePlatformBranch(
     const ip = candidates[0] ?? "";
     if (!isIpAllowed(ip, process.env.PLATFORM_ADMIN_IP_ALLOWLIST, candidates)) {
         if (pathname.startsWith("/api/")) {
-            return NextResponse.json(
-                { error: "IP not allowed", code: "ip_not_allowed" },
-                { status: 403 }
+            return stampCspResponse(
+                NextResponse.json(
+                    { error: "IP not allowed", code: "ip_not_allowed" },
+                    { status: 403 }
+                ),
+                csp.value
             );
         }
         const url = request.nextUrl.clone();
         url.pathname = "/platform/forbidden";
         url.search = "";
-        return NextResponse.redirect(url);
+        return stampCspResponse(NextResponse.redirect(url), csp.value);
     }
 
     const publicPaths =
@@ -259,7 +277,7 @@ async function handlePlatformBranch(
         pathname === "/api/platform/auth/mfa/status";
 
     if (publicPaths || pathname.startsWith("/api/platform/")) {
-        return NextResponse.next({ request: { headers: requestHeaders } });
+        return nextWithCsp(request, csp, requestHeaders);
     }
 
     const supabase = (options?.createClient ?? createServerClient)(
@@ -278,7 +296,7 @@ async function handlePlatformBranch(
         const url = request.nextUrl.clone();
         url.pathname = "/platform/login";
         url.searchParams.set("redirectTo", pathname);
-        return NextResponse.redirect(url);
+        return stampCspResponse(NextResponse.redirect(url), csp.value);
     }
 
     // Step-up: fator TOTP já verificado mas sessão ainda aal1 → força challenge
@@ -288,24 +306,28 @@ async function handlePlatformBranch(
     if (aal?.currentLevel !== "aal2" && aal?.nextLevel === "aal2") {
         const url = request.nextUrl.clone();
         url.pathname = "/platform/login/mfa";
-        return NextResponse.redirect(url);
+        return stampCspResponse(NextResponse.redirect(url), csp.value);
     }
 
-    return NextResponse.next({ request: { headers: requestHeaders } });
+    return nextWithCsp(request, csp, requestHeaders);
 }
 
-function handleSuperadminBranch(request: NextRequest, pathname: string): NextResponse | null {
+function handleSuperadminBranch(
+    request: NextRequest,
+    pathname: string,
+    csp: CspContext
+): NextResponse | null {
     if (!pathname.startsWith("/superadmin") && !pathname.startsWith("/api/superadmin/")) {
         return null;
     }
     if (pathname === "/superadmin/login" || pathname === "/api/superadmin/login") {
         const url = request.nextUrl.clone();
         url.pathname = pathname.replace("/superadmin", "/platform");
-        return NextResponse.redirect(url);
+        return stampCspResponse(NextResponse.redirect(url), csp.value);
     }
     const url = request.nextUrl.clone();
     url.pathname = pathname.replace(/^\/superadmin/, "/platform");
-    return NextResponse.redirect(url, 308);
+    return stampCspResponse(NextResponse.redirect(url, 308), csp.value);
 }
 
 function isTechnicalApiPublic(pathname: string): boolean {
@@ -384,6 +406,7 @@ export async function proxy(
     options?: { createClient?: SupabaseClientFactory }
 ) {
     const pathname = request.nextUrl.pathname;
+    const csp = createCspContext();
 
     // F4.3: subdomínio / domínio próprio → /c/{slug}
     const hostHeader =
@@ -406,22 +429,22 @@ export async function proxy(
     if (hostRewrite.rewrite) {
         const url = request.nextUrl.clone();
         url.pathname = hostRewrite.pathname;
-        return NextResponse.rewrite(url);
+        return rewriteWithCsp(request, url, csp);
     }
 
-    const dedicatedHostRes = handlePlatformDedicatedHost(request, pathname);
+    const dedicatedHostRes = handlePlatformDedicatedHost(request, pathname, csp);
     if (dedicatedHostRes) return dedicatedHostRes;
 
-    const platformRes = await handlePlatformBranch(request, pathname, options);
+    const platformRes = await handlePlatformBranch(request, pathname, options, csp);
     if (platformRes) return platformRes;
 
-    const superRes = handleSuperadminBranch(request, pathname);
+    const superRes = handleSuperadminBranch(request, pathname, csp);
     if (superRes) return superRes;
 
-    if (isTechnicalApiPublic(pathname)) return NextResponse.next();
-    if (isPublicAppRoute(pathname)) return NextResponse.next();
+    if (isTechnicalApiPublic(pathname)) return nextWithCsp(request, csp);
+    if (isPublicAppRoute(pathname)) return nextWithCsp(request, csp);
 
-    const response = NextResponse.next();
+    const response = nextWithCsp(request, csp);
 
     // Cria client server-side
     const supabase = (options?.createClient ?? createServerClient)(
@@ -445,7 +468,7 @@ export async function proxy(
     if (!isLoggedIn) {
         const url = request.nextUrl.clone();
         url.pathname = "/login";
-        return NextResponse.redirect(url);
+        return stampCspResponse(NextResponse.redirect(url), csp.value);
     }
 
     // Impersonação platform: somente leitura no tenant (bloqueia mutações)
@@ -454,14 +477,17 @@ export async function proxy(
         isMutatingHttpMethod(request.method) &&
         isTenantMutationPath(pathname)
     ) {
-        return NextResponse.json(
-            {
-                error: {
-                    code: "impersonation_read_only",
-                    message: "Modo suporte é somente leitura. Mutações bloqueadas.",
+        return stampCspResponse(
+            NextResponse.json(
+                {
+                    error: {
+                        code: "impersonation_read_only",
+                        message: "Modo suporte é somente leitura. Mutações bloqueadas.",
+                    },
                 },
-            },
-            { status: 403 }
+                { status: 403 }
+            ),
+            csp.value
         );
     }
 
@@ -479,7 +505,9 @@ export async function proxy(
                 supabaseUrl,
                 serviceKey
             );
-            if (guard.type === "redirect") return guard.response;
+            if (guard.type === "redirect") {
+                return stampCspResponse(guard.response, csp.value);
+            }
         }
     }
 

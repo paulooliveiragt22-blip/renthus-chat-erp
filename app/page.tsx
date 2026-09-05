@@ -1,8 +1,7 @@
 "use client";
 
-import React, { useContext, useEffect, useMemo, useState } from "react";
+import React, { useContext, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { createClient } from "@/lib/supabase/client";
 import { AdminOrdersContext } from "@/components/AdminOrdersContext";
 import QuickReplyModal from "@/components/whatsapp/QuickReplyModal";
 import { useWorkspace } from "@/lib/workspace/useWorkspace";
@@ -46,7 +45,6 @@ function fmtBRL(n?: number) {
 
 export default function DashboardPage() {
     const router = useRouter();
-    const supabase = useMemo(() => createClient(), []);
     const { currentCompanyId } = useWorkspace();
     const adminOrdersCtx = useContext(AdminOrdersContext);
 

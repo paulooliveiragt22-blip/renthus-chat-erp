@@ -1,7 +1,7 @@
-# ADR 0007 — Segurança P2: CSP Report-Only, grants e Storage
+# ADR 0007 — Segurança P2: CSP enforce, grants e Storage
 
-**Status:** aceito (estrutura + lote 1 aplicado 2026-09-04)  
-**Data:** 2026-09-04  
+**Status:** aceito (S1–S11 código; S12–S15 ops)  
+**Data:** 2026-09-04 (S10/S11: 2026-09-05)  
 **Checklist:** [`CHECKLIST_SECURITY_HARDENING_P2.md`](../CHECKLIST_SECURITY_HARDENING_P2.md)  
 **Inventário vivo:** [`SECURITY_IMPROVEMENTS_CHECKLIST.md`](../SECURITY_IMPROVEMENTS_CHECKLIST.md)  
 **Predecessor:** hardening de tabelas (`service_role_only` + FORCE) já fechado no remoto.
@@ -40,7 +40,7 @@ Upload/update/delete: `auth.role() = 'service_role'`. Leitura pública só onde 
 
 ### D4 — CSP
 
-P2 = `Content-Security-Policy-Report-Only` via `next.config.js` `headers()` (Context7: sem nonce → `'unsafe-inline'`). Enforce + nonce no `proxy.ts` só após zero violações (S9.2).
+S1 foi Report-Only em `next.config.js`. **S10 (2026-09-05):** enforce no `proxy.ts` — nonce por request em `x-nonce` + `Content-Security-Policy` no request e na response (`strict-dynamic`). `style-src` permanece `'unsafe-inline'` (Tailwind/Radix). Sem CSP estático no `next.config` (AND com nonce quebra scripts). **S11:** `X-Frame-Options: DENY` = `frame-ancestors 'none'`.
 
 ### D5 — Fora de escopo comercial
 
@@ -50,4 +50,4 @@ Sem mudança de preço/trial/features. Hardening técnico já canônico (`govern
 
 - PostgREST com anon key deixa de chamar RPC de negócio (efeito desejado).
 - Qualquer `.from()` / `.rpc()` residual no client quebra de vez — migrar para API (S8).
-- PWA / Sentry / Supabase realtime precisam estar no `connect-src`; ajustar allowlist se o Report-Only acusar host faltando.
+- PWA / Sentry / Supabase realtime / Mixpanel (`api-js.mixpanel.com`) no `connect-src`; se a página quebrar, o host faltou na policy — ajustar `cspPolicy.ts` + `.cjs` juntos.

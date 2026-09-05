@@ -1,7 +1,7 @@
 # Inventário — `createAdminClient()` (service role)
 
 Índice para o item 1 de `SECURITY_IMPROVEMENTS_CHECKLIST.md`.  
-**Atualizado:** 2026-09-04 (auditoria P2). Rotas novas: acrescentar na tabela do **gate** correspondente.
+**Atualizado:** 2026-09-05 (S9). Rotas novas: acrescentar na tabela do **gate** correspondente.
 
 Regra: identidade **antes** da query; `company_id` só de cookie/`requireCompanyAccess`/`requireCapability`, nunca de querystring crua.
 
@@ -72,11 +72,33 @@ Exemplos: `app/api/admin/**`, `app/api/billing/status`, `create-invoice-checkout
 `lib/billing/*`, `lib/print/*`, `lib/workspace/requireCompanyAccess.ts`.  
 `lib/superadmin/**` removido.
 
-## Client residual (não usa service role; viola governança se `.from`/`.rpc`)
+## Client browser (S9 — 2026-09-05)
+
+`createClient()` no browser **só** para Auth. Sem `.from` / `.rpc` / Realtime em tabela.
+
+**Permitido (`supabase.auth`):**
 
 | Arquivo | Uso |
 |---------|-----|
-| `components/AdminShell.tsx` | S8 fechado — `GET /api/orders/[id]` |
-| `app/(admin)/produtos/lista/ListaClient.tsx` | Realtime `subscribeProductListRealtime` |
-| `app/(admin)/configuracoes/page.tsx` | `createClient()` residual |
-| Login / signup / platform MFA | `supabase.auth` — permitido |
+| `app/login/LoginClient.tsx` | `signInWithPassword`, reset senha |
+| `app/(public)/signup/page.tsx` | `signInWithPassword` pós-signup |
+| `app/logout/page.tsx` | `signOut` |
+| `app/auth/set-password/SetPasswordClient.tsx` | sessão / updateUser |
+| `app/platform/login/page.tsx` | Auth platform |
+| `app/platform/login/mfa/page.tsx` | MFA |
+| `components/HeaderClient.tsx` | `getSession`, `onAuthStateChange`, `signOut` |
+| `components/platform/PlatformSidebar.tsx` | `signOut` |
+| `components/MixpanelBootstrap.tsx` | `getSession` → identify |
+| `hooks/useCompanyUser.ts` | `getUser` |
+
+**Fechado nesta P2:**
+
+| Arquivo | Antes | Agora |
+|---------|-------|-------|
+| `components/AdminShell.tsx` | `.from("orders")` | `GET /api/orders/[id]` (S8) |
+| `app/page.tsx` (dashboard) | `createClient()` morto | poll `GET /api/orders/list` + `/api/whatsapp/threads` |
+| `app/(admin)/configuracoes/page.tsx` | `createClient()` morto (só dep. de effect) | só `fetch /api/admin/*` |
+| `app/(admin)/produtos/lista/ListaClient.tsx` | inventário citava Realtime | poll 15s via `/api/admin/products` (tabelas fora do Realtime + RLS service_role) |
+| `lib/supabaseClient.ts`, `src/lib/supabaseClient.ts` | client global anon sem usos | **removidos** |
+
+API routes usam `createClient()` de `@/lib/supabase/server` (cookie), não o browser.

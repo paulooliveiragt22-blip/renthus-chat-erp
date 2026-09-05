@@ -1,9 +1,11 @@
 // app/layout.tsx
 import "./globals.css";
 import React, { Suspense } from "react";
+import { headers } from "next/headers";
 import AdminShell from "@/components/AdminShell";
 import ThemeProvider from "@/components/ThemeProvider";
 import { Providers } from "@/components/Providers";
+import { X_NONCE_HEADER } from "@/lib/security/cspPolicy";
 
 export const metadata = {
   title: "RenthusAgent",
@@ -31,11 +33,16 @@ export const viewport = {
   themeColor: "#16364D",
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
+  // Next lê x-nonce + CSP do request (proxy) e aplica nos scripts do runtime.
+  // headers() força render dinâmico — nonce não pode ser estático.
+  const nonce = (await headers()).get(X_NONCE_HEADER);
+  void nonce;
+
   return (
     <html lang="pt-BR" suppressHydrationWarning>
       <body>

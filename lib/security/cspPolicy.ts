@@ -1,23 +1,29 @@
 /**
- * Content-Security-Policy (Report-Only na P2).
+ * Content-Security-Policy (S10 enforce).
  *
- * Fonte única usada por `next.config.js` (via `cspPolicy.cjs`) e testes.
- * Docs: Next.js App Router CSP guide (Context7 `/vercel/next.js`) —
- * `headers()` sem nonce exige `'unsafe-inline'` em script/style; nonce +
- * `strict-dynamic` fica para a fase enforce no `proxy.ts`.
+ * Com `nonce`: script-src nonce + strict-dynamic (guia Next.js / Context7).
+ * Sem nonce: fallback só para testes / headers estáticos — o proxy sempre envia nonce.
+ * style-src mantém 'unsafe-inline' (Tailwind / Radix). Mixpanel e Sentry são bundle.
  */
 
 export type CspBuildOpts = {
     isDev?: boolean;
+    nonce?: string;
 };
 
+export const CSP_ENFORCE_HEADER = "Content-Security-Policy";
 export const CSP_REPORT_ONLY_HEADER = "Content-Security-Policy-Report-Only";
+export const X_FRAME_OPTIONS_DENY = "DENY";
+export const X_NONCE_HEADER = "x-nonce";
 
 export function buildContentSecurityPolicy(opts: CspBuildOpts = {}): string {
     const isDev = Boolean(opts.isDev);
-    const scriptSrc = isDev
-        ? "'self' 'unsafe-inline' 'unsafe-eval' https://cdn.mxpnl.com"
-        : "'self' 'unsafe-inline' https://cdn.mxpnl.com";
+    const nonce = opts.nonce?.trim() ?? "";
+    const scriptSrc = nonce
+        ? `'self' 'nonce-${nonce}' 'strict-dynamic'${isDev ? " 'unsafe-eval'" : ""}`
+        : isDev
+          ? "'self' 'unsafe-inline' 'unsafe-eval'"
+          : "'self' 'unsafe-inline'";
 
     const directives = [
         "default-src 'self'",
@@ -37,7 +43,6 @@ export function buildContentSecurityPolicy(opts: CspBuildOpts = {}): string {
             "https://graph.instagram.com",
             "https://api-js.mixpanel.com",
             "https://api.mixpanel.com",
-            "https://cdn.mxpnl.com",
         ].join(" "),
         "worker-src 'self' blob:",
         "frame-ancestors 'none'",
