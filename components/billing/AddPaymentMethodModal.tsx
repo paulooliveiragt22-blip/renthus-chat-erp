@@ -175,7 +175,7 @@ export function AddPaymentMethodModal({
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
             <DialogContent
-                className="max-h-[90vh] max-w-md overflow-y-auto border-[#16364d]/30"
+                className="max-h-[90vh] w-[calc(100%-1.5rem)] max-w-2xl overflow-x-hidden overflow-y-auto border-[#16364d]/30"
                 style={{ borderTopWidth: 3, borderTopColor: BRAND }}
             >
                 <DialogHeader>
@@ -200,7 +200,7 @@ export function AddPaymentMethodModal({
                     </div>
                 ) : null}
 
-                <div className="grid gap-3 text-sm">
+                <div className="grid min-w-0 gap-3 text-sm">
                     <label className="grid gap-1">
                         <span className="text-xs font-semibold text-zinc-600">Titular</span>
                         <input

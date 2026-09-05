@@ -86,6 +86,8 @@ type Props = {
     setBillingErr: (msg: string | null) => void;
     onGeneratePix: () => void;
     onPayCard: () => void;
+    savedCardBusyId?: string | null;
+    onPaySavedCard?: (cardId: string) => void;
 };
 
 export function PlanCheckoutSection({
@@ -115,6 +117,8 @@ export function PlanCheckoutSection({
     setBillingErr,
     onGeneratePix,
     onPayCard,
+    savedCardBusyId = null,
+    onPaySavedCard,
 }: Props) {
     const sub = billingData.pagarme_subscription;
     const st = sub?.status ?? "";
@@ -421,6 +425,18 @@ export function PlanCheckoutSection({
             cardForm={cardForm}
             onPayCard={onPayCard}
             cardPayLoading={cardPayLoading}
+            savedCards={(billingData.saved_cards ?? [])
+                .filter((c) => Boolean(c.id))
+                .map((c) => ({
+                    id: c.id,
+                    brand: c.brand,
+                    last_four: c.last_four,
+                    holder: c.holder,
+                    exp: c.exp,
+                    is_default: c.is_default,
+                }))}
+            savedCardBusyId={savedCardBusyId}
+            onPaySavedCard={onPaySavedCard}
         />
     );
 
@@ -532,7 +548,47 @@ export function PlanCheckoutSection({
                 </div>
             ) : null}
             {renthusPayMode === "card" ? (
-                <div className="mt-4 space-y-3">
+                <div className="mt-4 min-w-0 space-y-4">
+                    {onPaySavedCard && (billingData.saved_cards?.length ?? 0) > 0 ? (
+                        <div className="space-y-2 rounded-lg border border-zinc-200 p-3 dark:border-zinc-700">
+                            <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                                Cartões salvos
+                            </p>
+                            <ul className="space-y-2">
+                                {(billingData.saved_cards ?? [])
+                                    .filter((c) => Boolean(c.id))
+                                    .map((c) => (
+                                        <li
+                                            key={c.id}
+                                            className="flex min-w-0 flex-wrap items-center justify-between gap-2 rounded-lg bg-zinc-50 px-3 py-2 text-sm dark:bg-zinc-800/80"
+                                        >
+                                            <span className="min-w-0 truncate">
+                                                <span className="font-medium capitalize">
+                                                    {c.brand || "Cartão"}
+                                                </span>
+                                                {c.last_four ? ` •••• ${c.last_four}` : ""}
+                                                {c.is_default ? (
+                                                    <span className="ml-2 text-[11px] font-semibold text-emerald-600">
+                                                        padrão
+                                                    </span>
+                                                ) : null}
+                                            </span>
+                                            <Button
+                                                type="button"
+                                                size="sm"
+                                                className="shrink-0 bg-[#16364d] text-white hover:bg-[#1f4a68]"
+                                                disabled={Boolean(savedCardBusyId) || cardPayLoading}
+                                                onClick={() => onPaySavedCard(c.id)}
+                                            >
+                                                {savedCardBusyId === c.id
+                                                    ? "Cobrando…"
+                                                    : "Usar este cartão"}
+                                            </Button>
+                                        </li>
+                                    ))}
+                            </ul>
+                        </div>
+                    ) : null}
                     {cardForm}
                     <Button type="button" onClick={onPayCard} disabled={cardPayLoading}>
                         {cardPayLoading ? "Processando…" : "Pagar com cartão"}

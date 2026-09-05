@@ -447,7 +447,7 @@ export function PlanChangeCatalog({
     ]);
 
     let cta = "Selecionar";
-    if (isMigrateCta) cta = switching ? "Gerando PIX…" : "Migrar para anual";
+    if (isMigrateCta) cta = switching ? "Preparando…" : "Migrar para anual";
     else if (selectMode === "initial_checkout")
         cta =
             viewPeriod === "year"
@@ -515,7 +515,11 @@ export function PlanChangeCatalog({
                     onValueChange={onSelectPlan}
                     options={options}
                     disabled={planSaving || saving || switching}
-                    loading={planSaving && selectMode === "initial_checkout"}
+                    loading={
+                        saving ||
+                        switching ||
+                        (planSaving && selectMode === "initial_checkout")
+                    }
                     tone="brand"
                     aria-label="Selecionar plano"
                 />
@@ -533,14 +537,14 @@ export function PlanChangeCatalog({
                 {isMigrateCta ? (
                     <Button
                         type="button"
-                        className="w-full"
+                        className="w-full bg-[#16364d] text-white hover:bg-[#1f4a68]"
                         disabled={ctaDisabled}
                         onClick={() => void startPeriodSwitch()}
                     >
                         {switching ? (
                             <>
                                 <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
-                                Gerando PIX…
+                                Preparando…
                             </>
                         ) : (
                             "Migrar para anual"
@@ -552,7 +556,7 @@ export function PlanChangeCatalog({
             </div>
 
             <Dialog open={downgradeTo != null} onOpenChange={(o) => !o && setDowngradeTo(null)}>
-                <DialogContent className="max-w-md">
+                <DialogContent className="max-w-xl overflow-x-hidden">
                     <DialogHeader>
                         <DialogTitle>
                             {downgradeTo && viewPeriod === "year" && !isAnnualSub

@@ -349,6 +349,7 @@ export default function PlanBillingPanel({ variant = "full" }: PlanBillingPanelP
             const status = (json as { payment_status?: string }).payment_status;
             if (status === "paid") {
                 setBillingSuccessMsg("Pagamento aprovado. Plano liberado.");
+                setCheckoutOpen(false);
                 invalidatePlanFeatures();
                 if (variant === "pay") {
                     window.location.assign("/ativar");
@@ -643,6 +644,10 @@ export default function PlanBillingPanel({ variant = "full" }: PlanBillingPanelP
                         setBillingErr={setBillingErr}
                         onGeneratePix={() => { void openRenthusPix(); }}
                         onPayCard={() => { void payRenthusCard(); }}
+                        savedCardBusyId={savedCardBusyId}
+                        onPaySavedCard={(cardId) => {
+                            void payWithSavedCard(cardId);
+                        }}
                     />
                     </div>
 
