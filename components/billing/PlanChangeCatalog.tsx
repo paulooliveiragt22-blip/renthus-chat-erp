@@ -177,6 +177,7 @@ export function PlanChangeCatalog({
         if (!downgradeTo) return;
         setSaving(true);
         try {
+            const toAnnualImmediate = viewPeriod === "year" && !isAnnualSub;
             const res = await fetch("/api/billing/change-plan", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
@@ -184,14 +185,18 @@ export function PlanChangeCatalog({
                 body: JSON.stringify({
                     plan: downgradeTo,
                     keep_user_ids: [...keep],
+                    to_annual: toAnnualImmediate,
                 }),
             });
             const json = await res.json().catch(() => ({}));
             if (!res.ok) {
-                onError((json as { error?: string }).error ?? "Não foi possível agendar.");
+                onError((json as { error?: string }).error ?? "Não foi possível confirmar.");
                 return;
             }
             setDowngradeTo(null);
+            if (typeof (json as { message?: string }).message === "string") {
+                onSuccess?.((json as { message: string }).message);
+            }
             await onReload();
         } finally {
             setSaving(false);
@@ -314,9 +319,9 @@ export function PlanChangeCatalog({
           ? "Durante o teste você pode trocar o plano a qualquer momento."
           : viewPeriod === "year"
             ? isAnnualSub
-                ? "Você está no plano anual. Upgrade vale na hora; downgrade no fim do ciclo."
-                : "Plano anual à vista com desconto. Ao migrar, abatemos o mês já pago."
-            : "Upgrade vale na hora. Downgrade agenda para o fim do ciclo atual.";
+                ? "Você está no plano anual. Upgrade vale na hora; downgrade só no fim do ciclo anual."
+                : "Mensal → anual: migração imediata com abatimento do mês. Downgrade mensal continua no fim do ciclo."
+            : "Upgrade vale na hora. Downgrade no mesmo ciclo (mensal) agenda para o fim do período.";
 
     const maxYearlyPct = Math.max(
         0,
@@ -447,6 +452,8 @@ export function PlanChangeCatalog({
                     else if (higher && showYear && !isAnnualSub)
                         cta = saving ? "Cotando…" : "Upgrade para anual";
                     else if (higher) cta = "Fazer upgrade";
+                    else if (lower && showYear && !isAnnualSub)
+                        cta = "Migrar para anual";
                     else if (lower) cta = "Agendar downgrade";
                     else cta = "Indisponível";
                     const btnDisabled =
@@ -528,11 +535,15 @@ export function PlanChangeCatalog({
             {downgradeTo ? (
                 <div className="space-y-2 rounded-xl border border-zinc-200 p-4 dark:border-zinc-700">
                     <p className="text-sm font-bold text-zinc-900 dark:text-zinc-100">
-                        Agendar {getPlanLabel(downgradeTo)}
+                        {viewPeriod === "year" && !isAnnualSub
+                            ? `Migrar para ${getPlanLabel(downgradeTo)} anual`
+                            : `Agendar ${getPlanLabel(downgradeTo)}`}
                     </p>
                     <p className="text-xs text-zinc-500">
-                        Vale em {whenLabel}. Escolha até {included} usuário(s) para manter (≥1
-                        admin/owner).
+                        {viewPeriod === "year" && !isAnnualSub
+                            ? "Vale na hora após o pagamento (anual − crédito do mês). Escolha até "
+                            : `Vale em ${whenLabel}. Escolha até `}
+                        {included} usuário(s) para manter (≥1 admin/owner).
                     </p>
                     {loadingMembers ? (
                         <Loader2 className="h-4 w-4 animate-spin text-zinc-400" />
@@ -561,7 +572,11 @@ export function PlanChangeCatalog({
                             onClick={() => void confirmDowngrade()}
                             className="rounded-lg bg-zinc-900 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900"
                         >
-                            {saving ? "Agendando…" : "Confirmar agendamento"}
+                            {saving
+                                ? "Confirmando…"
+                                : viewPeriod === "year" && !isAnnualSub
+                                  ? "Continuar para pagamento"
+                                  : "Confirmar agendamento"}
                         </button>
                         <button
                             type="button"

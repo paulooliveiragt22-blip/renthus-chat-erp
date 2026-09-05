@@ -136,11 +136,14 @@ export async function POST(req: Request) {
                     const checkout = await prepareUpgradeToAnnualSelection(admin, {
                         companyId: tenantId,
                         targetPlan: planKey,
+                        keepUserIds: Array.isArray(body.keep_user_ids)
+                            ? body.keep_user_ids
+                            : undefined,
                     });
                     if (checkout.mode === "applied_free") {
                         return NextResponse.json({
                             ok: true,
-                            action: "upgraded_to_annual",
+                            action: "switched_to_annual",
                             plan: checkout.toPlan,
                             from_plan: checkout.fromPlan,
                             billing_period: "year",
@@ -157,7 +160,7 @@ export async function POST(req: Request) {
                         credit_cents: checkout.creditCents,
                         next_billing_at: checkout.nextBillingAt,
                         message:
-                            "Plano anual selecionado. Pague abaixo (PIX ou cartão) para confirmar o upgrade.",
+                            "Plano anual selecionado. Pague abaixo (PIX ou cartão) para confirmar.",
                     });
                 }
 
@@ -193,7 +196,11 @@ export async function POST(req: Request) {
                     msg === "not_an_upgrade" ||
                     msg === "plan_invalid" ||
                     msg === "never_paid_use_change_plan" ||
-                    msg === "already_annual_use_upgrade"
+                    msg === "already_annual_use_upgrade" ||
+                    msg.startsWith("select_up_to_") ||
+                    msg.startsWith("select_at_most_") ||
+                    msg === "need_at_least_one_admin" ||
+                    msg === "selection_invalid"
                         ? 400
                         : 500;
                 return NextResponse.json({ error: msg }, { status });
@@ -201,6 +208,59 @@ export async function POST(req: Request) {
         }
 
         if (planRank(planKey) < planRank(current)) {
+            const billingPeriod = String(
+                (row as { billing_period?: string | null }).billing_period ?? "month"
+            ).toLowerCase();
+            const wantAnnualImmediate = body.to_annual === true && billingPeriod !== "year";
+
+            if (wantAnnualImmediate) {
+                try {
+                    const checkout = await prepareUpgradeToAnnualSelection(admin, {
+                        companyId: tenantId,
+                        targetPlan: planKey,
+                        keepUserIds: Array.isArray(body.keep_user_ids)
+                            ? body.keep_user_ids
+                            : undefined,
+                    });
+                    if (checkout.mode === "applied_free") {
+                        return NextResponse.json({
+                            ok: true,
+                            action: "switched_to_annual",
+                            plan: checkout.toPlan,
+                            from_plan: checkout.fromPlan,
+                            billing_period: "year",
+                        });
+                    }
+                    return NextResponse.json({
+                        ok: true,
+                        action: "downgrade_to_annual_quoted",
+                        from_plan: checkout.fromPlan,
+                        to_plan: checkout.toPlan,
+                        amount_cents: checkout.amountCents,
+                        amount_brl: checkout.amountBrl,
+                        annual_cents: checkout.annualCents,
+                        credit_cents: checkout.creditCents,
+                        next_billing_at: checkout.nextBillingAt,
+                        message:
+                            "Migração para o plano anual inferior. Pague abaixo para confirmar (crédito do mês abatido).",
+                    });
+                } catch (e: unknown) {
+                    const msg = e instanceof Error ? e.message : String(e);
+                    const status =
+                        msg === "subscription_not_eligible" ||
+                        msg === "plan_invalid" ||
+                        msg === "never_paid_use_change_plan" ||
+                        msg === "already_annual_use_upgrade" ||
+                        msg.startsWith("select_up_to_") ||
+                        msg.startsWith("select_at_most_") ||
+                        msg === "need_at_least_one_admin" ||
+                        msg === "selection_invalid"
+                            ? 400
+                            : 500;
+                    return NextResponse.json({ error: msg }, { status });
+                }
+            }
+
             const scheduled = await scheduleDowngrade(admin, tenantId, {
                 plan: planKey,
                 keep_user_ids: Array.isArray(body.keep_user_ids) ? body.keep_user_ids : undefined,

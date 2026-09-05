@@ -56,6 +56,14 @@ describe("billing UI contract — seleção ≠ fatura", () => {
         const src = read("components/billing/PlanChangeCatalog.tsx");
         assert.match(src, /to_annual:\s*toAnnual/);
         assert.match(src, /Upgrade para anual/);
+        assert.match(src, /to_annual:\s*toAnnualImmediate/);
+        assert.match(src, /Migrar para anual/);
+    });
+
+    it("prepareUpgradeToAnnualSelection aceita plano inferior (keep)", () => {
+        const src = read("lib/billing/prepareUpgradeToAnnualSelection.ts");
+        assert.match(src, /rpc_resolve_keep_user_ids/);
+        assert.doesNotMatch(src, /planRank\(toPlan\) <= planRank\(fromPlan\)/);
     });
 
     it("preparePlanUpgradeSelection não insere invoice", () => {

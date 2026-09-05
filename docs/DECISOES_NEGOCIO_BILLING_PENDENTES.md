@@ -70,6 +70,17 @@ Uma única obrigação no ano (PIX/cartão valor cheio).
 
 **Emenda 2026-09-05 — upgrade + anual combinado `[i]`:** na view Anual, clicar plano **maior** (ex. Market) gera um único checkout: `annual(destino) − crédito(mês atual)`. Intent `upgrade_to_annual` + `pending_upgrade_plan_key`; invoice `period_switch` com `target_plan_key`; fulfill aplica plano + `billing_period=year`. View Mensal no upgrade continua BN-11 (delta mensal prorateado).
 
+**Emenda 2026-09-05b — matriz de migração (dono):**
+
+| De → Para | Comportamento |
+|-----------|----------------|
+| Mensal → mensal **superior** | Imediato (pró-rata BN-11) |
+| Mensal → mensal **inferior** | Agendado fim do ciclo (BN-12) |
+| Mensal → **anual** (igual / superior / **inferior**) | **Imediato** pró-rata (`annual(destino) − crédito do mês`) — **não** espera o fim do mês |
+| Anual → anual **superior** | Imediato (delta anual / 365) |
+| Anual → anual **inferior** | Agendado fim do ciclo anual |
+| Anual → mensal | Fora de escopo (anual só migra para anual) |
+
 ### R2-4 — Seats Pro
 
 R$ **349 inclui 1** usuário.  

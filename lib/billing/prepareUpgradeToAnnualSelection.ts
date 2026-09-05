@@ -1,6 +1,6 @@
 /**
- * Seleção upgrade + anual (mensal ativo → plano maior anual) num pagamento.
- * Quote no DB; intent na sub; invoice só no materialize/checkout.
+ * Seleção mensal → anual (qualquer plano destino: igual, superior ou inferior).
+ * Amount canônico no DB; keep_users obrigatório se downgrade com excesso de seats.
  */
 
 import "server-only";
@@ -27,6 +27,7 @@ export type PrepareUpgradeToAnnualResult =
           fromPlan: CommercialPlanKey;
           toPlan: CommercialPlanKey;
           nextBillingAt: string | null;
+          rankDelta: number;
       }
     | {
           mode: "applied_free";
@@ -34,9 +35,28 @@ export type PrepareUpgradeToAnnualResult =
           toPlan: CommercialPlanKey;
       };
 
+function mapKeepError(raw: string): Error {
+    const m = String(raw ?? "").toLowerCase();
+    if (m.includes("need_at_least_one_admin")) {
+        return new Error("need_at_least_one_admin");
+    }
+    if (m.includes("selection_invalid")) {
+        return new Error("selection_invalid");
+    }
+    const upTo = m.match(/select_up_to_(\d+) users/);
+    if (upTo) return new Error(`select_up_to_${upTo[1]}_users`);
+    const atMost = m.match(/select_at_most_(\d+) users/);
+    if (atMost) return new Error(`select_at_most_${atMost[1]}_users`);
+    return new Error(raw);
+}
+
 export async function prepareUpgradeToAnnualSelection(
     admin: Admin,
-    params: { companyId: string; targetPlan: string }
+    params: {
+        companyId: string;
+        targetPlan: string;
+        keepUserIds?: string[];
+    }
 ): Promise<PrepareUpgradeToAnnualResult> {
     const toPlan = parseCommercialPlanInput(params.targetPlan);
     if (!toPlan) throw new Error("plan_invalid");
@@ -60,7 +80,19 @@ export async function prepareUpgradeToAnnualSelection(
 
     const fromPlan = normalizePlanKey(String(sub.plan ?? ""));
     if (!fromPlan) throw new Error("plan_invalid");
-    if (planRank(toPlan) <= planRank(fromPlan)) throw new Error("not_an_upgrade");
+
+    const rankDelta = planRank(toPlan) - planRank(fromPlan);
+    let keepIds: string[] | null = null;
+
+    if (rankDelta < 0) {
+        const { data: keepRaw, error: keepErr } = await admin.rpc("rpc_resolve_keep_user_ids", {
+            p_company_id: params.companyId,
+            p_target_plan: toPlan,
+            p_keep_user_ids: Array.isArray(params.keepUserIds) ? params.keepUserIds : [],
+        });
+        if (keepErr) throw mapKeepError(keepErr.message);
+        keepIds = Array.isArray(keepRaw) ? keepRaw.map(String) : [];
+    }
 
     const { data: quoteRaw, error: quoteErr } = await admin.rpc("rpc_quote_period_switch", {
         p_company_id: params.companyId,
@@ -78,15 +110,55 @@ export async function prepareUpgradeToAnnualSelection(
     const creditCents = Math.floor(Number(quote.credit_cents ?? 0));
 
     if (quote.applied_free === true || amountCents <= 0) {
+        if (keepIds) {
+            const { error: keepStoreErr } = await admin
+                .from("pagarme_subscriptions")
+                .update({
+                    pending_keep_user_ids: keepIds,
+                    updated_at: new Date().toISOString(),
+                })
+                .eq("id", sub.id);
+            if (keepStoreErr) throw new Error(keepStoreErr.message);
+        }
+
         const { data: applied, error: applyErr } = await admin.rpc(
             "rpc_ensure_period_switch_obligation",
             { p_company_id: params.companyId, p_target_plan: toPlan }
         );
         if (applyErr) throw new Error(applyErr.message);
         void applied;
-        const toPricing = await loadPlanPricing(admin, toPlan);
+
+        if (keepIds && keepIds.length > 0) {
+            const keepSet = new Set(keepIds);
+            const { data: actives } = await admin
+                .from("company_users")
+                .select("user_id")
+                .eq("company_id", params.companyId)
+                .eq("is_active", true);
+            const toDrop = (actives ?? [])
+                .map((r) => String(r.user_id))
+                .filter((id) => !keepSet.has(id));
+            await Promise.allSettled(
+                toDrop.map((uid) =>
+                    admin
+                        .from("company_users")
+                        .update({ is_active: false })
+                        .eq("company_id", params.companyId)
+                        .eq("user_id", uid)
+                )
+            );
+            const pricing = await loadPlanPricing(admin, toPlan);
+            await admin
+                .from("pagarme_subscriptions")
+                .update({
+                    pending_keep_user_ids: null,
+                    seat_quantity: pricing.includedSeats,
+                    updated_at: new Date().toISOString(),
+                })
+                .eq("id", sub.id);
+        }
+
         await syncLogicalSubscription(admin, params.companyId, toPlan);
-        void toPricing;
         return { mode: "applied_free", fromPlan, toPlan };
     }
 
@@ -104,7 +176,7 @@ export async function prepareUpgradeToAnnualSelection(
             pending_checkout_intent: "upgrade_to_annual",
             pending_plan_key: null,
             pending_plan_change_at: null,
-            pending_keep_user_ids: null,
+            pending_keep_user_ids: keepIds,
             updated_at: new Date().toISOString(),
         })
         .eq("id", sub.id);
@@ -119,5 +191,6 @@ export async function prepareUpgradeToAnnualSelection(
         fromPlan,
         toPlan,
         nextBillingAt: sub.next_billing_at ? String(sub.next_billing_at) : null,
+        rankDelta,
     };
 }
