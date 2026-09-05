@@ -239,28 +239,36 @@ export async function POST(req: Request) {
             return NextResponse.json({ error: PAGARME_INVALID_DOCUMENT_ERROR }, { status: 400 });
         }
         const customerBase = applyFiscalToPagarmeCustomer(customerBuilt, fiscal.value);
-        let pagarmeCustomerId = sub.pagarme_customer_id?.trim() || undefined;
-        if (pagarmeCustomerId) {
+
+        // Carteira (cards) vive neste customer. Nunca descartar por falha de PATCH —
+        // senão "Usar este cartão" quebra com customer ainda existente no PSP.
+        const walletCustomerId = sub.pagarme_customer_id?.trim() || undefined;
+
+        // Customer reutilizável em order com card_token novo (pode ser limpo se PATCH falhar).
+        let reusableCustomerId = walletCustomerId;
+        if (reusableCustomerId) {
             try {
                 await updatePagarmeCustomer({
-                    customerId:    pagarmeCustomerId,
-                    name:          customerBase.name,
-                    email:         customerBase.email,
-                    document:      fiscal.value.digits,
+                    customerId: reusableCustomerId,
+                    name: customerBase.name,
+                    email: customerBase.email,
+                    document: fiscal.value.digits,
                     document_type: fiscal.value.document_type,
-                    type:          fiscal.value.type,
-                    phone:         customerBase.phone,
+                    type: fiscal.value.type,
+                    phone: customerBase.phone,
                 });
             } catch (patchErr: unknown) {
                 const patchMsg = patchErr instanceof Error ? patchErr.message : String(patchErr);
                 console.warn("[create-invoice-checkout] PATCH customer document failed:", patchMsg);
-                pagarmeCustomerId = undefined;
+                // Order com token novo: preferir customer inline (CNPJ canônico) a um customer
+                // PSP com documento inválido/desatualizado. Não afeta walletCustomerId.
+                reusableCustomerId = undefined;
             }
         }
         // Customer PSP antigo com CNPJ inválido: order novo sem customer_id (fixture no payload).
         const reuseCustomerId =
-            pagarmeCustomerId && !fiscal.value.usedSandboxFixture
-                ? pagarmeCustomerId
+            reusableCustomerId && !fiscal.value.usedSandboxFixture
+                ? reusableCustomerId
                 : undefined;
 
         const metaType = strategy.metaType;
@@ -315,14 +323,16 @@ export async function POST(req: Request) {
             let usedCardId: string | null = savedCardId || null;
 
             if (savedCardId) {
-                const customerId = pagarmeCustomerId;
-                if (!customerId) {
+                if (!walletCustomerId) {
                     return NextResponse.json(
-                        { error: "Cliente Pagar.me ausente ou com documento inválido. Cadastre um cartão novo." },
+                        {
+                            error:
+                                "Nenhum cliente Pagar.me vinculado a esta assinatura. Adicione um cartão para criar a carteira e tente de novo.",
+                        },
                         { status: 400 }
                     );
                 }
-                const cards = await listCustomerCards(customerId);
+                const cards = await listCustomerCards(walletCustomerId);
                 if (!cards.some((c) => c.id === savedCardId)) {
                     return NextResponse.json(
                         { error: "Cartão não pertence a esta empresa." },
@@ -333,7 +343,7 @@ export async function POST(req: Request) {
                     amountCents,
                     description: labels.description,
                     itemCode: labels.itemCode,
-                    customerId,
+                    customerId: walletCustomerId,
                     cardId: savedCardId,
                     recurrence: !isFirstPayment,
                     metadata: orderMeta,

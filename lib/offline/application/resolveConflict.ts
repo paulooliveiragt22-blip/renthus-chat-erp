@@ -1,0 +1,1 @@
+export { resolveConflict } from "./applyOptimistic";

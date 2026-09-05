@@ -1,6 +1,6 @@
 # ADR 0008 — PWA Offline-First: Local Command Outbox + Sync Engine
 
-**Status:** aceito (estrutura aprovada 2026-09-05; implementação sob checklist)  
+**Status:** aceito (estrutura 2026-09-05; **P0 fundações entregue** 2026-09-05; P1+ aguarda D-P1…D-P5)  
 **Data:** 2026-09-05  
 **Escopo técnico:** outbox local (IndexedDB), sync engine, optimistic UI com estado `pending`, políticas de cache do Service Worker, snapshot de catálogo para PDV, **constraints de performance (D7)** — sem over-engineering.  
 **Escopo comercial / produto:** decisões D-P1…D-P5 abaixo — **confirmar antes de mutação offline (fase P1+)**.
@@ -167,9 +167,13 @@ Ganho real do Offline-First neste ERP: **snapshot enxuto + busca local + sync em
 | `lib/offline/application/applyOptimistic.ts` | Helpers optimistic |
 | `lib/offline/application/resolveConflict.ts` | Mapeia resposta servidor → UI |
 | `lib/offline/adapters/idbOutboxStore.ts` | IndexedDB |
+| `lib/offline/adapters/memoryOutboxStore.ts` | Outbox em memória (testes / SSR) |
 | `lib/offline/adapters/idbCatalogSnapshotStore.ts` | Snapshot catálogo (teto + projection — Perf-1) |
 | `lib/offline/application/buildCatalogSearchIndex.ts` | Índice de busca/bipagem local (Perf-2) |
 | `lib/offline/adapters/httpSyncTransport.ts` | HTTP **batch** (Perf-3) |
+| `lib/offline/syncStatusStore.ts` | Snapshot reativo pending/online (UI) |
+| `lib/offline/persistQueryAllowlist.ts` | Allowlist Perf-4 |
+| `lib/offline/createAppQueryClient.ts` | QueryClient com networkMode online + hook allowlist |
 | `lib/offline/adapters/workboxBgSyncBridge.ts` | Opcional BG Sync |
 | `lib/offline/presentation/SyncStatusBar.tsx` | Indicador global |
 | `lib/offline/presentation/useOfflineMutation.ts` | Hook TanStack |
@@ -186,6 +190,8 @@ Ganho real do Offline-First neste ERP: **snapshot enxuto + busca local + sync em
 | `next.config.js` | Runtime caching fino (D3); update waiting/prompt (D5/Perf-A); opcional timeout NetworkFirst (Perf-B); BG Sync bridge (Perf-C) |
 | `app/offline/page.tsx` | Mensagem alinhada a “fila local / sync” (não só “sem internet”) |
 | `app/layout.tsx` ou layout admin | Montar `SyncStatusBar` + provider persist Query **com allowlist** (Perf-4) |
+| `components/AdminShell.tsx` | `SyncStatusBar` abaixo dos banners de billing/impersonation |
+| `components/Providers.tsx` | Usa `createAppQueryClient()` |
 | Provider TanStack Query (arquivo existente do `QueryClient`) | `networkMode`, persist seletivo, `setMutationDefaults`, `resumePausedMutations` — **não** persist global |
 | `app/(admin)/pdv/page.tsx` (+ helpers PDV) | Snapshot enxuto + índice busca; finalize → outbox; UI pending; badge stale |
 | `app/(admin)/pedidos/PedidosClient.tsx` | Fase P2: status transitions via outbox/optimistic |

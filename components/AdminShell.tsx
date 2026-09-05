@@ -10,6 +10,7 @@ import HeaderClient from "@/components/HeaderClient";
 import AdminPrimaryNav from "@/components/AdminPrimaryNav";
 import BillingStatusBanner from "@/components/billing/BillingStatusBanner";
 import ImpersonationBanner from "@/components/platform/ImpersonationBanner";
+import { SyncStatusBar } from "@/lib/offline/presentation/SyncStatusBar";
 import { installBillingFetchInterceptor } from "@/lib/billing/installBillingFetchInterceptor";
 import { useAdminPrimaryDockVisible } from "@/lib/ui/useAdminPrimaryDockVisible";
 import { cn } from "@/lib/utils";
@@ -172,6 +173,7 @@ function AdminShellInner({ children }: { children: React.ReactNode }) {
                 />
                 <BillingStatusBanner />
                 <ImpersonationBanner />
+                <SyncStatusBar />
 
                 {/* Corpo: sidebar + conteúdo */}
                 <div className="flex flex-1 overflow-hidden">

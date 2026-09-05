@@ -66,6 +66,7 @@
     "lib/workspace/rbac/profileTemplates.ts",
     "lib/workspace/rbac/requireCapability.ts",
     "lib/workspace/requireCompanyAccess.ts",
+    "lib/offline/**/*.ts",
     "lib/server/financeiro/dayBounds.ts",
     "lib/orders/enqueuePreparingNotify.ts",
     "src/types/contracts.public-menu.ts",

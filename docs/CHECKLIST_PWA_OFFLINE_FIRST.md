@@ -36,20 +36,20 @@ Defaults sugeridos no ADR (confirmar owner): D-P1=PDV read+enqueue finalize; D-P
 
 | # | Item | Arquivos (add/alt) | Função | DoD | Estado |
 |---|------|-------------------|--------|-----|--------|
-| P0.1 | Tipos `OfflineCommand` + status machine | `+ lib/offline/domain/OfflineCommand.ts` | Contrato único de comando | Tipos exportados; status `pending\|syncing\|synced\|failed\|conflict` | [ ] |
-| P0.2 | `SyncEligibility` (allowlist vazia + stubs de limite) | `+ lib/offline/domain/SyncEligibility.ts` | Quem pode entrar na fila | Allowlist `[]` ou só tipos no-op; testes | [ ] |
-| P0.3 | `ConflictPolicy` stub | `+ lib/offline/domain/ConflictPolicy.ts` | Política por tipo | Map default `reject_reopen` | [ ] |
-| P0.4 | Ports | `+ lib/offline/ports/{OutboxStore,SyncTransport,CatalogSnapshotStore}.ts` | Contratos hexagonais | Interfaces sem implementação de rede de negócio | [ ] |
-| P0.5 | Adapter IndexedDB outbox | `+ lib/offline/adapters/idbOutboxStore.ts` | Persistência durable | enqueue/list/updateStatus/purgeSynced; teste unit | [ ] |
-| P0.6 | `enqueueCommand` + `flushOutbox` (dry, **batch**) | `+ lib/offline/application/{enqueueCommand,flushOutbox,applyOptimistic,resolveConflict}.ts` | Use cases; Perf-3 | Flush mock em lote; sem API real de PDV | [ ] |
-| P0.7 | `httpSyncTransport` stub batch / route opcional | `+ lib/offline/adapters/httpSyncTransport.ts` · opcional `+ app/api/offline/sync/route.ts` 501/echo auth-only | Contrato HTTP lote (Perf-3) | Auth tenant; sem aplicar venda | [ ] |
-| P0.8 | `SyncStatusBar` + wiring layout | `+ lib/offline/presentation/SyncStatusBar.tsx` · `~` layout admin | UX “N pendentes / offline” | Visível no admin; não quebra layout | [ ] |
-| P0.9 | Hook `useOfflineMutation` skeleton | `+ lib/offline/presentation/useOfflineMutation.ts` | Ponte TanStack | onMutate/onError documentados; sem call sites PDV ainda | [ ] |
-| P0.10 | QueryClient: offline-ready + **persist allowlist stub** | `~` provider QueryClient existente | Perf-4 | Sem persist global; sem regressão platform/billing | [ ] |
-| P0.11 | Testes unitários domínio/outbox | `+ tests/offline/*.test.ts` | Não perder invariantes | `npm test` verde no subset offline | [ ] |
-| P0.12 | Doc cruzada | `~ docs/ADR/0008-…` se paths divergirem | Manter ADR ↔ código | Paths reais = ADR | [ ] |
+| P0.1 | Tipos `OfflineCommand` + status machine | `+ lib/offline/domain/OfflineCommand.ts` | Contrato único de comando | Tipos exportados; status `pending\|syncing\|synced\|failed\|conflict` | [x] 2026-09-05 |
+| P0.2 | `SyncEligibility` (allowlist vazia + stubs de limite) | `+ lib/offline/domain/SyncEligibility.ts` | Quem pode entrar na fila | Allowlist `noop` só; testes | [x] 2026-09-05 |
+| P0.3 | `ConflictPolicy` stub | `+ lib/offline/domain/ConflictPolicy.ts` | Política por tipo | Map default `reject_reopen` | [x] 2026-09-05 |
+| P0.4 | Ports | `+ lib/offline/ports/{OutboxStore,SyncTransport,CatalogSnapshotStore}.ts` | Contratos hexagonais | Interfaces sem implementação de rede de negócio | [x] 2026-09-05 |
+| P0.5 | Adapter IndexedDB outbox | `+ lib/offline/adapters/idbOutboxStore.ts` · `memoryOutboxStore.ts` | Persistência durable | enqueue/list/updateStatus/purgeSynced; teste unit (memory) | [x] 2026-09-05 |
+| P0.6 | `enqueueCommand` + `flushOutbox` (dry, **batch**) | `+ lib/offline/application/{enqueueCommand,flushOutbox,applyOptimistic,resolveConflict}.ts` | Use cases; Perf-3 | Flush mock em lote; sem API real de PDV | [x] 2026-09-05 |
+| P0.7 | `httpSyncTransport` stub batch / route opcional | `+ lib/offline/adapters/httpSyncTransport.ts` · `+ app/api/offline/sync/route.ts` 501 auth-only | Contrato HTTP lote (Perf-3) | Auth tenant; sem aplicar venda | [x] 2026-09-05 |
+| P0.8 | `SyncStatusBar` + wiring layout | `+ lib/offline/presentation/SyncStatusBar.tsx` · `~` AdminShell | UX “N pendentes / offline” | Visível no admin; não quebra layout | [x] 2026-09-05 |
+| P0.9 | Hook `useOfflineMutation` skeleton | `+ lib/offline/presentation/useOfflineMutation.ts` | Ponte TanStack | Skeleton + helpers optimistic; sem call sites PDV | [x] 2026-09-05 |
+| P0.10 | QueryClient: offline-ready + **persist allowlist stub** | `+ createAppQueryClient.ts` · `~` Providers | Perf-4 | Sem persist global; networkMode online | [x] 2026-09-05 |
+| P0.11 | Testes unitários domínio/outbox | `+ tests/offline/outbox.test.ts` | Não perder invariantes | Subset offline verde | [x] 2026-09-05 |
+| P0.12 | Doc cruzada | `~ docs/ADR/0008-…` paths extras | Manter ADR ↔ código | Paths reais = ADR | [x] 2026-09-05 |
 
-**Saída P0:** mergeável sem mudança de comportamento comercial; checklist O0.5–O0.9 ainda podem estar abertos.
+**Saída P0:** mergeável sem mudança de comportamento comercial; checklist O0.5–O0.9 ainda podem estar abertos. **P0 concluído 2026-09-05.**
 
 ---
 
