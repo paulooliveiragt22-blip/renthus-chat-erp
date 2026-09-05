@@ -160,18 +160,15 @@ export async function POST(req: Request) {
 
                 return NextResponse.json({
                     ok: true,
-                    action: "upgrade_checkout",
+                    action: "upgrade_pending",
                     from_plan: checkout.fromPlan,
                     to_plan: checkout.toPlan,
                     invoice_id: checkout.invoiceId,
-                    order_id: checkout.orderId,
                     amount_cents: checkout.amountCents,
                     amount_brl: checkout.amountBrl,
-                    pix_qr_code: checkout.pixQrCode,
-                    pix_url: checkout.pixUrl,
                     next_billing_at: checkout.nextBillingAt,
                     message:
-                        "Pague o PIX do upgrade (prorata). Após confirmação o plano sobe; a renovação segue na data atual.",
+                        "Upgrade preparado. Pague abaixo (PIX ou cartão) para confirmar a mudança de plano.",
                 });
             } catch (e: unknown) {
                 const msg = e instanceof Error ? e.message : String(e);

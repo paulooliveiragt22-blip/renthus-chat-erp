@@ -18,10 +18,11 @@ export type CheckoutObligationKind = "invoice";
 export type CheckoutStrategy = {
     kind: CheckoutObligationKind;
     isFirstPayment: boolean;
-    metaType: "invoice";
     amountCents: number;
     /** `year` = ciclo anual (R2-3); canônico vindo de rpc_create_billing_obligation. */
-    invoiceKind: "subscription" | "year";
+    invoiceKind: "subscription" | "year" | "plan_upgrade" | "period_switch";
+    /** Metadata PSP / fulfill — espelha invoices.kind quando ≠ subscription. */
+    metaType: "invoice" | "plan_upgrade" | "period_switch";
 };
 
 export type PendingCheckoutRow = {
@@ -30,6 +31,8 @@ export type PendingCheckoutRow = {
     pagarme_order_id: string | null;
     pagarme_payment_url: string | null;
     pix_qr_code: string | null;
+    kind?: string | null;
+    target_plan_key?: string | null;
 };
 
 /**
@@ -117,9 +120,23 @@ export async function loadCheckoutContext(
         ? Date.parse(String(subRow.next_billing_at))
         : Number.NaN;
 
-    type PendingKindRow = PendingCheckoutRow & { kind?: string | null };
+    type PendingKindRow = PendingCheckoutRow & {
+        kind?: string | null;
+        target_plan_key?: string | null;
+    };
 
-    // Obrigação já pendente (subscription|year). Não recria para prepaid ativo.
+    const { data: specialPending } = await admin
+        .from("invoices")
+        .select(
+            "id, amount, pagarme_order_id, pagarme_payment_url, pix_qr_code, kind, target_plan_key"
+        )
+        .eq("company_id", companyId)
+        .eq("status", "pending")
+        .in("kind", ["plan_upgrade", "period_switch"])
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
     const { data: existingPending } = await admin
         .from("invoices")
         .select("id, amount, pagarme_order_id, pagarme_payment_url, pix_qr_code, kind")
@@ -130,18 +147,33 @@ export async function loadCheckoutContext(
         .limit(1)
         .maybeSingle();
 
+    const anyPending = specialPending ?? existingPending;
+
     const prepaidActive =
         stLower === "active" &&
         Number.isFinite(nextMs) &&
         nextMs > Date.now() &&
-        !existingPending;
+        !anyPending;
 
-    let pendingForKind = (existingPending as PendingKindRow | null) ?? null;
-    let obligKind: "subscription" | "year" =
-        pendingForKind?.kind === "year" ? "year" : "subscription";
+    let pendingForKind = (specialPending as PendingKindRow | null) ?? null;
+    let obligKind: CheckoutStrategy["invoiceKind"] = pendingForKind?.kind === "period_switch"
+        ? "period_switch"
+        : pendingForKind?.kind === "plan_upgrade"
+          ? "plan_upgrade"
+          : (existingPending as PendingKindRow | null)?.kind === "year"
+            ? "year"
+            : "subscription";
     let chargeCents = 0;
+    let metaType: CheckoutStrategy["metaType"] =
+        obligKind === "plan_upgrade"
+            ? "plan_upgrade"
+            : obligKind === "period_switch"
+              ? "period_switch"
+              : "invoice";
 
-    if (prepaidActive) {
+    if (pendingForKind?.id) {
+        chargeCents = Math.round(Number(pendingForKind.amount ?? 0) * 100);
+    } else if (prepaidActive) {
         // Rota curto-circuita (already_paid); amount só informativo (lista mensal).
         const pricing = await loadPlanPricing(admin, String(subRow.plan ?? "essencial"));
         const seatQty =
@@ -150,7 +182,23 @@ export async function loadCheckoutContext(
                 ? (subRow as { seat_quantity: number }).seat_quantity
                 : pricing.includedSeats;
         chargeCents = computeMonthlyChargeCents(pricing, seatQty);
-    } else {
+    } else if (!pendingForKind) {
+        pendingForKind = (existingPending as PendingKindRow | null) ?? null;
+        obligKind =
+            pendingForKind?.kind === "year"
+                ? "year"
+                : pendingForKind?.kind === "plan_upgrade"
+                  ? "plan_upgrade"
+                  : pendingForKind?.kind === "period_switch"
+                    ? "period_switch"
+                    : "subscription";
+        metaType =
+            obligKind === "plan_upgrade"
+                ? "plan_upgrade"
+                : obligKind === "period_switch"
+                  ? "period_switch"
+                  : "invoice";
+
         // Sempre a RPC: cria ou realinha amount (plano/seats/promo/período).
         const { data: oblig, error: obligErr } = await admin.rpc(
             "rpc_create_billing_obligation",
@@ -163,6 +211,7 @@ export async function loadCheckoutContext(
             amount_cents?: number;
         };
         obligKind = o.kind === "year" ? "year" : "subscription";
+        metaType = "invoice";
         chargeCents = Number(o.amount_cents ?? 0);
         if (o.invoice_id) {
             const { data: newInv } = await admin
@@ -181,8 +230,10 @@ export async function loadCheckoutContext(
         lastPaid,
         { amountCents: chargeCents }
     );
-    // Kind canônico do banco (subscription|year) — sobrepõe o default mensal.
+    // Kind canônico do banco — sobrepõe o default mensal.
     strategy.invoiceKind = obligKind;
+    strategy.metaType = metaType;
+    strategy.amountCents = chargeCents;
 
     // Reconcile order pendente já pago no PSP (webhook perdido) → libera antes do QR.
     if (pendingForKind?.id && pendingForKind.pagarme_order_id) {
@@ -216,7 +267,27 @@ export async function loadCheckoutContext(
 }
 
 /** Helper de descrição/itemCode alinhado à estratégia. */
-export function checkoutOrderLabels(strategy: CheckoutStrategy, planLabel: string) {
+export function checkoutOrderLabels(
+    strategy: CheckoutStrategy,
+    planLabel: string,
+    opts?: { fromPlanLabel?: string; toPlanLabel?: string }
+) {
+    if (strategy.invoiceKind === "plan_upgrade") {
+        const from = opts?.fromPlanLabel ?? planLabel;
+        const to = opts?.toPlanLabel ?? planLabel;
+        return {
+            description: `Upgrade Renthus ${from} → ${to} (prorata)`,
+            itemCode: "plan_upgrade" as const,
+            tipoLabel: "Upgrade de plano",
+        };
+    }
+    if (strategy.invoiceKind === "period_switch") {
+        return {
+            description: `Renthus ${planLabel} — migração para plano anual`,
+            itemCode: "period_switch" as const,
+            tipoLabel: "Migração mensal → anual",
+        };
+    }
     if (strategy.invoiceKind === "year") {
         return {
             description: `Plano anual Renthus — ${planLabel}`,

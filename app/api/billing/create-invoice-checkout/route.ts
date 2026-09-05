@@ -254,14 +254,26 @@ export async function POST(req: Request) {
                 : undefined;
 
         const metaType = strategy.metaType;
-        const orderMeta = {
-            type:            metaType,
-            company_id:      companyId,
+        const targetPlanKey = String(pendingInv?.target_plan_key ?? "").trim();
+        const orderMeta: Record<string, string> = {
+            type: metaType,
+            company_id: companyId,
             subscription_id: sub.id,
-            plan:            String(plan),
+            plan: targetPlanKey || String(plan),
         };
-        const planLabel = getPlanLabel(plan);
-        const labels = checkoutOrderLabels(strategy, planLabel);
+        if (metaType === "plan_upgrade" && targetPlanKey) {
+            orderMeta.from_plan = String(plan);
+            orderMeta.to_plan = targetPlanKey;
+        }
+        if (pendingInv?.id) {
+            orderMeta.invoice_id = pendingInv.id;
+        }
+        const planLabel = getPlanLabel(targetPlanKey || plan);
+        const fromPlanLabel = getPlanLabel(plan);
+        const labels = checkoutOrderLabels(strategy, planLabel, {
+            fromPlanLabel,
+            toPlanLabel: targetPlanKey ? getPlanLabel(targetPlanKey) : planLabel,
+        });
 
         if (paymentMethod === "credit_card") {
             const token = body.card_token?.trim();

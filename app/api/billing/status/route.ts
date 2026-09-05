@@ -77,7 +77,7 @@ export async function GET() {
 
         const { data: invPending } = await admin
             .from("invoices")
-            .select("pagarme_payment_url, pix_qr_code, amount, due_at, kind")
+            .select("pagarme_payment_url, pix_qr_code, amount, due_at, kind, target_plan_key")
             .eq("company_id", companyId)
             .eq("status", "pending")
             .order("created_at", { ascending: false })

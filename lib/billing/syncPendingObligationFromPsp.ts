@@ -9,6 +9,7 @@ import type { createAdminClient } from "@/lib/supabase/admin";
 import { getPagarmeOrder, isOrderCreditPaid, type PagarmeOrder } from "@/lib/billing/pagarme";
 import { fulfillPayment } from "@/lib/billing/fulfillPayment";
 import { billingLog } from "@/lib/billing/billingLog";
+import type { PspFulfillMetaType } from "@/lib/billing/pspMetaTypes";
 
 type Admin = ReturnType<typeof createAdminClient>;
 
@@ -33,7 +34,7 @@ function isPspPaid(order: PagarmeOrder): boolean {
 export async function fulfillIfPagarmeOrderPaid(
     admin: Admin,
     orderId: string,
-    metaType: "invoice"
+    metaType: PspFulfillMetaType
 ): Promise<{ fulfilled: boolean; alreadyDone?: boolean; error?: string }> {
     try {
         const order = await getPagarmeOrder(orderId);
@@ -86,12 +87,18 @@ export async function syncPendingObligationFromPsp(
 
     for (const inv of withOrder) {
         const orderId = String(inv.pagarme_order_id);
-        const kind = "invoice" as const;
-        const r = await fulfillIfPagarmeOrderPaid(admin, orderId, kind);
+        const kindRaw = String(inv.kind ?? "subscription");
+        const metaType: PspFulfillMetaType =
+            kindRaw === "plan_upgrade"
+                ? "plan_upgrade"
+                : kindRaw === "period_switch"
+                  ? "period_switch"
+                  : "invoice";
+        const r = await fulfillIfPagarmeOrderPaid(admin, orderId, metaType);
         if (r.error) {
             lastError = {
                 action: "error",
-                kind,
+                kind: metaType === "invoice" ? "invoice" : undefined,
                 order_id: orderId,
                 error: r.error,
                 checked: withOrder.length,
@@ -101,19 +108,24 @@ export async function syncPendingObligationFromPsp(
         if (r.fulfilled) {
             billingLog("psp_sync", "fulfilled", {
                 company_id: companyId,
-                kind,
+                kind: metaType,
                 order_id: orderId,
                 already_done: r.alreadyDone ?? false,
             });
             return {
                 action: "fulfilled",
-                kind,
+                kind: metaType === "invoice" ? "invoice" : undefined,
                 order_id: orderId,
                 alreadyDone: r.alreadyDone,
                 checked: withOrder.length,
             };
         }
-        lastPending = { action: "pending", kind, order_id: orderId, checked: withOrder.length };
+        lastPending = {
+            action: "pending",
+            kind: metaType === "invoice" ? "invoice" : undefined,
+            order_id: orderId,
+            checked: withOrder.length,
+        };
     }
 
     if (lastError && !lastPending) return lastError;

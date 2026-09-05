@@ -6,12 +6,7 @@
 
 import "server-only";
 import type { createAdminClient } from "@/lib/supabase/admin";
-import {
-    createPixInvoiceOrder,
-    resolvePixFromOrder,
-    centsToBRL,
-} from "@/lib/billing/pagarme";
-import { buildPagarmeCustomerPayload } from "@/lib/billing/buildPagarmeCustomerFromCompany";
+import { centsToBRL } from "@/lib/billing/pagarme";
 import { reconcileOrCancelLiveOrder } from "@/lib/billing/reconcileLivePagarmeOrder";
 import { normalizePlanKey, type CommercialPlanKey } from "@/lib/billing/planCatalog";
 
@@ -19,15 +14,12 @@ type Admin = ReturnType<typeof createAdminClient>;
 
 export type EnsurePeriodSwitchCheckoutResult =
     | {
-          mode: "checkout";
+          mode: "pending";
           invoiceId: string;
-          orderId: string;
           amountCents: number;
           amountBrl: number;
           annualCents: number;
           creditCents: number;
-          pixQrCode: string | null;
-          pixUrl: string | null;
           plan: CommercialPlanKey;
           nextBillingAt: string | null;
       }
@@ -100,62 +92,18 @@ export async function ensurePeriodSwitchCheckout(
     const priorOrderId =
         typeof obl.pagarme_order_id === "string" ? obl.pagarme_order_id : null;
 
-    const recon = await reconcileOrCancelLiveOrder(admin, priorOrderId, "invoice");
+    const recon = await reconcileOrCancelLiveOrder(admin, priorOrderId, "period_switch");
     if (recon.action === "fulfilled") {
         throw new Error("already_fulfilled");
     }
 
-    const customerId =
-        typeof sub.pagarme_customer_id === "string" ? sub.pagarme_customer_id : undefined;
-    const customerPayload = buildPagarmeCustomerPayload({
-        id: params.companyId,
-        name: params.company.name ?? null,
-        nome_fantasia: params.company.nome_fantasia ?? null,
-        email: params.company.email ?? null,
-        whatsapp_phone: params.company.whatsapp_phone ?? params.company.phone ?? null,
-        cnpj: params.company.cnpj ?? null,
-    });
-
-    const created = await createPixInvoiceOrder({
-        amountCents,
-        description: `Renthus ${plan} — migração para plano anual`,
-        itemCode: "period_switch",
-        expiresInSeconds: 3600,
-        customerId,
-        customer: customerId ? undefined : customerPayload,
-        metadata: {
-            type: "period_switch",
-            company_id: params.companyId,
-            subscription_id: String(sub.id),
-            plan,
-            invoice_id: invoiceId,
-        },
-    });
-
-    const { order, pixCode, pixUrl } = await resolvePixFromOrder(created);
-    if (!pixCode && !pixUrl) {
-        throw new Error("pix_payload_missing");
-    }
-
-    await admin
-        .from("invoices")
-        .update({
-            pagarme_order_id: order.id,
-            pagarme_payment_url: pixUrl,
-            pix_qr_code: pixCode,
-        })
-        .eq("id", invoiceId);
-
     return {
-        mode: "checkout",
+        mode: "pending",
         invoiceId,
-        orderId: order.id,
         amountCents,
         amountBrl: catalogBrl,
         annualCents,
         creditCents,
-        pixQrCode: pixCode,
-        pixUrl,
         plan,
         nextBillingAt: sub.next_billing_at ? String(sub.next_billing_at) : null,
     };

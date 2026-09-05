@@ -56,19 +56,16 @@ export async function POST() {
 
             return NextResponse.json({
                 ok: true,
-                action: "period_switch_checkout",
+                action: "period_switch_pending",
                 plan: checkout.plan,
                 invoice_id: checkout.invoiceId,
-                order_id: checkout.orderId,
                 amount_cents: checkout.amountCents,
                 amount_brl: checkout.amountBrl,
                 annual_cents: checkout.annualCents,
                 credit_cents: checkout.creditCents,
-                pix_qr_code: checkout.pixQrCode,
-                pix_url: checkout.pixUrl,
                 next_billing_at: checkout.nextBillingAt,
                 message:
-                    "Pague o PIX para migrar ao plano anual. Abatemos o valor do mês já pago; após a confirmação, a renovação passa a ser anual.",
+                    "Migração para o anual preparada. Pague abaixo (PIX ou cartão) para confirmar.",
             });
         } catch (e: unknown) {
             const msg = e instanceof Error ? e.message : String(e);

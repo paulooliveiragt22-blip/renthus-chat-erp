@@ -37,6 +37,7 @@ type Props = {
     onUpgradeOrTrial: (plan: CommercialPlanKey) => Promise<void> | void;
     onReload: () => Promise<void>;
     onError: (msg: string) => void;
+    onSuccess?: (msg: string) => void;
     /** Never-paid: persistir month|year no banco ao acionar o toggle. */
     onPrepayPeriodChange?: (period: ViewPeriod) => Promise<void> | void;
     /** Checkout inicial (/plano/pagar): seleção livre, sem upgrade/downgrade. */
@@ -78,6 +79,7 @@ export function PlanChangeCatalog({
     onUpgradeOrTrial,
     onReload,
     onError,
+    onSuccess,
     onPrepayPeriodChange,
     checkoutMode = false,
     neverPaid = false,
@@ -85,15 +87,6 @@ export function PlanChangeCatalog({
 }: Props) {
     const isAnnualSub = String(billingPeriod ?? "month").toLowerCase() === "year";
     const [viewPeriod, setViewPeriod] = useState<ViewPeriod>(isAnnualSub ? "year" : "month");
-    const [switchPix, setSwitchPix] = useState<{
-        plan: string;
-        amount_brl: number;
-        annual_cents: number;
-        credit_cents: number;
-        pix_qr_code: string | null;
-        pix_url: string | null;
-        message?: string;
-    } | null>(null);
     const [switching, setSwitching] = useState(false);
     const [downgradeTo, setDowngradeTo] = useState<CommercialPlanKey | null>(null);
     const [members, setMembers] = useState<Member[]>([]);
@@ -102,14 +95,6 @@ export function PlanChangeCatalog({
     const [loadingMembers, setLoadingMembers] = useState(false);
     const [saving, setSaving] = useState(false);
     const [cancelling, setCancelling] = useState(false);
-    const [upgradePix, setUpgradePix] = useState<{
-        to_plan: string;
-        from_plan: string;
-        amount_brl: number;
-        pix_qr_code: string | null;
-        pix_url: string | null;
-        message?: string;
-    } | null>(null);
 
     const loadMembers = useCallback(
         async (plan: CommercialPlanKey) => {
@@ -231,7 +216,6 @@ export function PlanChangeCatalog({
             return;
         }
         setSaving(true);
-        setUpgradePix(null);
         try {
             const res = await fetch("/api/billing/change-plan", {
                 method: "POST",
@@ -242,27 +226,14 @@ export function PlanChangeCatalog({
             const json = (await res.json().catch(() => ({}))) as {
                 error?: string;
                 action?: string;
-                to_plan?: string;
-                from_plan?: string;
-                amount_brl?: number;
-                pix_qr_code?: string | null;
-                pix_url?: string | null;
                 message?: string;
             };
             if (!res.ok) {
                 onError(json.error ?? "Não foi possível iniciar o upgrade.");
                 return;
             }
-            if (json.action === "upgrade_checkout") {
-                setUpgradePix({
-                    to_plan: String(json.to_plan ?? key),
-                    from_plan: String(json.from_plan ?? currentPlan),
-                    amount_brl: Number(json.amount_brl ?? 0),
-                    pix_qr_code: json.pix_qr_code ?? null,
-                    pix_url: json.pix_url ?? null,
-                    message: json.message,
-                });
-                return;
+            if (typeof json.message === "string" && json.message.trim()) {
+                onSuccess?.(json.message);
             }
             await onReload();
         } finally {
@@ -276,7 +247,6 @@ export function PlanChangeCatalog({
             return;
         }
         setSwitching(true);
-        setSwitchPix(null);
         try {
             const res = await fetch("/api/billing/switch-period", {
                 method: "POST",
@@ -285,29 +255,14 @@ export function PlanChangeCatalog({
             const json = (await res.json().catch(() => ({}))) as {
                 error?: string;
                 action?: string;
-                plan?: string;
-                amount_brl?: number;
-                annual_cents?: number;
-                credit_cents?: number;
-                pix_qr_code?: string | null;
-                pix_url?: string | null;
                 message?: string;
             };
             if (!res.ok) {
                 onError(json.error ?? "Não foi possível migrar para o anual.");
                 return;
             }
-            if (json.action === "period_switch_checkout") {
-                setSwitchPix({
-                    plan: String(json.plan ?? currentPlan),
-                    amount_brl: Number(json.amount_brl ?? 0),
-                    annual_cents: Number(json.annual_cents ?? 0),
-                    credit_cents: Number(json.credit_cents ?? 0),
-                    pix_qr_code: json.pix_qr_code ?? null,
-                    pix_url: json.pix_url ?? null,
-                    message: json.message,
-                });
-                return;
+            if (typeof json.message === "string" && json.message.trim()) {
+                onSuccess?.(json.message);
             }
             await onReload();
         } finally {
@@ -566,115 +521,6 @@ export function PlanChangeCatalog({
                     );
                 })}
             </div>
-
-            {switchPix ? (
-                <div className="space-y-2 rounded-xl border border-emerald-200 bg-emerald-50 p-4 dark:border-emerald-800 dark:bg-emerald-950/30">
-                    <p className="text-sm font-bold text-zinc-900 dark:text-zinc-100">
-                        Migrar {getPlanLabel(switchPix.plan)} para o plano anual
-                    </p>
-                    <p className="text-xs text-zinc-600 dark:text-zinc-300">
-                        Anual à vista {brl(switchPix.annual_cents / 100)} − crédito do mês pago{" "}
-                        {brl(switchPix.credit_cents / 100)} ={" "}
-                        <span className="font-semibold">{brl(switchPix.amount_brl)}</span>. Após o
-                        pagamento a renovação passa a ser anual (reinicia por 12 meses).
-                    </p>
-                    {switchPix.pix_qr_code ? (
-                        <p className="break-all rounded-lg bg-white p-2 font-mono text-[10px] text-zinc-700 dark:bg-zinc-900 dark:text-zinc-200">
-                            {switchPix.pix_qr_code}
-                        </p>
-                    ) : null}
-                    <div className="flex flex-wrap gap-2">
-                        {switchPix.pix_url ? (
-                            <a
-                                href={switchPix.pix_url}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white"
-                            >
-                                Abrir PIX
-                            </a>
-                        ) : null}
-                        <button
-                            type="button"
-                            onClick={() => {
-                                void navigator.clipboard.writeText(
-                                    switchPix.pix_qr_code ?? switchPix.pix_url ?? ""
-                                );
-                            }}
-                            className="rounded-lg border border-zinc-300 px-3 py-1.5 text-xs font-semibold dark:border-zinc-600"
-                        >
-                            Copiar código
-                        </button>
-                        <button
-                            type="button"
-                            onClick={() => {
-                                setSwitchPix(null);
-                                void onReload();
-                            }}
-                            className="rounded-lg border border-zinc-300 px-3 py-1.5 text-xs font-semibold dark:border-zinc-600"
-                        >
-                            Já paguei / fechar
-                        </button>
-                    </div>
-                </div>
-            ) : null}
-
-            {upgradePix ? (
-                <div className="space-y-2 rounded-xl border border-violet-200 bg-violet-50 p-4 dark:border-violet-800 dark:bg-violet-950/30">
-                    <p className="text-sm font-bold text-zinc-900 dark:text-zinc-100">
-                        Upgrade {getPlanLabel(upgradePix.from_plan)} →{" "}
-                        {getPlanLabel(upgradePix.to_plan)}
-                    </p>
-                    <p className="text-xs text-zinc-600 dark:text-zinc-300">
-                        Prorata até a renovação:{" "}
-                        <span className="font-semibold">
-                            {upgradePix.amount_brl.toLocaleString("pt-BR", {
-                                style: "currency",
-                                currency: "BRL",
-                            })}
-                        </span>
-                        . O plano sobe após o pagamento.
-                    </p>
-                    {upgradePix.pix_qr_code ? (
-                        <p className="break-all rounded-lg bg-white p-2 font-mono text-[10px] text-zinc-700 dark:bg-zinc-900 dark:text-zinc-200">
-                            {upgradePix.pix_qr_code}
-                        </p>
-                    ) : null}
-                    <div className="flex flex-wrap gap-2">
-                        {upgradePix.pix_url ? (
-                            <a
-                                href={upgradePix.pix_url}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="rounded-lg bg-violet-600 px-3 py-1.5 text-xs font-semibold text-white"
-                            >
-                                Abrir PIX
-                            </a>
-                        ) : null}
-                        <button
-                            type="button"
-                            onClick={() => {
-                                void navigator.clipboard.writeText(
-                                    upgradePix.pix_qr_code ?? upgradePix.pix_url ?? ""
-                                );
-                            }}
-                            className="rounded-lg border border-zinc-300 px-3 py-1.5 text-xs font-semibold dark:border-zinc-600"
-                        >
-                            Copiar código
-                        </button>
-                        <button
-                            type="button"
-                            onClick={() => {
-                                setUpgradePix(null);
-                                void onReload();
-                            }}
-                            className="rounded-lg border border-zinc-300 px-3 py-1.5 text-xs font-semibold dark:border-zinc-600"
-                        >
-                            Já paguei / fechar
-                        </button>
-                    </div>
-                </div>
-            ) : null}
 
             {downgradeTo ? (
                 <div className="space-y-2 rounded-xl border border-zinc-200 p-4 dark:border-zinc-700">

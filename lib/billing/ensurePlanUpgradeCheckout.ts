@@ -5,12 +5,7 @@
 
 import "server-only";
 import type { createAdminClient } from "@/lib/supabase/admin";
-import {
-    createPixInvoiceOrder,
-    resolvePixFromOrder,
-    centsToBRL,
-} from "@/lib/billing/pagarme";
-import { buildPagarmeCustomerPayload } from "@/lib/billing/buildPagarmeCustomerFromCompany";
+import { centsToBRL } from "@/lib/billing/pagarme";
 import { loadPlanPricing } from "@/lib/billing/loadPlanPricing";
 import { reconcileOrCancelLiveOrder } from "@/lib/billing/reconcileLivePagarmeOrder";
 import { isUniqueViolation } from "@/lib/billing/isUniqueViolation";
@@ -26,13 +21,10 @@ type Admin = ReturnType<typeof createAdminClient>;
 
 export type EnsurePlanUpgradeCheckoutResult =
     | {
-          mode: "checkout";
+          mode: "pending";
           invoiceId: string;
-          orderId: string;
           amountCents: number;
           amountBrl: number;
-          pixQrCode: string | null;
-          pixUrl: string | null;
           fromPlan: CommercialPlanKey;
           toPlan: CommercialPlanKey;
           nextBillingAt: string | null;
@@ -192,63 +184,16 @@ export async function ensurePlanUpgradeCheckout(
         })
         .eq("id", sub.id);
 
-    const recon = await reconcileOrCancelLiveOrder(admin, priorOrderId, "invoice");
+    const recon = await reconcileOrCancelLiveOrder(admin, priorOrderId, "plan_upgrade");
     if (recon.action === "fulfilled") {
         throw new Error("already_fulfilled");
     }
 
-    const customerId =
-        typeof sub.pagarme_customer_id === "string" ? sub.pagarme_customer_id : undefined;
-    const customerPayload = buildPagarmeCustomerPayload({
-        id: params.companyId,
-        name: params.company.name ?? null,
-        nome_fantasia: params.company.nome_fantasia ?? null,
-        email: params.company.email ?? null,
-        whatsapp_phone: params.company.whatsapp_phone ?? params.company.phone ?? null,
-        cnpj: params.company.cnpj ?? null,
-    });
-
-    const created = await createPixInvoiceOrder({
-        amountCents,
-        description: `Upgrade Renthus ${fromPlan} → ${toPlan} (prorata)`,
-        itemCode: "plan_upgrade",
-        expiresInSeconds: 3600,
-        customerId,
-        customer: customerId ? undefined : customerPayload,
-        metadata: {
-            type: "plan_upgrade",
-            company_id: params.companyId,
-            subscription_id: String(sub.id),
-            plan: toPlan,
-            from_plan: fromPlan,
-            invoice_id: invoiceId,
-        },
-    });
-
-    const { order, pixCode, pixUrl } = await resolvePixFromOrder(created);
-    if (!pixCode && !pixUrl) {
-        throw new Error("pix_payload_missing");
-    }
-
-    await admin
-        .from("invoices")
-        .update({
-            pagarme_order_id: order.id,
-            pagarme_payment_url: pixUrl,
-            pix_qr_code: pixCode,
-            amount: centsToBRL(amountCents),
-            target_plan_key: toPlan,
-        })
-        .eq("id", invoiceId);
-
     return {
-        mode: "checkout",
+        mode: "pending",
         invoiceId,
-        orderId: order.id,
         amountCents,
         amountBrl: centsToBRL(amountCents),
-        pixQrCode: pixCode,
-        pixUrl,
         fromPlan,
         toPlan,
         nextBillingAt: sub.next_billing_at ? String(sub.next_billing_at) : null,

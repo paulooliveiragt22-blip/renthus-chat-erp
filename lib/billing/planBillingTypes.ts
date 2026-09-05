@@ -26,6 +26,7 @@ export type BillingStatusJson = {
         amount: number;
         due_at: string;
         kind?: "subscription" | "year" | "seat_add" | "ai_pack" | "plan_upgrade" | "period_switch";
+        target_plan_key?: string | null;
     } | null;
     /** Resultado do sync PSP sob demanda (rede de segurança se webhook falhou). */
     psp_sync?: {

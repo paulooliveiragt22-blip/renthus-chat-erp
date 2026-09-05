@@ -707,13 +707,26 @@ export default function PlanBillingPanel({ variant = "full" }: PlanBillingPanelP
                                 : null);
                         const pixCode = (pixLiveCode ?? "").trim() || fromPendPix || fromInvPix;
 
+                        const pendingKind = String(pendInv?.kind ?? "");
+                        const hasOpenObligation =
+                            Boolean(pendRecord) &&
+                            Number(pendRecord?.amount ?? 0) > 0;
+                        const nextBillingMs = sub?.next_billing_at
+                            ? Date.parse(sub.next_billing_at)
+                            : Number.NaN;
+                        const prepaidActive =
+                            st === "active" &&
+                            Number.isFinite(nextBillingMs) &&
+                            nextBillingMs > Date.now() &&
+                            !hasOpenObligation;
+
                         const showPay =
                             st === "trial" ||
                             st === "pending_setup" ||
                             st === "pending_payment" ||
-                            st === "active" ||
                             st === "overdue" ||
-                            st === "blocked";
+                            st === "blocked" ||
+                            (st === "active" && (!prepaidActive || hasOpenObligation));
 
                         if (!showPay) return null;
 
@@ -721,7 +734,7 @@ export default function PlanBillingPanel({ variant = "full" }: PlanBillingPanelP
                         if (pixLoading) pixButtonLabel = "Gerando…";
                         else if (pixUrl || pixCode) pixButtonLabel = "Gerar novo / atualizar PIX";
 
-                        const paymentTitle =
+                        let paymentTitle =
                             variant === "pay"
                                 ? "Concluir pagamento"
                                 : isFirstPayment
@@ -730,13 +743,23 @@ export default function PlanBillingPanel({ variant = "full" }: PlanBillingPanelP
                                     ? "Pagar plano anual RenthusAgent"
                                     : "Pagar mensalidade RenthusAgent";
 
-                        const paymentDesc = isAnnualCycle
+                        let paymentDesc = isAnnualCycle
                             ? "Plano anual à vista. Próxima renovação em 12 meses após o pagamento."
                             : variant === "pay"
                               ? "Escolha PIX ou cartão de crédito para liberar seu acesso."
                               : isFirstPayment
                                 ? "Primeira mensalidade — após o pagamento as cobranças seguem a cada 30 dias."
                                 : "Mensalidade recorrente. Próximo vencimento em 30 dias após o pagamento.";
+
+                        if (pendingKind === "plan_upgrade") {
+                            paymentTitle = "Confirmar upgrade de plano";
+                            paymentDesc =
+                                "Pague abaixo (PIX ou cartão) para aplicar o upgrade. A data de renovação não muda.";
+                        } else if (pendingKind === "period_switch") {
+                            paymentTitle = "Migrar para plano anual";
+                            paymentDesc =
+                                "Pague abaixo para migrar ao ciclo anual. Após o pagamento a renovação passa a ser anual.";
+                        }
 
                         return (
                             <div className="rounded-2xl border-2 border-violet-300/70 bg-gradient-to-br from-violet-50 via-white to-zinc-50 p-5 shadow-sm dark:border-violet-800 dark:from-violet-950/30 dark:via-zinc-900 dark:to-zinc-950">
@@ -1122,6 +1145,10 @@ export default function PlanBillingPanel({ variant = "full" }: PlanBillingPanelP
                                     invalidatePlanFeatures();
                                 }}
                                 onError={(msg) => setBillingErr(msg)}
+                                onSuccess={(msg) => {
+                                    setBillingErr(null);
+                                    setBillingSuccessMsg(msg);
+                                }}
                                 onPrepayPeriodChange={
                                     initialCheckout
                                         ? async (period) => {
