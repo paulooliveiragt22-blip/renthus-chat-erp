@@ -420,7 +420,7 @@ export class OrderServiceV2Adapter implements OrderService {
             messagingChannel === "instagram" || messagingChannel === "messenger"
                 ? messagingChannel
                 : "whatsapp";
-        void trackOrderCreatedServer(`company:${tenant.companyId}`, {
+        await trackOrderCreatedServer(`company:${tenant.companyId}`, {
             channel: channelForAnalytics,
             offline: false,
             fulfillment_type: fulfillmentType,

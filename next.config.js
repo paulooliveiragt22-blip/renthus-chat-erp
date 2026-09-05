@@ -120,6 +120,16 @@ const nextConfig = {
       },
     ];
   },
+  // Mixpanel client proxy (adblock) → api-js.mixpanel.com
+  // https://docs.mixpanel.com/docs/tracking-methods/choosing-the-right-method
+  async rewrites() {
+    return [
+      {
+        source: "/mp/:path*",
+        destination: "https://api-js.mixpanel.com/:path*",
+      },
+    ];
+  },
 };
 
 module.exports = withSentryConfig(withPWA(nextConfig), {

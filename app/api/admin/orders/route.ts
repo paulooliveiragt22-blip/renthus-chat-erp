@@ -483,5 +483,19 @@ export async function POST(req: Request) {
     if (rpcErr) return NextResponse.json({ error: rpcErr.message }, { status: 500 });
     if (!orderId) return NextResponse.json({ error: "order_create_failed" }, { status: 500 });
 
+    try {
+        const { trackOrderCreatedServer } = await import("@/lib/analytics/mixpanelServer");
+        await trackOrderCreatedServer(ctx.userId, {
+            channel: "admin",
+            offline: false,
+            fulfillment_type: fulfillmentType,
+            item_count: items.length,
+            company_id: companyId,
+            order_id: String(orderId),
+        });
+    } catch {
+        /* analytics best-effort */
+    }
+
     return NextResponse.json({ ok: true, order_id: orderId as string });
 }

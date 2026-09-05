@@ -1,22 +1,32 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useWorkspace } from "@/lib/workspace/useWorkspace";
 import {
     initMixpanel,
     isMixpanelEnabled,
     mixpanelIdentify,
+    trackAppOpened,
 } from "@/lib/analytics/mixpanelBrowser";
 
 /**
- * Init Mixpanel once + identify on session (login / page reopen).
+ * Init Mixpanel (doc Next.js) + identify + app_opened para Live View.
+ * https://docs.mixpanel.com/docs/tracking-methods/integrations/nextjs
  */
 export function MixpanelBootstrap() {
     const { currentCompanyId } = useWorkspace();
+    const openedRef = useRef(false);
 
     useEffect(() => {
-        if (!isMixpanelEnabled()) return;
+        if (!isMixpanelEnabled()) {
+            if (process.env.NODE_ENV === "development") {
+                console.warn(
+                    "[mixpanel] token ausente no bundle. Confirme NEXT_PUBLIC_MIXPANEL_TOKEN e reinicie o next dev / redeploy."
+                );
+            }
+            return;
+        }
         initMixpanel();
 
         const supabase = createClient();
@@ -34,6 +44,10 @@ export function MixpanelBootstrap() {
                         : null,
                 company_id: currentCompanyId,
             });
+            if (!openedRef.current) {
+                openedRef.current = true;
+                trackAppOpened(currentCompanyId);
+            }
         }
 
         void syncIdentity();

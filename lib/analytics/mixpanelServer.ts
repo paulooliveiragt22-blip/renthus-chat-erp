@@ -1,64 +1,99 @@
 /**
- * Mixpanel server track via HTTP API (WhatsApp / Node workers).
- * Uses NEXT_PUBLIC_MIXPANEL_TOKEN (project token is public by design).
+ * Mixpanel Node SDK (server) — docs:
+ * https://docs.mixpanel.com/docs/tracking-methods/sdks/nodejs
+ * Prefer server-side for critical events (ad-blockers don't apply):
+ * https://docs.mixpanel.com/docs/tracking-methods/choosing-the-right-method
  */
 
-import type { OrderCreatedProps } from "./types";
+import Mixpanel from "mixpanel";
+import type { OrderCreatedProps, SignUpCompletedProps } from "./types";
 
-const TOKEN = () =>
-    process.env.NEXT_PUBLIC_MIXPANEL_TOKEN?.trim() ||
-    process.env.MIXPANEL_TOKEN?.trim() ||
-    "";
-
-function encodePayload(data: unknown): string {
-    return Buffer.from(JSON.stringify(data), "utf8").toString("base64");
+function token(): string {
+    return (
+        process.env.NEXT_PUBLIC_MIXPANEL_TOKEN?.trim() ||
+        process.env.MIXPANEL_TOKEN?.trim() ||
+        ""
+    );
 }
 
-/**
- * Fire-and-forget track. Never throws to callers (analytics must not break orders).
- */
+let client: Mixpanel.Mixpanel | null = null;
+
+function getClient(): Mixpanel.Mixpanel | null {
+    const t = token();
+    if (!t) return null;
+    if (!client) {
+        client = Mixpanel.init(t, {
+            // Server IP must not become every user's geo
+            geolocate: false,
+        });
+    }
+    return client;
+}
+
+function trackAsync(
+    event: string,
+    properties: Record<string, unknown>
+): Promise<void> {
+    const mp = getClient();
+    if (!mp) return Promise.resolve();
+    return new Promise((resolve) => {
+        try {
+            mp.track(event, properties, () => resolve());
+        } catch {
+            resolve();
+        }
+        // Safety: never hang serverless
+        setTimeout(resolve, 3_000);
+    });
+}
+
 export async function trackOrderCreatedServer(
     distinctId: string,
     props: OrderCreatedProps
 ): Promise<void> {
-    const token = TOKEN();
-    if (!token || !distinctId) return;
-
+    if (!distinctId) return;
     const insertId = props.order_id
         ? `order_created:${props.order_id}`
-        : `order_created:${props.channel}:${Date.now()}`;
+        : undefined;
+    await trackAsync("order_created", {
+        distinct_id: distinctId,
+        ip: "0",
+        channel: props.channel,
+        offline: props.offline,
+        fulfillment_type: props.fulfillment_type ?? undefined,
+        item_count: props.item_count ?? undefined,
+        company_id: props.company_id ?? undefined,
+        order_id: props.order_id ?? undefined,
+        platform: "server",
+        ...(insertId ? { $insert_id: insertId } : {}),
+    });
+}
 
-    const body = [
-        {
-            event: "order_created",
-            properties: {
-                token,
-                distinct_id: distinctId,
-                time: Math.floor(Date.now() / 1000),
-                $insert_id: insertId,
-                channel: props.channel,
-                offline: props.offline,
-                fulfillment_type: props.fulfillment_type ?? undefined,
-                item_count: props.item_count ?? undefined,
-                company_id: props.company_id ?? undefined,
-                order_id: props.order_id ?? undefined,
-                platform: "server",
-            },
-        },
-    ];
+export async function trackSignUpCompletedServer(
+    distinctId: string,
+    props: SignUpCompletedProps
+): Promise<void> {
+    if (!distinctId) return;
+    await trackAsync("sign_up_completed", {
+        distinct_id: distinctId,
+        ip: "0",
+        sign_up_method: props.sign_up_method,
+        platform: props.platform,
+        plan: props.plan ?? undefined,
+        billing_period: props.billing_period ?? undefined,
+        company_id: props.company_id ?? undefined,
+    });
+}
 
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 4_000);
-    try {
-        await fetch("https://api.mixpanel.com/track?ip=0", {
-            method: "POST",
-            headers: { "Content-Type": "application/x-www-form-urlencoded" },
-            body: `data=${encodeURIComponent(encodePayload(body))}`,
-            signal: controller.signal,
-        });
-    } catch {
-        /* best-effort */
-    } finally {
-        clearTimeout(timer);
-    }
+export async function trackAppOpenedServer(
+    distinctId: string,
+    companyId?: string | null
+): Promise<void> {
+    if (!distinctId) return;
+    await trackAsync("app_opened", {
+        distinct_id: distinctId,
+        ip: "0",
+        platform: "web",
+        company_id: companyId ?? undefined,
+    });
 }

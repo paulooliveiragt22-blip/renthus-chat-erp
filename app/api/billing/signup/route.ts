@@ -172,6 +172,21 @@ export async function POST(req: Request) {
             console.warn("[signup] notify failed:", notifyErr);
         }
 
+        try {
+            const { trackSignUpCompletedServer } = await import(
+                "@/lib/analytics/mixpanelServer"
+            );
+            await trackSignUpCompletedServer(userId, {
+                sign_up_method: "email",
+                platform: "web",
+                plan: planKey,
+                billing_period: billingPeriod,
+                company_id: companyId,
+            });
+        } catch {
+            /* analytics best-effort */
+        }
+
         return NextResponse.json({
             ok: true,
             company_id: companyId,

@@ -91,6 +91,21 @@ export async function POST(req: Request) {
         /* push opcional */
     }
 
+    try {
+        const { trackOrderCreatedServer } = await import("@/lib/analytics/mixpanelServer");
+        const cart = Array.isArray(body.cart) ? body.cart : [];
+        await trackOrderCreatedServer(ctx.userId, {
+            channel: "pdv",
+            offline: false,
+            fulfillment_type: "pickup",
+            item_count: cart.length,
+            company_id: companyId,
+            order_id: result.order_id,
+        });
+    } catch {
+        /* analytics best-effort */
+    }
+
     return NextResponse.json({
         ok: true,
         sale_id: result.sale_id,
