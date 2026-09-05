@@ -120,13 +120,14 @@ const nextConfig = {
       },
     ];
   },
-  // Mixpanel client proxy (adblock) → api-js.mixpanel.com
-  // https://docs.mixpanel.com/docs/tracking-methods/choosing-the-right-method
+  // Mixpanel proxy (track + engage + Session Replay /record)
+  // Replay doc: mesmo api_host; US → api.mixpanel.com
+  // https://docs.mixpanel.com/docs/tracking-methods/sdks/javascript/javascript-replay
   async rewrites() {
     return [
       {
         source: "/mp/:path*",
-        destination: "https://api-js.mixpanel.com/:path*",
+        destination: "https://api.mixpanel.com/:path*",
       },
     ];
   },

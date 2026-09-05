@@ -190,12 +190,12 @@ export default function ReceberTab({ companyId, refreshKey }: Props) {
             <Dialog open={!!payBill} onOpenChange={(next) => !next && setPayBill(null)}>
                 <DialogContent
                     hideClose
-                    className="max-w-sm gap-0 rounded-2xl p-0 shadow-2xl"
+                    className="flex max-h-[90vh] max-w-sm flex-col gap-0 overflow-hidden rounded-2xl p-0 shadow-2xl"
                     aria-describedby={undefined}
                 >
                     {payBill ? (
                         <>
-                            <div className="flex items-center gap-3 border-b border-zinc-100 px-5 py-4 dark:border-zinc-800">
+                            <div className="flex shrink-0 items-center gap-3 border-b border-zinc-100 px-5 py-4 dark:border-zinc-800">
                                 <CheckCircle2 className="h-5 w-5 text-emerald-600" />
                                 <DialogHeader className="flex-1 space-y-0">
                                     <DialogTitle className="text-sm font-bold">Registrar recebimento</DialogTitle>
@@ -206,7 +206,7 @@ export default function ReceberTab({ companyId, refreshKey }: Props) {
                                     </button>
                                 </DialogClose>
                             </div>
-                            <div className="space-y-3 p-5">
+                            <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-5">
                                 <p className="text-sm">
                                     Saldo: <b className="text-amber-600">{brl(payBill.saldo_devedor)}</b>
                                 </p>
@@ -240,7 +240,7 @@ export default function ReceberTab({ companyId, refreshKey }: Props) {
                                     className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-800"
                                 />
                             </div>
-                            <DialogFooter className="flex-row gap-3 border-t border-zinc-100 px-5 py-4 dark:border-zinc-800 sm:justify-stretch">
+                            <DialogFooter className="shrink-0 flex-row gap-3 border-t border-zinc-100 px-5 py-4 dark:border-zinc-800 sm:justify-stretch">
                                 <button
                                     type="button"
                                     onClick={() => setPayBill(null)}

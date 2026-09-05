@@ -34,17 +34,26 @@ export function initMixpanel(): void {
         return;
     }
 
-    // Doc Next.js: autocapture: true. ignore_dnt: true (sem UE/CA; DNT silencia o SDK).
-    // api_host same-origin: rewrite /mp → api-js.mixpanel.com (adblock).
+    // Doc Next.js + Session Replay:
+    // https://docs.mixpanel.com/docs/tracking-methods/sdks/javascript/javascript-replay
+    // Wizard "Verificar Conexão" exige Reproduções — sem record_sessions_percent fica cinza.
     mixpanel.init(MIXPANEL_TOKEN, {
         autocapture: true,
         track_pageview: true,
         persistence: "localStorage",
         ignore_dnt: true,
         api_host: `${window.location.origin}/mp`,
+        record_sessions_percent: 100,
+        record_heatmap_data: true,
         debug: process.env.NODE_ENV === "development",
     });
     initialized = true;
+    // Força 1ª gravação (wizard / Live View) mesmo se o sample já tiver "perdido" o sorteio
+    try {
+        mixpanel.start_session_recording();
+    } catch {
+        /* best-effort */
+    }
 }
 
 export function mixpanelIdentify(

@@ -240,12 +240,12 @@ export default function JournalEntryModal({
             >
                 <DialogContent
                     hideClose
-                    className="max-h-[92vh] max-w-2xl gap-0 overflow-y-auto rounded-2xl p-0 shadow-2xl"
+                    className="flex max-h-[90vh] max-w-2xl flex-col gap-0 overflow-hidden rounded-2xl p-0 shadow-2xl"
                     aria-describedby={undefined}
                 >
                     {line ? (
                         <>
-                            <div className="flex items-center gap-3 border-b border-zinc-100 px-5 py-4 dark:border-zinc-800">
+                            <div className="flex shrink-0 items-center gap-3 border-b border-zinc-100 px-5 py-4 dark:border-zinc-800">
                                 <DialogHeader className="min-w-0 flex-1 space-y-0">
                                     <DialogTitle className="truncate text-sm font-bold text-zinc-900 dark:text-zinc-100">
                                         {line.description}
@@ -266,7 +266,7 @@ export default function JournalEntryModal({
                                 </DialogClose>
                             </div>
 
-                            <div className="space-y-4 px-5 py-4">
+                            <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-5 py-4">
                                 {loading && <p className="text-sm text-zinc-500">Carregando lançamento…</p>}
                                 {error && !confirmMode && (
                                     <p className="flex items-start gap-1 text-xs font-semibold text-red-600">
@@ -497,30 +497,6 @@ export default function JournalEntryModal({
                                                         {error}
                                                     </p>
                                                 )}
-                                                <div className="mt-3 flex flex-wrap justify-end gap-2">
-                                                    <button
-                                                        type="button"
-                                                        onClick={(e) => {
-                                                            e.preventDefault();
-                                                            e.stopPropagation();
-                                                            openConfirm("partial");
-                                                        }}
-                                                        className="rounded-lg border border-zinc-200 px-3 py-1.5 text-xs font-medium text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
-                                                    >
-                                                        Estornar seleção…
-                                                    </button>
-                                                    <button
-                                                        type="button"
-                                                        onClick={(e) => {
-                                                            e.preventDefault();
-                                                            e.stopPropagation();
-                                                            openConfirm("full");
-                                                        }}
-                                                        className="rounded-lg border border-red-200 px-3 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50 dark:border-red-900 dark:text-red-400 dark:hover:bg-red-950/30"
-                                                    >
-                                                        Estornar pedido completo…
-                                                    </button>
-                                                </div>
                                             </div>
                                         )}
 
@@ -575,19 +551,52 @@ export default function JournalEntryModal({
                                                         {finalizeMsg}
                                                     </p>
                                                 )}
-                                                <button
-                                                    type="button"
-                                                    onClick={onFinalize}
-                                                    disabled={finalizing}
-                                                    className="w-full rounded-xl bg-violet-600 py-2.5 text-sm font-bold text-white disabled:opacity-50"
-                                                >
-                                                    {finalizing ? "Finalizando…" : "Finalizar e liquidar"}
-                                                </button>
                                             </div>
                                         )}
                                     </>
                                 )}
                             </div>
+
+                            {((canReverse && useOrderReverse && detail?.order) || showFinalize) && (
+                                <DialogFooter className="shrink-0 flex-row flex-wrap justify-end gap-2 border-t border-zinc-100 px-5 py-3 dark:border-zinc-800 sm:justify-end">
+                                    {canReverse && useOrderReverse && detail?.order && (
+                                        <>
+                                            <button
+                                                type="button"
+                                                onClick={(e) => {
+                                                    e.preventDefault();
+                                                    e.stopPropagation();
+                                                    openConfirm("partial");
+                                                }}
+                                                className="rounded-lg border border-zinc-200 px-3 py-1.5 text-xs font-medium text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                                            >
+                                                Estornar seleção…
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={(e) => {
+                                                    e.preventDefault();
+                                                    e.stopPropagation();
+                                                    openConfirm("full");
+                                                }}
+                                                className="rounded-lg border border-red-200 px-3 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50 dark:border-red-900 dark:text-red-400 dark:hover:bg-red-950/30"
+                                            >
+                                                Estornar pedido completo…
+                                            </button>
+                                        </>
+                                    )}
+                                    {showFinalize && (
+                                        <button
+                                            type="button"
+                                            onClick={onFinalize}
+                                            disabled={finalizing}
+                                            className="rounded-xl bg-violet-600 px-4 py-2.5 text-sm font-bold text-white disabled:opacity-50"
+                                        >
+                                            {finalizing ? "Finalizando…" : "Finalizar e liquidar"}
+                                        </button>
+                                    )}
+                                </DialogFooter>
+                            )}
                         </>
                     ) : null}
                 </DialogContent>
@@ -605,32 +614,34 @@ export default function JournalEntryModal({
                 <DialogContent
                     hideClose
                     overlayClassName="z-[60]"
-                    className="z-[60] max-w-sm gap-0 rounded-2xl p-5 shadow-2xl"
+                    className="z-[60] flex max-h-[90vh] max-w-sm flex-col gap-0 overflow-hidden rounded-2xl p-0 shadow-2xl"
                     aria-describedby={undefined}
                 >
-                    <DialogHeader>
+                    <DialogHeader className="shrink-0 space-y-0 px-5 pt-5">
                         <DialogTitle className="text-sm font-bold text-zinc-900 dark:text-zinc-100">
                             {confirmMode === "full"
                                 ? "Cancelar pedido completo"
                                 : "Confirmar estorno parcial"}
                         </DialogTitle>
                     </DialogHeader>
-                    {confirmMode === "full" ? (
-                        <p className="mt-2 text-xs text-zinc-600 dark:text-zinc-300">
-                            Estorna todo o lançamento, devolve todos os produtos ao estoque e cancela o pedido. Não
-                            haverá reemissão financeira.
+                    <div className="min-h-0 flex-1 overflow-y-auto px-5 py-2">
+                        {confirmMode === "full" ? (
+                            <p className="text-xs text-zinc-600 dark:text-zinc-300">
+                                Estorna todo o lançamento, devolve todos os produtos ao estoque e cancela o pedido. Não
+                                haverá reemissão financeira.
+                            </p>
+                        ) : (
+                            <p className="text-xs text-zinc-600 dark:text-zinc-300">
+                                Estornar: <strong>{partialSelectionSummary() || "seleção"}</strong>. O lançamento atual
+                                será estornado e um novo será criado com o que sobrou.
+                            </p>
+                        )}
+                        <p className="mt-2 text-xs text-amber-700 dark:text-amber-300">
+                            Altera extrato, caixa e estoque. Esta ação não pode ser desfeita pelo extrato.
                         </p>
-                    ) : (
-                        <p className="mt-2 text-xs text-zinc-600 dark:text-zinc-300">
-                            Estornar: <strong>{partialSelectionSummary() || "seleção"}</strong>. O lançamento atual
-                            será estornado e um novo será criado com o que sobrou.
-                        </p>
-                    )}
-                    <p className="mt-2 text-xs text-amber-700 dark:text-amber-300">
-                        Altera extrato, caixa e estoque. Esta ação não pode ser desfeita pelo extrato.
-                    </p>
-                    {error && <p className="mt-2 text-xs font-semibold text-red-600">{error}</p>}
-                    <DialogFooter className="mt-4 flex-row gap-2 sm:justify-stretch">
+                        {error && <p className="mt-2 text-xs font-semibold text-red-600">{error}</p>}
+                    </div>
+                    <DialogFooter className="shrink-0 flex-row gap-2 border-t border-zinc-100 px-5 py-4 dark:border-zinc-800 sm:justify-stretch">
                         <button
                             type="button"
                             disabled={reversing}

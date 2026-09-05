@@ -16,8 +16,8 @@ export const CSP_REPORT_ONLY_HEADER = "Content-Security-Policy-Report-Only";
 export function buildContentSecurityPolicy(opts: CspBuildOpts = {}): string {
     const isDev = Boolean(opts.isDev);
     const scriptSrc = isDev
-        ? "'self' 'unsafe-inline' 'unsafe-eval'"
-        : "'self' 'unsafe-inline'";
+        ? "'self' 'unsafe-inline' 'unsafe-eval' https://cdn.mxpnl.com"
+        : "'self' 'unsafe-inline' https://cdn.mxpnl.com";
 
     const directives = [
         "default-src 'self'",
@@ -37,6 +37,7 @@ export function buildContentSecurityPolicy(opts: CspBuildOpts = {}): string {
             "https://graph.instagram.com",
             "https://api-js.mixpanel.com",
             "https://api.mixpanel.com",
+            "https://cdn.mxpnl.com",
         ].join(" "),
         "worker-src 'self' blob:",
         "frame-ancestors 'none'",

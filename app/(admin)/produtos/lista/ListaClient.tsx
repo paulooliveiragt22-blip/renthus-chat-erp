@@ -14,7 +14,6 @@ import {
     DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Switch } from "@/components/ui/switch";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 
@@ -305,24 +304,27 @@ function Modal({
     onClose,
     wide = false,
     children,
+    footer,
 }: Readonly<{
     title: string;
     open: boolean;
     onClose: () => void;
     wide?: boolean;
     children: React.ReactNode;
+    /** Barra inferior fixa (mutações). */
+    footer?: React.ReactNode;
 }>) {
     return (
         <Dialog open={open} onOpenChange={(next) => !next && onClose()}>
             <DialogContent
                 hideClose
                 className={cn(
-                    "max-h-[90vh] gap-0 overflow-y-auto rounded-xl p-0 shadow-2xl",
+                    "flex max-h-[90vh] flex-col gap-0 overflow-hidden rounded-xl p-0 shadow-2xl",
                     wide ? "max-w-3xl" : "max-w-md"
                 )}
                 aria-describedby={undefined}
             >
-                <div className="flex items-center justify-between border-b border-border px-5 py-4 pr-14">
+                <div className="flex shrink-0 items-center justify-between border-b border-border px-5 py-4 pr-14">
                     <DialogTitle className="text-sm font-bold">{title}</DialogTitle>
                     <DialogClose asChild>
                         <Button
@@ -336,19 +338,61 @@ function Modal({
                         </Button>
                     </DialogClose>
                 </div>
-                <div className="p-5">{children}</div>
+                <div className="min-h-0 flex-1 overflow-y-auto p-5">{children}</div>
+                {footer ? (
+                    <div className="shrink-0 border-t border-border bg-background-card px-5 py-3">
+                        {footer}
+                    </div>
+                ) : null}
             </DialogContent>
         </Dialog>
     );
 }
 
-function Toggle({ checked, onChange }: { checked: boolean; onChange: (v: boolean) => void }) {
+/** Segmento Sim/Não — mais legível que Switch em formulários densos. */
+function ChoiceSegment({
+    checked,
+    onChange,
+    onLabel = "Sim",
+    offLabel = "Não",
+}: {
+    checked: boolean;
+    onChange: (v: boolean) => void;
+    onLabel?: string;
+    offLabel?: string;
+}) {
     return (
-        <Switch
-            checked={checked}
-            onCheckedChange={onChange}
-            aria-checked={checked}
-        />
+        <div
+            role="group"
+            className="inline-flex shrink-0 rounded-lg border border-border bg-zinc-100 p-0.5 dark:bg-zinc-800/80"
+        >
+            <button
+                type="button"
+                aria-pressed={!checked}
+                onClick={() => onChange(false)}
+                className={cn(
+                    "rounded-md px-2.5 py-1 text-[11px] font-semibold transition-colors",
+                    !checked
+                        ? "bg-background-card text-foreground shadow-sm"
+                        : "text-foreground-muted hover:text-foreground"
+                )}
+            >
+                {offLabel}
+            </button>
+            <button
+                type="button"
+                aria-pressed={checked}
+                onClick={() => onChange(true)}
+                className={cn(
+                    "rounded-md px-2.5 py-1 text-[11px] font-semibold transition-colors",
+                    checked
+                        ? "bg-primary text-white shadow-sm"
+                        : "text-foreground-muted hover:text-foreground"
+                )}
+            >
+                {onLabel}
+            </button>
+        </div>
     );
 }
 
@@ -1329,7 +1373,73 @@ export default function ProdutosListaPage() {
             </div>
 
             {/* Edit Modal */}
-            <Modal title={selected ? `Editar: ${productName || selected.products?.name || ""}`.trim() : "Editar"} open={open} onClose={() => { setOpen(false); setSelected(null); setMsg(null); }} wide>
+            <Modal
+                title={selected ? `Editar: ${productName || selected.products?.name || ""}`.trim() : "Editar"}
+                open={open}
+                onClose={() => { setOpen(false); setSelected(null); setMsg(null); }}
+                wide
+                footer={
+                    <div className="flex flex-wrap gap-2">
+                        <button
+                            type="button"
+                            onClick={saveEdit}
+                            disabled={saving || editLoading || !!savingItemKey}
+                            className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-violet-600 py-2 text-sm font-bold text-white hover:bg-violet-700 disabled:opacity-60"
+                        >
+                            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
+                            {saving ? "Salvando…" : "Salvar produto"}
+                        </button>
+                        <button
+                            type="button"
+                            disabled={saving || editLoading || !!savingItemKey || !selected}
+                            onClick={async () => {
+                                if (!selected) return;
+                                const ok = window.confirm(
+                                    "Excluir este produto?\n\nSe já tiver sido vendido, ele será apenas desativado (não apaga o histórico)."
+                                );
+                                if (!ok) return;
+                                setSaving(true);
+                                setMsg(null);
+                                try {
+                                    const res = await fetch(`/api/admin/products/${selected.product_id}`, {
+                                        method: "DELETE",
+                                        credentials: "include",
+                                    });
+                                    const json = await res.json().catch(() => ({}));
+                                    if (!res.ok) {
+                                        setMsg(`Erro: ${String(json?.error ?? "falha ao excluir")}`);
+                                        return;
+                                    }
+                                    setOpen(false);
+                                    setSelected(null);
+                                    await load();
+                                    setMsg(
+                                        json?.action === "deactivated"
+                                            ? "✓ Produto desativado (já havia vendas)."
+                                            : "✓ Produto excluído."
+                                    );
+                                } catch (e: unknown) {
+                                    const message = e instanceof Error ? e.message : String(e);
+                                    setMsg(`Erro: ${message}`);
+                                } finally {
+                                    setSaving(false);
+                                }
+                            }}
+                            className="inline-flex items-center gap-1.5 rounded-lg border border-red-200 px-3 py-2 text-sm font-semibold text-red-600 hover:bg-red-50 disabled:opacity-60 dark:border-red-900/50 dark:text-red-400 dark:hover:bg-red-950/30"
+                        >
+                            <Trash2 className="h-4 w-4" />
+                            Excluir
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => { setOpen(false); setSelected(null); }}
+                            className="rounded-lg border border-zinc-200 px-4 text-sm font-semibold text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300"
+                        >
+                            Cancelar
+                        </button>
+                    </div>
+                }
+            >
                 <div className="flex flex-col gap-5">
                     {editLoading ? (
                         <div className="flex items-center justify-center py-12">
@@ -1695,7 +1805,12 @@ export default function ProdutosListaPage() {
                                 <p className="text-xs font-bold text-zinc-700 dark:text-zinc-300">Ativo no catálogo</p>
                                 <p className="text-xs text-zinc-400">Desativando, o item some do chatbot e pedidos.</p>
                             </div>
-                            <Toggle checked={isActive} onChange={setIsActive} />
+                            <ChoiceSegment
+                                checked={isActive}
+                                onChange={setIsActive}
+                                onLabel="Ativo"
+                                offLabel="Inativo"
+                            />
                         </div>
                         <div className="flex items-center justify-between rounded-lg border border-zinc-100 p-3 dark:border-zinc-800">
                             <div>
@@ -1704,7 +1819,7 @@ export default function ProdutosListaPage() {
                                     Não = some do cardápio web e o chatbot não vende quando zerar.
                                 </p>
                             </div>
-                            <Toggle checked={venderComEstoqueZero} onChange={setVenderComEstoqueZero} />
+                            <ChoiceSegment checked={venderComEstoqueZero} onChange={setVenderComEstoqueZero} />
                         </div>
                         <div className="flex items-center justify-between rounded-lg border border-zinc-100 p-3 dark:border-zinc-800">
                             <div>
@@ -1713,7 +1828,7 @@ export default function ProdutosListaPage() {
                             </div>
                             <div className="flex items-center gap-2">
                                 <button type="button" onClick={() => setAcompModalOpen(true)} className="rounded-md bg-orange-500 px-2.5 py-1 text-xs font-bold text-primary hover:bg-orange-600">Selecionar</button>
-                                <Toggle checked={isAccomp} onChange={setIsAccomp} />
+                                <ChoiceSegment checked={isAccomp} onChange={setIsAccomp} />
                             </div>
                         </div>
                         {acompSelected.length > 0 && (
@@ -1727,53 +1842,6 @@ export default function ProdutosListaPage() {
 
                     {msg && <p className={`text-xs font-semibold ${msg.startsWith("✓") ? "text-emerald-600" : "text-red-600"}`}>{msg}</p>}
 
-                    <div className="flex flex-wrap gap-2 border-t border-zinc-100 pt-4 dark:border-zinc-800">
-                        <button onClick={saveEdit} disabled={saving || editLoading || !!savingItemKey} className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-violet-600 py-2 text-sm font-bold text-white hover:bg-violet-700 disabled:opacity-60">
-                            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
-                            {saving ? "Salvando…" : "Salvar produto"}
-                        </button>
-                        <button
-                            type="button"
-                            disabled={saving || editLoading || !!savingItemKey || !selected}
-                            onClick={async () => {
-                                if (!selected) return;
-                                const ok = window.confirm(
-                                    "Excluir este produto?\n\nSe já tiver sido vendido, ele será apenas desativado (não apaga o histórico)."
-                                );
-                                if (!ok) return;
-                                setSaving(true);
-                                setMsg(null);
-                                try {
-                                    const res = await fetch(`/api/admin/products/${selected.product_id}`, {
-                                        method: "DELETE",
-                                        credentials: "include",
-                                    });
-                                    const json = await res.json().catch(() => ({}));
-                                    if (!res.ok) {
-                                        setMsg(`Erro: ${String(json?.error ?? "falha ao excluir")}`);
-                                        return;
-                                    }
-                                    setOpen(false);
-                                    setSelected(null);
-                                    await load();
-                                    setMsg(
-                                        json?.action === "deactivated"
-                                            ? "✓ Produto desativado (já havia vendas)."
-                                            : "✓ Produto excluído."
-                                    );
-                                } catch (e: any) {
-                                    setMsg(`Erro: ${String(e?.message ?? e)}`);
-                                } finally {
-                                    setSaving(false);
-                                }
-                            }}
-                            className="inline-flex items-center gap-1.5 rounded-lg border border-red-200 px-3 py-2 text-sm font-semibold text-red-600 hover:bg-red-50 disabled:opacity-60 dark:border-red-900/50 dark:text-red-400 dark:hover:bg-red-950/30"
-                        >
-                            <Trash2 className="h-4 w-4" />
-                            Excluir
-                        </button>
-                        <button onClick={() => { setOpen(false); setSelected(null); }} className="rounded-lg border border-zinc-200 px-4 text-sm font-semibold text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300">Cancelar</button>
-                    </div>
                     <p className="text-[11px] text-zinc-400">
                         Use <span className="font-semibold">Salvar item + foto</span> — cada sigla (UN/CX) tem foto própria.
                         Item <span className="font-semibold">Inativo</span> some do PDV/chat/cardápio.
@@ -1839,7 +1907,32 @@ export default function ProdutosListaPage() {
             </Modal>
 
             {/* Create Modal — novo fluxo: Nome produto + ADICIONAR ITEM */}
-            <Modal title="Cadastrar novo produto" open={openCreate} onClose={() => { setOpenCreate(false); setMsg(null); }} wide>
+            <Modal
+                title="Cadastrar novo produto"
+                open={openCreate}
+                onClose={() => { setOpenCreate(false); setMsg(null); }}
+                wide
+                footer={
+                    <div className="flex flex-wrap gap-2">
+                        <button
+                            type="button"
+                            onClick={saveCreate}
+                            disabled={saving}
+                            className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-violet-600 py-2 text-sm font-bold text-white hover:bg-violet-700 disabled:opacity-60"
+                        >
+                            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
+                            {saving ? "Salvando…" : "Cadastrar"}
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => setOpenCreate(false)}
+                            className="rounded-lg border border-zinc-200 px-4 text-sm font-semibold text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300"
+                        >
+                            Cancelar
+                        </button>
+                    </div>
+                }
+            >
                 <div className="flex flex-col gap-5">
                     {/* Nome do produto: buscar existente ou criar novo */}
                     <div className="rounded-lg border border-zinc-100 p-4 dark:border-zinc-800">
@@ -2097,14 +2190,19 @@ export default function ProdutosListaPage() {
                     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                         <div className="flex items-center justify-between rounded-lg border border-zinc-100 p-3 dark:border-zinc-800">
                             <p className="text-xs font-bold text-zinc-700 dark:text-zinc-300">Ativo no catálogo</p>
-                            <Toggle checked={isActive} onChange={setIsActive} />
+                            <ChoiceSegment
+                                checked={isActive}
+                                onChange={setIsActive}
+                                onLabel="Ativo"
+                                offLabel="Inativo"
+                            />
                         </div>
                         <div className="flex items-center justify-between rounded-lg border border-zinc-100 p-3 dark:border-zinc-800">
                             <div>
                                 <p className="text-xs font-bold text-zinc-700 dark:text-zinc-300">Vender com estoque zero</p>
                                 <p className="text-[10px] text-zinc-400">Não = some do web e chatbot ao zerar.</p>
                             </div>
-                            <Toggle checked={venderComEstoqueZero} onChange={setVenderComEstoqueZero} />
+                            <ChoiceSegment checked={venderComEstoqueZero} onChange={setVenderComEstoqueZero} />
                         </div>
                         <div className="flex items-center justify-between rounded-lg border border-zinc-100 p-3 dark:border-zinc-800 sm:col-span-2">
                             <div>
@@ -2113,7 +2211,7 @@ export default function ProdutosListaPage() {
                             </div>
                             <div className="flex items-center gap-2">
                                 <button type="button" onClick={() => setAcompModalOpen(true)} className="rounded-md bg-orange-500 px-2 py-1 text-xs font-bold text-primary hover:bg-orange-600">Selecionar</button>
-                                <Toggle checked={isAccomp} onChange={setIsAccomp} />
+                                <ChoiceSegment checked={isAccomp} onChange={setIsAccomp} />
                             </div>
                         </div>
                     </div>
@@ -2124,14 +2222,6 @@ export default function ProdutosListaPage() {
                     )}
 
                     {msg && <p className="text-xs font-semibold text-red-600">{msg}</p>}
-
-                    <div className="flex gap-2 border-t border-zinc-100 pt-4 dark:border-zinc-800">
-                        <button onClick={saveCreate} disabled={saving} className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-violet-600 py-2 text-sm font-bold text-white hover:bg-violet-700 disabled:opacity-60">
-                            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
-                            {saving ? "Salvando…" : "Cadastrar"}
-                        </button>
-                        <button onClick={() => setOpenCreate(false)} className="rounded-lg border border-zinc-200 px-4 text-sm font-semibold text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300">Cancelar</button>
-                    </div>
                 </div>
 
                 <Modal title="Nova Categoria" open={addCategoryOpen} onClose={() => setAddCategoryOpen(false)}>
