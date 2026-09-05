@@ -82,11 +82,11 @@ if (sqsMissing.length) {
 const upstashUrl = process.env.UPSTASH_REDIS_REST_URL?.trim();
 const upstashToken = process.env.UPSTASH_REDIS_REST_TOKEN?.trim();
 if (!upstashUrl || !upstashToken) {
-    console.warn(
-        "[check-production-env] Aviso: UPSTASH_REDIS_REST_URL/TOKEN ausentes — rate limit fica só in-memory por réplica. Ver lib/security/rateLimitDistributed.ts"
+    console.error(
+        "[check-production-env] Faltam UPSTASH_REDIS_REST_URL e/ou UPSTASH_REDIS_REST_TOKEN — rate limit in-memory por réplica não vale em produção (S12 / INFRA-1)."
     );
-} else {
-    console.log("[check-production-env] Upstash Redis configurado (rate limit distribuído).");
+    process.exit(1);
 }
+console.log("[check-production-env] Upstash Redis configurado (rate limit distribuído).");
 
 console.log("[check-production-env] OK — variáveis obrigatórias definidas.");

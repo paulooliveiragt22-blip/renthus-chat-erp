@@ -184,7 +184,7 @@ Checklist operacional:
 2. [ ] Copiar `UPSTASH_REDIS_REST_URL` e `UPSTASH_REDIS_REST_TOKEN`.
 3. [ ] Colar as duas vars no projeto Vercel (Production + Preview se quiser testar).
 4. [ ] (Opcional agente) `COMPANY_LLM_MAX_IN_FLIGHT` (default 4) e/ou `LLM_GLOBAL_MAX_IN_FLIGHT` (default 0=off) — teto Redis por empresa / global.
-5. [ ] Redeploy; confirmar com `npm run check:prod-env --strict` (deve logar Upstash configurado, sem aviso).
+5. [x] `check:prod-env --strict` **falha** sem Upstash (S12, 2026-09-05). Redeploy + confirmar as duas vars no dashboard Vercel Production.
 6. [ ] Smoke: forçar 429 numa rota pública (ex. cardápio) e ver `Retry-After`.
 
 Não confundir com “virtual threads” (Java/Loom) — este monorepo é **Node/Next.js**; não precisa.

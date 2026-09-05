@@ -1040,6 +1040,11 @@ function ConfiguracoesPageContent() {
                                     return;
                                 }
                                 setActiveTab(id);
+                                const href =
+                                    id === "geral"
+                                        ? "/configuracoes"
+                                        : `/configuracoes?tab=${id}`;
+                                router.replace(href, { scroll: false });
                             }}
                             className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-all ${
                                 activeTab === id

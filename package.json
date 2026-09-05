@@ -8,6 +8,7 @@
     "start": "next start",
     "lint": "eslint",
     "check:prod-env": "node scripts/check-production-env.mjs",
+    "check:csp": "node scripts/check-csp-headers.mjs",
     "test": "node -e \"require('fs').rmSync('.tests-dist',{recursive:true,force:true});\" && tsc --project tsconfig.test.json && node --require ./tests/node-resolve-server-only.cjs --test .tests-dist/**/*.test.js",
     "test:e2e": "playwright test",
     "test:e2e:billing": "playwright test e2e/billing.sandbox.spec.ts",

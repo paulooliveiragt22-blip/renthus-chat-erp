@@ -1,7 +1,7 @@
 // components/AdminShell.tsx
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { Suspense, useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import { AdminOrdersProvider } from "@/components/AdminOrdersContext";
 import AdminSidebar from "@/components/AdminSidebar";
@@ -259,12 +259,20 @@ function AdminShellInner({ children }: { children: React.ReactNode }) {
                         />
                     )}
 
-                    <AdminSidebar
-                        isOpen={sidebarOpen}
-                        onClose={() => setSidebarOpen(false)}
-                        collapsed={collapsed}
-                        onToggleCollapse={() => setCollapsed((c) => !c)}
-                    />
+                    <Suspense fallback={
+                        <aside className={[
+                            "flex flex-col overflow-hidden bg-primary",
+                            collapsed ? "w-16" : "w-64 lg:w-60",
+                            "fixed inset-y-0 left-0 z-50 h-full lg:static lg:h-full",
+                        ].join(" ")} />
+                    }>
+                        <AdminSidebar
+                            isOpen={sidebarOpen}
+                            onClose={() => setSidebarOpen(false)}
+                            collapsed={collapsed}
+                            onToggleCollapse={() => setCollapsed((c) => !c)}
+                        />
+                    </Suspense>
 
                     <main
                         className={cn(

@@ -44,12 +44,37 @@ Estrutura (Clean Architecture desta stack):
 
 ## Lote 3 — operação (não é PR)
 
-| ID | Item | Como fechar |
-|----|------|-------------|
-| S12 | Upstash Redis em Vercel Production | `CHECKLIST_MVP_LANCAMENTO` INFRA-1; `check:prod-env --strict` sem aviso |
-| S13 | Confirmar `WHATSAPP_APP_SECRET` + `PAGARME_WEBHOOK_BASIC_*` no env production | `npm run check:prod-env --strict` no deploy |
-| S14 | Escopos mínimos do token Meta | Meta Business |
-| S15 | `report-uri` / Sentry CSP reports (opcional) | só depois de S10 estável em prod |
+| ID | Item | Como fechar | Estado 2026-09-05 |
+|----|------|-------------|-------------------|
+| S12 | Upstash Redis em Vercel Production | `CHECKLIST_MVP_LANCAMENTO` INFRA-1; `check:prod-env --strict` sem aviso | [~] código: `--strict` **falha** sem `UPSTASH_*`. `.env.local` tem as duas keys. Confirmar as mesmas no dashboard Vercel Production (não listado daqui). |
+| S13 | Confirmar `WHATSAPP_APP_SECRET` + `PAGARME_WEBHOOK_BASIC_*` no env production | `npm run check:prod-env --strict` no deploy | [~] `WHATSAPP_APP_SECRET` no `.env.local`. `PAGARME_WEBHOOK_BASIC_*` **não** está no `.env.local` (só `PAGARME_WEBHOOK_SECRET` legado). H0.10 marca Basic na Vercel Production — confirmar no dashboard. |
+| S14 | Escopos mínimos do token Meta | Meta Business → App Review / Login for Business | [ ] ver tabela abaixo |
+| S15 | `report-uri` / Sentry CSP reports (opcional) | só depois de S10 estável em prod | [ ] S10 já está em `app.renthus.com.br` (`npm run check:csp`); report-uri fica para depois |
+
+### Como testar CSP sem DevTools
+
+```bash
+# produção (já enforce 2026-09-05)
+npm run check:csp
+# ou
+curl.exe -sI https://app.renthus.com.br/login
+
+# local (com `npm run dev`)
+npm run check:csp -- http://localhost:3000/login
+```
+
+Esperado: `Content-Security-Policy` com `nonce-` + `strict-dynamic`; **sem** `Report-Only`; `X-Frame-Options: DENY`.
+
+### S14 — escopos canônicos (só conferir no Meta)
+
+Fonte: `docs/ENV_META_CHANNELS.md` + `docs/META_APP_REVIEW_WHATSAPP.md`.
+
+| Canal | Permissões |
+|-------|------------|
+| WhatsApp | `whatsapp_business_messaging`; templates: `whatsapp_business_management` |
+| Page / Messenger + IG | `pages_show_list`, `pages_manage_metadata`, `pages_messaging`, `pages_read_engagement`, `business_management`, `instagram_basic` / `instagram_business_basic`, `instagram_manage_messages` |
+
+Token do lojista (Configurações → Canais) tem de ser do **mesmo Meta App** do `WHATSAPP_APP_SECRET`.
 
 ---
 

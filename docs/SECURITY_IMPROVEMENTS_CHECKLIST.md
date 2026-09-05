@@ -38,7 +38,7 @@ Use como guia de implementação e revisão periódica. Itens derivados da anál
 
 ## 4. Webhooks (Meta, Pagar.me)
 
-- [ ] Produção: `WHATSAPP_APP_SECRET` + `PAGARME_WEBHOOK_BASIC_USER`/`PASSWORD` no env Vercel. HMAC `PAGARME_WEBHOOK_SECRET` = legado. *(ops · `npm run check:prod-env --strict`)*
+- [~] **P2 S13:** `WHATSAPP_APP_SECRET` no `.env.local`. `PAGARME_WEBHOOK_BASIC_*` ausente no local (HMAC legado `PAGARME_WEBHOOK_SECRET` existe). Produção: H0.10 [x] — reconfirmar no dashboard Vercel. `check:prod-env --strict` já falha sem Basic.
 - [x] Rate limit no webhook de billing. → `app/api/billing/webhook/route.ts`
 - [x] Pago confirmado via GET `/orders/:id` (API = fonte da verdade).
 
@@ -73,7 +73,7 @@ Use como guia de implementação e revisão periódica. Itens derivados da anál
 ## 8. Rate limiting distribuído
 
 - [x] Adapter Upstash + fallback in-memory. → `lib/security/rateLimitDistributed.ts`
-- [ ] **Antes do MVP:** `UPSTASH_REDIS_REST_URL` + `UPSTASH_REDIS_REST_TOKEN` na Vercel. Sem isso o `check:prod-env` **só avisa**. → `CHECKLIST_MVP_LANCAMENTO.md` INFRA-1
+- [~] **P2 S12:** `check:prod-env --strict` agora **falha** sem `UPSTASH_*` (não é mais aviso). Keys no `.env.local`. Falta confirmar Production no dashboard Vercel. → `CHECKLIST_MVP_LANCAMENTO.md` INFRA-1
 
 ---
 
@@ -89,7 +89,7 @@ Use como guia de implementação e revisão periódica. Itens derivados da anál
 ## 10. Segredos e variáveis de ambiente
 
 - [x] `.env*` no `.gitignore`
-- [ ] Escopos mínimos dos tokens Meta. *(Meta Business)*
+- [ ] **P2 S14:** escopos mínimos no Meta Business — tabela em `CHECKLIST_SECURITY_HARDENING_P2.md` (WA + Page/IG).
 
 ---
 
@@ -131,4 +131,4 @@ Inventário de rotas: `docs/SECURITY_CREATEADMIN_INVENTORY.md`.
 
 ---
 
-*Última atualização: 2026-09-05 — S10/S11 CSP enforce + X-Frame-Options DENY.*
+*Última atualização: 2026-09-05 — S10/S11 em prod (`check:csp`); S12 `--strict` exige Upstash; S13/S14 ops no dashboard.*
