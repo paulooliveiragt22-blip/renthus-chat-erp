@@ -36,6 +36,22 @@ export const PAGARME_INVOICE_STATUSES = [
 
 export type PagarmeInvoiceStatus = (typeof PAGARME_INVOICE_STATUSES)[number];
 
+/** Rótulo PT para UI (fatura ≠ status de assinatura). */
+export function formatInvoiceStatusLabel(status: string | null | undefined): string {
+    switch (String(status ?? "").toLowerCase()) {
+        case "pending":
+            return "Pendente";
+        case "paid":
+            return "Pago";
+        case "failed":
+            return "Falhou";
+        case "cancelled":
+            return "Cancelada";
+        default:
+            return status ? String(status) : "—";
+    }
+}
+
 // -----------------------------------------------------------------------------
 // Helpers de agrupamento — fonte única para "está pago?" / "precisa pagar?"
 // -----------------------------------------------------------------------------

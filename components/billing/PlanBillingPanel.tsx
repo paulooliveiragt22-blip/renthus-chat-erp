@@ -17,6 +17,8 @@ import type {
 } from "@/lib/billing/planBillingTypes";
 import { PlanChangeCatalog } from "@/components/billing/PlanChangeCatalog";
 import { PLAN_CATALOG, normalizePlanKey } from "@/lib/billing/planCatalog";
+import { resolveCheckoutDisplayAmountBrl } from "@/lib/billing/resolveCheckoutDisplayAmount";
+import { formatInvoiceStatusLabel } from "@/lib/billing/contracts/status";
 
 const PAGARME_PUBLIC_KEY = process.env.NEXT_PUBLIC_PAGARME_PUBLIC_KEY ?? "";
 
@@ -651,13 +653,19 @@ export default function PlanBillingPanel({ variant = "full" }: PlanBillingPanelP
 
                         const priceFallback = pk === "market" ? 397 : pk === "pro" ? 279 : 197;
 
-                        let refAmount: number;
-                        if (pendRecord) {
-                            refAmount = Number(pendRecord.amount);
-                        } else {
-                            refAmount =
-                                (mp as Record<string, number | undefined>)[pk] ?? priceFallback;
-                        }
+                        const refAmount = resolveCheckoutDisplayAmountBrl({
+                            planKey: pk,
+                            billingPeriod: sub?.billing_period,
+                            pendingInvoiceKind: pendInv?.kind,
+                            pendingInvoiceAmount: pendRecord ? Number(pendRecord.amount) : null,
+                            checkoutAmountBrl: billingData.checkout_amount_brl,
+                            monthlyPricesBrl: mp as Partial<Record<typeof pk, number>>,
+                            yearlyPricesBrl: (billingData.yearly_prices_brl ?? {}) as Partial<
+                                Record<typeof pk, number>
+                            >,
+                            fallbackMonthlyBrl:
+                                (mp as Record<string, number | undefined>)[pk] ?? priceFallback,
+                        });
 
                         const fromPendPix =
                             typeof (pendRecord as { pix_qr_code?: string | null } | null | undefined)
@@ -1180,7 +1188,7 @@ export default function PlanBillingPanel({ variant = "full" }: PlanBillingPanelP
                         ) : null}
                     </div>
 
-                    {billingData.invoice_history?.length ? (
+                    {variant !== "pay" && billingData.invoice_history?.length ? (
                         <div>
                             <p className="mb-2 text-xs font-bold uppercase tracking-wide text-zinc-500">
                                 Histórico de faturas
@@ -1207,7 +1215,9 @@ export default function PlanBillingPanel({ variant = "full" }: PlanBillingPanelP
                                                         currency: "BRL",
                                                     })}
                                                 </td>
-                                                <td className="px-3 py-2 capitalize">{inv.status}</td>
+                                                <td className="px-3 py-2">
+                                                    {formatInvoiceStatusLabel(inv.status)}
+                                                </td>
                                                 <td className="px-3 py-2 text-xs text-zinc-600">
                                                     {new Date(inv.due_at).toLocaleDateString("pt-BR")}
                                                 </td>

@@ -116,15 +116,23 @@ export async function GET() {
             pendingInvoice?.amount != null ? Number(pendingInvoice.amount) : null;
         const planRow = planKey ? planByKey.get(planKey) : undefined;
         const pendingKind = String(pendingInvoice?.kind ?? "");
+        const billingPeriod = String(
+            (pagarmeSubRaw as { billing_period?: string | null } | null)?.billing_period ?? "month"
+        ).toLowerCase();
+        const isAnnualObligation =
+            pendingKind === "year" ||
+            pendingKind === "period_switch" ||
+            billingPeriod === "year";
         const canonicalObligationCents =
             planRow == null
                 ? null
-                : pendingKind === "year" || pendingKind === "period_switch"
+                : isAnnualObligation
                   ? planRow.price_year_cents
                   : planRow.price_cents;
         const canonicalObligationBrl =
             canonicalObligationCents != null ? canonicalObligationCents / 100 : null;
         const canonicalMonthly = planRow != null ? planRow.price_cents / 100 : null;
+        const checkoutAmountBrl = obligationAmount ?? canonicalObligationBrl;
         const amountMismatch =
             canonicalObligationBrl != null &&
             obligationAmount != null &&
@@ -144,6 +152,7 @@ export async function GET() {
             pending_invoice: pendingInvoice,
             psp_sync: pspSync,
             obligation_amount_brl: obligationAmount,
+            checkout_amount_brl: checkoutAmountBrl,
             canonical_monthly_brl: canonicalMonthly,
             amount_mismatch: amountMismatch,
             is_blocked:

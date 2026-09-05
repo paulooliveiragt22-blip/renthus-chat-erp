@@ -72,9 +72,12 @@ export type BillingStatusJson = {
         pro?: number;
         market?: number;
     };
+    /** Valor canônico para exibir no checkout (RPC/planos; inclui anual). */
+    checkout_amount_brl?: number | null;
+    /** Valor da invoice pending, se houver. */
+    obligation_amount_brl?: number | null;
+    amount_mismatch?: boolean;
 };
-
-export type PlanBillingVariant = "full" | "pay";
 
 export type RenthusCardForm = { number: string; exp: string; cvv: string; holder: string };
 export type RenthusBillingAddr = {
