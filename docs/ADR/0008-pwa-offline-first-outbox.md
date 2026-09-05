@@ -16,7 +16,7 @@
 
 O app já é PWA de **shell** (precaching, NetworkFirst em navegação, fallback `/offline`, exclude de APIs sensíveis). Em galpão com sinal ruim isso evita tela branca, mas **não** permite vender/atualizar pedidos sem rede: não há fila local de mutações, nem snapshot de catálogo, nem política de optimistic UI segura para dinheiro/estoque.
 
-Plano inicial (Offline-First + Background Sync + Optimistic UI + SWR) estava no nível checklist de buzzwords. Elevação aprovada: **Local-First Command Outbox** — Background Sync é transporte opcional; fonte da verdade local = IndexedDB; fonte da verdade comercial = RPC Postgres com idempotência.
+Plano inicial (Offline-First + Background Sync + Optimistic UI + SWR) estava no nível checklist de buzzwords. Elevação aprovada: **Local-First Command Outbox** — Background Sync é transporte opcional; fonte da verdade local = IndexedDB; fonte da verdade comercial = RPC Postgres com idempotência. Constraints de performance (**D7**) entram no desenho desde já: snapshot enxuto, índice de busca, flush em lote, persist seletivo — sem over-engineering.
 
 ---
 
@@ -79,7 +79,8 @@ UI → enqueueCommand(command) → Outbox (IDB)
 ### D5 — Service Worker update
 
 Hoje: `skipWaiting: true` + `reloadOnOnline: true`.  
-**Meta deste ADR:** em sessão PDV, preferir **waiting + prompt** “Nova versão → Atualizar” (evitar mid-sale reload). Detalhe na fase P3.
+**Meta deste ADR:** em sessão PDV, preferir **waiting + prompt** “Nova versão → Atualizar” (evitar mid-sale reload). Detalhe na fase P3.  
+**Nota de perf:** isto é estabilidade de sessão, não ganho de FPS — ainda assim obrigatório no PDV (P3). BG Sync / Periodic Sync = wake opcional do flush; **não** contar como otimização em iOS.
 
 ### D6 — Decisões de produto (gates — não implementar mutação offline sem fechar)
 
@@ -93,6 +94,39 @@ Hoje: `skipWaiting: true` + `reloadOnOnline: true`.
 
 Default técnico sugerido (só após owner confirmar): **D-P1 = PDV read + enqueue finalize**; **D-P2 = rejeitar**; **D-P3 = 24h / 50 cmds**; **D-P4 = sim**; **D-P5 = imprimir só após ACK**.
 
+### D7 — Performance (obrigatório no desenho; sem exagero)
+
+Ganho real do Offline-First neste ERP: **snapshot enxuto + busca local + sync em lote + persist seletivo**. O resto é polish ou risco disfarçado de performance.
+
+#### D7.1 — Necessário (senão offline fica lento ou inútil)
+
+| # | Regra | Onde aplica | Default técnico (ajustar se medir) |
+|---|--------|-------------|-------------------------------------|
+| Perf-1 | Snapshot com **teto** (não dump ilimitado) | `CatalogSnapshotStore`, hydrate PDV (P1) | Só ativos da `company_id`; projection: ids, nome, EAN, códigos, preço, sigla, fator; paginar/cortar se exceder teto de entradas |
+| Perf-2 | **Índice local** de busca/bipagem | PDV sobre snapshot (P1) | Map/índice por EAN, código interno, nome — não `filter` no array a cada tecla |
+| Perf-3 | Flush outbox **em lote** + backoff | `flushOutbox`, `httpSyncTransport`, `POST /api/offline/sync` (P0 contrato / P1 real) | Ex.: 10–20 cmds/request; backoff simples; sem um POST por item |
+| Perf-4 | Persist QueryClient **só allowlist** | Provider TanStack (P0 stub / P1) | Persistir queries de catálogo/PDV; **não** platform/billing/inbox |
+| Perf-5 | Estoque/crédito **fora** de cache “bonito” | Matriz D3 | NetworkOnly ou TTL curto + badge; cache errado custa mais que ~200 ms |
+
+#### D7.2 — Útil depois (só se houver dor medida)
+
+| # | Item | Fase | Comentário |
+|---|------|------|------------|
+| Perf-A | Prompt de update do SW (D5) | P3 | Estabilidade mid-sale > micro-otimização |
+| Perf-B | Revisar `networkTimeoutSeconds` do NetworkFirst (hoje 8s) | P3 | Se PDV “pende” em rede ruim: 3–4s + cair no snapshot/`/offline` |
+| Perf-C | `workboxBgSyncBridge` | P3 | Wake no Chrome; irrelevante como perf em iOS |
+| Perf-D | Migrar next-pwa → Serwist | P4 | Manutenção de SW, não milagre de velocidade |
+
+#### D7.3 — Explicitamente fora (não dourar a pílula)
+
+- Virtualização agressiva / prefetch de metade do admin “por causa do PWA”
+- Edge cache ou SWR de API comercial (preço/estoque/crédito)
+- Service Worker calculando estoque ou regra de venda
+- Dual-path “otimizado” (local + tabela crua no client)
+- Empacotar billing/WhatsApp no mesmo esforço de perf
+
+**Regra de checklist:** itens P1 de snapshot/sync **devem** citar Perf-1…Perf-5 no DoD; Perf-A…D só entram com evidência (travamento, quota, timeout).
+
 ---
 
 ## Recursos a adicionar (função)
@@ -104,15 +138,17 @@ Default técnico sugerido (só após owner confirmar): **D-P1 = PDV read + enque
 | `ConflictPolicy` | `server_wins` \| `reject_reopen` \| `manual` por tipo de comando |
 | `OutboxStore` (port) | CRUD/fila durable no browser |
 | `idbOutboxStore` (adapter) | IndexedDB (Dexie ou `idb`) |
-| `SyncTransport` (port) | Envio de batch/comando ao servidor |
-| `httpSyncTransport` | `POST /api/offline/sync` com AbortController + auth cookie/session |
-| `CatalogSnapshotStore` | Ler/gravar snapshot de catálogo para PDV offline |
+| `SyncTransport` (port) | Envio de **batch** (não single-only) ao servidor |
+| `httpSyncTransport` | `POST /api/offline/sync` em lote + AbortController + auth; respeita teto Perf-3 |
+| `CatalogSnapshotStore` | Snapshot **enxuto** (Perf-1): teto, projection, version/TTL por `company_id` |
+| `buildCatalogSearchIndex` / lookup | Índice EAN/código/nome sobre o snapshot (Perf-2) |
 | `enqueueCommand` | Valida eligibility → IDB → dispara optimistic |
-| `flushOutbox` | Drain ordenado; marca synced/failed/conflict |
+| `flushOutbox` | Drain ordenado **em lotes**; marca synced/failed/conflict; backoff |
 | `applyOptimistic` / `useOfflineMutation` | Integra TanStack Query (`onMutate` / `onError` / `onSettled`) + badge pending |
-| `SyncStatusBar` | UX: “N pendentes · sincronizando…” / offline |
-| `workboxBgSyncBridge` | Opcional: Background Sync só como wake do flush (Chrome) |
-| RPC/API sync | Aplica comandos com `client_mutation_id` único; tenant; estoque |
+| `SyncStatusBar` | UX: “N pendentes · sincronizando…” / offline / snapshot stale |
+| `workboxBgSyncBridge` | Opcional: Background Sync só como wake do flush (Chrome) — Perf-C |
+| Persist allowlist (QueryClient) | Dehydrate só `queryKey` de catálogo/PDV (Perf-4) |
+| RPC/API sync | Aplica comandos com `client_mutation_id` único; tenant; estoque; aceita batch |
 
 ---
 
@@ -127,48 +163,49 @@ Default técnico sugerido (só após owner confirmar): **D-P1 = PDV read + enque
 | `lib/offline/ports/SyncTransport.ts` | Interface transporte |
 | `lib/offline/ports/CatalogSnapshotStore.ts` | Interface snapshot |
 | `lib/offline/application/enqueueCommand.ts` | Use case enqueue |
-| `lib/offline/application/flushOutbox.ts` | Use case flush |
+| `lib/offline/application/flushOutbox.ts` | Use case flush **em lotes** + backoff (Perf-3) |
 | `lib/offline/application/applyOptimistic.ts` | Helpers optimistic |
 | `lib/offline/application/resolveConflict.ts` | Mapeia resposta servidor → UI |
 | `lib/offline/adapters/idbOutboxStore.ts` | IndexedDB |
-| `lib/offline/adapters/idbCatalogSnapshotStore.ts` | Snapshot catálogo |
-| `lib/offline/adapters/httpSyncTransport.ts` | HTTP batch |
+| `lib/offline/adapters/idbCatalogSnapshotStore.ts` | Snapshot catálogo (teto + projection — Perf-1) |
+| `lib/offline/application/buildCatalogSearchIndex.ts` | Índice de busca/bipagem local (Perf-2) |
+| `lib/offline/adapters/httpSyncTransport.ts` | HTTP **batch** (Perf-3) |
 | `lib/offline/adapters/workboxBgSyncBridge.ts` | Opcional BG Sync |
 | `lib/offline/presentation/SyncStatusBar.tsx` | Indicador global |
 | `lib/offline/presentation/useOfflineMutation.ts` | Hook TanStack |
 | `lib/offline/presentation/OnlineGate.tsx` | Gate superfícies online-only |
-| `app/api/offline/sync/route.ts` | Batch flush server-side (valida empresa/usuário) |
+| `app/api/offline/sync/route.ts` | Batch flush server-side (valida empresa/usuário; teto de cmds/request) |
 | `supabase/migrations/YYYYMMDDHHMMSS_offline_client_mutation_idempotency.sql` | Unique/`client_mutation_id` onde fizer sentido (ex.: pedidos PDV) |
-| `tests/offline/*.test.ts` | Unit outbox/eligibility/flush |
+| `tests/offline/*.test.ts` | Unit outbox/eligibility/flush/lote/índice de busca |
 | `docs/CHECKLIST_PWA_OFFLINE_FIRST.md` | Execução cronológica (este ADR) |
 
 ## Arquivos — alterar
 
 | Path | Mudança |
 |------|---------|
-| `next.config.js` | Runtime caching fino; update strategy (waiting/prompt); opcional custom worker / BG Sync bridge |
+| `next.config.js` | Runtime caching fino (D3); update waiting/prompt (D5/Perf-A); opcional timeout NetworkFirst (Perf-B); BG Sync bridge (Perf-C) |
 | `app/offline/page.tsx` | Mensagem alinhada a “fila local / sync” (não só “sem internet”) |
-| `app/layout.tsx` ou layout admin | Montar `SyncStatusBar` + provider persist Query se adotado |
-| Provider TanStack Query (arquivo existente do `QueryClient`) | `networkMode`, `PersistQueryClientProvider`, `setMutationDefaults`, `resumePausedMutations` |
-| `app/(admin)/pdv/page.tsx` (+ helpers PDV) | Snapshot catálogo; finalize → outbox; UI pending |
+| `app/layout.tsx` ou layout admin | Montar `SyncStatusBar` + provider persist Query **com allowlist** (Perf-4) |
+| Provider TanStack Query (arquivo existente do `QueryClient`) | `networkMode`, persist seletivo, `setMutationDefaults`, `resumePausedMutations` — **não** persist global |
+| `app/(admin)/pdv/page.tsx` (+ helpers PDV) | Snapshot enxuto + índice busca; finalize → outbox; UI pending; badge stale |
 | `app/(admin)/pedidos/PedidosClient.tsx` | Fase P2: status transitions via outbox/optimistic |
 | `proxy.ts` / testes proxy | Exempt `/api/offline/sync` só se necessário (auth continua obrigatória) |
 | `docs/DB_CURRENT_STATE.md` | Documentar coluna/constraint de idempotência offline |
 | `.cursorrules` (bloco “etapa”) | Marcar item PWA offline quando entregue |
 
-**Fora de escopo (não alterar neste ADR):** rotas billing, WhatsApp webhook, workers SQS (ADR-0003), chatbot `processMessage`.
+**Fora de escopo (não alterar neste ADR):** rotas billing, WhatsApp webhook, workers SQS (ADR-0003), chatbot `processMessage`; ver também D7.3.
 
 ---
 
 ## Fases (visão)
 
-| Fase | Nome | Entrega |
-|------|------|---------|
-| **P0** | Fundações | Domínio + ports + IDB outbox vazio + SyncStatus + testes unitários; **zero** mutação de negócio |
-| **P1** | PDV offline-read + enqueue | Snapshot catálogo; finalize enfileirado; RPC/API idempotente (**após D-P1…D-P5**) |
-| **P2** | Pedidos status | Optimistic + outbox só transições allowlist |
-| **P3** | SW polish | Prompt de update; matriz cache; bridge BG Sync opcional |
-| **P4** | Opcional | Migrar `@ducanh2912/next-pwa` → Serwist |
+| Fase | Nome | Entrega | Perf (D7) |
+|------|------|---------|-----------|
+| **P0** | Fundações | Domínio + ports + IDB outbox vazio + SyncStatus + testes; **zero** mutação de negócio | Contrato de transport **batch**; persist allowlist stub (Perf-3/4) |
+| **P1** | PDV offline-read + enqueue | Snapshot; finalize enfileirado; RPC/API idempotente (**após D-P1…D-P5**) | **Obrigatório** Perf-1…5 (teto, índice, lote, persist seletivo, sem SWR estoque) |
+| **P2** | Pedidos status | Optimistic + outbox só transições allowlist | Reusar lote/backoff; sem snapshot extra |
+| **P3** | SW polish | Prompt de update; matriz cache; bridge BG Sync opcional | Perf-A…C só se dor; timeout NetworkFirst se PDV “pende” |
+| **P4** | Opcional | Migrar `@ducanh2912/next-pwa` → Serwist | Perf-D — manutenção, não speed |
 
 ---
 
@@ -178,23 +215,35 @@ Default técnico sugerido (só após owner confirmar): **D-P1 = PDV read + enque
 - PDV utilizável com rede intermitente sem inventar “truth” no SW.
 - Alinha com RPC idempotente e multi-tenant.
 - Optimistic UI sem mentir confirmação financeira.
+- Perf focada no caminho crítico (galpão/PDV), sem teatro de otimização.
 
 **Negativas / custo**
 - Complexidade IndexedDB + sync + conflitos.
 - BG Sync não cobre iOS de forma confiável → flush via `online`/`visibility` obrigatório.
 - Snapshot de catálogo pode ficar stale → badge e revalidate obrigatórios.
+- Projection/teto do snapshot exige manutenção quando o PDV ganhar campos novos.
 
 **Riscos mitigados**
 - Double-submit offline → `client_mutation_id` unique no servidor.
-- Cache de preço/estoque errado → matriz D3 (sem SWR comercial silencioso).
-- Reload mid-sale por SW → D5 (prompt).
+- Cache de preço/estoque errado → matriz D3 + Perf-5 (sem SWR comercial silencioso).
+- Reload mid-sale por SW → D5 / Perf-A (prompt).
+- Hydrate/quota/IDB lento → Perf-1 (teto + projection).
+- Busca offline O(n) a cada tecla → Perf-2 (índice).
+- “Thundering herd” ao voltar a rede → Perf-3 (lote + backoff).
+- Boot lento / storage cheio → Perf-4 (persist allowlist).
+
+**Riscos se ignorar D7**
+- Snapshot gigante trava o PDV offline ou estoura quota.
+- Flush 1:1 DDoSa a própria API no reconnect.
+- Persist global do React Query degrada login/admin sem benefício no galpão.
 
 ---
 
 ## Referências
 
-- Context7 / TanStack Query: `PersistQueryClientProvider`, `resumePausedMutations`, `setMutationDefaults`, optimistic `onMutate`/`onError`
+- Context7 / TanStack Query: `PersistQueryClientProvider`, `resumePausedMutations`, `setMutationDefaults`, optimistic `onMutate`/`onError` — persist **parcial** (allowlist)
 - Context7 / Serwist: `NetworkFirst`, `StaleWhileRevalidate`, `BackgroundSyncPlugin`, `BroadcastUpdatePlugin` (modelo mental; v1 pode permanecer em next-pwa)
-- Workbox Background Sync: transporte opcional, não fonte da verdade
+- Workbox Background Sync: transporte opcional, não fonte da verdade nem “perf iOS”
 - ADR-0003: outbox server (não substituído por este)
 - `governanca-seguranca-negocio.mdc`, `projeto-pre-producao-radical.mdc`
+- Checklist: DoD P1 deve citar Perf-1…Perf-5 (`CHECKLIST_PWA_OFFLINE_FIRST.md`)
