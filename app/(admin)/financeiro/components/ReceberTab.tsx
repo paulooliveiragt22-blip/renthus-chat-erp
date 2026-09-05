@@ -17,6 +17,7 @@ import {
     SelectTrigger,
     SelectValue,
 } from "@/components/ui/select";
+import { toast } from "sonner";
 import { brl, isoDate, PAY_META } from "../lib/format";
 import type { AgingSummary, Bill } from "../lib/types";
 import { Skeleton } from "./Skeleton";
@@ -71,7 +72,7 @@ export default function ReceberTab({ companyId, refreshKey }: Props) {
         const json = await res.json().catch(() => ({}));
         setPaying(false);
         if (!res.ok) {
-            alert("Erro: " + (json?.error ?? "falha"));
+            toast.error("Erro: " + (json?.error ?? "falha"));
             return;
         }
         setPayBill(null);

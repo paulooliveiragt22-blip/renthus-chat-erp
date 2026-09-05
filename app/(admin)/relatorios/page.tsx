@@ -2,6 +2,7 @@
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
+import { toast } from "sonner";
 import PlanFeatureGate from "@/components/billing/PlanFeatureGate";
 
 function formatBRL(v: number) {
@@ -142,7 +143,7 @@ function RelatoriosPageContent() {
     const exportCSV = () => {
         try {
             if (!filteredDaily || filteredDaily.length === 0) {
-                alert("Nenhum lançamento para exportar no período com os filtros atuais.");
+                toast.message("Nenhum lançamento para exportar no período com os filtros atuais.");
                 return;
             }
 
@@ -171,7 +172,7 @@ function RelatoriosPageContent() {
             URL.revokeObjectURL(url);
         } catch (err: any) {
             console.error("exportCSV error", err);
-            alert("Erro ao exportar CSV: " + (err?.message ?? String(err)));
+            toast.error("Erro ao exportar CSV: " + (err?.message ?? String(err)));
         }
     };
 
@@ -191,12 +192,12 @@ function RelatoriosPageContent() {
                 return Math.floor((b.getTime() - a.getTime()) / (24 * 60 * 60 * 1000)) + 1;
             })();
             if (days > 90) {
-                alert("Exportação em PDF limitada a 90 dias. Escolha um período menor ou exporte em CSV.");
+                toast.error("Exportação em PDF limitada a 90 dias. Escolha um período menor ou exporte em CSV.");
                 return;
             }
 
             if (!filteredDaily || filteredDaily.length === 0) {
-                alert("Nenhum lançamento para exportar no período com os filtros atuais.");
+                toast.message("Nenhum lançamento para exportar no período com os filtros atuais.");
                 return;
             }
 
@@ -243,7 +244,7 @@ function RelatoriosPageContent() {
         } catch (err: any) {
             console.error("exportPDF error:", err);
             // não permita que uma exceção não tratada abra o overlay do Next
-            alert("Erro ao gerar PDF: " + (err?.message ?? String(err)) + ". Certifique-se de instalar 'jspdf' e 'jspdf-autotable' e reiniciar o dev server.");
+            toast.error("Erro ao gerar PDF: " + (err?.message ?? String(err)) + ". Certifique-se de instalar 'jspdf' e 'jspdf-autotable' e reiniciar o dev server.");
         }
     };
 

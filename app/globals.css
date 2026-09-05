@@ -205,6 +205,17 @@ body {
   animation-fill-mode: both;
 }
 
+@media (prefers-reduced-motion: reduce) {
+  .animate-in,
+  .animate-out,
+  [data-slot="dialog-content"],
+  [data-slot="dialog-overlay"] {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
 [data-state="open"].animate-in.fade-in-0,
 .fade-in-0[data-state="open"] {
   animation-name: dialog-fade-in;

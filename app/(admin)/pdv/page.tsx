@@ -11,6 +11,7 @@ import {
   UserPlus, UserCheck, Lock, Unlock, ArrowDownLeft, ArrowUpRight,
   FileText, TrendingDown, TrendingUp, Clock,
 } from "lucide-react";
+import { toast } from "sonner";
 import { useWorkspace } from "@/lib/workspace/useWorkspace";
 import { usePlanFeatures } from "@/lib/billing/usePlanFeatures";
 import PlanFeatureGate from "@/components/billing/PlanFeatureGate";
@@ -447,7 +448,7 @@ export default function PDVPage() {
     });
     const json = await res.json().catch(() => ({}));
     setCaixaSubmitting(false);
-    if (!res.ok) { alert("Erro ao abrir caixa: " + (json?.error ?? "falha")); return; }
+    if (!res.ok) { toast.error("Erro ao abrir caixa: " + (json?.error ?? "falha")); return; }
     setShowAbrirCaixa(false);
     await loadCaixa();
   };
@@ -468,7 +469,7 @@ export default function PDVPage() {
     });
     const json = await res.json().catch(() => ({}));
     setCaixaSubmitting(false);
-    if (!res.ok) { alert("Erro ao fechar caixa: " + (json?.error ?? "falha")); return; }
+    if (!res.ok) { toast.error("Erro ao fechar caixa: " + (json?.error ?? "falha")); return; }
     setShowFecharCaixa(false);
     setFecharContagem("");
     setCaixa(null);
@@ -492,7 +493,7 @@ export default function PDVPage() {
     });
     const json = await res.json().catch(() => ({}));
     setCaixaSubmitting(false);
-    if (!res.ok) { alert("Erro: " + (json?.error ?? "falha")); return; }
+    if (!res.ok) { toast.error("Erro: " + (json?.error ?? "falha")); return; }
     setShowMovimento(false);
     setMovForm({ type: "sangria", amount: "", reason: "" });
     await loadCaixa();
@@ -596,7 +597,7 @@ export default function PDVPage() {
     });
     const json = await res.json().catch(() => ({}));
     setSavingCust(false);
-    if (!res.ok) { alert("Erro: " + (json?.error ?? "falha")); return; }
+    if (!res.ok) { toast.error("Erro: " + (json?.error ?? "falha")); return; }
     const c = json.customer as CustomerSummary;
     setSelectedCustomer(c);
     setCustomerQuery(c.name ?? "");
@@ -799,10 +800,10 @@ export default function PDVPage() {
     const PRAZO_METHODS: PayMethod[] = ["credit","boleto","cheque","promissoria"];
     const hasCreditPayment = payments.some(p => PRAZO_METHODS.includes(p.method));
     if (hasCreditPayment && !selectedCustomer) {
-      alert("Selecione um cliente para usar pagamento a prazo."); return;
+      toast.error("Selecione um cliente para usar pagamento a prazo."); return;
     }
     if (!caixa) {
-      alert("Abra o caixa antes de finalizar uma venda."); return;
+      toast.error("Abra o caixa antes de finalizar uma venda."); return;
     }
     setFinalizing(true);
     const cartPayload = cart.map((i) => ({
@@ -950,12 +951,12 @@ export default function PDVPage() {
           return;
         } catch (enqErr: unknown) {
           const msg = enqErr instanceof Error ? enqErr.message : String(enqErr);
-          alert("Erro ao finalizar: " + msg);
+          toast.error("Erro ao finalizar: " + msg);
           return;
         }
       }
       const msg = err instanceof Error ? err.message : String(err);
-      alert("Erro ao finalizar: " + msg);
+      toast.error("Erro ao finalizar: " + msg);
     } finally { setFinalizing(false); }
   };
 

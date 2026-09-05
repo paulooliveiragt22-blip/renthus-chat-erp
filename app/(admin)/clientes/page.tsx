@@ -22,6 +22,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
+import { EmptyState } from "@/components/ui/empty-state";
+import { toast } from "sonner";
 import { useWorkspace } from "@/lib/workspace/useWorkspace";
 import { loadAdminListSnapshotEntries } from "@/lib/offline/browserStores";
 
@@ -682,7 +684,7 @@ export default function ClientesPage() {
         body: JSON.stringify({ id: editingId, ...payload }),
       });
       const json = await res.json().catch(() => ({}));
-      if (!res.ok) { alert("Erro: " + (json?.error ?? "falha")); setSaving(false); return; }
+      if (!res.ok) { toast.error("Erro: " + (json?.error ?? "falha")); setSaving(false); return; }
       setCustomers(p => p.map(c => c.id === editingId ? { ...c, ...payload } : c));
       if (selected?.id === editingId) setSelected(prev => prev ? { ...prev, ...payload } : prev);
     } else {
@@ -693,7 +695,7 @@ export default function ClientesPage() {
         body: JSON.stringify(payload),
       });
       const json = await res.json().catch(() => ({}));
-      if (!res.ok) { alert("Erro: " + (json?.error ?? "falha")); setSaving(false); return; }
+      if (!res.ok) { toast.error("Erro: " + (json?.error ?? "falha")); setSaving(false); return; }
       setCustomers(p => [json.customer as Customer, ...p]);
     }
     setSaving(false);
@@ -736,7 +738,7 @@ export default function ClientesPage() {
       }),
     });
     const json = await res.json().catch(() => ({}));
-    if (!res.ok) { alert("Erro: " + (json?.error ?? "falha")); return; }
+    if (!res.ok) { toast.error("Erro: " + (json?.error ?? "falha")); return; }
     setAddrForm(EMPTY_ADDR);
     setShowAddrForm(false);
     await loadDetail(selected);
@@ -779,7 +781,7 @@ export default function ClientesPage() {
       }),
     });
     const json = await res.json().catch(() => ({}));
-    if (!res.ok) { alert("Erro: " + (json?.error ?? "falha")); return; }
+    if (!res.ok) { toast.error("Erro: " + (json?.error ?? "falha")); return; }
     setDividas(p => p.map(d => d.id === debtId ? { ...d, status: "paid", saldo_devedor: 0, paid_at: new Date().toISOString() } : d));
     if (selected) {
       const r2 = await fetch(`/api/admin/customers/${encodeURIComponent(selected.id)}`, { credentials: "include", cache: "no-store" });
@@ -792,17 +794,22 @@ export default function ClientesPage() {
     }
   };
 
-  const emptyListMessage = search ? "Nenhum resultado." : "Nenhum cliente ainda.";
-
   let customerListPanelContent: React.ReactNode;
   if (loading) {
     customerListPanelContent = <CustomerListSkeleton />;
   } else if (filtered.length === 0) {
     customerListPanelContent = (
-      <div className="flex flex-col items-center justify-center gap-3 py-20 text-zinc-400">
-        <Users className="h-10 w-10" />
-        <p className="text-sm">{emptyListMessage}</p>
-      </div>
+      <EmptyState
+        icon={<Users className="h-5 w-5" />}
+        title={search ? "Nenhum resultado" : "Nenhum cliente ainda"}
+        description={
+          search
+            ? "Tente outro nome, telefone ou CPF."
+            : "Cadastre o primeiro cliente para vender a prazo e atender pelo WhatsApp."
+        }
+        actionLabel={search ? undefined : "Novo cliente"}
+        onAction={search ? undefined : openNew}
+      />
     );
   } else {
     customerListPanelContent = (

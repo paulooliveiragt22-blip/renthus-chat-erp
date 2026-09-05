@@ -7,6 +7,7 @@ import {
     CreditCard,
     Download,
     Search,
+    SlidersHorizontal,
     Users,
 } from "lucide-react";
 import {
@@ -32,6 +33,13 @@ import {
     SelectTrigger,
     SelectValue,
 } from "@/components/ui/select";
+import {
+    Sheet,
+    SheetContent,
+    SheetHeader,
+    SheetTitle,
+    SheetTrigger,
+} from "@/components/ui/sheet";
 
 type PlanOpt = { id: string; name: string; key?: string };
 type Summary = {
@@ -91,16 +99,107 @@ export default function PlatformCompaniesFiltersBar({
         onChange({ ...value, ...applyDatePreset(preset, value) });
     }
 
+    function DenseSelects() {
+        return (
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                <SelectField
+                    label="Plano"
+                    value={value.planId}
+                    onChange={(planId) => onChange({ ...value, planId })}
+                    options={[
+                        { value: "all", label: "Todos" },
+                        ...plans.map((p) => ({ value: p.id, label: p.name })),
+                    ]}
+                />
+                <SelectField
+                    label="Onboarding"
+                    value={value.onboarding}
+                    onChange={(onboarding) =>
+                        onChange({
+                            ...value,
+                            onboarding:
+                                onboarding as PlatformCompaniesFilter["onboarding"],
+                        })
+                    }
+                    options={PLATFORM_ONBOARDING_FILTERS.map((o) => ({
+                        value: o,
+                        label: ONBOARDING_LABEL[o],
+                    }))}
+                />
+                <SelectField
+                    label="WhatsApp"
+                    value={value.wa}
+                    onChange={(wa) =>
+                        onChange({
+                            ...value,
+                            wa: wa as PlatformCompaniesFilter["wa"],
+                        })
+                    }
+                    options={PLATFORM_WA_FILTERS.map((w) => ({
+                        value: w,
+                        label: WA_LABEL[w],
+                    }))}
+                />
+                <SelectField
+                    label="Ordenar"
+                    value={value.sort}
+                    onChange={(sort) =>
+                        onChange({
+                            ...value,
+                            sort: sort as PlatformCompanySort,
+                        })
+                    }
+                    options={PLATFORM_COMPANY_SORTS.map((s) => ({
+                        value: s,
+                        label: SORT_LABEL[s],
+                    }))}
+                />
+            </div>
+        );
+    }
+
     return (
         <div className="space-y-4">
-            <div className="relative">
-                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400" />
-                <input
-                    value={value.q}
-                    onChange={(e) => onChange({ ...value, q: e.target.value })}
-                    placeholder="Buscar nome, e-mail, slug, CNPJ…"
-                    className="w-full rounded-xl border border-zinc-200 bg-white py-2 pl-9 pr-4 text-sm text-zinc-800 placeholder-zinc-400 focus:border-violet-400 focus:outline-none dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100"
-                />
+            <div className="flex items-center gap-2">
+                <div className="relative min-w-0 flex-1">
+                    <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400" />
+                    <input
+                        value={value.q}
+                        onChange={(e) => onChange({ ...value, q: e.target.value })}
+                        placeholder="Buscar nome, e-mail, slug, CNPJ…"
+                        className="w-full rounded-xl border border-zinc-200 bg-white py-2 pl-9 pr-4 text-sm text-zinc-800 placeholder-zinc-400 focus:border-violet-400 focus:outline-none dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100"
+                    />
+                </div>
+
+                <Sheet>
+                    <SheetTrigger asChild>
+                        <button
+                            type="button"
+                            className="inline-flex shrink-0 items-center gap-1.5 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-medium text-zinc-600 hover:bg-zinc-50 md:hidden dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
+                            aria-label="Abrir filtros"
+                        >
+                            <SlidersHorizontal className="h-3.5 w-3.5" />
+                            Filtros
+                        </button>
+                    </SheetTrigger>
+                    <SheetContent
+                        side="bottom"
+                        className="max-h-[85vh] rounded-t-2xl md:hidden"
+                        onInteractOutside={(e) => {
+                            const t = e.target as HTMLElement | null;
+                            if (t?.closest?.('[role="listbox"]')) {
+                                e.preventDefault();
+                            }
+                        }}
+                    >
+                        <SheetHeader>
+                            <SheetTitle>Filtros</SheetTitle>
+                        </SheetHeader>
+                        <div className="mt-4 space-y-4 pb-2">
+                            <DenseSelects />
+                        </div>
+                    </SheetContent>
+                </Sheet>
             </div>
 
             <div className="-mx-1 flex max-w-full items-center gap-2 overflow-x-auto px-1 pb-0.5 scrollbar-hide sm:mx-0 sm:flex-wrap sm:overflow-visible sm:px-0">
@@ -184,59 +283,8 @@ export default function PlatformCompaniesFiltersBar({
                 </div>
             )}
 
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                <SelectField
-                    label="Plano"
-                    value={value.planId}
-                    onChange={(planId) => onChange({ ...value, planId })}
-                    options={[
-                        { value: "all", label: "Todos" },
-                        ...plans.map((p) => ({ value: p.id, label: p.name })),
-                    ]}
-                />
-                <SelectField
-                    label="Onboarding"
-                    value={value.onboarding}
-                    onChange={(onboarding) =>
-                        onChange({
-                            ...value,
-                            onboarding:
-                                onboarding as PlatformCompaniesFilter["onboarding"],
-                        })
-                    }
-                    options={PLATFORM_ONBOARDING_FILTERS.map((o) => ({
-                        value: o,
-                        label: ONBOARDING_LABEL[o],
-                    }))}
-                />
-                <SelectField
-                    label="WhatsApp"
-                    value={value.wa}
-                    onChange={(wa) =>
-                        onChange({
-                            ...value,
-                            wa: wa as PlatformCompaniesFilter["wa"],
-                        })
-                    }
-                    options={PLATFORM_WA_FILTERS.map((w) => ({
-                        value: w,
-                        label: WA_LABEL[w],
-                    }))}
-                />
-                <SelectField
-                    label="Ordenar"
-                    value={value.sort}
-                    onChange={(sort) =>
-                        onChange({
-                            ...value,
-                            sort: sort as PlatformCompanySort,
-                        })
-                    }
-                    options={PLATFORM_COMPANY_SORTS.map((s) => ({
-                        value: s,
-                        label: SORT_LABEL[s],
-                    }))}
-                />
+            <div className="hidden md:block">
+                <DenseSelects />
             </div>
 
             <div className="grid gap-3 sm:grid-cols-3">

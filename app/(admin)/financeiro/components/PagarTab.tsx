@@ -17,6 +17,7 @@ import {
     SelectTrigger,
     SelectValue,
 } from "@/components/ui/select";
+import { toast } from "sonner";
 import { brl, EXPENSE_CATS, isoDate, PAY_META } from "../lib/format";
 import type { Bill } from "../lib/types";
 import { Skeleton } from "./Skeleton";
@@ -79,7 +80,7 @@ export default function PagarTab({ companyId, refreshKey }: Props) {
         const json = await res.json().catch(() => ({}));
         setPaying(false);
         if (!res.ok) {
-            alert("Erro: " + (json?.error ?? "falha"));
+            toast.error("Erro: " + (json?.error ?? "falha"));
             return;
         }
         setPayBill(null);
@@ -106,7 +107,7 @@ export default function PagarTab({ companyId, refreshKey }: Props) {
         const json = await res.json().catch(() => ({}));
         setSaving(false);
         if (!res.ok) {
-            alert("Erro: " + (json?.error ?? "falha"));
+            toast.error("Erro: " + (json?.error ?? "falha"));
             return;
         }
         setShowNew(false);

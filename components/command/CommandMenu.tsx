@@ -4,10 +4,27 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import {
-  ArrowRight,
+  BarChart3,
+  Bike,
   Building2,
+  Clock,
   CreditCard,
+  FileText,
+  Headphones,
+  History,
+  LayoutDashboard,
+  Megaphone,
+  MessageCircle,
+  Package,
+  Printer,
+  Receipt,
   Search,
+  Settings,
+  ShoppingBag,
+  ShoppingCart,
+  Users,
+  UtensilsCrossed,
+  Wallet,
   type LucideIcon,
 } from "lucide-react";
 import { useWorkspace } from "@/lib/workspace/useWorkspace";
@@ -29,20 +46,46 @@ import {
   type CommandGroupId,
   type CommandNavItem,
 } from "@/components/command/commandItems";
+import {
+  loadCommandRecents,
+  pushCommandRecent,
+  type CommandRecentEntry,
+} from "@/components/command/commandRecents";
 
 type Props = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
 };
 
-function groupHeading(id: CommandGroupId): string {
+const NAV_ICONS: Record<string, LucideIcon> = {
+  "nav-dashboard": LayoutDashboard,
+  "nav-pedidos": Receipt,
+  "nav-fila": Clock,
+  "nav-pdv": ShoppingCart,
+  "nav-mesa": UtensilsCrossed,
+  "nav-whatsapp": MessageCircle,
+  "nav-templates": FileText,
+  "nav-campanhas": Megaphone,
+  "nav-produtos": ShoppingBag,
+  "nav-clientes": Users,
+  "nav-entregadores": Bike,
+  "nav-estoque": Package,
+  "nav-financeiro": Wallet,
+  "nav-relatorios": BarChart3,
+  "nav-impressoras": Printer,
+  "nav-suporte": Headphones,
+  "nav-config": Settings,
+  "clientes-buscar": Search,
+  "billing-plano": CreditCard,
+};
+
+function groupHeading(id: CommandGroupId | "recentes"): string {
+  if (id === "recentes") return "Recentes";
   return COMMAND_GROUP_LABELS[id];
 }
 
 function itemIcon(item: CommandNavItem): LucideIcon {
-  if (item.group === "billing") return CreditCard;
-  if (item.group === "clientes") return Search;
-  return ArrowRight;
+  return NAV_ICONS[item.id] ?? Search;
 }
 
 export function CommandMenu({ open, onOpenChange }: Props) {
@@ -51,6 +94,7 @@ export function CommandMenu({ open, onOpenChange }: Props) {
   const { loading: featuresLoading, features } = usePlanFeatures();
   const [query, setQuery] = useState("");
   const [switching, setSwitching] = useState(false);
+  const [recents, setRecents] = useState<CommandRecentEntry[]>([]);
 
   const role: CompanyRole | null = useMemo(() => {
     const raw = companies.find((c) => c.id === currentCompanyId)?.role;
@@ -89,11 +133,18 @@ export function CommandMenu({ open, onOpenChange }: Props) {
   }, [query]);
 
   useEffect(() => {
-    if (!open) setQuery("");
+    if (!open) {
+      setQuery("");
+      return;
+    }
+    setRecents(loadCommandRecents());
   }, [open]);
 
   const go = useCallback(
-    (href: string) => {
+    (href: string, meta?: { id: string; label: string }) => {
+      if (meta) {
+        setRecents(pushCommandRecent({ id: meta.id, label: meta.label, href }));
+      }
       onOpenChange(false);
       router.push(href);
     },
@@ -136,6 +187,8 @@ export function CommandMenu({ open, onOpenChange }: Props) {
     [companies, currentCompanyId, onOpenChange, reload, router, switching]
   );
 
+  const showRecents = !query.trim() && recents.length > 0;
+
   return (
     <CommandDialog open={open} onOpenChange={onOpenChange} label="Menu de comandos">
       <CommandInput
@@ -146,17 +199,39 @@ export function CommandMenu({ open, onOpenChange }: Props) {
       <CommandList>
         <CommandEmpty>Nenhum resultado.</CommandEmpty>
 
+        {showRecents ? (
+          <CommandGroup heading={groupHeading("recentes")}>
+            {recents.map((r) => {
+              const Icon = NAV_ICONS[r.id] ?? History;
+              return (
+                <CommandItem
+                  key={`recent-${r.id}`}
+                  value={`recent ${r.label} ${r.href}`}
+                  onSelect={() => go(r.href, { id: r.id, label: r.label })}
+                >
+                  <Icon className="h-4 w-4 shrink-0 text-foreground-muted" aria-hidden />
+                  <span className="truncate">{r.label}</span>
+                  <CommandShortcut>recente</CommandShortcut>
+                </CommandItem>
+              );
+            })}
+          </CommandGroup>
+        ) : null}
+
         {searchClientHref ? (
           <CommandGroup heading={groupHeading("clientes")}>
             <CommandItem
               value={`buscar-clientes ${query}`}
               keywords={["cliente", "buscar", "pesquisa"]}
-              onSelect={() => go(searchClientHref)}
+              onSelect={() =>
+                go(searchClientHref, {
+                  id: "clientes-buscar",
+                  label: `Buscar «${query.trim()}»`,
+                })
+              }
             >
               <Search className="h-4 w-4 shrink-0 text-foreground-muted" aria-hidden />
-              <span className="truncate">
-                Buscar «{query.trim()}» em clientes
-              </span>
+              <span className="truncate">Buscar «{query.trim()}» em clientes</span>
             </CommandItem>
           </CommandGroup>
         ) : null}
@@ -177,7 +252,7 @@ export function CommandMenu({ open, onOpenChange }: Props) {
                     key={item.id}
                     value={`${item.label} ${item.keywords?.join(" ") ?? ""}`}
                     keywords={item.keywords}
-                    onSelect={() => go(href)}
+                    onSelect={() => go(href, { id: item.id, label: item.label })}
                   >
                     <Icon className="h-4 w-4 shrink-0 text-foreground-muted" aria-hidden />
                     <span className="truncate">{item.label}</span>

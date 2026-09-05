@@ -1,6 +1,6 @@
 "use client";
 
-import { Building2, Calendar, Receipt, TrendingUp } from "lucide-react";
+import { Building2, Calendar, Receipt, SlidersHorizontal, TrendingUp } from "lucide-react";
 import {
     applyDatePreset,
     PLATFORM_DATE_PRESET_LABELS,
@@ -18,6 +18,13 @@ import {
     SelectTrigger,
     SelectValue,
 } from "@/components/ui/select";
+import {
+    Sheet,
+    SheetContent,
+    SheetHeader,
+    SheetTitle,
+    SheetTrigger,
+} from "@/components/ui/sheet";
 
 type CompanyOpt = { id: string; name: string };
 
@@ -54,6 +61,33 @@ export default function PlatformOrdersFiltersBar({
             datePreset: "custom",
             ...patch,
         });
+    }
+
+    function CompanySelect() {
+        return (
+            <label className="flex min-w-[200px] flex-col gap-1 text-xs font-medium text-zinc-500">
+                <span className="flex items-center gap-1">
+                    <Building2 className="h-3 w-3" />
+                    Empresa
+                </span>
+                <Select
+                    value={value.companyId}
+                    onValueChange={(v) => onChange({ ...value, companyId: v })}
+                >
+                    <SelectTrigger className="rounded-xl">
+                        <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                        <SelectItem value="all">Todas</SelectItem>
+                        {companies.map((c) => (
+                            <SelectItem key={c.id} value={c.id}>
+                                {c.name}
+                            </SelectItem>
+                        ))}
+                    </SelectContent>
+                </Select>
+            </label>
+        );
     }
 
     return (
@@ -96,7 +130,40 @@ export default function PlatformOrdersFiltersBar({
                 </div>
             </div>
 
-            {/* Personalizado + empresa */}
+            {/* Mobile: Sheet para Select de empresa */}
+            <div className="md:hidden">
+                <Sheet>
+                    <SheetTrigger asChild>
+                        <button
+                            type="button"
+                            className="inline-flex items-center gap-1.5 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-medium text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
+                            aria-label="Abrir filtros"
+                        >
+                            <SlidersHorizontal className="h-3.5 w-3.5" />
+                            Filtros
+                        </button>
+                    </SheetTrigger>
+                    <SheetContent
+                        side="bottom"
+                        className="max-h-[85vh] rounded-t-2xl"
+                        onInteractOutside={(e) => {
+                            const t = e.target as HTMLElement | null;
+                            if (t?.closest?.('[role="listbox"]')) {
+                                e.preventDefault();
+                            }
+                        }}
+                    >
+                        <SheetHeader>
+                            <SheetTitle>Filtros</SheetTitle>
+                        </SheetHeader>
+                        <div className="mt-4 space-y-4 pb-2">
+                            <CompanySelect />
+                        </div>
+                    </SheetContent>
+                </Sheet>
+            </div>
+
+            {/* Personalizado + empresa (desktop) */}
             <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end">
                 {value.datePreset === "custom" && (
                     <div className="flex flex-1 flex-col gap-2 rounded-xl border border-zinc-200 bg-white p-3 shadow-sm dark:border-zinc-700 dark:bg-zinc-900 sm:flex-row sm:flex-wrap sm:items-center sm:gap-3 sm:p-4">
@@ -126,28 +193,9 @@ export default function PlatformOrdersFiltersBar({
                     </div>
                 )}
 
-                <label className="flex min-w-[200px] flex-col gap-1 text-xs font-medium text-zinc-500 sm:ml-auto">
-                    <span className="flex items-center gap-1">
-                        <Building2 className="h-3 w-3" />
-                        Empresa
-                    </span>
-                    <Select
-                        value={value.companyId}
-                        onValueChange={(v) => onChange({ ...value, companyId: v })}
-                    >
-                        <SelectTrigger className="rounded-xl">
-                            <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                            <SelectItem value="all">Todas</SelectItem>
-                            {companies.map((c) => (
-                                <SelectItem key={c.id} value={c.id}>
-                                    {c.name}
-                                </SelectItem>
-                            ))}
-                        </SelectContent>
-                    </Select>
-                </label>
+                <div className="hidden sm:ml-auto md:block">
+                    <CompanySelect />
+                </div>
             </div>
 
             {/* Cards resumo — layout Clientes */}

@@ -15,6 +15,8 @@ import {
     DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { EmptyState } from "@/components/ui/empty-state";
+import { Skeleton } from "@/components/ui/skeleton";
 import PlanFeatureGate from "@/components/billing/PlanFeatureGate";
 
 // ─── types ────────────────────────────────────────────────────────────────────
@@ -266,17 +268,22 @@ export default function EstoquePage() {
                     {loading
                         ? Array.from({ length: 6 }).map((_, i) => (
                             <div key={i} className="px-4 py-3">
-                                <div className="h-10 animate-pulse rounded-lg bg-zinc-100 dark:bg-zinc-800" />
+                                <Skeleton className="h-10 w-full rounded-lg" />
                             </div>
                         ))
                         : filtered.length === 0
                         ? (
-                            <div className="flex flex-col items-center gap-3 py-16">
-                                <Package className="h-10 w-10 text-zinc-300" />
-                                <p className="text-sm text-zinc-400">
-                                    {search ? "Nenhum resultado para a busca." : "Nenhuma variação ativa."}
-                                </p>
-                            </div>
+                            <EmptyState
+                                icon={<Package className="h-5 w-5" />}
+                                title={search ? "Nenhum resultado para a busca" : "Nenhuma variação ativa"}
+                                description={
+                                    search
+                                        ? "Tente outro nome ou código interno."
+                                        : "Cadastre produtos com embalagens ativas para controlar o estoque."
+                                }
+                                actionLabel={search ? undefined : "Ir para produtos"}
+                                actionHref={search ? undefined : "/produtos/lista"}
+                            />
                         )
                         : filtered.map((item) => {
                             const status = stockStatus(item.estoque_atual, item.estoque_minimo);

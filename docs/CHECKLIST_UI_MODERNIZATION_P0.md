@@ -126,6 +126,23 @@ Estado: `[ ]` pendente · `[~]` parcial · `[x]` feito + data · `[!]` bloqueado
 
 ---
 
+## Onda F — Polish P1 (pós A–E)
+
+| # | Item | Arquivos | DoD | Estado |
+|---|------|----------|-----|--------|
+| F1 | `alert` → toast (admin restante) | clientes, PDV, financeiro Pagar/Receber, relatórios | Zero `alert(` nessas telas | [x] 2026-09-05 |
+| F2 | EmptyState canônico + CTAs | **Criar** `ui/empty-state.tsx`; clientes, pedidos, estoque | Empty com CTA | [x] 2026-09-05 |
+| F3 | Header DropdownMenu | `HeaderClient.tsx` | Conta / tema / logo / sair Radix | [x] 2026-09-05 |
+| F4 | Cmd+K ícones + recentes | `CommandMenu.tsx`, `commandRecents.ts` | Ícone por rota; últimos 6 no localStorage | [x] 2026-09-05 |
+| F5 | Sheet filtros mobile (platform) | `PlatformCompaniesFiltersBar`, `PlatformOrdersFiltersBar` | Botão Filtros + Sheet &lt; md | [x] 2026-09-05 |
+| F6 | Skeleton listas densas | pedidos loading, estoque rows | `ui/skeleton` | [x] 2026-09-05 |
+| F7 | `prefers-reduced-motion` | `globals.css` | Animações Dialog quase zero se reduced | [x] 2026-09-05 |
+| F8 | Framer só hero/onboarding | política ADR | Sem Framer em PDV/listas (já rejeitado como default) | [x] 2026-09-05 — política |
+
+**Melhora:** polish SaaS (feedback, empty, header, mobile filters, a11y motion).
+
+---
+
 ## Cronograma sugerido (calendário de PRs)
 
 | Semana | Onda | PR sugerido |
@@ -190,7 +207,8 @@ PDV, produtos lista, mesa, plano/signup (tokens), configuracoes, impressoras, fi
 - [x] Pelo menos PDV **ou** produtos (C1–C3) `[x]`
 - [x] Onda D (admin/platform/WhatsApp) `[x]` 2026-09-05
 - [x] Onda E Cmd+K `[x]` 2026-09-05 — navegação + deep-link clientes; contrato sem mutação billing
-- [ ] Zero `alert(` nos hubs AdminShell / WorkspaceSwitcher / orders Modal
+- [x] Onda F polish P1 `[x]` 2026-09-05 — toast, EmptyState, header menu, Sheet filtros, reduced-motion
+- [x] Zero `alert(` nos hubs AdminShell / WorkspaceSwitcher / orders Modal (+ admin restante F1)
 - [x] Cmd+K (E) — entregue; mutação billing continua fora do palette
 - [ ] `npm test` / e2e críticos verdes nos módulos tocados
 

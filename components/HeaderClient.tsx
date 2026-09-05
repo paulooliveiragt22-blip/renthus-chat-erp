@@ -4,6 +4,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { usePathname, useRouter } from "next/navigation";
+import { useTheme } from "next-themes";
 import { useWorkspace } from "@/lib/workspace/useWorkspace";
 import { useInstallPrompt } from "@/lib/pwa/useInstallPrompt";
 import AdminPrimaryNav from "@/components/AdminPrimaryNav";
@@ -11,11 +12,23 @@ import {
     Download,
     ImagePlus,
     Loader2,
+    LogOut,
     Maximize2,
     Menu,
     Minimize2,
+    Moon,
+    Settings,
+    Sun,
 } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { toast } from "sonner";
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuLabel,
+    DropdownMenuSeparator,
+    DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 interface HeaderClientProps {
     onOpenMobileMenu?: () => void;
@@ -31,17 +44,14 @@ export default function HeaderClient({
     const supabase = createClient();
     const router = useRouter();
     const pathname = usePathname();
-
+    const { theme, setTheme } = useTheme();
     const { currentCompany } = useWorkspace();
 
-    const [menuOpen, setMenuOpen] = useState(false);
     const [sessionExists, setSessionExists] = useState<boolean | null>(null);
-    const menuRef = useRef<HTMLDivElement | null>(null);
     const logoInputRef = useRef<HTMLInputElement | null>(null);
 
     const [companyLogoUrl, setCompanyLogoUrl] = useState<string | null>(null);
     const [logoUploading, setLogoUploading] = useState(false);
-    const [logoHint, setLogoHint] = useState<string | null>(null);
 
     const { canInstallDirectly, canShowIosInstructions, canOfferInstall, promptInstall } =
         useInstallPrompt();
@@ -100,18 +110,12 @@ export default function HeaderClient({
 
     useEffect(() => {
         function onDoc(e: MouseEvent) {
-            if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
-                setMenuOpen(false);
-            }
             if (iosHintRef.current && !iosHintRef.current.contains(e.target as Node)) {
                 setInstallHintOpen(false);
             }
         }
         function onKey(e: KeyboardEvent) {
-            if (e.key === "Escape") {
-                setMenuOpen(false);
-                setInstallHintOpen(false);
-            }
+            if (e.key === "Escape") setInstallHintOpen(false);
         }
         document.addEventListener("mousedown", onDoc);
         document.addEventListener("keydown", onKey);
@@ -143,20 +147,13 @@ export default function HeaderClient({
                 console.warn("Client signOut failed", e);
             }
         } finally {
-            setMenuOpen(false);
             router.push("/login");
         }
-    }
-
-    function goToSettings() {
-        setMenuOpen(false);
-        router.push("/configuracoes");
     }
 
     async function handleLogoFile(file: File | null) {
         if (!file) return;
         setLogoUploading(true);
-        setLogoHint(null);
         try {
             const fd = new FormData();
             fd.set("kind", "logo");
@@ -169,17 +166,24 @@ export default function HeaderClient({
             const json = (await res.json().catch(() => ({}))) as {
                 error?: string;
                 url?: string;
-                hint?: string;
             };
             if (!res.ok) {
                 if (json.error === "profile_missing") {
-                    setLogoHint("Salve o cardápio em Configurações antes de enviar o logo.");
+                    toast.error("Salve o cardápio em Configurações antes de enviar o logo.", {
+                        action: {
+                            label: "Abrir",
+                            onClick: () => router.push("/configuracoes"),
+                        },
+                    });
                     return;
                 }
-                setLogoHint(json.error ?? "Falha ao enviar logo.");
+                toast.error(json.error ?? "Falha ao enviar logo.");
                 return;
             }
-            if (typeof json.url === "string") setCompanyLogoUrl(json.url);
+            if (typeof json.url === "string") {
+                setCompanyLogoUrl(json.url);
+                toast.success("Logo atualizado");
+            }
         } finally {
             setLogoUploading(false);
             if (logoInputRef.current) logoInputRef.current.value = "";
@@ -201,9 +205,10 @@ export default function HeaderClient({
     if (sessionExists === false) return null;
     if (sessionExists === null) return null;
 
+    const isDark = theme === "dark";
+
     return (
         <header className="relative grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 bg-[#11283B] px-3 py-2.5 text-white shadow-[0_6px_12px_rgba(0,0,0,0.16)] sm:px-[18px] lg:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)]">
-            {/* esquerda */}
             <div className="flex min-w-0 items-center gap-2 justify-self-start sm:gap-3">
                 {onOpenMobileMenu && (
                     <button
@@ -226,7 +231,6 @@ export default function HeaderClient({
 
             <AdminPrimaryNav variant="desktop" />
 
-            {/* direita */}
             <div className="relative flex items-center justify-end gap-2 justify-self-end sm:gap-3">
                 <input
                     ref={logoInputRef}
@@ -283,83 +287,63 @@ export default function HeaderClient({
                     </button>
                 )}
 
-                <button
-                    type="button"
-                    aria-haspopup="true"
-                    aria-expanded={menuOpen}
-                    onClick={() => setMenuOpen((s) => !s)}
-                    title="Menu da empresa"
-                    className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-full bg-white text-sm font-bold text-[#16364D] shadow-[0_2px_6px_rgba(0,0,0,0.12)] transition-transform duration-150 hover:-translate-y-0.5"
-                >
-                    {logoUploading ? (
-                        <Loader2 className="h-4 w-4 animate-spin text-[#16364D]" />
-                    ) : companyLogoUrl ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img
-                            src={companyLogoUrl}
-                            alt=""
-                            className="h-full w-full object-cover"
-                        />
-                    ) : (
-                        <ImagePlus className="h-4 w-4 text-[#16364D]/70" aria-hidden />
-                    )}
-                </button>
-
-                {logoHint ? (
-                    <span className="absolute right-0 top-[calc(100%+6px)] z-[60] max-w-[240px] rounded-lg bg-white px-2.5 py-1.5 text-[11px] font-medium text-zinc-700 shadow-lg">
-                        {logoHint}{" "}
+                <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
                         <button
                             type="button"
-                            className="font-bold text-[#16364D] underline"
-                            onClick={() => {
-                                setLogoHint(null);
-                                router.push("/configuracoes");
-                            }}
+                            title="Menu da conta"
+                            className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-full bg-white text-sm font-bold text-[#16364D] shadow-[0_2px_6px_rgba(0,0,0,0.12)] transition-transform duration-150 hover:-translate-y-0.5 outline-none focus-visible:ring-2 focus-visible:ring-accent"
                         >
-                            Abrir
+                            {logoUploading ? (
+                                <Loader2 className="h-4 w-4 animate-spin text-[#16364D]" />
+                            ) : companyLogoUrl ? (
+                                // eslint-disable-next-line @next/next/no-img-element
+                                <img
+                                    src={companyLogoUrl}
+                                    alt=""
+                                    className="h-full w-full object-cover"
+                                />
+                            ) : (
+                                <ImagePlus className="h-4 w-4 text-[#16364D]/70" aria-hidden />
+                            )}
                         </button>
-                    </span>
-                ) : null}
-
-                <div
-                    ref={menuRef}
-                    className={cn(
-                        "absolute right-0 top-[calc(100%+10px)] z-[60] min-w-[200px] rounded-lg bg-white p-2 text-zinc-800 shadow-[0_8px_24px_rgba(0,0,0,0.18)]",
-                        menuOpen ? "block" : "hidden"
-                    )}
-                >
-                    <div className="border-b border-zinc-100 px-3 py-2">
-                        <div className="font-bold">{currentCompany?.name ?? "Empresa"}</div>
-                        <div className="text-xs text-zinc-500">Empresa</div>
-                    </div>
-
-                    <div className="flex flex-col gap-1.5 p-2">
-                        <button
-                            type="button"
-                            onClick={() => {
-                                setMenuOpen(false);
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className="z-[70] min-w-52">
+                        <DropdownMenuLabel className="font-normal">
+                            <div className="font-semibold text-foreground">
+                                {currentCompany?.name ?? "Empresa"}
+                            </div>
+                            <div className="text-xs text-foreground-muted">Conta</div>
+                        </DropdownMenuLabel>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem
+                            onSelect={() => {
                                 logoInputRef.current?.click();
                             }}
-                            className="rounded-md px-2.5 py-2 text-left text-sm font-bold text-zinc-700 hover:bg-zinc-50"
                         >
+                            <ImagePlus className="h-4 w-4" />
                             {companyLogoUrl ? "Trocar logo" : "Adicionar logo"}
-                        </button>
-                        <button
-                            type="button"
-                            onClick={goToSettings}
-                            className="rounded-md px-2.5 py-2 text-left text-sm font-bold text-zinc-700 hover:bg-zinc-50"
-                        >
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onSelect={() => router.push("/configuracoes")}>
+                            <Settings className="h-4 w-4" />
                             Configurações
-                        </button>
-                        <button
-                            type="button"
-                            onClick={handleSignOut}
-                            className="rounded-md px-2.5 py-2 text-left text-sm font-bold text-red-700 hover:bg-red-50"
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onSelect={() => setTheme(isDark ? "light" : "dark")}>
+                            {isDark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+                            {isDark ? "Modo claro" : "Modo escuro"}
+                        </DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem
+                            className="text-red-600 focus:bg-red-50 focus:text-red-700 dark:focus:bg-red-950/40"
+                            onSelect={() => {
+                                void handleSignOut();
+                            }}
                         >
+                            <LogOut className="h-4 w-4" />
                             Sair
-                        </button>
-                    </div>
-                </div>
+                        </DropdownMenuItem>
+                    </DropdownMenuContent>
+                </DropdownMenu>
             </div>
         </header>
     );

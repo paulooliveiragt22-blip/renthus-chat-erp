@@ -32,13 +32,14 @@ import {
     ShoppingCart,
     X,
 } from "lucide-react";
-
-const PAGE_SIZE = 20;
-
+import { EmptyState } from "@/components/ui/empty-state";
+import { Skeleton } from "@/components/ui/skeleton";
 import NewOrderModal from "@/lib/orders/NewOrderModal";
 import ViewOrderModal from "@/lib/orders/ViewOrderModal";
 import EditOrderModal from "@/lib/orders/EditOrderModal";
 import ActionModal, { ActionKind } from "@/lib/orders/ActionModal";
+
+const PAGE_SIZE = 20;
 
 type OrderToolbarAction = ActionKind | "prepare" | "deliver";
 
@@ -2259,14 +2260,17 @@ export default function PedidosPage() {
             {loading ? (
                 <div className="grid gap-3 grid-cols-2 xl:grid-cols-4">
                     {Array.from({ length: 8 }).map((_, i) => (
-                        <div key={i} className="h-48 animate-pulse rounded-xl bg-zinc-100 dark:bg-zinc-800/60" />
+                        <Skeleton key={i} className="h-48 w-full rounded-xl" />
                     ))}
                 </div>
             ) : filteredOrders.length === 0 ? (
-                <div className="flex flex-col items-center justify-center py-20 text-zinc-400 dark:text-zinc-600 rounded-xl border border-zinc-100 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
-                    <Package className="mb-3 h-10 w-10" />
-                    <p className="text-sm font-medium">Nenhum pedido encontrado</p>
-                </div>
+                <EmptyState
+                  icon={<Package className="h-5 w-5" />}
+                  title="Nenhum pedido encontrado"
+                  description="Ajuste os filtros ou registre um novo pedido pelo PDV ou WhatsApp."
+                  actionLabel="Novo pedido"
+                  onAction={() => setOpenNew(true)}
+                />
             ) : (
                 <div className="grid gap-3 grid-cols-1 sm:grid-cols-2 xl:grid-cols-4">
                     {pagedOrders.map((o) => {
