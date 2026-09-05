@@ -68,6 +68,8 @@ Uma única obrigação no ano (PIX/cartão valor cheio).
 
 **Resolvido (Pacote 5):** `rpc_quote_period_switch` (amount canônico no banco), `rpc_fulfill_obligation` branch `kind=period_switch` (flip período + `next=+1y`), `ensurePeriodSwitchCheckout` + `POST /api/billing/switch-period` (RBAC owner/admin), UI toggle no `PlanChangeCatalog`. Validado o quote em subs reais via RPC.
 
+**Emenda 2026-09-05 — upgrade + anual combinado `[i]`:** na view Anual, clicar plano **maior** (ex. Market) gera um único checkout: `annual(destino) − crédito(mês atual)`. Intent `upgrade_to_annual` + `pending_upgrade_plan_key`; invoice `period_switch` com `target_plan_key`; fulfill aplica plano + `billing_period=year`. View Mensal no upgrade continua BN-11 (delta mensal prorateado).
+
 ### R2-4 — Seats Pro
 
 R$ **349 inclui 1** usuário.  

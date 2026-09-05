@@ -13,11 +13,12 @@ import { normalizePlanKey, parseCommercialPlanInput, planRank } from "@/lib/bill
 import { rebillPendingObligationAfterPlanChange } from "@/lib/billing/rebillPendingObligation";
 import { scheduleDowngrade } from "@/lib/billing/scheduleDowngrade";
 import { preparePlanUpgradeSelection } from "@/lib/billing/preparePlanUpgradeSelection";
+import { prepareUpgradeToAnnualSelection } from "@/lib/billing/prepareUpgradeToAnnualSelection";
 import { jsonAccessError } from "@/lib/api/errors";
 
 export const runtime = "nodejs";
 
-type Body = { plan?: string; keep_user_ids?: string[] };
+type Body = { plan?: string; keep_user_ids?: string[]; to_annual?: boolean };
 
 export async function POST(req: Request) {
     try {
@@ -41,7 +42,7 @@ export async function POST(req: Request) {
 
         const { data: row, error: fetchErr } = await admin
             .from("pagarme_subscriptions")
-            .select("id, plan, status, pending_plan_key, last_paid_at")
+            .select("id, plan, status, pending_plan_key, last_paid_at, billing_period")
             .eq("company_id", tenantId)
             .maybeSingle();
 
@@ -126,7 +127,40 @@ export async function POST(req: Request) {
         }
 
         if (planRank(planKey) > planRank(current)) {
+            const wantAnnual =
+                body.to_annual === true &&
+                String((row as { billing_period?: string | null }).billing_period ?? "month").toLowerCase() !==
+                    "year";
             try {
+                if (wantAnnual) {
+                    const checkout = await prepareUpgradeToAnnualSelection(admin, {
+                        companyId: tenantId,
+                        targetPlan: planKey,
+                    });
+                    if (checkout.mode === "applied_free") {
+                        return NextResponse.json({
+                            ok: true,
+                            action: "upgraded_to_annual",
+                            plan: checkout.toPlan,
+                            from_plan: checkout.fromPlan,
+                            billing_period: "year",
+                        });
+                    }
+                    return NextResponse.json({
+                        ok: true,
+                        action: "upgrade_to_annual_quoted",
+                        from_plan: checkout.fromPlan,
+                        to_plan: checkout.toPlan,
+                        amount_cents: checkout.amountCents,
+                        amount_brl: checkout.amountBrl,
+                        annual_cents: checkout.annualCents,
+                        credit_cents: checkout.creditCents,
+                        next_billing_at: checkout.nextBillingAt,
+                        message:
+                            "Plano anual selecionado. Pague abaixo (PIX ou cartão) para confirmar o upgrade.",
+                    });
+                }
+
                 const checkout = await preparePlanUpgradeSelection(admin, {
                     companyId: tenantId,
                     targetPlan: planKey,
@@ -158,7 +192,8 @@ export async function POST(req: Request) {
                     msg === "subscription_not_eligible" ||
                     msg === "not_an_upgrade" ||
                     msg === "plan_invalid" ||
-                    msg === "never_paid_use_change_plan"
+                    msg === "never_paid_use_change_plan" ||
+                    msg === "already_annual_use_upgrade"
                         ? 400
                         : 500;
                 return NextResponse.json({ error: msg }, { status });

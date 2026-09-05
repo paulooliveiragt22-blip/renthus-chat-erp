@@ -32,6 +32,16 @@ npm run test:e2e:ui               # modo interativo
 
 ## O que cobre
 
+| Script | O quê |
+|--------|--------|
+| `npm run test:e2e` | Todos os specs Playwright |
+| `npm run test:e2e:screens` | **Todas as telas** — smoke por rota (público + admin + billing) |
+| `npm run test:e2e:billing` | Checkout sandbox cartão/PIX |
+| `npm run test:e2e:billing:journey` | Signup → pagar → contrato `/plano` |
+| `npm run test:e2e:plano` | Gestão de plano (assinante pago) |
+
+### Smokes MVP (`e2e/mvp.smokes.spec.ts`)
+
 | Smoke | O quê |
 |-------|--------|
 | M1+M2 | Config → Delivery (horário, descrição, entrega) |

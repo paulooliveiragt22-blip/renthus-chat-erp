@@ -756,9 +756,30 @@ export default function PlanBillingPanel({ variant = "full" }: PlanBillingPanelP
                                 : "Mensalidade recorrente. Próximo vencimento em 30 dias após o pagamento.";
 
                         if (pendingKind === "plan_upgrade" || sub?.pending_upgrade_plan_key) {
-                            paymentTitle = "Confirmar upgrade de plano";
-                            paymentDesc =
-                                "Pague abaixo (PIX ou cartão) para aplicar o upgrade. A data de renovação não muda.";
+                            const dest =
+                                pendInv?.target_plan_key ||
+                                sub?.pending_upgrade_plan_key ||
+                                "";
+                            const destLabel =
+                                dest === "market"
+                                    ? "Market"
+                                    : dest === "pro"
+                                      ? "Pro"
+                                      : dest === "essencial"
+                                        ? "Essencial"
+                                        : "plano superior";
+                            if (
+                                pendingKind === "period_switch" ||
+                                sub?.pending_checkout_intent === "upgrade_to_annual"
+                            ) {
+                                paymentTitle = `Upgrade para ${destLabel} anual`;
+                                paymentDesc =
+                                    "Valor = anual do plano escolhido menos o crédito do mês já pago. Após o pagamento a renovação passa a ser anual.";
+                            } else {
+                                paymentTitle = `Confirmar upgrade para ${destLabel}`;
+                                paymentDesc =
+                                    "Pague abaixo (PIX ou cartão) para aplicar o upgrade. A data de renovação não muda.";
+                            }
                         } else if (
                             pendingKind === "period_switch" ||
                             sub?.pending_checkout_intent === "period_switch"
@@ -766,6 +787,17 @@ export default function PlanBillingPanel({ variant = "full" }: PlanBillingPanelP
                             paymentTitle = "Migrar para plano anual";
                             paymentDesc =
                                 "Pague abaixo para migrar ao ciclo anual. Após o pagamento a renovação passa a ser anual.";
+                        } else if (sub?.pending_checkout_intent === "upgrade_to_annual") {
+                            const dest = sub?.pending_upgrade_plan_key || "";
+                            const destLabel =
+                                dest === "market"
+                                    ? "Market"
+                                    : dest === "pro"
+                                      ? "Pro"
+                                      : "plano superior";
+                            paymentTitle = `Upgrade para ${destLabel} anual`;
+                            paymentDesc =
+                                "Valor = anual do plano escolhido menos o crédito do mês já pago.";
                         }
 
                         return (

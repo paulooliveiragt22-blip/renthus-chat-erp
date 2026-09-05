@@ -30,9 +30,11 @@ export async function materializeCheckoutIntent(
     const upgradeTarget = String(sub?.pending_upgrade_plan_key ?? "").trim();
     const intent = String(sub?.pending_checkout_intent ?? "").trim();
 
-    if (upgradeTarget) {
-        await ensurePlanUpgradeObligation(admin, {
+    // Upgrade + anual (combinado): period_switch com target_plan.
+    if (intent === "upgrade_to_annual" && upgradeTarget) {
+        await ensurePeriodSwitchCheckout(admin, {
             companyId,
+            company,
             targetPlan: upgradeTarget,
         });
         return;
@@ -40,5 +42,13 @@ export async function materializeCheckoutIntent(
 
     if (intent === "period_switch") {
         await ensurePeriodSwitchCheckout(admin, { companyId, company });
+        return;
+    }
+
+    if (upgradeTarget) {
+        await ensurePlanUpgradeObligation(admin, {
+            companyId,
+            targetPlan: upgradeTarget,
+        });
     }
 }

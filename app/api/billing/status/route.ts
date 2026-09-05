@@ -77,16 +77,14 @@ export async function GET() {
 
         const { data: invPending } = await admin
             .from("invoices")
-            .select("pagarme_payment_url, pix_qr_code, amount, due_at, kind, target_plan_key")
+            .select(
+                "pagarme_payment_url, pix_qr_code, amount, due_at, kind, target_plan_key, created_at"
+            )
             .eq("company_id", companyId)
             .eq("status", "pending")
             .order("created_at", { ascending: false })
-            .limit(1)
-            .maybeSingle();
+            .limit(8);
 
-        const pendingInvoice = invPending ?? null;
-
-        let quotedCheckoutBrl: number | null = null;
         const upgradeIntent = String(
             (pagarmeSubRaw as { pending_upgrade_plan_key?: string | null } | null)
                 ?.pending_upgrade_plan_key ?? ""
@@ -96,7 +94,56 @@ export async function GET() {
                 ?.pending_checkout_intent ?? ""
         ).trim();
 
-        if (!pendingInvoice && upgradeIntent) {
+        const pendingRows = (invPending ?? []) as Array<{
+            pagarme_payment_url?: string | null;
+            pix_qr_code?: string | null;
+            amount?: number | null;
+            due_at?: string | null;
+            kind?: string | null;
+            target_plan_key?: string | null;
+        }>;
+
+        const matchIntentPending = (): (typeof pendingRows)[number] | null => {
+            if (checkoutIntent === "upgrade_to_annual" && upgradeIntent) {
+                return (
+                    pendingRows.find(
+                        (r) =>
+                            r.kind === "period_switch" &&
+                            String(r.target_plan_key ?? "") === upgradeIntent
+                    ) ??
+                    pendingRows.find((r) => r.kind === "period_switch") ??
+                    null
+                );
+            }
+            if (checkoutIntent === "period_switch") {
+                return pendingRows.find((r) => r.kind === "period_switch") ?? null;
+            }
+            if (upgradeIntent) {
+                return (
+                    pendingRows.find(
+                        (r) =>
+                            r.kind === "plan_upgrade" &&
+                            String(r.target_plan_key ?? "") === upgradeIntent
+                    ) ??
+                    pendingRows.find((r) => r.kind === "plan_upgrade") ??
+                    null
+                );
+            }
+            return pendingRows[0] ?? null;
+        };
+
+        const pendingInvoice = matchIntentPending();
+
+        let quotedCheckoutBrl: number | null = null;
+
+        if (checkoutIntent === "upgrade_to_annual" && upgradeIntent) {
+            const { data: q } = await admin.rpc("rpc_quote_period_switch", {
+                p_company_id: companyId,
+                p_target_plan: upgradeIntent,
+            });
+            const cents = Number((q as { amount_cents?: number } | null)?.amount_cents ?? 0);
+            if (cents > 0) quotedCheckoutBrl = cents / 100;
+        } else if (!pendingInvoice && upgradeIntent) {
             const { data: q } = await admin.rpc("rpc_quote_plan_upgrade", {
                 p_company_id: companyId,
                 p_target_plan: upgradeIntent,
@@ -106,6 +153,20 @@ export async function GET() {
         } else if (!pendingInvoice && checkoutIntent === "period_switch") {
             const { data: q } = await admin.rpc("rpc_quote_period_switch", {
                 p_company_id: companyId,
+                p_target_plan: null,
+            });
+            const cents = Number((q as { amount_cents?: number } | null)?.amount_cents ?? 0);
+            if (cents > 0) quotedCheckoutBrl = cents / 100;
+        } else if (
+            pendingInvoice &&
+            (checkoutIntent === "upgrade_to_annual" || checkoutIntent === "period_switch") &&
+            !quotedCheckoutBrl
+        ) {
+            // Intent ativo: revalida quote mesmo com invoice (evita amount stale).
+            const { data: q } = await admin.rpc("rpc_quote_period_switch", {
+                p_company_id: companyId,
+                p_target_plan:
+                    checkoutIntent === "upgrade_to_annual" ? upgradeIntent || null : null,
             });
             const cents = Number((q as { amount_cents?: number } | null)?.amount_cents ?? 0);
             if (cents > 0) quotedCheckoutBrl = cents / 100;
@@ -147,18 +208,31 @@ export async function GET() {
         const isAnnualObligation =
             pendingKind === "year" ||
             pendingKind === "period_switch" ||
+            checkoutIntent === "period_switch" ||
+            checkoutIntent === "upgrade_to_annual" ||
             billingPeriod === "year";
+        const displayPlanKey =
+            normalizePlanKey(
+                String(
+                    pendingInvoice?.target_plan_key ??
+                        upgradeIntent ??
+                        planKey ??
+                        ""
+                )
+            ) ?? planKey;
+        const displayPlanRow = displayPlanKey ? planByKey.get(displayPlanKey) : planRow;
         const canonicalObligationCents =
-            planRow == null
+            displayPlanRow == null
                 ? null
                 : isAnnualObligation
-                  ? planRow.price_year_cents
-                  : planRow.price_cents;
+                  ? displayPlanRow.price_year_cents
+                  : displayPlanRow.price_cents;
         const canonicalObligationBrl =
             canonicalObligationCents != null ? canonicalObligationCents / 100 : null;
         const canonicalMonthly = planRow != null ? planRow.price_cents / 100 : null;
+        // Intent de troca: quote vence invoice órfã de renovação.
         const checkoutAmountBrl =
-            obligationAmount ?? quotedCheckoutBrl ?? canonicalObligationBrl;
+            quotedCheckoutBrl ?? obligationAmount ?? canonicalObligationBrl;
         const amountMismatch =
             canonicalObligationBrl != null &&
             obligationAmount != null &&

@@ -217,11 +217,12 @@ export function PlanChangeCatalog({
         }
         setSaving(true);
         try {
+            const toAnnual = viewPeriod === "year" && !isAnnualSub;
             const res = await fetch("/api/billing/change-plan", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 credentials: "include",
-                body: JSON.stringify({ plan: key }),
+                body: JSON.stringify({ plan: key, to_annual: toAnnual }),
             });
             const json = (await res.json().catch(() => ({}))) as {
                 error?: string;
@@ -443,6 +444,8 @@ export function PlanChangeCatalog({
                     else if (active) cta = isAnnualSub ? "Plano anual atual" : "Plano atual";
                     else if (checkoutMode || isPrepay || neverPaid || status === "trial")
                         cta = "Escolher este plano";
+                    else if (higher && showYear && !isAnnualSub)
+                        cta = saving ? "Cotando…" : "Upgrade para anual";
                     else if (higher) cta = "Fazer upgrade";
                     else if (lower) cta = "Agendar downgrade";
                     else cta = "Indisponível";

@@ -51,6 +51,8 @@ export async function ensurePeriodSwitchCheckout(
             phone?: string | null;
             cnpj?: string | null;
         };
+        /** Upgrade combinado mensal→anual para outro plano (Market etc.). */
+        targetPlan?: string;
     }
 ): Promise<EnsurePeriodSwitchCheckoutResult> {
     const { data: sub, error: subErr } = await admin
@@ -69,12 +71,18 @@ export async function ensurePeriodSwitchCheckout(
         throw new Error("already_annual");
     }
 
-    const plan = normalizePlanKey(String(sub.plan ?? "")) ?? "essencial";
+    const target =
+        normalizePlanKey(String(params.targetPlan ?? "").trim()) ??
+        normalizePlanKey(String(sub.plan ?? "")) ??
+        "essencial";
+    const plan = target;
 
-    // Fonte canônica: quote + insert/applied_free no banco (nunca amount/+1y no app).
     const { data: oblRaw, error: oblErr } = await admin.rpc(
         "rpc_ensure_period_switch_obligation",
-        { p_company_id: params.companyId }
+        {
+            p_company_id: params.companyId,
+            p_target_plan: params.targetPlan ? target : null,
+        }
     );
     if (oblErr) throw new Error(oblErr.message);
     const obl = (oblRaw ?? {}) as EnsureObligationRpc;

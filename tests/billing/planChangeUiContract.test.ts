@@ -40,6 +40,24 @@ describe("billing UI contract — seleção ≠ fatura", () => {
         assert.ok(matIdx >= 0 && loadIdx > matIdx, "materialize antes de loadCheckoutContext");
     });
 
+    it("materializeCheckoutIntent trata upgrade_to_annual via period_switch+target", () => {
+        const src = read("lib/billing/materializeCheckoutIntent.ts");
+        assert.match(src, /upgrade_to_annual/);
+        assert.match(src, /targetPlan:\s*upgradeTarget/);
+    });
+
+    it("change-plan aceita to_annual no upgrade ativo", () => {
+        const src = read("app/api/billing/change-plan/route.ts");
+        assert.match(src, /prepareUpgradeToAnnualSelection/);
+        assert.match(src, /to_annual/);
+    });
+
+    it("PlanChangeCatalog envia to_annual no view anual", () => {
+        const src = read("components/billing/PlanChangeCatalog.tsx");
+        assert.match(src, /to_annual:\s*toAnnual/);
+        assert.match(src, /Upgrade para anual/);
+    });
+
     it("preparePlanUpgradeSelection não insere invoice", () => {
         const src = read("lib/billing/preparePlanUpgradeSelection.ts");
         assert.doesNotMatch(src, /\.insert\(\{/);
