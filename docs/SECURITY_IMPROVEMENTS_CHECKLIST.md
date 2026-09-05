@@ -21,7 +21,7 @@ Use como guia de implementação e revisão periódica. Itens derivados da anál
 
 - [x] `isTechnicalApiPublic` granular (WhatsApp incoming, crons com `CRON_SECRET`, billing webhook/signup, agent, public menu, health).
 - [x] Crons billing `expire-trials` e `mark-abandoned` na allowlist (2026-09-04) — handler continua com `validateCronAuthorization`.
-- [ ] **P2 S7:** não liberar **todo** `/api/agent/` — `keys`/`settings` devem exigir cookie no proxy. → `CHECKLIST_SECURITY_HARDENING_P2.md`
+- [x] **P2 S7:** `isPrintAgentMachineApi` — só activate/auth/heartbeat/print/jobs. `keys`/`settings` exigem cookie.
 
 ---
 
@@ -108,7 +108,7 @@ Use como guia de implementação e revisão periódica. Itens derivados da anál
 
 Caminho seguro: UI → `fetch("/api/...")` → RPC/view via `service_role`. Achados 2026-09-04:
 
-- [ ] **P2 S8:** `components/AdminShell.tsx` ainda faz `.from("orders")` / `.from("order_items")` no browser (RLS nega; modal quebra). Usar `GET /api/orders/[id]`.
+- [x] **P2 S8:** `AdminShell` lê pedido via `GET /api/orders/[id]` (cookie). Sem `createClient().from` no shell.
 - [ ] **P2 S9:** `createClient()` residual — Lista (Realtime), Configurações, Dashboard, login/signup (Auth ok).
 
 ---

@@ -19,6 +19,7 @@ import {
     resolveMenuHostRewrite,
 } from "@/lib/public-menu/menuHostRewrite";
 import { resolveTenantAccess } from "@/lib/billing/tenantAccess";
+import { isPrintAgentMachineApi } from "@/lib/security/printAgentMachineApi";
 
 type AuthClient = {
     auth: {
@@ -335,8 +336,8 @@ function isTechnicalApiPublic(pathname: string): boolean {
         pathname === "/api/billing/signup" ||
         /** Webhook Meta Page/Instagram Messaging: assinatura própria (X-Hub-Signature-256), sem cookie. */
         pathname.startsWith("/api/meta/messaging/incoming") ||
-        /** Print agent (api_key nas rotas) + painel /api/agent/keys|settings (exige sessão na própria rota) */
-        pathname.startsWith("/api/agent/") ||
+        /** Print agent com api_key / pairing. keys|settings exigem cookie (S7). */
+        isPrintAgentMachineApi(pathname) ||
         /**
          * Estabelece/encerra sessão a partir de tokens no body.
          * Sem isto, o proxy manda /api/auth/sync-session → /login (HTML) quando ainda

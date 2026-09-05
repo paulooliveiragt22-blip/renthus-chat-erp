@@ -281,8 +281,6 @@ function ProductListRow({ r, flashId, showEan, onToggleActive, onOpenEdit }: Pro
     );
 }
 
-}
-
 // ─── sub-components ───────────────────────────────────────────────────────────
 
 const inputCls = "w-full rounded-lg border border-border bg-zinc-50 px-3 py-2 text-sm text-foreground placeholder:text-foreground-muted focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/40 dark:bg-zinc-800 disabled:opacity-50";

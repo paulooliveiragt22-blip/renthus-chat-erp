@@ -22,7 +22,9 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
 
                 const { data: order, error: orderErr } = await admin
                     .from("orders")
-                    .select("*, drivers ( id, name, vehicle, plate )")
+                    .select(
+                        "*, customers ( name, phone, address ), drivers ( id, name, vehicle, plate )"
+                    )
                     .eq("id", orderId)
                     .maybeSingle();
 
@@ -59,7 +61,9 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
         // Make sure the order belongs to the selected company
         const { data: order, error: orderErr } = await admin
             .from("orders")
-            .select("*, drivers ( id, name, vehicle, plate )")
+            .select(
+                "*, customers ( name, phone, address ), drivers ( id, name, vehicle, plate )"
+            )
             .eq("id", orderId)
             .eq("company_id", access.companyId)
             .maybeSingle();

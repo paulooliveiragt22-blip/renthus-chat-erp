@@ -9,7 +9,7 @@ Estrutura (Clean Architecture desta stack):
 |------|------|
 | Policy CSP (domínio) | `lib/security/cspPolicy.ts` + `cspPolicy.cjs` (next.config) |
 | Headers HTTP | `next.config.js` → `headers()` |
-| Proxy allowlist | `proxy.ts` `isTechnicalApiPublic` |
+| Proxy allowlist | `proxy.ts` `isTechnicalApiPublic` + `lib/security/printAgentMachineApi.ts` |
 | Storage / grants | `supabase/migrations/2026090521*.sql` |
 | Testes | `tests/security/cspPolicy.test.ts`, `tests/proxy.test.ts` |
 | UI residual | `components/AdminShell.tsx` → `GET /api/orders/[id]` (S8) |
@@ -33,8 +33,8 @@ Estrutura (Clean Architecture desta stack):
 
 | ID | Item | Arquivos | DoD |
 |----|------|----------|-----|
-| S7 | Granularizar `pathname.startsWith("/api/agent/")` — só `activate` + jobs/print públicos; `keys`/`settings` exigem cookie no proxy | `proxy.ts`, `tests/proxy.test.ts` | teste: `/api/agent/keys` sem cookie → login |
-| S8 | `AdminShell.fetchOrderFull` via `GET /api/orders/[id]` (já existe); remover `.from("orders")` no browser | `components/AdminShell.tsx` | sem `createClient().from` no shell |
+| S7 | Granularizar `pathname.startsWith("/api/agent/")` — só `activate` + jobs/print públicos; `keys`/`settings` exigem cookie no proxy | `proxy.ts`, `tests/proxy.test.ts` | [x] 2026-09-05 — `/api/agent/keys` e `/settings` sem cookie → `/login` |
+| S8 | `AdminShell.fetchOrderFull` via `GET /api/orders/[id]` (já existe); remover `.from("orders")` no browser | `components/AdminShell.tsx` | [x] 2026-09-05 — `fetch` + cookie; sem `createClient` no shell |
 | S9 | Inventariar `createClient()` residual (Lista realtime, Configurações, Dashboard) — Realtime só se canal autenticado for inevitável; senão poll via API | `ListaClient.tsx`, `configuracoes/page.tsx` | lista no inventário §client |
 | S10 | CSP enforce: nonce no `proxy.ts` + `x-nonce` no layout (guia Next.js) depois de Report-Only limpo | `proxy.ts`, `app/layout.tsx` | header `Content-Security-Policy` (não Report-Only); `X-Frame-Options` alinhado a `frame-ancestors` |
 | S11 | Alinhar `X-Frame-Options` (`SAMEORIGIN` hoje) com `frame-ancestors 'none'` quando enforce | `next.config.js` | um único contrato |

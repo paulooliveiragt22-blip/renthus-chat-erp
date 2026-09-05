@@ -1,9 +1,8 @@
 // components/AdminShell.tsx
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
-import { createClient } from "@/lib/supabase/client";
 import { AdminOrdersProvider } from "@/components/AdminOrdersContext";
 import AdminSidebar from "@/components/AdminSidebar";
 import HeaderClient from "@/components/HeaderClient";
@@ -49,8 +48,42 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
 }
 
 // ── Inner: todos os hooks ficam aqui ─────────────────────────────────────────
+type OrderCustomer = {
+    name?: string | null;
+    phone?: string | null;
+    address?: string | null;
+};
+
+type OrderItemRow = {
+    id: string;
+    product_name?: string | null;
+    quantity?: number | null;
+    unit_price?: number | null;
+    line_total?: number | null;
+};
+
+type OrderModal = {
+    created_at: string;
+    status?: string | null;
+    notes?: string | null;
+    details?: string | null;
+    payment_method?: string | null;
+    delivery_fee?: number | null;
+    total_amount?: number | null;
+    customers?: OrderCustomer | null;
+    items: OrderItemRow[];
+};
+
+function asCustomer(raw: unknown): OrderCustomer | null {
+    if (!raw || typeof raw !== "object") return null;
+    if (Array.isArray(raw)) {
+        const first = raw[0];
+        return first && typeof first === "object" ? (first as OrderCustomer) : null;
+    }
+    return raw as OrderCustomer;
+}
+
 function AdminShellInner({ children }: { children: React.ReactNode }) {
-    const supabase = useMemo(() => createClient(), []);
     const primaryDockVisible = useAdminPrimaryDockVisible();
     const { currentCompanyId } = useWorkspace();
 
@@ -149,36 +182,41 @@ function AdminShellInner({ children }: { children: React.ReactNode }) {
     // ── Modal de pedido (Radix via lib/orders/Modal) ─────────────────────────
     const [open, setOpen]       = useState(false);
     const [loading, setLoading] = useState(false);
-    const [order, setOrder]     = useState<any | null>(null);
+    const [order, setOrder]     = useState<OrderModal | null>(null);
     const [msg, setMsg]         = useState<string | null>(null);
 
-    async function fetchOrderFull(orderId: string) {
+    async function fetchOrderFull(orderId: string): Promise<OrderModal | null> {
         setMsg(null);
         try {
-            const { data: ord, error: ordErr } = await supabase
-                .from("orders")
-                .select(`
-                    id, status, channel, total_amount, delivery_fee, payment_method, paid, change_for, created_at,
-                    details,
-                    notes,
-                    customers ( name, phone, address )
-                `)
-                .eq("id", orderId)
-                .single();
-
-            if (ordErr) { setMsg(`Erro ao carregar pedido: ${ordErr.message}`); return null; }
-
-            const { data: items, error: itemsErr } = await supabase
-                .from("order_items")
-                .select(`id, order_id, product_variant_id, product_name, unit_type, quantity, unit_price, line_total, qty, created_at`)
-                .eq("order_id", orderId)
-                .order("created_at", { ascending: true });
-
-            if (itemsErr) { setMsg(`Erro ao carregar itens: ${itemsErr.message}`); return null; }
-
-            return { ...(ord as any), items: (items as any) ?? [] };
-        } catch (e: any) {
-            setMsg(`Erro ao carregar pedido: ${String(e?.message ?? e)}`);
+            const res = await fetch(`/api/orders/${encodeURIComponent(orderId)}`, {
+                credentials: "include",
+                cache: "no-store",
+            });
+            const body = (await res.json().catch(() => ({}))) as {
+                error?: string;
+                order?: Record<string, unknown>;
+                items?: OrderItemRow[];
+            };
+            if (!res.ok || !body.order) {
+                setMsg(`Erro ao carregar pedido: ${body.error ?? res.status}`);
+                return null;
+            }
+            const o = body.order;
+            return {
+                created_at: String(o.created_at ?? ""),
+                status: typeof o.status === "string" ? o.status : null,
+                notes: typeof o.notes === "string" ? o.notes : null,
+                details: typeof o.details === "string" ? o.details : null,
+                payment_method:
+                    typeof o.payment_method === "string" ? o.payment_method : null,
+                delivery_fee: Number(o.delivery_fee ?? 0),
+                total_amount: Number(o.total_amount ?? 0),
+                customers: asCustomer(o.customers),
+                items: Array.isArray(body.items) ? body.items : [],
+            };
+        } catch (e: unknown) {
+            const message = e instanceof Error ? e.message : String(e);
+            setMsg(`Erro ao carregar pedido: ${message}`);
             return null;
         }
     }
@@ -312,7 +350,7 @@ function AdminShellInner({ children }: { children: React.ReactNode }) {
                                             </tr>
                                         </thead>
                                         <tbody className="divide-y divide-border">
-                                            {order.items.map((it: any) => {
+                                            {order.items.map((it) => {
                                                 const q = Number(it.quantity ?? 0);
                                                 const p = Number(it.unit_price ?? 0);
                                                 const t = Number(it.line_total ?? q * p);

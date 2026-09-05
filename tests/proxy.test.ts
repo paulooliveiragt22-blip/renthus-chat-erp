@@ -172,6 +172,38 @@ describe("proxy auth routing", () => {
         assert.strictEqual(factory.mock.calls.length, 0);
     });
 
+    it("exempts print-agent machine routes (api_key / pairing)", async () => {
+        const paths = [
+            "/api/agent/activate",
+            "/api/agent/auth",
+            "/api/agent/heartbeat",
+            "/api/agent/print-data",
+            "/api/agent/reprint",
+            "/api/agent/jobs/poll",
+            "/api/agent/jobs/reserve",
+            "/api/agent/jobs/complete",
+            "/api/agent/jobs/fail",
+        ];
+        for (const path of paths) {
+            const response = await proxy(createRequest(path), undefined, {
+                createClient: factory,
+            });
+            assert.strictEqual(response.headers.get("location"), null, path);
+        }
+        assert.strictEqual(factory.mock.calls.length, 0);
+    });
+
+    it("keeps /api/agent/keys and /api/agent/settings behind session", async () => {
+        for (const path of ["/api/agent/keys", "/api/agent/settings"]) {
+            const { factory: protectedFactory } = createMockClient(null);
+            const response = await proxy(createRequest(path), undefined, {
+                createClient: protectedFactory,
+            });
+            assert.strictEqual(response.status, 307, path);
+            assert.strictEqual(response.headers.get("location"), "https://example.com/login", path);
+        }
+    });
+
     it("keeps session-backed chatbot routes behind auth", async () => {
         for (const path of ["/api/chatbot/config", "/api/chatbot/resolve"]) {
             const { factory: protectedFactory } = createMockClient(null);

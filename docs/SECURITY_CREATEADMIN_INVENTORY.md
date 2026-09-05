@@ -41,9 +41,9 @@ Exemplos: `app/api/admin/**`, `app/api/billing/status`, `create-invoice-checkout
 
 ## Print agent (`api_key` ou pairing)
 
-`app/api/agent/auth`, `heartbeat`, `jobs/*`, `print-data`, `reprint` — API key.  
+`app/api/agent/auth`, `heartbeat`, `jobs/*`, `print-data`, `reprint` — API key; proxy via `isPrintAgentMachineApi`.  
 `app/api/agent/activate` — código de pareamento + rate limit (público no proxy).  
-`app/api/agent/keys`, `settings` — **sessão** no handler; proxy ainda libera prefixo `/api/agent/` (P2 S7).
+`app/api/agent/keys`, `settings` — sessão no handler **e** no proxy (S7).
 
 `app/api/orders/[id]` — sessão **ou** API key do agent.
 
@@ -76,7 +76,7 @@ Exemplos: `app/api/admin/**`, `app/api/billing/status`, `create-invoice-checkout
 
 | Arquivo | Uso |
 |---------|-----|
-| `components/AdminShell.tsx` | `.from("orders")` / `order_items` — P2 S8 |
+| `components/AdminShell.tsx` | S8 fechado — `GET /api/orders/[id]` |
 | `app/(admin)/produtos/lista/ListaClient.tsx` | Realtime `subscribeProductListRealtime` |
 | `app/(admin)/configuracoes/page.tsx` | `createClient()` residual |
 | Login / signup / platform MFA | `supabase.auth` — permitido |
