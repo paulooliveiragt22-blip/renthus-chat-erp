@@ -12,6 +12,7 @@
     "test:e2e": "playwright test",
     "test:e2e:billing": "playwright test e2e/billing.sandbox.spec.ts",
     "test:e2e:plano": "playwright test e2e/plano.management.spec.ts",
+    "test:e2e:billing:journey": "playwright test e2e/billing.full-journey.spec.ts",
     "test:e2e:ui": "playwright test --ui",
     "test:bot": "node -e \"require('fs').rmSync('.tests-dist',{recursive:true,force:true});\" && tsc --project tsconfig.test.json && node --require ./tests/node-resolve-server-only.cjs --test .tests-dist/tests/integration/webhook-integration.test.js",
     "test:billing-sandbox": "node scripts/billing-sandbox-smoke.mjs",
