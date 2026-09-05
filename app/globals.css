@@ -168,7 +168,7 @@ body {
 @keyframes dialog-enter {
   from {
     opacity: 0;
-    transform: translate(-50%, -48%) scale(0.95);
+    transform: translate(-50%, -46%) scale(0.96);
   }
   to {
     opacity: 1;
@@ -182,7 +182,7 @@ body {
   }
   to {
     opacity: 0;
-    transform: translate(-50%, -48%) scale(0.95);
+    transform: translate(-50%, -47%) scale(0.97);
   }
 }
 @keyframes dialog-fade-in {
@@ -195,14 +195,28 @@ body {
 }
 
 .animate-in {
-  animation-duration: 200ms;
-  animation-timing-function: ease-out;
+  animation-duration: 320ms;
+  animation-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
   animation-fill-mode: both;
 }
 .animate-out {
-  animation-duration: 150ms;
+  animation-duration: 220ms;
   animation-timing-function: ease-in;
   animation-fill-mode: both;
+}
+
+/* Dialog: curva um pouco mais “premium” que Select/popover */
+[data-slot="dialog-content"].animate-in {
+  animation-duration: 340ms;
+}
+[data-slot="dialog-content"].animate-out {
+  animation-duration: 240ms;
+}
+[data-slot="dialog-overlay"].animate-in {
+  animation-duration: 280ms;
+}
+[data-slot="dialog-overlay"].animate-out {
+  animation-duration: 220ms;
 }
 
 @media (prefers-reduced-motion: reduce) {

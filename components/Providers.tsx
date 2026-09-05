@@ -5,6 +5,7 @@ import { useState } from "react";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { GlobalAdminAlerts } from "./GlobalAdminAlerts";
+import { MixpanelBootstrap } from "./MixpanelBootstrap";
 import { WorkspaceProvider } from "@/lib/workspace/useWorkspace";
 import { usePrefetchPlanFeatures } from "@/lib/billing/usePlanFeatures";
 import { createAppQueryClient } from "@/lib/offline/createAppQueryClient";
@@ -22,6 +23,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
       <WorkspaceProvider>
         <TooltipProvider delayDuration={300}>
           <PlanFeaturesBootstrap />
+          <MixpanelBootstrap />
           <GlobalAdminAlerts />
           {children}
           <Toaster />
