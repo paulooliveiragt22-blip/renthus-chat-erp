@@ -33,9 +33,6 @@ function mockAdmin(opts: {
                     if (table === "pagarme_subscriptions") {
                         return { data: opts.sub, error: null };
                     }
-                    if (table === "invoices" && filters.kind === "setup") {
-                        return { data: null, error: null };
-                    }
                     if (table === "invoices") {
                         return { data: opts.pending, error: null };
                     }
@@ -54,10 +51,6 @@ function mockAdmin(opts: {
                     };
                 },
                 then(resolve: (v: unknown) => void) {
-                    if (table === "invoices" && filters.kind === "setup") {
-                        resolve({ data: [], error: null });
-                        return;
-                    }
                     resolve({ data: null, error: null });
                 },
             };

@@ -98,6 +98,7 @@ Estado: `[ ]` pendente · `[~]` parcial · `[x]` feito + data · `[!]` bloqueado
 | H5.7 **R14** | Remover `bot`/`complete` de `SUBSCRIPTION_PLAN_KEYS`; aliases só em `PlanInputKey` + normalize | `contracts/status.ts`, `planCatalog.ts` | Raw legado no DB | — | Typecheck | [x] 2026-09-04 |
 | H5.8 **R18** | Status crítico só via RPC CAS (`overdue`/`pending_payment`/`blocked`/`abandoned`) | `rpc_transition_billing_status`, `rpc_mark_abandoned_due`, collect/charge/mark-abandoned | Cron sobrescreve `active` pós-pago | D11 | EXECUTE só `service_role`; collect/charge sem `.update({ status })` | [x] 2026-09-04 |
 | H5.9 | IA incluso + preços do status só no banco (R3-6) | `fn_billing_ai_included_cents`, `plans.ai_included_cents` gerada, `rpc_ai_included_budget`, status | Wallet/status leem `planCatalog` se admin mudar lista | D9 | CHECK `price_cents > 0`; trigger sync wallet | [x] 2026-09-04 |
+| H5.10 | BN-05: `kind=setup` fora do CHECK e do app | migration remap + checkout/fulfill/sync | Dual-path taxa de ativação | D10 | 0 rows kind=setup; testes checkout/sync | [x] 2026-09-04 |
 
 ---
 

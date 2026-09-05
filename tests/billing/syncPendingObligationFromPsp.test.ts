@@ -127,17 +127,17 @@ describe("syncPendingObligationFromPsp", () => {
         assert.equal((fulfillCalls[0] as { id: string }).id, "or_paid");
     });
 
-    it("propaga kind setup da invoice pending", async () => {
+    it("pending subscription pago no PSP → fulfill invoice", async () => {
         fulfillCalls = [];
-        mockGetOrder = async () => ({ id: "or_setup", status: "paid" });
+        mockGetOrder = async () => ({ id: "or_sub", status: "paid" });
         const db = makeMockAdmin({
             invoices: [
                 {
-                    id: "inv-setup",
+                    id: "inv-sub",
                     company_id: "co-1",
                     status: "pending",
-                    kind: "setup",
-                    pagarme_order_id: "or_setup",
+                    kind: "subscription",
+                    pagarme_order_id: "or_sub",
                     created_at: "2026-09-02T00:00:00.000Z",
                 },
             ],
@@ -147,8 +147,8 @@ describe("syncPendingObligationFromPsp", () => {
             "co-1"
         );
         assert.equal(r.action, "fulfilled");
-        assert.equal(r.kind, "setup");
-        assert.equal(r.order_id, "or_setup");
+        assert.equal(r.kind, "invoice");
+        assert.equal(r.order_id, "or_sub");
     });
 
     it("H4.5: segundo pending pago é fulfillado (não só o mais recente)", async () => {
@@ -157,7 +157,7 @@ describe("syncPendingObligationFromPsp", () => {
         mockGetOrder = async (id: string) => {
             seen.push(id);
             if (id === "or_old_paid") {
-                return { id: "or_old_paid", status: "paid", metadata: { type: "setup" } };
+                return { id: "or_old_paid", status: "paid", metadata: { type: "invoice" } };
             }
             return { id, status: "pending", charges: [{ status: "waiting" }] };
         };
@@ -175,7 +175,7 @@ describe("syncPendingObligationFromPsp", () => {
                     id: "inv-old",
                     company_id: "co-1",
                     status: "pending",
-                    kind: "setup",
+                    kind: "subscription",
                     pagarme_order_id: "or_old_paid",
                     created_at: "2026-09-01T00:00:00.000Z",
                 },
@@ -186,7 +186,7 @@ describe("syncPendingObligationFromPsp", () => {
             "co-1"
         );
         assert.equal(r.action, "fulfilled");
-        assert.equal(r.kind, "setup");
+        assert.equal(r.kind, "invoice");
         assert.equal(r.order_id, "or_old_paid");
         assert.equal(r.checked, 2);
         assert.ok(seen.includes("or_new_open"));

@@ -205,32 +205,3 @@ export async function activateAfterSetupPayment(
     await admin.from("companies").update({ is_active: true }).eq("id", companyId);
     console.log(`[pagarmeSetupPaid] Subscription ativada para empresa ${companyId} | plano=${plan} | next=${nextBillingAt.toISOString()}`);
 }
-
-/**
- * Se existir invoice de setup para este order.id, marca pago e ativa subscription.
- * @returns true se tratou como setup pago
- */
-export async function processSetupOrderPaid(
-    admin: ReturnType<typeof createAdminClient>,
-    order: { id?: string; customer?: { id?: string }; metadata?: Record<string, string> }
-): Promise<boolean> {
-    const orderId = order?.id;
-    if (!orderId) return false;
-
-    const { data: setupInvoice } = await admin
-        .from("invoices")
-        .select("id")
-        .eq("pagarme_order_id", orderId)
-        .eq("kind", "setup")
-        .limit(1)
-        .maybeSingle();
-    if (!setupInvoice) return false;
-
-    const { fulfillPayment } = await import("@/lib/billing/fulfillPayment");
-    const r = await fulfillPayment(admin, {
-        id: orderId,
-        metadata: { ...(order.metadata ?? {}), type: "setup" },
-        customer: order.customer,
-    });
-    return r.kind === "setup";
-}

@@ -14,7 +14,7 @@ type Admin = ReturnType<typeof createAdminClient>;
 
 export type SyncPendingFromPspResult = {
     action: "fulfilled" | "pending" | "noop" | "error";
-    kind?: "setup" | "invoice";
+    kind?: "invoice";
     order_id?: string;
     error?: string;
     alreadyDone?: boolean;
@@ -33,7 +33,7 @@ function isPspPaid(order: PagarmeOrder): boolean {
 export async function fulfillIfPagarmeOrderPaid(
     admin: Admin,
     orderId: string,
-    metaType: "invoice" | "setup"
+    metaType: "invoice"
 ): Promise<{ fulfilled: boolean; alreadyDone?: boolean; error?: string }> {
     try {
         const order = await getPagarmeOrder(orderId);
@@ -86,7 +86,7 @@ export async function syncPendingObligationFromPsp(
 
     for (const inv of withOrder) {
         const orderId = String(inv.pagarme_order_id);
-        const kind = inv.kind === "setup" ? ("setup" as const) : ("invoice" as const);
+        const kind = "invoice" as const;
         const r = await fulfillIfPagarmeOrderPaid(admin, orderId, kind);
         if (r.error) {
             lastError = {

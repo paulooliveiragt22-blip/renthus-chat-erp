@@ -15,47 +15,9 @@ type Admin = ReturnType<typeof createAdminClient>;
 
 export type RebillResult = {
     ok: true;
-    action: "fulfilled" | "rebilled" | "noop" | "skipped_setup";
+    action: "fulfilled" | "rebilled" | "noop";
     amount_brl?: number;
 };
-
-/** Cancela leftover kind=setup (BN-05 abolido). */
-async function voidLegacySetupPending(admin: Admin, companyId: string): Promise<void> {
-    const { data: rows } = await admin
-        .from("invoices")
-        .select("id, pagarme_order_id")
-        .eq("company_id", companyId)
-        .eq("status", "pending")
-        .eq("kind", "setup");
-
-    for (const row of rows ?? []) {
-        if (row.pagarme_order_id) {
-            const paid = await fulfillIfPagarmeOrderPaid(
-                admin,
-                String(row.pagarme_order_id),
-                "setup"
-            );
-            if (paid.fulfilled) {
-                billingLog("rebill", "setup_fulfilled_instead_of_void", {
-                    company_id: companyId,
-                    order_id: row.pagarme_order_id,
-                });
-                continue;
-            }
-            await cancelPagarmeChargeBestEffort(String(row.pagarme_order_id));
-        }
-        await admin
-            .from("invoices")
-            .update({
-                status: "cancelled",
-                pagarme_order_id: null,
-                pagarme_payment_url: null,
-                pix_qr_code: null,
-            })
-            .eq("id", row.id)
-            .eq("status", "pending");
-    }
-}
 
 /**
  * Rebill invoice pending da company após mudança de plano.
@@ -77,7 +39,6 @@ export async function rebillPendingObligationAfterPlanChange(
     if (!sub?.id) return { ok: true, action: "noop" };
 
     const st = String(sub.status ?? "").toLowerCase();
-    await voidLegacySetupPending(admin, companyId);
 
     const { data: inv } = await admin
         .from("invoices")

@@ -85,7 +85,7 @@ describe("reconcileOrCancelLiveOrder", () => {
         const r = await reconcileOrCancelLiveOrder(
             {} as SupabaseClient,
             "or_open",
-            "setup"
+            "invoice"
         );
         assert.equal(r.action, "cancelled");
         assert.deepEqual(cancelCalls, ["or_open"]);
