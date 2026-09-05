@@ -60,14 +60,20 @@ export async function POST(req: Request) {
             row.last_paid_at == null || String(row.last_paid_at ?? "").trim() === "";
 
         async function applyPrepayPlanChange() {
+            const statusPatch: Record<string, unknown> = {
+                plan: targetPlan,
+                pending_plan_key: null,
+                pending_plan_change_at: null,
+                pending_keep_user_ids: null,
+            };
+            // Corrige conta que ficou active/trial antes do 1º pagamento (syncLogicalSubscription legado).
+            if (neverPaid && (st === "active" || st === "trial")) {
+                statusPatch.status = "pending_payment";
+            }
+
             const { error: upErr } = await admin
                 .from("pagarme_subscriptions")
-                .update({
-                    plan: targetPlan,
-                    pending_plan_key: null,
-                    pending_plan_change_at: null,
-                    pending_keep_user_ids: null,
-                })
+                .update(statusPatch)
                 .eq("id", subId);
 
             if (upErr) return { error: upErr.message, status: 500 as const };
@@ -172,7 +178,8 @@ export async function POST(req: Request) {
                 const status =
                     msg === "subscription_not_eligible" ||
                     msg === "not_an_upgrade" ||
-                    msg === "plan_invalid"
+                    msg === "plan_invalid" ||
+                    msg === "never_paid_use_change_plan"
                         ? 400
                         : 500;
                 return NextResponse.json({ error: msg }, { status });

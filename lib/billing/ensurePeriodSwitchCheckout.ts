@@ -63,12 +63,16 @@ export async function ensurePeriodSwitchCheckout(
 ): Promise<EnsurePeriodSwitchCheckoutResult> {
     const { data: sub, error: subErr } = await admin
         .from("pagarme_subscriptions")
-        .select("id, plan, status, billing_period, pagarme_customer_id, next_billing_at")
+        .select("id, plan, status, billing_period, pagarme_customer_id, next_billing_at, last_paid_at")
         .eq("company_id", params.companyId)
         .maybeSingle();
     if (subErr) throw new Error(subErr.message);
     if (!sub) throw new Error("subscription_not_found");
     if (String(sub.status ?? "") !== "active") throw new Error("subscription_not_eligible");
+    const lastPaid = sub.last_paid_at;
+    if (lastPaid == null || String(lastPaid).trim() === "") {
+        throw new Error("never_paid_use_set_period");
+    }
     if (String(sub.billing_period ?? "month").toLowerCase() === "year") {
         throw new Error("already_annual");
     }

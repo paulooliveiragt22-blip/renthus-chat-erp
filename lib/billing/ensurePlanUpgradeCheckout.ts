@@ -64,7 +64,7 @@ export async function ensurePlanUpgradeCheckout(
     const { data: sub, error: subErr } = await admin
         .from("pagarme_subscriptions")
         .select(
-            "id, plan, status, pagarme_customer_id, next_billing_at, seat_quantity"
+            "id, plan, status, pagarme_customer_id, next_billing_at, seat_quantity, last_paid_at"
         )
         .eq("company_id", params.companyId)
         .maybeSingle();
@@ -73,6 +73,10 @@ export async function ensurePlanUpgradeCheckout(
 
     const st = String(sub.status ?? "");
     if (st !== "active") throw new Error("subscription_not_eligible");
+    const lastPaid = (sub as { last_paid_at?: string | null }).last_paid_at;
+    if (lastPaid == null || String(lastPaid).trim() === "") {
+        throw new Error("never_paid_use_change_plan");
+    }
 
     const fromPlan = normalizePlanKey(String(sub.plan ?? ""));
     if (!fromPlan) throw new Error("plan_invalid");

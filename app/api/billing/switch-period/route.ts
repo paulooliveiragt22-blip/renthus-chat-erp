@@ -75,7 +75,8 @@ export async function POST() {
             const status =
                 msg === "subscription_not_eligible" ||
                 msg === "already_annual" ||
-                msg === "plan_invalid"
+                msg === "plan_invalid" ||
+                msg === "never_paid_use_set_period"
                     ? 400
                     : msg === "subscription_not_found" || msg === "company_not_found"
                       ? 404

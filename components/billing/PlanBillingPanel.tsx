@@ -1066,6 +1066,11 @@ export default function PlanBillingPanel({ variant = "full" }: PlanBillingPanelP
                         const yp = billingData.yearly_prices_brl ?? {};
                         const ys = billingData.yearly_savings_percent ?? {};
                         const neverPaid = !billingData.pagarme_subscription?.last_paid_at;
+                        const initialCheckout =
+                            variant === "pay" ||
+                            neverPaid ||
+                            st === "pending_payment" ||
+                            st === "pending_setup";
                         return (
                             <div
                                 className={
@@ -1077,6 +1082,7 @@ export default function PlanBillingPanel({ variant = "full" }: PlanBillingPanelP
                             <PlanChangeCatalog
                                 checkoutMode={variant === "pay" || neverPaid}
                                 neverPaid={neverPaid}
+                                initialCheckout={initialCheckout}
                                 currentPlan={cur}
                                 status={st}
                                 billingPeriod={
@@ -1117,10 +1123,7 @@ export default function PlanBillingPanel({ variant = "full" }: PlanBillingPanelP
                                 }}
                                 onError={(msg) => setBillingErr(msg)}
                                 onPrepayPeriodChange={
-                                    neverPaid ||
-                                    st === "pending_payment" ||
-                                    st === "pending_setup" ||
-                                    st === "trial"
+                                    initialCheckout
                                         ? async (period) => {
                                               setPlanSaving(true);
                                               setBillingErr(null);

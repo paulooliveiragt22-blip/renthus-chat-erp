@@ -43,6 +43,8 @@ type Props = {
     checkoutMode?: boolean;
     /** Sem last_paid_at — nunca tratar como upgrade/downgrade de assinante pago. */
     neverPaid?: boolean;
+    /** Paywall / 1ª cobrança — desliga migrar anual, upgrade PIX etc. */
+    initialCheckout?: boolean;
 };
 
 function brl(n: number) {
@@ -79,6 +81,7 @@ export function PlanChangeCatalog({
     onPrepayPeriodChange,
     checkoutMode = false,
     neverPaid = false,
+    initialCheckout = false,
 }: Props) {
     const isAnnualSub = String(billingPeriod ?? "month").toLowerCase() === "year";
     const [viewPeriod, setViewPeriod] = useState<ViewPeriod>(isAnnualSub ? "year" : "month");
@@ -152,6 +155,21 @@ export function PlanChangeCatalog({
         setViewPeriod(isAnnualSub ? "year" : "month");
     }, [isAnnualSub]);
 
+    const isPrepayFlow =
+        initialCheckout ||
+        neverPaid ||
+        checkoutMode ||
+        status === "pending_payment" ||
+        status === "pending_setup" ||
+        (status === "trial" && Boolean(onPrepayPeriodChange));
+    const isPrepay = isPrepayFlow;
+    const canSwitchToAnnual =
+        !initialCheckout &&
+        !neverPaid &&
+        !checkoutMode &&
+        status === "active" &&
+        !isAnnualSub;
+
     async function cancelPending() {
         setCancelling(true);
         try {
@@ -208,6 +226,10 @@ export function PlanChangeCatalog({
     }
 
     async function startUpgradeCheckout(key: CommercialPlanKey) {
+        if (initialCheckout || checkoutMode || neverPaid || isPrepay) {
+            void onUpgradeOrTrial(key);
+            return;
+        }
         setSaving(true);
         setUpgradePix(null);
         try {
@@ -249,6 +271,10 @@ export function PlanChangeCatalog({
     }
 
     async function startPeriodSwitch() {
+        if (initialCheckout || checkoutMode || neverPaid || isPrepay) {
+            onError("Escolha o ciclo anual no toggle acima. A migração mensal→anual só vale após a 1ª mensalidade paga.");
+            return;
+        }
         setSwitching(true);
         setSwitchPix(null);
         try {
@@ -291,7 +317,7 @@ export function PlanChangeCatalog({
 
     function onSelectPlan(key: CommercialPlanKey) {
         if (key === currentPlan) return;
-        if (isPrepay || checkoutMode || neverPaid) {
+        if (initialCheckout || isPrepay || checkoutMode || neverPaid) {
             void onUpgradeOrTrial(key);
             return;
         }
@@ -336,14 +362,6 @@ export function PlanChangeCatalog({
                 : "Plano anual à vista com desconto. Ao migrar, abatemos o mês já pago."
             : "Upgrade vale na hora. Downgrade agenda para o fim do ciclo atual.";
 
-    const canSwitchToAnnual = status === "active" && !isAnnualSub;
-    const isPrepayFlow =
-        neverPaid ||
-        checkoutMode ||
-        status === "pending_payment" ||
-        status === "pending_setup" ||
-        (status === "trial" && Boolean(onPrepayPeriodChange));
-    const isPrepay = isPrepayFlow;
     const maxYearlyPct = Math.max(
         0,
         ...PLAN_ORDER.map((k) => {
@@ -453,7 +471,13 @@ export function PlanChangeCatalog({
                     const lower = planRank(key) < planRank(currentPlan);
                     // Ação anual específica: plano atual, sub mensal ativa, view anual.
                     const isMigrateCta =
-                        !checkoutMode && active && showYear && canSwitchToAnnual;
+                        !initialCheckout &&
+                        !checkoutMode &&
+                        !neverPaid &&
+                        !isPrepay &&
+                        active &&
+                        showYear &&
+                        canSwitchToAnnual;
                     let cta = "Selecionar";
                     if (isMigrateCta) cta = switching ? "Gerando PIX…" : "Migrar para anual";
                     else if (active && (checkoutMode || isPrepay || neverPaid))
@@ -467,11 +491,12 @@ export function PlanChangeCatalog({
                     else if (higher) cta = "Fazer upgrade";
                     else if (lower) cta = "Agendar downgrade";
                     else cta = "Indisponível";
-                    const btnDisabled = checkoutMode || isPrepay || neverPaid
-                        ? planSaving || active
-                        : isMigrateCta
-                          ? planSaving || switching
-                          : planSaving || active || (lower && status !== "active");
+                    const btnDisabled =
+                        initialCheckout || checkoutMode || isPrepay || neverPaid
+                            ? planSaving || active
+                            : isMigrateCta
+                              ? planSaving || switching
+                              : planSaving || active || (lower && status !== "active");
 
                     return (
                         <div
