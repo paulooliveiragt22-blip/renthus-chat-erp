@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useCallback, useEffect, useId, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { CalendarClock, CircleDollarSign, CreditCard, Loader2 } from "lucide-react";
 import { useWorkspace } from "@/lib/workspace/useWorkspace";
@@ -16,14 +16,11 @@ import type {
     RenthusCardForm,
 } from "@/lib/billing/planBillingTypes";
 import { PlanChangeCatalog } from "@/components/billing/PlanChangeCatalog";
+import { PlanCheckoutSection } from "@/components/billing/PlanCheckoutSection";
+import { AddPaymentMethodModal } from "@/components/billing/AddPaymentMethodModal";
+import { Button } from "@/components/ui/button";
 import { PLAN_CATALOG, normalizePlanKey } from "@/lib/billing/planCatalog";
-import { resolveCheckoutDisplayAmountBrl } from "@/lib/billing/resolveCheckoutDisplayAmount";
 import { formatInvoiceStatusLabel } from "@/lib/billing/contracts/status";
-import {
-    formatCardExpiryInput,
-    formatCardNumberInput,
-    formatCvvInput,
-} from "@/lib/billing/cardInputFormatters";
 
 const PAGARME_PUBLIC_KEY = process.env.NEXT_PUBLIC_PAGARME_PUBLIC_KEY ?? "";
 
@@ -37,46 +34,6 @@ type CompanyBillingFields = {
     cidade: string | null;
     uf: string | null;
 };
-
-function Field({
-    label,
-    value,
-    onChange,
-    placeholder = "",
-    type = "text",
-    hint,
-    maxLength,
-    inputMode,
-}: {
-    label: string;
-    value: string;
-    onChange: (v: string) => void;
-    placeholder?: string;
-    type?: string;
-    hint?: string;
-    maxLength?: number;
-    inputMode?: React.HTMLAttributes<HTMLInputElement>["inputMode"];
-}) {
-    const id = useId();
-    return (
-        <div className="flex flex-col gap-1">
-            <label htmlFor={id} className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">
-                {label}
-            </label>
-            <input
-                id={id}
-                type={type}
-                value={value}
-                onChange={(e) => onChange(e.target.value)}
-                placeholder={placeholder}
-                maxLength={maxLength}
-                inputMode={inputMode}
-                className="rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-violet-400 focus:outline-none focus:ring-1 focus:ring-violet-400 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100"
-            />
-            {hint ? <p className="text-[11px] text-zinc-400">{hint}</p> : null}
-        </div>
-    );
-}
 
 function SectionTitle({
     icon: Icon,
@@ -140,6 +97,8 @@ export default function PlanBillingPanel({ variant = "full" }: PlanBillingPanelP
     });
     const [cepLoading, setCepLoading] = useState(false);
     const [savedCardBusyId, setSavedCardBusyId] = useState<string | null>(null);
+    const [checkoutOpen, setCheckoutOpen] = useState(false);
+    const [addCardOpen, setAddCardOpen] = useState(false);
 
     const loadCompany = useCallback(async () => {
         if (!companyId) {
@@ -304,6 +263,7 @@ export default function PlanBillingPanel({ variant = "full" }: PlanBillingPanelP
             if ((json as { payment_status?: string }).payment_status === "paid") {
                 setPixLiveCode(null);
                 setPixLiveUrl(null);
+                setCheckoutOpen(false);
                 setBillingSuccessMsg(
                     (json as { message?: string }).message ??
                         "Pagamento confirmado. Plano liberado."
@@ -478,6 +438,7 @@ export default function PlanBillingPanel({ variant = "full" }: PlanBillingPanelP
             invalidatePlanFeatures();
             if (status === "paid") {
                 setBillingSuccessMsg(msg ?? "Pagamento aprovado. Plano liberado.");
+                setCheckoutOpen(false);
                 if (variant === "pay") {
                     window.setTimeout(() => {
                         window.location.assign("/ativar");
@@ -655,451 +616,34 @@ export default function PlanBillingPanel({ variant = "full" }: PlanBillingPanelP
                                 : undefined
                         }
                     >
-                    {(() => {
-                        const sub = billingData.pagarme_subscription;
-                        const st = sub?.status ?? "";
-                        const rawPlan = String(sub?.plan ?? billingData.plan_key ?? "");
-                        const pk =
-                            rawPlan === "market"
-                                ? ("market" as const)
-                                : rawPlan === "pro" || rawPlan === "complete"
-                                  ? ("pro" as const)
-                                  : ("essencial" as const);
-
-                        const isFirstPayment =
-                            st === "trial" || st === "pending_setup" || st === "pending_payment";
-                        const mp = billingData.monthly_prices_brl ?? {};
-
-                        const pendInv = billingData.pending_invoice;
-                        const pendRecord = pendInv;
-                        const isAnnualCycle =
-                            String(sub?.billing_period ?? "month").toLowerCase() === "year" ||
-                            pendInv?.kind === "year";
-
-                        const priceFallback = pk === "market" ? 397 : pk === "pro" ? 279 : 197;
-
-                        const refAmount = resolveCheckoutDisplayAmountBrl({
-                            planKey: pk,
-                            billingPeriod: sub?.billing_period,
-                            pendingInvoiceKind: pendInv?.kind,
-                            pendingInvoiceAmount: pendRecord ? Number(pendRecord.amount) : null,
-                            checkoutAmountBrl: billingData.checkout_amount_brl,
-                            monthlyPricesBrl: mp as Partial<Record<typeof pk, number>>,
-                            yearlyPricesBrl: (billingData.yearly_prices_brl ?? {}) as Partial<
-                                Record<typeof pk, number>
-                            >,
-                            fallbackMonthlyBrl:
-                                (mp as Record<string, number | undefined>)[pk] ?? priceFallback,
-                        });
-
-                        const fromPendPix =
-                            typeof (pendRecord as { pix_qr_code?: string | null } | null | undefined)
-                                ?.pix_qr_code === "string"
-                                ? String(
-                                      (pendRecord as { pix_qr_code: string }).pix_qr_code
-                                  ).trim()
-                                : "";
-                        const fromInvPix = (billingData.pending_invoice?.pix_qr_code ?? "").trim();
-                        const pixUrl =
-                            pixLiveUrl ??
-                            (pendRecord?.pagarme_payment_url?.startsWith("http")
-                                ? pendRecord.pagarme_payment_url
-                                : null);
-                        const pixCode = (pixLiveCode ?? "").trim() || fromPendPix || fromInvPix;
-
-                        const pendingKind = String(pendInv?.kind ?? "");
-                        const hasCheckoutIntent = Boolean(
-                            sub?.pending_upgrade_plan_key || sub?.pending_checkout_intent
-                        );
-                        const hasOpenObligation =
-                            Boolean(pendRecord) &&
-                            Number(pendRecord?.amount ?? 0) > 0;
-                        const nextBillingMs = sub?.next_billing_at
-                            ? Date.parse(sub.next_billing_at)
-                            : Number.NaN;
-                        const prepaidActive =
-                            st === "active" &&
-                            Number.isFinite(nextBillingMs) &&
-                            nextBillingMs > Date.now() &&
-                            !hasOpenObligation;
-
-                        const showPay =
-                            st === "trial" ||
-                            st === "pending_setup" ||
-                            st === "pending_payment" ||
-                            st === "overdue" ||
-                            st === "blocked" ||
-                            (st === "active" &&
-                                (!prepaidActive || hasOpenObligation || hasCheckoutIntent));
-
-                        if (!showPay) return null;
-
-                        let pixButtonLabel = "Gerar código PIX";
-                        if (pixLoading) pixButtonLabel = "Gerando…";
-                        else if (pixUrl || pixCode) pixButtonLabel = "Gerar novo / atualizar PIX";
-
-                        let paymentTitle =
-                            variant === "pay"
-                                ? "Concluir pagamento"
-                                : isFirstPayment
-                                  ? "Ativar plano RenthusAgent"
-                                  : isAnnualCycle
-                                    ? "Pagar plano anual RenthusAgent"
-                                    : "Pagar mensalidade RenthusAgent";
-
-                        let paymentDesc = isAnnualCycle
-                            ? "Plano anual à vista. Próxima renovação em 12 meses após o pagamento."
-                            : variant === "pay"
-                              ? "Escolha PIX ou cartão de crédito para liberar seu acesso."
-                              : isFirstPayment
-                                ? "Primeira mensalidade — após o pagamento as cobranças seguem a cada 30 dias."
-                                : "Mensalidade recorrente. Próximo vencimento em 30 dias após o pagamento.";
-
-                        if (pendingKind === "plan_upgrade" || sub?.pending_upgrade_plan_key) {
-                            const dest =
-                                pendInv?.target_plan_key ||
-                                sub?.pending_upgrade_plan_key ||
-                                "";
-                            const destLabel =
-                                dest === "market"
-                                    ? "Market"
-                                    : dest === "pro"
-                                      ? "Pro"
-                                      : dest === "essencial"
-                                        ? "Essencial"
-                                        : "plano superior";
-                            if (
-                                pendingKind === "period_switch" ||
-                                sub?.pending_checkout_intent === "upgrade_to_annual"
-                            ) {
-                                paymentTitle = `Upgrade para ${destLabel} anual`;
-                                paymentDesc =
-                                    "Valor = anual do plano escolhido menos o crédito do mês já pago. Após o pagamento a renovação passa a ser anual.";
-                            } else {
-                                paymentTitle = `Confirmar upgrade para ${destLabel}`;
-                                paymentDesc =
-                                    "Pague abaixo (PIX ou cartão) para aplicar o upgrade. A data de renovação não muda.";
-                            }
-                        } else if (
-                            pendingKind === "period_switch" ||
-                            sub?.pending_checkout_intent === "period_switch"
-                        ) {
-                            paymentTitle = "Migrar para plano anual";
-                            paymentDesc =
-                                "Pague abaixo para migrar ao ciclo anual. Após o pagamento a renovação passa a ser anual.";
-                        } else if (sub?.pending_checkout_intent === "upgrade_to_annual") {
-                            const dest = sub?.pending_upgrade_plan_key || "";
-                            const destLabel =
-                                dest === "market"
-                                    ? "Market"
-                                    : dest === "pro"
-                                      ? "Pro"
-                                      : "plano superior";
-                            paymentTitle = `Upgrade para ${destLabel} anual`;
-                            paymentDesc =
-                                "Valor = anual do plano escolhido menos o crédito do mês já pago.";
-                        }
-
-                        return (
-                            <div className="rounded-2xl border-2 border-violet-300/70 bg-gradient-to-br from-violet-50 via-white to-zinc-50 p-5 shadow-sm dark:border-violet-800 dark:from-violet-950/30 dark:via-zinc-900 dark:to-zinc-950">
-                                {st === "blocked" ? (
-                                    <div className="mb-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-800 dark:border-red-800 dark:bg-red-950/40 dark:text-red-200">
-                                        Acesso suspenso. Pague abaixo: cartão aprovado libera na hora; PIX libera
-                                        quando o banco confirmar.
-                                    </div>
-                                ) : null}
-                                {st === "pending_payment" || st === "pending_setup" ? (
-                                    <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-900 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-200">
-                                        Pagamento inicial pendente. Escolha PIX ou cartão para começar a usar o
-                                        RenthusAgent.
-                                    </div>
-                                ) : null}
-                                {st === "overdue" ? (
-                                    <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-900 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-200">
-                                        Mensalidade em aberto. Escolha PIX ou cartão.
-                                    </div>
-                                ) : null}
-                                <h3 className="text-base font-bold text-zinc-900 dark:text-zinc-50">
-                                    {paymentTitle}
-                                </h3>
-                                <p className="mt-0.5 text-xs text-zinc-500">{paymentDesc}</p>
-                                <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
-                                    Valor:{" "}
-                                    <span className="font-semibold text-zinc-900 dark:text-zinc-100">
-                                        {refAmount.toLocaleString("pt-BR", {
-                                            style: "currency",
-                                            currency: "BRL",
-                                        })}
-                                    </span>
-                                    {pendRecord ? " · cobrança em aberto" : " · gerado ao confirmar"}
-                                </p>
-                                {pendInv?.due_at && !isFirstPayment ? (
-                                    <p className="mt-0.5 text-xs text-zinc-500">
-                                        Vencimento:{" "}
-                                        {new Date(pendInv.due_at).toLocaleString("pt-BR", {
-                                            dateStyle: "medium",
-                                            timeStyle: "short",
-                                        })}
-                                    </p>
-                                ) : null}
-
-                                {billingSuccessMsg ? (
-                                    <div
-                                        data-testid="billing-checkout-success"
-                                        className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-200"
-                                    >
-                                        {billingSuccessMsg}
-                                    </div>
-                                ) : null}
-
-                                <div className="mt-4 flex flex-wrap gap-2">
-                                    <button
-                                        type="button"
-                                        onClick={() => setRenthusPayMode("pix")}
-                                        className={`rounded-lg px-4 py-2 text-sm font-semibold transition ${
-                                            renthusPayMode === "pix"
-                                                ? "bg-violet-600 text-white"
-                                                : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-300"
-                                        }`}
-                                    >
-                                        PIX
-                                    </button>
-                                    <button
-                                        type="button"
-                                        onClick={() => setRenthusPayMode("card")}
-                                        className={`rounded-lg px-4 py-2 text-sm font-semibold transition ${
-                                            renthusPayMode === "card"
-                                                ? "bg-violet-600 text-white"
-                                                : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-300"
-                                        }`}
-                                    >
-                                        Cartão de crédito
-                                    </button>
-                                </div>
-
-                                {renthusPayMode === "pix" ? (
-                                    <div className="mt-4 space-y-4">
-                                        {pixUrl || pixCode ? (
-                                            <div className="flex flex-wrap gap-3">
-                                                {pixUrl ? (
-                                                    // eslint-disable-next-line @next/next/no-img-element
-                                                    <img
-                                                        src={pixUrl}
-                                                        alt="QR PIX"
-                                                        className="h-40 w-40 rounded-xl border border-zinc-200 bg-white object-contain p-1 dark:border-zinc-700"
-                                                    />
-                                                ) : null}
-                                                {pixCode ? (
-                                                    <div className="min-w-[200px] flex-1">
-                                                        <textarea
-                                                            readOnly
-                                                            className="w-full rounded-lg border border-zinc-200 bg-white p-2 font-mono text-[10px] dark:border-zinc-600 dark:bg-zinc-900"
-                                                            rows={5}
-                                                            value={pixCode}
-                                                            onFocus={(e) => e.target.select()}
-                                                        />
-                                                        <button
-                                                            type="button"
-                                                            onClick={async () => {
-                                                                try {
-                                                                    await navigator.clipboard.writeText(pixCode);
-                                                                    setPixCopied(true);
-                                                                    setTimeout(() => setPixCopied(false), 2000);
-                                                                } catch {
-                                                                    setBillingErr("Não foi possível copiar.");
-                                                                }
-                                                            }}
-                                                            className="mt-2 rounded-lg bg-zinc-800 px-3 py-1.5 text-xs font-semibold text-white dark:bg-zinc-200 dark:text-zinc-900"
-                                                        >
-                                                            {pixCopied ? "Copiado!" : "Copiar PIX"}
-                                                        </button>
-                                                    </div>
-                                                ) : null}
-                                            </div>
-                                        ) : null}
-                                        <button
-                                            type="button"
-                                            onClick={() => {
-                                                void openRenthusPix();
-                                            }}
-                                            disabled={pixLoading}
-                                            className="rounded-xl bg-violet-600 px-5 py-2.5 text-sm font-bold text-white hover:bg-violet-700 disabled:opacity-60"
-                                        >
-                                            {pixButtonLabel}
-                                        </button>
-                                        <p className="text-xs text-zinc-500">
-                                            O plano é liberado automaticamente quando o pagamento for confirmado
-                                            pelo Pagar.me.
-                                        </p>
-                                    </div>
-                                ) : null}
-
-                                {renthusPayMode === "card" ? (
-                                    <div className="mt-4 space-y-3">
-                                        {!PAGARME_PUBLIC_KEY ? (
-                                            <p className="text-xs text-amber-700 dark:text-amber-300">
-                                                Configure NEXT_PUBLIC_PAGARME_PUBLIC_KEY para pagar com cartão.
-                                            </p>
-                                        ) : null}
-                                        <div className="grid gap-3 sm:grid-cols-2">
-                                            <Field
-                                                label="Nome no cartão"
-                                                value={renthusCard.holder}
-                                                onChange={(v) => setRenthusCard((c) => ({ ...c, holder: v }))}
-                                                placeholder={nomeFantasia || "Como no cartão"}
-                                            />
-                                            <Field
-                                                label="Número"
-                                                value={renthusCard.number}
-                                                onChange={(v) =>
-                                                    setRenthusCard((c) => ({
-                                                        ...c,
-                                                        number: formatCardNumberInput(v),
-                                                    }))
-                                                }
-                                                placeholder="0000 0000 0000 0000"
-                                                inputMode="numeric"
-                                            />
-                                            <Field
-                                                label="Validade (MM/AA)"
-                                                value={renthusCard.exp}
-                                                onChange={(v) =>
-                                                    setRenthusCard((c) => ({
-                                                        ...c,
-                                                        exp: formatCardExpiryInput(v),
-                                                    }))
-                                                }
-                                                placeholder="08/28"
-                                                maxLength={5}
-                                                inputMode="numeric"
-                                            />
-                                            <Field
-                                                label="CVV"
-                                                value={renthusCard.cvv}
-                                                onChange={(v) =>
-                                                    setRenthusCard((c) => ({
-                                                        ...c,
-                                                        cvv: formatCvvInput(v),
-                                                    }))
-                                                }
-                                                placeholder="123"
-                                                type="password"
-                                                maxLength={4}
-                                                inputMode="numeric"
-                                            />
-                                        </div>
-                                        <div>
-                                            <label
-                                                htmlFor="renthus-installments"
-                                                className="text-xs font-semibold text-zinc-700 dark:text-zinc-300"
-                                            >
-                                                Parcelas (valor da mensalidade)
-                                            </label>
-                                            <select
-                                                id="renthus-installments"
-                                                value={renthusInstallments}
-                                                onChange={(e) => setRenthusInstallments(Number(e.target.value))}
-                                                className="mt-1 w-full max-w-xs rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-800"
-                                            >
-                                                {Array.from({ length: 12 }, (_, i) => i + 1).map((n) => (
-                                                    <option key={n} value={n}>
-                                                        {n}x
-                                                    </option>
-                                                ))}
-                                            </select>
-                                        </div>
-                                        <div className="border-t border-zinc-200 pt-3 dark:border-zinc-700">
-                                            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">
-                                                Endereço de cobrança
-                                            </p>
-                                            <div className="grid gap-3 sm:grid-cols-2">
-                                                <div className="flex flex-col gap-1">
-                                                    <label
-                                                        htmlFor="renthus-card-cep"
-                                                        className="text-xs font-semibold text-zinc-700 dark:text-zinc-300"
-                                                    >
-                                                        CEP
-                                                    </label>
-                                                    <div className="flex gap-2">
-                                                        <input
-                                                            id="renthus-card-cep"
-                                                            type="text"
-                                                            value={cardAddr.cep}
-                                                            onChange={(e) =>
-                                                                setCardAddr((a) => ({ ...a, cep: e.target.value }))
-                                                            }
-                                                            onBlur={(e) => {
-                                                                void fetchViaCep(e.target.value);
-                                                            }}
-                                                            placeholder="00000-000"
-                                                            maxLength={9}
-                                                            className="w-full rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-violet-400 focus:outline-none focus:ring-1 focus:ring-violet-400 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100"
-                                                        />
-                                                        {cepLoading ? (
-                                                            <Loader2 className="mt-2 h-4 w-4 shrink-0 animate-spin text-violet-500" />
-                                                        ) : null}
-                                                    </div>
-                                                </div>
-                                                <Field
-                                                    label="Número"
-                                                    value={cardAddr.numero}
-                                                    onChange={(v) => setCardAddr((a) => ({ ...a, numero: v }))}
-                                                    placeholder="123"
-                                                />
-                                                <div className="sm:col-span-2">
-                                                    <Field
-                                                        label="Endereço (logradouro)"
-                                                        value={cardAddr.endereco}
-                                                        onChange={(v) =>
-                                                            setCardAddr((a) => ({ ...a, endereco: v }))
-                                                        }
-                                                        placeholder="Rua Exemplo"
-                                                    />
-                                                </div>
-                                                <Field
-                                                    label="Bairro"
-                                                    value={cardAddr.bairro}
-                                                    onChange={(v) => setCardAddr((a) => ({ ...a, bairro: v }))}
-                                                    placeholder="Centro"
-                                                />
-                                                <Field
-                                                    label="Cidade"
-                                                    value={cardAddr.cidade}
-                                                    onChange={(v) => setCardAddr((a) => ({ ...a, cidade: v }))}
-                                                    placeholder="São Paulo"
-                                                />
-                                                <Field
-                                                    label="UF"
-                                                    value={cardAddr.uf}
-                                                    onChange={(v) =>
-                                                        setCardAddr((a) => ({
-                                                            ...a,
-                                                            uf: v.toUpperCase().slice(0, 2),
-                                                        }))
-                                                    }
-                                                    placeholder="SP"
-                                                />
-                                            </div>
-                                        </div>
-                                        <button
-                                            type="button"
-                                            onClick={() => {
-                                                void payRenthusCard();
-                                            }}
-                                            disabled={cardPayLoading}
-                                            className="rounded-xl bg-violet-600 px-5 py-2.5 text-sm font-bold text-white hover:bg-violet-700 disabled:opacity-60"
-                                        >
-                                            {cardPayLoading ? "Processando…" : "Pagar com cartão"}
-                                        </button>
-                                        <p className="text-xs text-zinc-500">
-                                            Aprovado na hora = plano liberado imediatamente. Em análise = liberamos
-                                            quando o banco confirmar (webhook).
-                                        </p>
-                                    </div>
-                                ) : null}
-                            </div>
-                        );
-                    })()}
+                    <PlanCheckoutSection
+                        variant={variant}
+                        billingData={billingData}
+                        nomeFantasia={nomeFantasia}
+                        checkoutOpen={checkoutOpen}
+                        onCheckoutOpenChange={setCheckoutOpen}
+                        renthusPayMode={renthusPayMode}
+                        onPayModeChange={setRenthusPayMode}
+                        renthusCard={renthusCard}
+                        setRenthusCard={setRenthusCard}
+                        renthusInstallments={renthusInstallments}
+                        setRenthusInstallments={setRenthusInstallments}
+                        cardAddr={cardAddr}
+                        setCardAddr={setCardAddr}
+                        cepLoading={cepLoading}
+                        onCepBlur={(cep) => { void fetchViaCep(cep); }}
+                        pixLoading={pixLoading}
+                        pixCopied={pixCopied}
+                        pixLiveCode={pixLiveCode}
+                        pixLiveUrl={pixLiveUrl}
+                        setPixCopied={setPixCopied}
+                        cardPayLoading={cardPayLoading}
+                        billingSuccessMsg={billingSuccessMsg}
+                        billingErr={billingErr}
+                        setBillingErr={setBillingErr}
+                        onGeneratePix={() => { void openRenthusPix(); }}
+                        onPayCard={() => { void payRenthusCard(); }}
+                    />
                     </div>
 
                     {(() => {
@@ -1188,6 +732,7 @@ export default function PlanBillingPanel({ variant = "full" }: PlanBillingPanelP
                                     setBillingErr(null);
                                     setBillingSuccessMsg(msg);
                                 }}
+                                onCheckoutNeeded={() => setCheckoutOpen(true)}
                                 onPrepayPeriodChange={
                                     initialCheckout
                                         ? async (period) => {
@@ -1234,34 +779,31 @@ export default function PlanBillingPanel({ variant = "full" }: PlanBillingPanelP
                     {variant === "full" ? (
                         <SectionTitle
                             icon={CreditCard}
-                            title="Formas de pagamento (cobrança RenthusAgent)"
-                            desc="Como você paga a mensalidade da plataforma — não confunde com formas aceitas no delivery"
+                            title="Meus cartões"
+                            desc="Cartões salvos no Pagar.me para renovação automática"
                         />
-                    ) : null}
-
-                    {variant === "full" ? (
-                        <div className="rounded-xl border border-zinc-200 p-4 dark:border-zinc-700">
-                            <p className="text-sm font-semibold text-zinc-800 dark:text-zinc-200">PIX e cartão</p>
-                            <p className="mt-1 text-xs text-zinc-500">
-                                Use o bloco de pagamento acima: PIX (QR e copia e cola) ou cartão tokenizado no
-                                Pagar.me. Confirmação do pagamento libera o plano automaticamente (webhook ou
-                                aprovação imediata).
-                            </p>
-                        </div>
                     ) : null}
 
                     {variant !== "pay" ? (
                     <div className="rounded-xl border border-zinc-200 p-4 dark:border-zinc-700">
-                        <p className="text-sm font-semibold text-zinc-800 dark:text-zinc-200">
-                            Cartões salvos no Pagar.me
-                        </p>
-                        <p className="mt-1 text-xs text-zinc-500">
-                            Defina o cartão padrão para renovação automática. Se houver fatura aberta, use
-                            &quot;Tentar de novo&quot;.
-                        </p>
+                        <div className="flex flex-wrap items-start justify-between gap-3">
+                            <p className="text-xs text-zinc-500">
+                                Defina o cartão padrão para renovação automática. Se houver fatura
+                                aberta, use &quot;Tentar de novo&quot;.
+                            </p>
+                            <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                onClick={() => setAddCardOpen(true)}
+                            >
+                                Adicionar forma de pagamento
+                            </Button>
+                        </div>
                         {!billingData.saved_cards?.length ? (
                             <p className="mt-2 text-xs text-zinc-500">
-                                Nenhum cartão cadastrado ainda. Pague com cartão acima para salvar o método.
+                                Nenhum cartão cadastrado ainda. Adicione um cartão para renovação
+                                automática.
                             </p>
                         ) : null}
                         {billingData.saved_cards?.length ? (
@@ -1283,36 +825,52 @@ export default function PlanBillingPanel({ variant = "full" }: PlanBillingPanelP
                                         </span>
                                         <span className="flex flex-wrap gap-2">
                                             {!c.is_default && c.id ? (
-                                                <button
+                                                <Button
                                                     type="button"
+                                                    size="sm"
+                                                    variant="ghost"
                                                     disabled={savedCardBusyId === c.id}
                                                     onClick={() => {
                                                         void setDefaultSavedCard(c.id);
                                                     }}
-                                                    className="text-xs font-semibold text-violet-600 hover:text-violet-700 disabled:opacity-50"
                                                 >
                                                     {savedCardBusyId === c.id ? "…" : "Tornar padrão"}
-                                                </button>
+                                                </Button>
                                             ) : null}
                                             {c.id &&
                                             (billingData.pending_invoice ||
                                                 billingData.is_blocked) ? (
-                                                <button
+                                                <Button
                                                     type="button"
+                                                    size="sm"
                                                     disabled={savedCardBusyId === c.id}
                                                     onClick={() => {
                                                         void payWithSavedCard(c.id);
                                                     }}
-                                                    className="rounded-md bg-zinc-900 px-2.5 py-1 text-xs font-semibold text-white hover:bg-zinc-800 disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900"
                                                 >
                                                     {savedCardBusyId === c.id ? "Cobrando…" : "Tentar de novo"}
-                                                </button>
+                                                </Button>
                                             ) : null}
                                         </span>
                                     </li>
                                 ))}
                             </ul>
                         ) : null}
+                        <AddPaymentMethodModal
+                            open={addCardOpen}
+                            onOpenChange={setAddCardOpen}
+                            nomeFantasia={nomeFantasia}
+                            cnpj={cnpj}
+                            initialAddr={cardAddr}
+                            onAdded={async () => {
+                                await loadBilling({ silent: true });
+                            }}
+                            onError={(msg) => setBillingErr(msg || null)}
+                            onSuccess={(msg) => {
+                                setBillingErr(null);
+                                setBillingSuccessMsg(msg);
+                            }}
+                        />
                     </div>
                     ) : null}
 

@@ -769,6 +769,40 @@ export async function listCustomerCards(customerId: string): Promise<PagarmeCard
     }
 }
 
+/** POST /customers/{id}/cards — token do browser (sem cobrar). */
+export async function createCustomerCard(params: {
+    customerId: string;
+    cardToken: string;
+    billingAddress?: {
+        line_1: string;
+        zip_code: string;
+        city: string;
+        state: string;
+        country?: string;
+    };
+}): Promise<PagarmeCardSummary> {
+    const customerId = params.customerId.trim();
+    const token = params.cardToken.trim();
+    if (!customerId || !token) {
+        throw new Error("customerId e cardToken são obrigatórios");
+    }
+    const body: Record<string, unknown> = { token };
+    if (params.billingAddress) {
+        body.billing_address = {
+            line_1: params.billingAddress.line_1,
+            zip_code: params.billingAddress.zip_code,
+            city: params.billingAddress.city,
+            state: params.billingAddress.state,
+            country: params.billingAddress.country ?? "BR",
+        };
+    }
+    return pagarmeRequest<PagarmeCardSummary>(
+        `/customers/${encodeURIComponent(customerId)}/cards`,
+        "POST",
+        body
+    );
+}
+
 function buildCheckoutHostedCustomer(c: {
     name:     string;
     email:    string;

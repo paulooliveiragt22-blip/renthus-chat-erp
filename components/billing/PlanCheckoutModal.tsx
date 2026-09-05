@@ -1,0 +1,180 @@
+"use client";
+
+import { Loader2 } from "lucide-react";
+import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogHeader,
+    DialogTitle,
+} from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
+
+type PayMode = "pix" | "card";
+
+type Props = {
+    open: boolean;
+    onOpenChange: (open: boolean) => void;
+    title: string;
+    description: string;
+    amountLabel: string;
+    successMsg?: string | null;
+    errorMsg?: string | null;
+    payMode: PayMode;
+    onPayModeChange: (mode: PayMode) => void;
+    pixLoading: boolean;
+    pixUrl: string | null;
+    pixCode: string;
+    pixCopied: boolean;
+    onGeneratePix: () => void;
+    onCopyPix: () => void;
+    cardForm: React.ReactNode;
+    onPayCard: () => void;
+    cardPayLoading: boolean;
+    footerHint?: string;
+};
+
+/**
+ * Checkout de upgrade / migração anual / cobrança — Dialog Radix.
+ * O painel inline da página de plano foi removido (higiene UI).
+ */
+export function PlanCheckoutModal({
+    open,
+    onOpenChange,
+    title,
+    description,
+    amountLabel,
+    successMsg,
+    errorMsg,
+    payMode,
+    onPayModeChange,
+    pixLoading,
+    pixUrl,
+    pixCode,
+    pixCopied,
+    onGeneratePix,
+    onCopyPix,
+    cardForm,
+    onPayCard,
+    cardPayLoading,
+    footerHint = "O plano é liberado automaticamente quando o pagamento for confirmado pelo Pagar.me.",
+}: Props) {
+    let pixButtonLabel = "Gerar código PIX";
+    if (pixLoading) pixButtonLabel = "Gerando…";
+    else if (pixUrl || pixCode) pixButtonLabel = "Gerar novo / atualizar PIX";
+
+    return (
+        <Dialog open={open} onOpenChange={onOpenChange}>
+            <DialogContent className="max-h-[90vh] max-w-lg overflow-y-auto">
+                <DialogHeader>
+                    <DialogTitle>{title}</DialogTitle>
+                    <DialogDescription>{description}</DialogDescription>
+                </DialogHeader>
+
+                <p className="text-sm text-zinc-600 dark:text-zinc-400">
+                    Valor:{" "}
+                    <span className="font-semibold text-zinc-900 dark:text-zinc-100">
+                        {amountLabel}
+                    </span>
+                </p>
+
+                {successMsg ? (
+                    <div
+                        data-testid="billing-checkout-success"
+                        className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-200"
+                    >
+                        {successMsg}
+                    </div>
+                ) : null}
+                {errorMsg ? (
+                    <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200">
+                        {errorMsg}
+                    </div>
+                ) : null}
+
+                <div className="flex flex-wrap gap-2">
+                    <Button
+                        type="button"
+                        variant={payMode === "pix" ? "default" : "outline"}
+                        size="sm"
+                        onClick={() => onPayModeChange("pix")}
+                    >
+                        PIX
+                    </Button>
+                    <Button
+                        type="button"
+                        variant={payMode === "card" ? "default" : "outline"}
+                        size="sm"
+                        onClick={() => onPayModeChange("card")}
+                    >
+                        Cartão de crédito
+                    </Button>
+                </div>
+
+                {payMode === "pix" ? (
+                    <div className="space-y-3">
+                        {pixUrl || pixCode ? (
+                            <div className="flex flex-wrap gap-3">
+                                {pixUrl ? (
+                                    // eslint-disable-next-line @next/next/no-img-element
+                                    <img
+                                        src={pixUrl}
+                                        alt="QR PIX"
+                                        className="h-36 w-36 rounded-xl border border-zinc-200 bg-white object-contain p-1 dark:border-zinc-700"
+                                    />
+                                ) : null}
+                                {pixCode ? (
+                                    <div className="min-w-[180px] flex-1 space-y-2">
+                                        <textarea
+                                            readOnly
+                                            className="w-full rounded-lg border border-zinc-200 bg-white p-2 font-mono text-[10px] dark:border-zinc-600 dark:bg-zinc-900"
+                                            rows={4}
+                                            value={pixCode}
+                                            onFocus={(e) => e.target.select()}
+                                        />
+                                        <Button
+                                            type="button"
+                                            size="sm"
+                                            variant="outline"
+                                            onClick={onCopyPix}
+                                        >
+                                            {pixCopied ? "Copiado!" : "Copiar código"}
+                                        </Button>
+                                    </div>
+                                ) : null}
+                            </div>
+                        ) : null}
+                        <Button
+                            type="button"
+                            disabled={pixLoading}
+                            onClick={onGeneratePix}
+                            className="w-full"
+                        >
+                            {pixLoading ? (
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : null}
+                            {pixButtonLabel}
+                        </Button>
+                    </div>
+                ) : (
+                    <div className="space-y-3">
+                        {cardForm}
+                        <Button
+                            type="button"
+                            disabled={cardPayLoading}
+                            onClick={onPayCard}
+                            className="w-full"
+                        >
+                            {cardPayLoading ? (
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : null}
+                            {cardPayLoading ? "Processando…" : "Pagar com cartão"}
+                        </Button>
+                    </div>
+                )}
+
+                <p className="text-[11px] text-zinc-500">{footerHint}</p>
+            </DialogContent>
+        </Dialog>
+    );
+}

@@ -9,6 +9,16 @@ import {
     PLAN_ORDER,
 } from "@/lib/billing/planCatalog";
 import { PLAN_CARD_ACCENT, PLAN_TOGGLE_ACCENT } from "@/lib/billing/planOfferUi";
+import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
+} from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
+import { Switch } from "@/components/ui/switch";
 
 type Member = {
     user_id: string;
@@ -40,6 +50,8 @@ type Props = {
     onSuccess?: (msg: string) => void;
     /** Never-paid: persistir month|year no banco ao acionar o toggle. */
     onPrepayPeriodChange?: (period: ViewPeriod) => Promise<void> | void;
+    /** Após seleção que gera cobrança (upgrade / migração anual). */
+    onCheckoutNeeded?: () => void;
     /** Checkout inicial (/plano/pagar): seleção livre, sem upgrade/downgrade. */
     checkoutMode?: boolean;
     /** Sem last_paid_at — nunca tratar como upgrade/downgrade de assinante pago. */
@@ -81,6 +93,7 @@ export function PlanChangeCatalog({
     onError,
     onSuccess,
     onPrepayPeriodChange,
+    onCheckoutNeeded,
     checkoutMode = false,
     neverPaid = false,
     initialCheckout = false,
@@ -194,10 +207,16 @@ export function PlanChangeCatalog({
                 return;
             }
             setDowngradeTo(null);
-            if (typeof (json as { message?: string }).message === "string") {
-                onSuccess?.((json as { message: string }).message);
+            if (typeof json.message === "string" && json.message.trim()) {
+                onSuccess?.(json.message);
             }
             await onReload();
+            if (
+                (json as { action?: string }).action === "downgrade_to_annual_quoted" ||
+                (json as { action?: string }).action === "upgrade_to_annual_quoted"
+            ) {
+                onCheckoutNeeded?.();
+            }
         } finally {
             setSaving(false);
         }
@@ -242,6 +261,13 @@ export function PlanChangeCatalog({
                 onSuccess?.(json.message);
             }
             await onReload();
+            if (
+                json.action === "upgrade_quoted" ||
+                json.action === "upgrade_to_annual_quoted" ||
+                json.action === "downgrade_to_annual_quoted"
+            ) {
+                onCheckoutNeeded?.();
+            }
         } finally {
             setSaving(false);
         }
@@ -249,7 +275,9 @@ export function PlanChangeCatalog({
 
     async function startPeriodSwitch() {
         if (initialCheckout || checkoutMode || neverPaid || isPrepay) {
-            onError("Escolha o ciclo anual no toggle acima. A migração mensal→anual só vale após a 1ª mensalidade paga.");
+            onError(
+                "Escolha o ciclo anual no toggle acima. A migração mensal→anual só vale após a 1ª mensalidade paga."
+            );
             return;
         }
         setSwitching(true);
@@ -271,6 +299,12 @@ export function PlanChangeCatalog({
                 onSuccess?.(json.message);
             }
             await onReload();
+            if (
+                json.action === "period_switch_quoted" ||
+                json.action === "period_switch_pending"
+            ) {
+                onCheckoutNeeded?.();
+            }
         } finally {
             setSwitching(false);
         }
@@ -321,7 +355,7 @@ export function PlanChangeCatalog({
             ? isAnnualSub
                 ? "Você está no plano anual. Upgrade vale na hora; downgrade só no fim do ciclo anual."
                 : "Mensal → anual: migração imediata com abatimento do mês. Downgrade mensal continua no fim do ciclo."
-            : "Upgrade vale na hora. Downgrade no mesmo ciclo (mensal) agenda para o fim do período.";
+            : "Upgrade vale na hora. Downgrade no mesmo ciclo (mensal) conclui no fim do período.";
 
     const maxYearlyPct = Math.max(
         0,
@@ -349,67 +383,59 @@ export function PlanChangeCatalog({
                     </p>
                     <p className="mt-1 text-xs text-zinc-500">{subtitle}</p>
                 </div>
-                <div className="flex justify-center">
-                    <div
-                        className="inline-flex rounded-full border border-zinc-200 bg-zinc-100 p-1 dark:border-zinc-700 dark:bg-zinc-800"
-                        role="tablist"
-                        aria-label="Ciclo de cobrança"
+                <div className="flex items-center justify-center gap-3">
+                    <span
+                        className={`text-sm font-semibold ${
+                            viewPeriod === "month" ? "text-zinc-900 dark:text-zinc-50" : "text-zinc-400"
+                        }`}
                     >
-                        <button
-                            type="button"
-                            role="tab"
-                            aria-selected={viewPeriod === "month"}
-                            onClick={() => void selectViewPeriod("month")}
-                            className={`rounded-full px-4 py-1.5 text-sm font-semibold transition ${
-                                viewPeriod === "month"
-                                    ? "bg-[#57ff8f] text-[#16364D] shadow-sm"
-                                    : "text-zinc-500"
-                            }`}
-                        >
-                            Mensal
-                        </button>
-                        <button
-                            type="button"
-                            role="tab"
-                            aria-selected={viewPeriod === "year"}
-                            onClick={() => void selectViewPeriod("year")}
-                            className={`rounded-full px-4 py-1.5 text-sm font-semibold transition ${
-                                viewPeriod === "year"
-                                    ? "bg-[#57ff8f] text-[#16364D] shadow-sm"
-                                    : "text-zinc-500"
-                            }`}
-                        >
-                            Anual
-                            {maxYearlyPct > 0 ? (
-                                <span
-                                    className="ml-1 text-[10px] font-bold"
-                                    style={{
-                                        color:
-                                            viewPeriod === "year" ? "#16364D" : PLAN_TOGGLE_ACCENT,
-                                        opacity: 0.85,
-                                    }}
-                                >
-                                    economize até {maxYearlyPct}%
-                                </span>
-                            ) : null}
-                        </button>
-                    </div>
+                        Mensal
+                    </span>
+                    <Switch
+                        checked={viewPeriod === "year"}
+                        onCheckedChange={(checked) =>
+                            void selectViewPeriod(checked ? "year" : "month")
+                        }
+                        aria-label="Alternar ciclo anual"
+                    />
+                    <span
+                        className={`text-sm font-semibold ${
+                            viewPeriod === "year" ? "text-zinc-900 dark:text-zinc-50" : "text-zinc-400"
+                        }`}
+                    >
+                        Anual
+                        {maxYearlyPct > 0 ? (
+                            <span
+                                className="ml-1 text-[10px] font-bold"
+                                style={{ color: PLAN_TOGGLE_ACCENT, opacity: 0.85 }}
+                            >
+                                até −{maxYearlyPct}%
+                            </span>
+                        ) : null}
+                    </span>
                 </div>
             </div>
 
             {pendingPlanKey ? (
                 <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs dark:border-amber-800 dark:bg-amber-950/30">
                     <p className="font-semibold text-zinc-900 dark:text-zinc-100">
-                        Downgrade agendado: {getPlanLabel(pendingPlanKey)} em {whenLabel}
+                        Migração para {getPlanLabel(pendingPlanKey)} confirmada — conclui em{" "}
+                        {whenLabel}
                     </p>
-                    <button
+                    <p className="mt-1 text-zinc-600 dark:text-zinc-400">
+                        A troca de plano inferior no mesmo ciclo só vale no fim do período atual
+                        (vencimento {whenLabel}).
+                    </p>
+                    <Button
                         type="button"
+                        variant="outline"
+                        size="sm"
                         disabled={cancelling || planSaving}
                         onClick={() => void cancelPending()}
-                        className="mt-2 rounded-lg border border-zinc-300 px-3 py-1.5 text-[11px] font-semibold text-zinc-700 hover:bg-white disabled:opacity-50 dark:border-zinc-600 dark:text-zinc-200"
+                        className="mt-2"
                     >
-                        {cancelling ? "Cancelando…" : "Cancelar agendamento"}
-                    </button>
+                        {cancelling ? "Cancelando…" : "Cancelar migração"}
+                    </Button>
                 </div>
             ) : null}
 
@@ -454,7 +480,7 @@ export function PlanChangeCatalog({
                     else if (higher) cta = "Fazer upgrade";
                     else if (lower && showYear && !isAnnualSub)
                         cta = "Migrar para anual";
-                    else if (lower) cta = "Agendar downgrade";
+                    else if (lower) cta = "Confirmar migração";
                     else cta = "Indisponível";
                     const btnDisabled =
                         initialCheckout || checkoutMode || isPrepay || neverPaid
@@ -512,7 +538,7 @@ export function PlanChangeCatalog({
                             )}
                             {pending ? (
                                 <p className="mt-1 text-[10px] font-medium text-amber-700 dark:text-amber-300">
-                                    Agendado para {whenLabel}
+                                    Migração em {whenLabel}
                                 </p>
                             ) : null}
                             <button
@@ -532,18 +558,24 @@ export function PlanChangeCatalog({
                 })}
             </div>
 
-            {downgradeTo ? (
-                <div className="space-y-2 rounded-xl border border-zinc-200 p-4 dark:border-zinc-700">
-                    <p className="text-sm font-bold text-zinc-900 dark:text-zinc-100">
-                        {viewPeriod === "year" && !isAnnualSub
-                            ? `Migrar para ${getPlanLabel(downgradeTo)} anual`
-                            : `Agendar ${getPlanLabel(downgradeTo)}`}
-                    </p>
+            <Dialog open={downgradeTo != null} onOpenChange={(o) => !o && setDowngradeTo(null)}>
+                <DialogContent className="max-w-md">
+                    <DialogHeader>
+                        <DialogTitle>
+                            {downgradeTo && viewPeriod === "year" && !isAnnualSub
+                                ? `Migrar para ${getPlanLabel(downgradeTo)} anual`
+                                : downgradeTo
+                                  ? `Confirmar migração para ${getPlanLabel(downgradeTo)}`
+                                  : "Confirmar migração"}
+                        </DialogTitle>
+                        <DialogDescription>
+                            {viewPeriod === "year" && !isAnnualSub
+                                ? "Vale na hora após o pagamento (anual − crédito do mês)."
+                                : `A migração será concluída no final do ciclo do plano atual (vencimento ${whenLabel}).`}
+                        </DialogDescription>
+                    </DialogHeader>
                     <p className="text-xs text-zinc-500">
-                        {viewPeriod === "year" && !isAnnualSub
-                            ? "Vale na hora após o pagamento (anual − crédito do mês). Escolha até "
-                            : `Vale em ${whenLabel}. Escolha até `}
-                        {included} usuário(s) para manter (≥1 admin/owner).
+                        Escolha até {included} usuário(s) para manter (≥1 admin/owner).
                     </p>
                     {loadingMembers ? (
                         <Loader2 className="h-4 w-4 animate-spin text-zinc-400" />
@@ -565,29 +597,24 @@ export function PlanChangeCatalog({
                             ))}
                         </ul>
                     )}
-                    <div className="flex flex-wrap gap-2 pt-1">
-                        <button
+                    <DialogFooter>
+                        <Button type="button" variant="outline" onClick={() => setDowngradeTo(null)}>
+                            Fechar
+                        </Button>
+                        <Button
                             type="button"
                             disabled={saving || loadingMembers}
                             onClick={() => void confirmDowngrade()}
-                            className="rounded-lg bg-zinc-900 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900"
                         >
                             {saving
                                 ? "Confirmando…"
                                 : viewPeriod === "year" && !isAnnualSub
                                   ? "Continuar para pagamento"
-                                  : "Confirmar agendamento"}
-                        </button>
-                        <button
-                            type="button"
-                            onClick={() => setDowngradeTo(null)}
-                            className="rounded-lg border border-zinc-300 px-3 py-1.5 text-xs font-semibold dark:border-zinc-600"
-                        >
-                            Fechar
-                        </button>
-                    </div>
-                </div>
-            ) : null}
+                                  : "Confirmar migração"}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
         </div>
     );
 }
