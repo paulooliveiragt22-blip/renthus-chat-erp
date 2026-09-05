@@ -58,7 +58,38 @@ export default function ActionModal({
     }
 
     return (
-        <Modal title={actionTitle(kind)} open={open} onClose={onClose} zClass="z-[10050]">
+        <Modal
+            title={actionTitle(kind)}
+            open={open}
+            onClose={onClose}
+            zClass="z-[10050]"
+            footer={
+                showPayment ? undefined : (
+                    <div className="flex flex-wrap items-center gap-3">
+                        <button
+                            type="button"
+                            onClick={onConfirm}
+                            disabled={saving}
+                            className="rounded-xl bg-violet-600 px-5 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                            {saving ? "Salvando..." : "Confirmar"}
+                        </button>
+                        <button
+                            type="button"
+                            onClick={onClose}
+                            disabled={saving}
+                            className="rounded-xl border border-zinc-200 px-4 py-2 text-sm font-medium text-zinc-600 transition-colors hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800"
+                        >
+                            Voltar
+                        </button>
+                        <p className="text-[11px] text-zinc-400 dark:text-zinc-500">
+                            Status final: <strong>{prettyStatus(actionStatus(kind))}</strong>
+                            {kind === "cancel" && " · itens removidos e estoque creditado"}
+                        </p>
+                    </div>
+                )
+            }
+        >
             <div className="grid gap-4">
 
                 {kind === "cancel" && (
@@ -134,28 +165,33 @@ export default function ActionModal({
                     />
                 </div>
 
-                <div className="flex items-center gap-3">
-                    <button
-                        onClick={onConfirm}
-                        disabled={saving || (showPayment && !paymentMethod)}
-                        className="rounded-xl bg-violet-600 px-5 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                        {saving ? "Salvando..." : showPayment ? "Confirmar & Registrar" : "Confirmar"}
-                    </button>
-                    <button
-                        onClick={onClose}
-                        disabled={saving}
-                        className="rounded-xl border border-zinc-200 px-4 py-2 text-sm font-medium text-zinc-600 transition-colors hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800"
-                    >
-                        Voltar
-                    </button>
-                </div>
-
-                <p className="text-[11px] text-zinc-400 dark:text-zinc-500">
-                    Status final: <strong>{prettyStatus(actionStatus(kind))}</strong>
-                    {showPayment && " · lançamento financeiro na finalização do pedido"}
-                    {kind === "cancel" && " · itens removidos e estoque creditado"}
-                </p>
+                {/* Modal de pagamento: CTAs no body (exceção — próximo ao seletor de forma) */}
+                {showPayment && (
+                    <>
+                        <div className="flex items-center gap-3">
+                            <button
+                                type="button"
+                                onClick={onConfirm}
+                                disabled={saving || !paymentMethod}
+                                className="rounded-xl bg-violet-600 px-5 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                                {saving ? "Salvando..." : "Confirmar & Registrar"}
+                            </button>
+                            <button
+                                type="button"
+                                onClick={onClose}
+                                disabled={saving}
+                                className="rounded-xl border border-zinc-200 px-4 py-2 text-sm font-medium text-zinc-600 transition-colors hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800"
+                            >
+                                Voltar
+                            </button>
+                        </div>
+                        <p className="text-[11px] text-zinc-400 dark:text-zinc-500">
+                            Status final: <strong>{prettyStatus(actionStatus(kind))}</strong>
+                            {" · lançamento financeiro na finalização do pedido"}
+                        </p>
+                    </>
+                )}
             </div>
         </Modal>
     );

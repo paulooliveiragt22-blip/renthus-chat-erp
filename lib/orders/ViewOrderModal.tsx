@@ -240,25 +240,13 @@ export default function ViewOrderModal({
             title={order ? `Pedido #${ordNum} • ${formatDT(order.created_at)}` : "Pedido"}
             open={open}
             onClose={onClose}
-        >
-            {loading ? (
-                <div className="flex flex-col gap-3 py-6">
-                    {Array.from({ length: 4 }).map((_, i) => (
-                        <div key={i} className="h-4 w-full animate-pulse rounded bg-zinc-100 dark:bg-zinc-800" />
-                    ))}
-                </div>
-            ) : !order ? (
-                <p className="py-8 text-center text-sm text-zinc-400">Nenhum pedido selecionado.</p>
-            ) : (
-                <div className="flex flex-col gap-4 pt-1">
-
-                    {/* ── TOOLBAR ── */}
-                    <div className="flex flex-wrap items-center gap-2 rounded-xl bg-zinc-50 dark:bg-zinc-800/60 p-3">
-
-                        {/* Secundários */}
+            footer={
+                !loading && order ? (
+                    <div className="flex flex-wrap items-center gap-2">
                         <button
+                            type="button"
                             onClick={onPrint}
-                            className="flex items-center gap-1.5 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 px-3 py-1.5 text-xs font-medium text-zinc-700 dark:text-zinc-300 shadow-sm hover:bg-zinc-50 dark:hover:bg-zinc-700 transition-colors"
+                            className="flex items-center gap-1.5 rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-xs font-medium text-zinc-700 shadow-sm transition-colors hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
                         >
                             <Printer className="h-3.5 w-3.5" />
                             Imprimir
@@ -290,9 +278,10 @@ export default function ViewOrderModal({
                                     );
                                 })}
                                 <button
+                                    type="button"
                                     onClick={() => onReprint(activeReprintCopies)}
                                     disabled={reprintLoading || activeReprintCopies.length === 0}
-                                    className="flex items-center gap-1.5 rounded-lg border border-orange-300 dark:border-orange-700 bg-white dark:bg-zinc-800 px-3 py-1.5 text-xs font-medium text-orange-600 dark:text-orange-400 shadow-sm hover:bg-orange-50 dark:hover:bg-orange-900/20 disabled:opacity-50 transition-colors"
+                                    className="flex items-center gap-1.5 rounded-lg border border-orange-300 bg-white px-3 py-1.5 text-xs font-medium text-orange-600 shadow-sm transition-colors hover:bg-orange-50 disabled:opacity-50 dark:border-orange-700 dark:bg-zinc-800 dark:text-orange-400 dark:hover:bg-orange-900/20"
                                 >
                                     <Printer className="h-3.5 w-3.5" />
                                     {reprintLoading ? "Enviando..." : "Reimprimir"}
@@ -302,19 +291,20 @@ export default function ViewOrderModal({
 
                         {canEdit && (
                             <button
+                                type="button"
                                 onClick={onEdit}
-                                className="flex items-center gap-1.5 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 px-3 py-1.5 text-xs font-medium text-zinc-700 dark:text-zinc-300 shadow-sm hover:bg-zinc-50 dark:hover:bg-zinc-700 transition-colors"
+                                className="flex items-center gap-1.5 rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-xs font-medium text-zinc-700 shadow-sm transition-colors hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
                             >
                                 <Pencil className="h-3.5 w-3.5" />
                                 Editar
                             </button>
                         )}
 
-                        {/* Ações semânticas */}
                         {canPrepare && (
                             <button
+                                type="button"
                                 onClick={() => onAction("prepare")}
-                                className="flex items-center gap-1.5 rounded-lg bg-purple-600 hover:bg-purple-700 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors"
+                                className="flex items-center gap-1.5 rounded-lg bg-purple-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-purple-700"
                             >
                                 <ChefHat className="h-3.5 w-3.5" />
                                 Em preparo
@@ -326,7 +316,7 @@ export default function ViewOrderModal({
                                 type="button"
                                 onClick={() => onAction("deliver")}
                                 disabled={sendingOutForDelivery}
-                                className="flex items-center gap-1.5 rounded-lg bg-sky-600 hover:bg-sky-700 px-3 py-1.5 text-xs font-semibold text-white shadow-sm disabled:opacity-50 transition-colors"
+                                className="flex items-center gap-1.5 rounded-lg bg-sky-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-sky-700 disabled:opacity-50"
                             >
                                 <Bike className="h-3.5 w-3.5" />
                                 {sendingOutForDelivery ? "Enviando..." : "Saiu pra entregar"}
@@ -335,25 +325,39 @@ export default function ViewOrderModal({
 
                         {canFinalize && (
                             <button
+                                type="button"
                                 onClick={() => onAction("finalize")}
-                                className="flex items-center gap-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors"
+                                className="flex items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-blue-700"
                             >
                                 <CheckCircle2 className="h-3.5 w-3.5" />
                                 Finalizar
                             </button>
                         )}
 
-                        {/* Cancelar — discreto, no final */}
                         {canCancel && (
                             <button
+                                type="button"
                                 onClick={() => onAction("cancel")}
-                                className="ml-auto flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium text-red-500 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+                                className="ml-auto flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium text-red-500 transition-colors hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/20"
                             >
                                 <XCircle className="h-3.5 w-3.5" />
                                 Cancelar pedido
                             </button>
                         )}
                     </div>
+                ) : undefined
+            }
+        >
+            {loading ? (
+                <div className="flex flex-col gap-3 py-6">
+                    {Array.from({ length: 4 }).map((_, i) => (
+                        <div key={i} className="h-4 w-full animate-pulse rounded bg-zinc-100 dark:bg-zinc-800" />
+                    ))}
+                </div>
+            ) : !order ? (
+                <p className="py-8 text-center text-sm text-zinc-400">Nenhum pedido selecionado.</p>
+            ) : (
+                <div className="flex flex-col gap-4 pt-1">
 
                     {/* ── FEEDBACK REIMPRIMIR ── */}
                     {reprintMsg && (

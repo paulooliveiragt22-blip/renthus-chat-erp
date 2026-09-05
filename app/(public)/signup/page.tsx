@@ -20,6 +20,10 @@ import {
 } from "@/lib/billing/planOfferUi";
 import { PLAN_CATALOG, PLAN_ORDER, type CommercialPlanKey } from "@/lib/billing/planCatalog";
 import { yearlySavingsPercent } from "@/lib/billing/yearlyFromDiscount";
+import {
+    mixpanelIdentify,
+    trackSignUpCompleted,
+} from "@/lib/analytics/mixpanelBrowser";
 
 type TrialPolicy = { trial_days: number; payment_required: boolean };
 
@@ -295,6 +299,19 @@ export default function SignupPage() {
                     return;
                 }
             }
+
+            const u = signInData.session.user;
+            mixpanelIdentify(u.id, {
+                email: u.email ?? null,
+                company_id: data.company_id ?? null,
+            });
+            trackSignUpCompleted({
+                sign_up_method: "email",
+                platform: "web",
+                plan: selectedPlan,
+                billing_period: billingPeriod,
+                company_id: data.company_id ?? null,
+            });
 
             window.location.assign(
                 data.payment_required ? "/plano/pagar" : "/ativar"

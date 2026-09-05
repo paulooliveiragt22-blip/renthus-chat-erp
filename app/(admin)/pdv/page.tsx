@@ -29,6 +29,7 @@ import {
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { looksLikeScanCode, normalizeScanDigits } from "@/lib/pdv/scanCode";
+import { trackOrderCreated } from "@/lib/analytics/mixpanelBrowser";
 import { enqueueCommand } from "@/lib/offline/application/enqueueCommand";
 import {
   buildCatalogSearchIndex,
@@ -885,6 +886,13 @@ export default function PDVPage() {
       await refreshSyncPendingBadge(companyId);
       setOfflineQueuedSale(true);
       setSaleOk(true);
+      trackOrderCreated({
+        channel: "pdv",
+        offline: true,
+        fulfillment_type: "pickup",
+        item_count: cartPayload.length,
+        company_id: companyId,
+      });
       setCart([]);
       setFromOrderBanner(null);
       setActiveOrderId(null);
@@ -940,6 +948,14 @@ export default function PDVPage() {
           });
         } catch(e) { console.warn("[pdv] agent reprint:", e); }
       }
+      trackOrderCreated({
+        channel: "pdv",
+        offline: false,
+        fulfillment_type: "pickup",
+        item_count: cartPayload.length,
+        company_id: companyId,
+        order_id: oid || null,
+      });
       setSaleOk(true);
       setCart([]); setFromOrderBanner(null); setActiveOrderId(null); setActiveOrderSource(null);
       loadCaixa();

@@ -6,6 +6,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import type { Session } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/client";
 import PasswordInput from "@/components/PasswordInput";
+import { mixpanelIdentify } from "@/lib/analytics/mixpanelBrowser";
 
 /** Validação linear (sem regex com backtracking / S5852). */
 function isValidEmail(email: string) {
@@ -88,7 +89,11 @@ export default function LoginPage() {
 
         if (error) return setErr(error.message);
 
-        if (data?.session) await syncServerSession(data.session);
+        if (data?.session) {
+            await syncServerSession(data.session);
+            const u = data.session.user;
+            mixpanelIdentify(u.id, { email: u.email ?? null });
+        }
         await autoSelectCompany();
 
         router.replace(redirectTo);

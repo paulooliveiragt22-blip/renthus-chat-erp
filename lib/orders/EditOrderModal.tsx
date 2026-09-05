@@ -105,7 +105,55 @@ export default function EditOrderModal({
     const title = `Editar pedido${order ? ` · ${formatDT(order.created_at)} · ${prettyStatus(String(order.status))}` : ""}`;
 
     return (
-        <Modal title={title} open={open} onClose={onClose}>
+        <Modal
+            title={title}
+            open={open}
+            onClose={onClose}
+            footer={
+                canEditOrder && order && !loading ? (
+                    <div className="flex flex-wrap items-center gap-3">
+                        <button
+                            type="button"
+                            onClick={onSave}
+                            disabled={saving}
+                            className="rounded-xl bg-violet-600 px-5 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                            {saving ? "Salvando..." : "Salvar alterações"}
+                        </button>
+                        {onSaveAndPrint && (order as { confirmation_status?: string })?.confirmation_status === "confirmed" && (
+                            <button
+                                type="button"
+                                onClick={onSaveAndPrint}
+                                disabled={saving}
+                                className="rounded-xl bg-emerald-600 px-5 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                                {saving ? "Salvando..." : "Salvar e Reimprimir"}
+                            </button>
+                        )}
+                        <button
+                            type="button"
+                            onClick={onClose}
+                            disabled={saving}
+                            className="rounded-xl border border-zinc-200 px-4 py-2 text-sm font-medium text-zinc-600 transition-colors hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800"
+                        >
+                            Cancelar
+                        </button>
+                        <p className="text-[11px] text-zinc-400 dark:text-zinc-500">
+                            Ao editar, os itens são <strong>substituídos</strong>.
+                        </p>
+                        {msg && (
+                            <span
+                                className={`ml-auto text-xs font-medium ${
+                                    msg.startsWith("✅") ? "text-emerald-600" : "text-rose-600"
+                                }`}
+                            >
+                                {msg}
+                            </span>
+                        )}
+                    </div>
+                ) : undefined
+            }
+        >
             {loading ? (
                 <p className="py-8 text-center text-sm text-zinc-400">Carregando...</p>
             ) : !order ? (
@@ -123,66 +171,30 @@ export default function EditOrderModal({
                     </div>
                 </div>
             ) : (
-                <>
-                    <OrderForm
-                        customerName={customerName}         setCustomerName={setCustomerName}
-                        customerPhone={customerPhone}       setCustomerPhone={setCustomerPhone}
-                        customerAddress={customerAddress}   setCustomerAddress={setCustomerAddress}
-                        paymentMethod={paymentMethod}       setPaymentMethod={setPaymentMethod}
-                        paid={paid}                         setPaid={setPaid}
-                        changeFor={changeFor}               setChangeFor={setChangeFor}
-                        deliveryFeeEnabled={deliveryFeeEnabled} setDeliveryFeeEnabled={setDeliveryFeeEnabled}
-                        deliveryFee={deliveryFee}           setDeliveryFee={setDeliveryFee}
-                        fulfillmentType={fulfillmentType}   setFulfillmentType={setFulfillmentType}
-                        deliveriesEnabled={deliveriesEnabled}
-                        pickupEnabled={pickupEnabled}
-                        serviceFeeOptions={serviceFeeOptions}
-                        selectedServiceFeeIds={selectedServiceFeeIds}
-                        onToggleServiceFee={onToggleServiceFee}
-                        drivers={drivers}
-                        driverId={driverId}                 setDriverId={setDriverId}
-                        q={q}                               onSearchChange={onSearchChange}
-                        searching={searching}               results={results}
-                        getDraft={getDraft}                 setDraft={setDraft}         clearDraft={clearDraft}
-                        cart={cart}                         setCart={setCart}           addToCart={addToCart}
-                        totalNow={totalNow}                 customerPaysNow={customerPaysNow} trocoNow={trocoNow}
-                        modeLabel="Itens do pedido"
-                    />
-
-                    <div className="mt-4 flex flex-wrap items-center gap-3 border-t border-zinc-100 pt-4 dark:border-zinc-800">
-                        <button
-                            onClick={onSave}
-                            disabled={saving}
-                            className="rounded-xl bg-violet-600 px-5 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-50"
-                        >
-                            {saving ? "Salvando..." : "Salvar alterações"}
-                        </button>
-                        {onSaveAndPrint && (order as any)?.confirmation_status === "confirmed" && (
-                            <button
-                                onClick={onSaveAndPrint}
-                                disabled={saving}
-                                className="rounded-xl bg-emerald-600 px-5 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
-                            >
-                                {saving ? "Salvando..." : "Salvar e Reimprimir"}
-                            </button>
-                        )}
-                        <button
-                            onClick={onClose}
-                            disabled={saving}
-                            className="rounded-xl border border-zinc-200 px-4 py-2 text-sm font-medium text-zinc-600 transition-colors hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800"
-                        >
-                            Cancelar
-                        </button>
-                        <p className="text-[11px] text-zinc-400 dark:text-zinc-500">
-                            Ao editar, os itens são <strong>substituídos</strong>.
-                        </p>
-                        {msg && (
-                            <span className={`ml-auto text-xs font-medium ${msg.startsWith("✅") ? "text-emerald-600" : "text-rose-600"}`}>
-                                {msg}
-                            </span>
-                        )}
-                    </div>
-                </>
+                <OrderForm
+                    customerName={customerName}         setCustomerName={setCustomerName}
+                    customerPhone={customerPhone}       setCustomerPhone={setCustomerPhone}
+                    customerAddress={customerAddress}   setCustomerAddress={setCustomerAddress}
+                    paymentMethod={paymentMethod}       setPaymentMethod={setPaymentMethod}
+                    paid={paid}                         setPaid={setPaid}
+                    changeFor={changeFor}               setChangeFor={setChangeFor}
+                    deliveryFeeEnabled={deliveryFeeEnabled} setDeliveryFeeEnabled={setDeliveryFeeEnabled}
+                    deliveryFee={deliveryFee}           setDeliveryFee={setDeliveryFee}
+                    fulfillmentType={fulfillmentType}   setFulfillmentType={setFulfillmentType}
+                    deliveriesEnabled={deliveriesEnabled}
+                    pickupEnabled={pickupEnabled}
+                    serviceFeeOptions={serviceFeeOptions}
+                    selectedServiceFeeIds={selectedServiceFeeIds}
+                    onToggleServiceFee={onToggleServiceFee}
+                    drivers={drivers}
+                    driverId={driverId}                 setDriverId={setDriverId}
+                    q={q}                               onSearchChange={onSearchChange}
+                    searching={searching}               results={results}
+                    getDraft={getDraft}                 setDraft={setDraft}         clearDraft={clearDraft}
+                    cart={cart}                         setCart={setCart}           addToCart={addToCart}
+                    totalNow={totalNow}                 customerPaysNow={customerPaysNow} trocoNow={trocoNow}
+                    modeLabel="Itens do pedido"
+                />
             )}
         </Modal>
     );

@@ -16,6 +16,7 @@ import {
 import { searchOrderVariantsFromCatalogEntries } from "@/lib/offline/application/mapCatalogToOrderVariant";
 import { loadCachedAddressesForCustomer } from "@/lib/offline/application/loadCachedCustomerAddresses";
 import { resolveDeliveryAddress } from "@/lib/orders/resolveDeliveryAddress";
+import { trackOrderCreated } from "@/lib/analytics/mixpanelBrowser";
 import {
     AlertTriangle,
     Bike,
@@ -1346,6 +1347,13 @@ export default function PedidosPage() {
         }
         await refreshSyncPendingBadge(companyId);
         setMsg("✅ Pedido na fila offline — sincroniza quando a rede voltar.");
+        trackOrderCreated({
+            channel: "admin",
+            offline: true,
+            fulfillment_type: fulfillmentType,
+            item_count: cart.length,
+            company_id: companyId,
+        });
         setOpenNew(false);
         resetNewOrder();
         return true;
@@ -1560,6 +1568,14 @@ export default function PedidosPage() {
             if (newId) {
                 await applySelectedServiceFees(newId, selectedServiceFeeIds);
             }
+            trackOrderCreated({
+                channel: "admin",
+                offline: false,
+                fulfillment_type: fulfillmentType,
+                item_count: cart.length,
+                company_id: companyId,
+                order_id: newId || null,
+            });
             setSaving(false); setOpenNew(false); resetNewOrder(); await loadOrders();
         } catch (err) {
             if (isNetworkOfflineOrFail(err)) {
@@ -1876,7 +1892,14 @@ export default function PedidosPage() {
             if (newId) {
                 await applySelectedServiceFees(newId, selectedServiceFeeIds);
             }
-            // continue with print below - need rest of original function
+            trackOrderCreated({
+                channel: "admin",
+                offline: false,
+                fulfillment_type: fulfillmentType,
+                item_count: cart.length,
+                company_id: companyId,
+                order_id: newId || null,
+            });
             if (newId) {
                 try {
                     await fetch("/api/agent/reprint", {

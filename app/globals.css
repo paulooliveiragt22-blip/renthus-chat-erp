@@ -164,11 +164,14 @@ body {
   box-shadow: 0 8px 24px rgba(0,0,0,0.10);
 }
 
-/* ── Dialog enter/exit (Radix data-state + shadcn-style animate-in utilities) ─ */
+/* ── Dialog enter/exit (Radix data-state) ─
+ * Transform de centralização vive só no CSS do slot — keyframes animam
+ * opacity + scale + leve deslocamento vertical sem brigar com -translate-* do Tailwind.
+ */
 @keyframes dialog-enter {
   from {
     opacity: 0;
-    transform: translate(-50%, -46%) scale(0.96);
+    transform: translate(-50%, calc(-50% + 12px)) scale(0.96);
   }
   to {
     opacity: 1;
@@ -182,7 +185,7 @@ body {
   }
   to {
     opacity: 0;
-    transform: translate(-50%, -47%) scale(0.97);
+    transform: translate(-50%, calc(-50% + 8px)) scale(0.98);
   }
 }
 @keyframes dialog-fade-in {
@@ -195,28 +198,33 @@ body {
 }
 
 .animate-in {
-  animation-duration: 320ms;
+  animation-duration: 380ms;
   animation-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
   animation-fill-mode: both;
 }
 .animate-out {
-  animation-duration: 220ms;
+  animation-duration: 260ms;
   animation-timing-function: ease-in;
   animation-fill-mode: both;
 }
 
 /* Dialog: curva um pouco mais “premium” que Select/popover */
+[data-slot="dialog-content"] {
+  transform: translate(-50%, -50%);
+}
 [data-slot="dialog-content"].animate-in {
-  animation-duration: 340ms;
+  animation-duration: 400ms;
+  animation-name: dialog-enter;
 }
 [data-slot="dialog-content"].animate-out {
-  animation-duration: 240ms;
+  animation-duration: 280ms;
+  animation-name: dialog-exit;
 }
 [data-slot="dialog-overlay"].animate-in {
-  animation-duration: 280ms;
+  animation-duration: 320ms;
 }
 [data-slot="dialog-overlay"].animate-out {
-  animation-duration: 220ms;
+  animation-duration: 240ms;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -230,22 +238,16 @@ body {
   }
 }
 
-[data-state="open"].animate-in.fade-in-0,
-.fade-in-0[data-state="open"] {
+[data-state="open"].animate-in.fade-in-0:not([data-slot="dialog-content"]),
+.fade-in-0[data-state="open"]:not([data-slot="dialog-content"]) {
   animation-name: dialog-fade-in;
 }
-[data-state="closed"].animate-out.fade-out-0,
-.fade-out-0[data-state="closed"] {
+[data-state="closed"].animate-out.fade-out-0:not([data-slot="dialog-content"]),
+.fade-out-0[data-state="closed"]:not([data-slot="dialog-content"]) {
   animation-name: dialog-fade-out;
 }
 
-/* Content + overlay: slot estável (não depende de z-50 — Cmd+K / stacked usam z-[60]) */
-[data-slot="dialog-content"][data-state="open"].animate-in {
-  animation-name: dialog-enter;
-}
-[data-slot="dialog-content"][data-state="closed"].animate-out {
-  animation-name: dialog-exit;
-}
+/* Overlay: só fade */
 [data-slot="dialog-overlay"][data-state="open"].animate-in {
   animation-name: dialog-fade-in;
 }
@@ -253,49 +255,49 @@ body {
   animation-name: dialog-fade-out;
 }
 
-/* Fallback legado (antes do data-slot) */
-.fixed.z-50.grid[data-state="open"].animate-in {
+/* Fallback legado (antes do data-slot) — sem -translate no Tailwind */
+.fixed.z-50.grid[data-state="open"].animate-in:not([data-slot]) {
   animation-name: dialog-enter;
 }
-.fixed.z-50.grid[data-state="closed"].animate-out {
+.fixed.z-50.grid[data-state="closed"].animate-out:not([data-slot]) {
   animation-name: dialog-exit;
 }
-.fixed.inset-0.z-50[data-state="open"].animate-in {
+.fixed.inset-0.z-50[data-state="open"].animate-in:not([data-slot]) {
   animation-name: dialog-fade-in;
 }
-.fixed.inset-0.z-50[data-state="closed"].animate-out {
+.fixed.inset-0.z-50[data-state="closed"].animate-out:not([data-slot]) {
   animation-name: dialog-fade-out;
 }
 
-/* Select / dropdown / tooltip: fade + slight zoom (no translate centering) */
+/* Select / dropdown / tooltip: NÃO animar `transform` — Radix Popper usa
+ * transform inline para posição; keyframes com transform + fill-mode:both
+ * sobrescrevem e o menu “some” / fica inquebrável (ex.: Select no Novo pedido).
+ * Zoom leve via propriedade `scale` (independente de transform). */
 @keyframes popover-enter {
   from {
     opacity: 0;
-    transform: scale(0.95);
+    scale: 0.98;
   }
   to {
     opacity: 1;
-    transform: scale(1);
+    scale: 1;
   }
 }
 @keyframes popover-exit {
   from {
     opacity: 1;
-    transform: scale(1);
+    scale: 1;
   }
   to {
     opacity: 0;
-    transform: scale(0.95);
+    scale: 0.98;
   }
 }
 
-.zoom-in-95[data-state="open"].animate-in:not(.fixed.z-50.grid),
-[data-state="open"].animate-in.zoom-in-95:not(.fixed.z-50.grid) {
+/* Só aplica zoom em tooltips (não Select/Dropdown — esses só usam fade). */
+[data-slot="tooltip-content"][data-state="delayed-open"].animate-in,
+[data-slot="tooltip-content"].animate-in {
   animation-name: popover-enter;
-}
-.zoom-out-95[data-state="closed"].animate-out:not(.fixed.z-50.grid),
-[data-state="closed"].animate-out.zoom-out-95:not(.fixed.z-50.grid) {
-  animation-name: popover-exit;
 }
 
 /* Sheet slides */

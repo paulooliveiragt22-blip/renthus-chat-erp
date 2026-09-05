@@ -234,7 +234,33 @@ export default function CartEditModal({
     }
 
     return (
-        <Modal title="Montar carrinho" open={open} onClose={onClose} zClass="z-[10000]">
+        <Modal
+            title="Montar carrinho"
+            open={open}
+            onClose={onClose}
+            zClass="z-[10000]"
+            footer={
+                <div className="flex flex-wrap items-center gap-3">
+                    <button
+                        type="button"
+                        onClick={handleSend}
+                        disabled={sending}
+                        className="rounded-xl bg-primary px-5 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                        {sending ? "Enviando..." : "Enviar para confirmação"}
+                    </button>
+                    <button
+                        type="button"
+                        onClick={onClose}
+                        disabled={sending}
+                        className="rounded-xl border border-zinc-200 px-4 py-2 text-sm font-medium text-zinc-600 transition-colors hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800"
+                    >
+                        Cancelar
+                    </button>
+                    {msg && <span className="ml-auto text-xs font-medium text-rose-600">{msg}</span>}
+                </div>
+            }
+        >
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
 
                 {/* ── Cliente (fixo pela thread) ── */}
@@ -368,23 +394,6 @@ export default function CartEditModal({
                 </div>
             </div>
 
-            <div className="mt-4 flex items-center gap-3 border-t border-zinc-100 pt-4 dark:border-zinc-800">
-                <button
-                    onClick={handleSend}
-                    disabled={sending}
-                    className="rounded-xl bg-primary px-5 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                    {sending ? "Enviando..." : "Enviar para confirmação"}
-                </button>
-                <button
-                    onClick={onClose}
-                    disabled={sending}
-                    className="rounded-xl border border-zinc-200 px-4 py-2 text-sm font-medium text-zinc-600 transition-colors hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800"
-                >
-                    Cancelar
-                </button>
-                {msg && <span className="ml-auto text-xs font-medium text-rose-600">{msg}</span>}
-            </div>
             <p className="mt-2 text-[11px] text-zinc-400 dark:text-zinc-500">
                 O pedido só é criado depois que o cliente tocar em Confirmar (botão) no WhatsApp.
             </p>

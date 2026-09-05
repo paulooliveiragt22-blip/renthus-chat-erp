@@ -3,6 +3,7 @@
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import { mixpanelReset } from "@/lib/analytics/mixpanelBrowser";
 
 /**
  * Encerra sessão e redireciona ao login.
@@ -22,6 +23,11 @@ export default function LogoutPage() {
             }
             try {
                 await createClient().auth.signOut();
+            } catch {
+                /* best-effort */
+            }
+            try {
+                mixpanelReset();
             } catch {
                 /* best-effort */
             }

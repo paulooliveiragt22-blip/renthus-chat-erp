@@ -13,20 +13,26 @@ import { X } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 /**
- * Modal de domínio (pedidos / WhatsApp) — Radix Dialog (ADR-0009 Onda B).
- * API estável: title / open / onClose / children / zClass.
+ * Modal de domínio (pedidos / WhatsApp) — Radix Dialog (ADR-0009).
+ * API: title / open / onClose / children / footer? / zClass.
+ *
+ * `footer` = barra inferior fixa (mutações). Conteúdo rola acima.
+ * Modal de pagamento (ActionModal finalize) pode omitir footer e manter CTAs no body.
  */
 export default function Modal({
     title,
     open,
     onClose,
     children,
+    footer,
     zClass = "z-[9999]",
 }: Readonly<{
     title: string;
     open: boolean;
     onClose: () => void;
     children: React.ReactNode;
+    /** Ações de mutação fixas na base (não rola com o conteúdo). */
+    footer?: React.ReactNode;
     /** Camadas empilhadas (confirmação sobre “Ver pedido”). */
     zClass?: string;
 }>) {
@@ -62,7 +68,14 @@ export default function Modal({
                         </Button>
                     </DialogClose>
                 </DialogHeader>
-                <div className="overflow-y-auto px-5 py-4 text-foreground">{children}</div>
+                <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4 text-foreground">
+                    {children}
+                </div>
+                {footer ? (
+                    <div className="shrink-0 border-t border-border bg-background-card px-5 py-3">
+                        {footer}
+                    </div>
+                ) : null}
             </DialogContent>
         </Dialog>
     );

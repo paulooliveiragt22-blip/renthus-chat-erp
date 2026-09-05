@@ -8,6 +8,8 @@ import { loadPackRowForValidation } from "@/src/pro/tools/prepareOrderDraft";
 import { canFulfillQty } from "@/lib/products/stockPolicy";
 import { sanitizeOrderNotes } from "@/lib/orders/sanitizeOrderNotes";
 import { formatPackSiglaLabel } from "@/lib/products/packDisplayName";
+import { trackOrderCreatedServer } from "@/lib/analytics/mixpanelServer";
+import type { OrderChannel } from "@/lib/analytics/types";
 
 type OrderFailCode = Extract<OrderServiceResult, { ok: false }>["errorCode"];
 
@@ -412,6 +414,19 @@ export class OrderServiceV2Adapter implements OrderService {
             orderCode: code,
             requireApproval,
             draft,
+        });
+
+        const channelForAnalytics: OrderChannel =
+            messagingChannel === "instagram" || messagingChannel === "messenger"
+                ? messagingChannel
+                : "whatsapp";
+        void trackOrderCreatedServer(`company:${tenant.companyId}`, {
+            channel: channelForAnalytics,
+            offline: false,
+            fulfillment_type: fulfillmentType,
+            item_count: draft.items.length,
+            company_id: tenant.companyId,
+            order_id: String(orderId),
         });
 
         return {

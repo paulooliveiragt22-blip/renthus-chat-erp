@@ -129,7 +129,50 @@ export default function NewOrderModal({
     trocoNow: number;
 }) {
     return (
-        <Modal title="Novo pedido" open={open} onClose={onClose}>
+        <Modal
+            title="Novo pedido"
+            open={open}
+            onClose={onClose}
+            footer={
+                <div className="flex flex-wrap items-center gap-3">
+                    <button
+                        type="button"
+                        onClick={onSave}
+                        disabled={saving}
+                        className="rounded-xl bg-violet-600 px-5 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                        {saving ? "Salvando..." : "Salvar pedido"}
+                    </button>
+                    {onSaveAndPrint && (
+                        <button
+                            type="button"
+                            onClick={onSaveAndPrint}
+                            disabled={saving}
+                            className="rounded-xl bg-emerald-600 px-5 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                            {saving ? "Salvando..." : "Salvar e Imprimir"}
+                        </button>
+                    )}
+                    <button
+                        type="button"
+                        onClick={onClose}
+                        disabled={saving}
+                        className="rounded-xl border border-zinc-200 px-4 py-2 text-sm font-medium text-zinc-600 transition-colors hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800"
+                    >
+                        Cancelar
+                    </button>
+                    {msg && (
+                        <span
+                            className={`ml-auto text-xs font-medium ${
+                                msg.startsWith("✅") ? "text-emerald-600" : "text-rose-600"
+                            }`}
+                        >
+                            {msg}
+                        </span>
+                    )}
+                </div>
+            }
+        >
             <OrderForm
                 customerName={customerName}         setCustomerName={setCustomerName}
                 customerPhone={customerPhone}       setCustomerPhone={setCustomerPhone}
@@ -165,37 +208,6 @@ export default function NewOrderModal({
                 totalNow={totalNow}                 customerPaysNow={customerPaysNow} trocoNow={trocoNow}
                 modeLabel="Carrinho"
             />
-
-            <div className="mt-4 flex items-center gap-3 border-t border-zinc-100 pt-4 dark:border-zinc-800">
-                <button
-                    onClick={onSave}
-                    disabled={saving}
-                    className="rounded-xl bg-violet-600 px-5 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                    {saving ? "Salvando..." : "Salvar pedido"}
-                </button>
-                {onSaveAndPrint && (
-                    <button
-                        onClick={onSaveAndPrint}
-                        disabled={saving}
-                        className="rounded-xl bg-emerald-600 px-5 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                        {saving ? "Salvando..." : "Salvar e Imprimir"}
-                    </button>
-                )}
-                <button
-                    onClick={onClose}
-                    disabled={saving}
-                    className="rounded-xl border border-zinc-200 px-4 py-2 text-sm font-medium text-zinc-600 transition-colors hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800"
-                >
-                    Cancelar
-                </button>
-                {msg && (
-                    <span className={`ml-auto text-xs font-medium ${msg.startsWith("✅") ? "text-emerald-600" : "text-rose-600"}`}>
-                        {msg}
-                    </span>
-                )}
-            </div>
         </Modal>
     );
 }

@@ -3,7 +3,7 @@
  * Token: NEXT_PUBLIC_MIXPANEL_TOKEN (client) / same env on server.
  */
 
-export type OrderChannel = "admin" | "pdv" | "whatsapp";
+export type OrderChannel = "admin" | "pdv" | "whatsapp" | "instagram" | "messenger";
 
 export type OrderCreatedProps = {
     channel: OrderChannel;
