@@ -30,16 +30,41 @@ export async function POST(req: Request) {
     const customerId = String(body.customer_id ?? "").trim();
     if (!customerId) return NextResponse.json({ error: "customer_id_required" }, { status: 400 });
 
+    const logradouro = String(body.logradouro ?? "").trim();
+    const numero = String(body.numero ?? "").trim();
+    const bairro = String(body.bairro ?? "").trim();
+    const cidade = String(body.cidade ?? "").trim();
+    const estado = String(body.estado ?? "").trim().toUpperCase();
+
+    if (!logradouro) {
+        return NextResponse.json({ error: "logradouro_required" }, { status: 400 });
+    }
+    if (!numero) {
+        return NextResponse.json({ error: "numero_required" }, { status: 400 });
+    }
+    if (!bairro) {
+        return NextResponse.json({ error: "bairro_required" }, { status: 400 });
+    }
+    if (!cidade) {
+        return NextResponse.json({ error: "cidade_required" }, { status: 400 });
+    }
+    if (estado.length !== 2) {
+        return NextResponse.json(
+            { error: "estado_required", detail: "UF deve ter 2 letras (ex.: SP)." },
+            { status: 400 }
+        );
+    }
+
     const payload = {
         company_id: companyId,
         customer_id: customerId,
         apelido: String(body.apelido ?? "").trim() || "Entrega",
-        logradouro: String(body.logradouro ?? "").trim() || null,
-        numero: String(body.numero ?? "").trim() || null,
+        logradouro,
+        numero,
         complemento: String(body.complemento ?? "").trim() || null,
-        bairro: String(body.bairro ?? "").trim() || null,
-        cidade: String(body.cidade ?? "").trim() || null,
-        estado: String(body.estado ?? "").trim() || null,
+        bairro,
+        cidade,
+        estado,
         cep: String(body.cep ?? "").trim() || null,
         is_principal: Boolean(body.is_principal),
     };

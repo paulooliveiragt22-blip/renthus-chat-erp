@@ -43,10 +43,27 @@ export function resolveDeliveryAddress(input: {
     }
 
     if (input.mode === "new") {
-        if (!input.newForm.logradouro?.trim()) {
+        const f = input.newForm;
+        if (!f.logradouro?.trim()) {
             return { ok: false, error: "Informe o logradouro do novo endereço." };
         }
-        return { ok: true, address: formatEnderecoLine(input.newForm) };
+        if (!f.numero?.trim()) {
+            return { ok: false, error: "Informe o número do endereço." };
+        }
+        if (!f.bairro?.trim()) {
+            return { ok: false, error: "Informe o bairro." };
+        }
+        if (!f.cidade?.trim()) {
+            return { ok: false, error: "Informe a cidade." };
+        }
+        const uf = f.estado?.trim().toUpperCase() ?? "";
+        if (uf.length !== 2) {
+            return { ok: false, error: "Informe a UF com 2 letras (ex.: SP)." };
+        }
+        return {
+            ok: true,
+            address: formatEnderecoLine({ ...f, estado: uf }),
+        };
     }
 
     const free = input.freeText.trim();

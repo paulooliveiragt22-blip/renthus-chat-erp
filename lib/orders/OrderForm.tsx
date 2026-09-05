@@ -447,7 +447,7 @@ export default function OrderForm({
                                                     required
                                                 />
                                                 <input
-                                                    placeholder="Número"
+                                                    placeholder="Número *"
                                                     value={naForm.numero}
                                                     onChange={(e) =>
                                                         setNaForm((p) => ({
@@ -471,7 +471,7 @@ export default function OrderForm({
                                                     aria-label="Complemento"
                                                 />
                                                 <input
-                                                    placeholder="Bairro"
+                                                    placeholder="Bairro *"
                                                     value={naForm.bairro}
                                                     onChange={(e) =>
                                                         setNaForm((p) => ({
@@ -483,7 +483,7 @@ export default function OrderForm({
                                                     aria-label="Bairro"
                                                 />
                                                 <input
-                                                    placeholder="Cidade"
+                                                    placeholder="Cidade *"
                                                     value={naForm.cidade}
                                                     onChange={(e) =>
                                                         setNaForm((p) => ({
@@ -495,7 +495,7 @@ export default function OrderForm({
                                                     aria-label="Cidade"
                                                 />
                                                 <input
-                                                    placeholder="UF"
+                                                    placeholder="UF * (ex.: SP)"
                                                     value={naForm.estado}
                                                     onChange={(e) =>
                                                         setNaForm((p) => ({

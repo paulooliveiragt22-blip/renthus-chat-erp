@@ -85,7 +85,26 @@ describe("resolveDeliveryAddress (offline-friendly)", () => {
         if (r.ok) assert.match(r.address, /Rua A/);
     });
 
-    it("new → texto sem exigir persistência", () => {
+    it("new → exige núcleo delivery e formata linha", () => {
+        const bad = resolveDeliveryAddress({
+            isPickup: false,
+            mode: "new",
+            freeText: "",
+            selectedAddrId: null,
+            saved: [],
+            newForm: {
+                apelido: "Temp",
+                logradouro: "Rua Offline",
+                numero: "",
+                complemento: "",
+                bairro: "Centro",
+                cidade: "Campinas",
+                estado: "SP",
+                cep: "",
+            },
+        });
+        assert.equal(bad.ok, false);
+
         const r = resolveDeliveryAddress({
             isPickup: false,
             mode: "new",
