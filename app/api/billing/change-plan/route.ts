@@ -54,13 +54,7 @@ export async function POST(req: Request) {
         const st = String(row.status ?? "");
         const current = normalizePlanKey(String(row.plan ?? "")) ?? String(row.plan ?? "");
 
-        if (
-            st === "blocked" ||
-            st === "cancelled" ||
-            st === "pending_payment" ||
-            st === "pending_setup" ||
-            st === "overdue"
-        ) {
+        if (st === "blocked" || st === "cancelled" || st === "overdue") {
             return NextResponse.json(
                 {
                     error:
@@ -75,7 +69,8 @@ export async function POST(req: Request) {
             return NextResponse.json({ ok: true, action: "noop", plan: current, rebill });
         }
 
-        if (st === "trial") {
+        /** Never-paid: troca livre antes do 1º pagamento (checkout / signup). */
+        if (st === "pending_payment" || st === "pending_setup" || st === "trial") {
             const { error: upErr } = await admin
                 .from("pagarme_subscriptions")
                 .update({
@@ -92,7 +87,14 @@ export async function POST(req: Request) {
             return NextResponse.json({ ok: true, action: "changed", plan: planKey, rebill });
         }
 
-        if (st === "active" && planRank(planKey) > planRank(current)) {
+        if (st !== "active") {
+            return NextResponse.json(
+                { error: "Alteração de plano não permitida nesta situação." },
+                { status: 400 }
+            );
+        }
+
+        if (planRank(planKey) > planRank(current)) {
             const { data: company } = await admin
                 .from("companies")
                 .select("id, name, nome_fantasia, email, cnpj, whatsapp_phone, phone")
@@ -152,7 +154,7 @@ export async function POST(req: Request) {
             }
         }
 
-        if (st === "active" && planRank(planKey) < planRank(current)) {
+        if (planRank(planKey) < planRank(current)) {
             const scheduled = await scheduleDowngrade(admin, companyId, {
                 plan: planKey,
                 keep_user_ids: Array.isArray(body.keep_user_ids) ? body.keep_user_ids : undefined,

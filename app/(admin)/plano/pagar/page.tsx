@@ -9,7 +9,7 @@ export default function PlanoPagarPage() {
     return (
         <div className="min-h-screen bg-zinc-50 dark:bg-zinc-950">
             <header className="border-b border-zinc-200 bg-white px-4 py-4 dark:border-zinc-800 dark:bg-zinc-900">
-                <div className="mx-auto flex max-w-lg items-center justify-between">
+                <div className="mx-auto flex max-w-6xl items-center justify-between">
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img
                         src="/brand/renthus-wordmark-on-light.svg?v=mark8"
@@ -30,7 +30,7 @@ export default function PlanoPagarPage() {
                     </Link>
                 </div>
             </header>
-            <main className="mx-auto flex max-w-lg flex-col gap-6 px-4 py-8">
+            <main className="mx-auto flex max-w-6xl flex-col gap-6 px-4 py-8">
                 <div>
                     <h1 className="text-xl font-bold text-zinc-900 dark:text-zinc-50">
                         Concluir pagamento
@@ -40,7 +40,7 @@ export default function PlanoPagarPage() {
                         pagamento você será direcionado à ativação da loja.
                     </p>
                 </div>
-                <div className="rounded-xl bg-white p-6 shadow-sm dark:bg-zinc-900">
+                <div className="rounded-xl bg-white p-6 shadow-sm dark:bg-zinc-900 lg:p-8">
                     <PlanBillingPanel variant="pay" />
                 </div>
             </main>

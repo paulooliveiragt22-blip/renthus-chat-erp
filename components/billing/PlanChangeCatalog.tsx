@@ -39,6 +39,8 @@ type Props = {
     onError: (msg: string) => void;
     /** Never-paid: persistir month|year no banco ao acionar o toggle. */
     onPrepayPeriodChange?: (period: ViewPeriod) => Promise<void> | void;
+    /** Checkout inicial (/plano/pagar): seleção livre, sem upgrade/downgrade. */
+    checkoutMode?: boolean;
 };
 
 function brl(n: number) {
@@ -73,9 +75,10 @@ export function PlanChangeCatalog({
     onReload,
     onError,
     onPrepayPeriodChange,
+    checkoutMode = false,
 }: Props) {
     const isAnnualSub = String(billingPeriod ?? "month").toLowerCase() === "year";
-    const [viewPeriod, setViewPeriod] = useState<ViewPeriod>(isAnnualSub ? "year" : "year");
+    const [viewPeriod, setViewPeriod] = useState<ViewPeriod>(isAnnualSub ? "year" : "month");
     const [switchPix, setSwitchPix] = useState<{
         plan: string;
         amount_brl: number;
@@ -141,6 +144,10 @@ export function PlanChangeCatalog({
     useEffect(() => {
         if (downgradeTo) void loadMembers(downgradeTo);
     }, [downgradeTo, loadMembers]);
+
+    useEffect(() => {
+        setViewPeriod(isAnnualSub ? "year" : "month");
+    }, [isAnnualSub]);
 
     async function cancelPending() {
         setCancelling(true);
@@ -281,6 +288,10 @@ export function PlanChangeCatalog({
 
     function onSelectPlan(key: CommercialPlanKey) {
         if (key === currentPlan) return;
+        if (isPrepay || checkoutMode) {
+            void onUpgradeOrTrial(key);
+            return;
+        }
         const rankDiff = planRank(key) - planRank(currentPlan);
         if (status === "overdue") {
             onError("Regularize o pagamento antes de alterar o plano.");
@@ -307,16 +318,20 @@ export function PlanChangeCatalog({
           ? new Date(nextBillingAt).toLocaleDateString("pt-BR")
           : "fim do ciclo";
 
-    const title =
-        status === "trial" ? "Escolha do plano" : "Planos disponíveis";
-    const subtitle =
-        status === "trial"
-            ? "Durante o teste você pode trocar o plano a qualquer momento."
-            : viewPeriod === "year"
-              ? isAnnualSub
-                  ? "Você está no plano anual. Upgrade vale na hora; downgrade no fim do ciclo."
-                  : "Plano anual à vista com desconto. Ao migrar, abatemos o mês já pago."
-              : "Upgrade vale na hora. Downgrade agenda para o fim do ciclo atual.";
+    const title = checkoutMode
+        ? "Escolha seu plano"
+        : status === "trial"
+          ? "Escolha do plano"
+          : "Planos disponíveis";
+    const subtitle = checkoutMode
+        ? "Troque plano e ciclo (mensal/anual) antes de pagar. O valor do checkout atualiza automaticamente."
+        : status === "trial"
+          ? "Durante o teste você pode trocar o plano a qualquer momento."
+          : viewPeriod === "year"
+            ? isAnnualSub
+                ? "Você está no plano anual. Upgrade vale na hora; downgrade no fim do ciclo."
+                : "Plano anual à vista com desconto. Ao migrar, abatemos o mês já pago."
+            : "Upgrade vale na hora. Downgrade agenda para o fim do ciclo atual.";
 
     const canSwitchToAnnual = status === "active" && !isAnnualSub;
     const isPrepay =
@@ -413,7 +428,9 @@ export function PlanChangeCatalog({
                 </div>
             ) : null}
 
-            <div className="grid gap-3 sm:grid-cols-3">
+            <div
+                className={`grid gap-3 ${checkoutMode ? "grid-cols-1" : "sm:grid-cols-3"}`}
+            >
                 {PLAN_ORDER.map((key) => {
                     const active = key === currentPlan;
                     const pending = pendingPlanKey === key;
@@ -429,17 +446,26 @@ export function PlanChangeCatalog({
                     const higher = planRank(key) > planRank(currentPlan);
                     const lower = planRank(key) < planRank(currentPlan);
                     // Ação anual específica: plano atual, sub mensal ativa, view anual.
-                    const isMigrateCta = active && showYear && canSwitchToAnnual;
+                    const isMigrateCta =
+                        !checkoutMode && active && showYear && canSwitchToAnnual;
                     let cta = "Selecionar";
                     if (isMigrateCta) cta = switching ? "Gerando PIX…" : "Migrar para anual";
+                    else if (active && (checkoutMode || isPrepay))
+                        cta =
+                            viewPeriod === "year"
+                                ? "Plano anual selecionado"
+                                : "Plano mensal selecionado";
                     else if (active) cta = isAnnualSub ? "Plano anual atual" : "Plano atual";
-                    else if (status === "trial") cta = "Usar este plano";
+                    else if (checkoutMode || isPrepay || status === "trial")
+                        cta = "Escolher este plano";
                     else if (higher) cta = "Fazer upgrade";
                     else if (lower) cta = "Agendar downgrade";
                     else cta = "Indisponível";
-                    const btnDisabled = isMigrateCta
-                        ? planSaving || switching
-                        : planSaving || active || (lower && status !== "active");
+                    const btnDisabled = checkoutMode || isPrepay
+                        ? planSaving || active
+                        : isMigrateCta
+                          ? planSaving || switching
+                          : planSaving || active || (lower && status !== "active");
 
                     return (
                         <div

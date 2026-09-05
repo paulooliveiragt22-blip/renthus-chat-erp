@@ -19,6 +19,11 @@ import { PlanChangeCatalog } from "@/components/billing/PlanChangeCatalog";
 import { PLAN_CATALOG, normalizePlanKey } from "@/lib/billing/planCatalog";
 import { resolveCheckoutDisplayAmountBrl } from "@/lib/billing/resolveCheckoutDisplayAmount";
 import { formatInvoiceStatusLabel } from "@/lib/billing/contracts/status";
+import {
+    formatCardExpiryInput,
+    formatCardNumberInput,
+    formatCvvInput,
+} from "@/lib/billing/cardInputFormatters";
 
 const PAGARME_PUBLIC_KEY = process.env.NEXT_PUBLIC_PAGARME_PUBLIC_KEY ?? "";
 
@@ -40,6 +45,8 @@ function Field({
     placeholder = "",
     type = "text",
     hint,
+    maxLength,
+    inputMode,
 }: {
     label: string;
     value: string;
@@ -47,6 +54,8 @@ function Field({
     placeholder?: string;
     type?: string;
     hint?: string;
+    maxLength?: number;
+    inputMode?: React.HTMLAttributes<HTMLInputElement>["inputMode"];
 }) {
     const id = useId();
     return (
@@ -60,6 +69,8 @@ function Field({
                 value={value}
                 onChange={(e) => onChange(e.target.value)}
                 placeholder={placeholder}
+                maxLength={maxLength}
+                inputMode={inputMode}
                 className="rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-violet-400 focus:outline-none focus:ring-1 focus:ring-violet-400 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100"
             />
             {hint ? <p className="text-[11px] text-zinc-400">{hint}</p> : null}
@@ -527,8 +538,15 @@ export default function PlanBillingPanel({ variant = "full" }: PlanBillingPanelP
             ) : null}
 
             {!loading && billingData ? (
-                <div className="flex flex-col gap-6">
-                    <div className={variant === "pay" ? "order-2" : undefined}>
+                <div
+                    className={
+                        variant === "pay"
+                            ? "grid gap-8 lg:grid-cols-2 lg:items-start"
+                            : "flex flex-col gap-6"
+                    }
+                >
+                    {variant !== "pay" ? (
+                    <div>
                     {(() => {
                         const sub = billingData.pagarme_subscription;
                         const st = sub?.status ?? "";
@@ -628,8 +646,9 @@ export default function PlanBillingPanel({ variant = "full" }: PlanBillingPanelP
                         );
                     })()}
                     </div>
+                    ) : null}
 
-                    <div className={variant === "pay" ? "order-1" : undefined}>
+                    <div className={variant === "pay" ? "order-2 lg:order-2" : undefined}>
                     {(() => {
                         const sub = billingData.pagarme_subscription;
                         const st = sub?.status ?? "";
@@ -864,21 +883,41 @@ export default function PlanBillingPanel({ variant = "full" }: PlanBillingPanelP
                                             <Field
                                                 label="Número"
                                                 value={renthusCard.number}
-                                                onChange={(v) => setRenthusCard((c) => ({ ...c, number: v }))}
+                                                onChange={(v) =>
+                                                    setRenthusCard((c) => ({
+                                                        ...c,
+                                                        number: formatCardNumberInput(v),
+                                                    }))
+                                                }
                                                 placeholder="0000 0000 0000 0000"
+                                                inputMode="numeric"
                                             />
                                             <Field
                                                 label="Validade (MM/AA)"
                                                 value={renthusCard.exp}
-                                                onChange={(v) => setRenthusCard((c) => ({ ...c, exp: v }))}
+                                                onChange={(v) =>
+                                                    setRenthusCard((c) => ({
+                                                        ...c,
+                                                        exp: formatCardExpiryInput(v),
+                                                    }))
+                                                }
                                                 placeholder="08/28"
+                                                maxLength={5}
+                                                inputMode="numeric"
                                             />
                                             <Field
                                                 label="CVV"
                                                 value={renthusCard.cvv}
-                                                onChange={(v) => setRenthusCard((c) => ({ ...c, cvv: v }))}
+                                                onChange={(v) =>
+                                                    setRenthusCard((c) => ({
+                                                        ...c,
+                                                        cvv: formatCvvInput(v),
+                                                    }))
+                                                }
                                                 placeholder="123"
                                                 type="password"
+                                                maxLength={4}
+                                                inputMode="numeric"
                                             />
                                         </div>
                                         <div>
@@ -1021,7 +1060,9 @@ export default function PlanBillingPanel({ variant = "full" }: PlanBillingPanelP
                         const yp = billingData.yearly_prices_brl ?? {};
                         const ys = billingData.yearly_savings_percent ?? {};
                         return (
+                            <div className={variant === "pay" ? "order-1 lg:order-1" : undefined}>
                             <PlanChangeCatalog
+                                checkoutMode={variant === "pay"}
                                 currentPlan={cur}
                                 status={st}
                                 billingPeriod={
@@ -1102,6 +1143,7 @@ export default function PlanBillingPanel({ variant = "full" }: PlanBillingPanelP
                                         : undefined
                                 }
                             />
+                            </div>
                         );
                     })()}
 
@@ -1124,6 +1166,7 @@ export default function PlanBillingPanel({ variant = "full" }: PlanBillingPanelP
                         </div>
                     ) : null}
 
+                    {variant !== "pay" ? (
                     <div className="rounded-xl border border-zinc-200 p-4 dark:border-zinc-700">
                         <p className="text-sm font-semibold text-zinc-800 dark:text-zinc-200">
                             Cartões salvos no Pagar.me
@@ -1187,6 +1230,7 @@ export default function PlanBillingPanel({ variant = "full" }: PlanBillingPanelP
                             </ul>
                         ) : null}
                     </div>
+                    ) : null}
 
                     {variant !== "pay" && billingData.invoice_history?.length ? (
                         <div>
