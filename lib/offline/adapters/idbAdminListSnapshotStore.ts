@@ -15,6 +15,7 @@ export const ADMIN_LIST_CAPS: Record<AdminSnapshotDomain, number> = {
     orders: 50,
     fila: 50,
     customers: 500,
+    customer_addresses: 2_000,
     drivers: 200,
     printers: 50,
 };

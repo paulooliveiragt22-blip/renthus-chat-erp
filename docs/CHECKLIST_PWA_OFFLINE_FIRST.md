@@ -136,7 +136,7 @@ Defaults antigos do ADR (50 cmds / ACK-only print) **supersedidos** pelas decis�
 
 | Onda | Itens | Função | Estado |
 |------|-------|--------|--------|
-| **P5a** | M2 + prefetch snapshots (pedidos, fila, clientes, drivers, printers) + M8 read | UI/reload sem abrir abas; busca produtos Pedidos = catálogo IDB | [x] 2026-09-05 |
+| **P5a** | M2 + prefetch snapshots (pedidos, fila, clientes, **endereços**, drivers, printers) + M8 read | UI/reload sem abrir abas; busca produtos Pedidos = catálogo IDB; endereços `customer_addresses` no Pedidos | [x] 2026-09-05 |
 | **P5b** | M3 + M6 | Status `out_for_delivery` + atribuir entregador | [ ] |
 | **P5c** | M1 | Criar pedido admin → outbox (mesmo catálogo/idempotência do PDV) | [x] 2026-09-05 |
 | **P5d** | M4 + M5 + M9 | Estoque / cliente leve / produto preço-cadastro | [ ] |
@@ -153,6 +153,7 @@ Defaults antigos do ADR (50 cmds / ACK-only print) **supersedidos** pelas decis�
 | HF.1 | Finalize PDV: fallback outbox se `Failed to fetch` (`navigator.onLine` mente no Windows) | [x] código local — redeploy |
 | HF.2 | `planFeatures` em **localStorage** (TTL 48h) + gate fail-soft offline (não mostrar “upgrade”) | [x] código local — redeploy |
 | HF.3 | Admin alerts clicáveis + Web Push (`admin_push_subscriptions`, `public/push-sw.js`) | [x] 2026-09-05 — precisa env VAPID + redeploy |
+| HF.4 | Endereços cliente no Pedidos: snapshot IDB + API `/customer-addresses/snapshot` + Select Radix; offline “novo” = texto do pedido | [x] 2026-09-05 |
 
 **Não confundir:** docs de rate-limit “in-memory → Upstash” (`rateLimitDistributed`, INFRA-1) são **servidor** (Redis). Não substituem cache de entitlements/UI no browser da PWA.
 

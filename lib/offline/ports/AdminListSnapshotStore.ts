@@ -6,6 +6,7 @@ export type AdminSnapshotDomain =
     | "orders"
     | "fila"
     | "customers"
+    | "customer_addresses"
     | "drivers"
     | "printers";
 
@@ -13,6 +14,7 @@ export const ADMIN_SNAPSHOT_DOMAINS: readonly AdminSnapshotDomain[] = [
     "orders",
     "fila",
     "customers",
+    "customer_addresses",
     "drivers",
     "printers",
 ] as const;

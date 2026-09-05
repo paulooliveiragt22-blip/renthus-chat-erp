@@ -14,6 +14,8 @@ import {
     refreshSyncPendingBadge,
 } from "@/lib/offline/browserStores";
 import { searchOrderVariantsFromCatalogEntries } from "@/lib/offline/application/mapCatalogToOrderVariant";
+import { loadCachedAddressesForCustomer } from "@/lib/offline/application/loadCachedCustomerAddresses";
+import { resolveDeliveryAddress } from "@/lib/orders/resolveDeliveryAddress";
 import {
     AlertTriangle,
     Bike,
@@ -763,28 +765,66 @@ export default function PedidosPage() {
     }
 
     async function fetchOrderSavedAddresses(customerId: string) {
-        const res = await fetch(`/api/admin/order-addresses?customer_id=${encodeURIComponent(customerId)}`, {
-            cache: "no-store",
-            credentials: "include",
-        });
-        const json = await res.json().catch(() => ({}));
-        if (!res.ok) {
-            setMsg(`Erro ao buscar endereços: ${json?.error ?? "falha desconhecida"}`);
-            setOrderSavedAddresses([]);
+        const applyList = (list: SavedCustomerAddress[]) => {
+            setOrderSavedAddresses(list);
+            if (list.length > 0) {
+                setOrderAddressMode("saved");
+                const first = list.find((a) => a.is_principal) ?? list[0];
+                setOrderSelectedAddrId(first.id);
+                setCustomerAddress(formatEnderecoLine(first));
+            } else {
+                setOrderAddressMode("new");
+                setOrderSelectedAddrId(null);
+                setCustomerAddress("");
+                setNewOrderAddrForm(EMPTY_NEW_ORDER_ADDR);
+            }
+        };
+
+        const offline = typeof navigator !== "undefined" && !navigator.onLine;
+        if (offline && companyId) {
+            const list = await loadCachedAddressesForCustomer(companyId, customerId);
+            applyList(list);
+            if (list.length === 0) {
+                setMsg(
+                    "Offline: sem endereços em cache para este cliente. Use texto livre ou abra online uma vez."
+                );
+            }
             return;
         }
-        const list = (json.addresses ?? []) as SavedCustomerAddress[];
-        setOrderSavedAddresses(list);
-        if (list.length > 0) {
-            setOrderAddressMode("saved");
-            const first = list.find((a) => a.is_principal) ?? list[0];
-            setOrderSelectedAddrId(first.id);
-            setCustomerAddress(formatEnderecoLine(first));
-        } else {
-            setOrderAddressMode("new");
-            setOrderSelectedAddrId(null);
-            setCustomerAddress("");
-            setNewOrderAddrForm(EMPTY_NEW_ORDER_ADDR);
+
+        try {
+            const res = await fetch(
+                `/api/admin/order-addresses?customer_id=${encodeURIComponent(customerId)}`,
+                { cache: "no-store", credentials: "include" }
+            );
+            const json = await res.json().catch(() => ({}));
+            if (!res.ok) {
+                if (companyId) {
+                    const list = await loadCachedAddressesForCustomer(companyId, customerId);
+                    if (list.length > 0) {
+                        applyList(list);
+                        setMsg("Rede falhou — endereços em cache.");
+                        return;
+                    }
+                }
+                setMsg(`Erro ao buscar endereços: ${json?.error ?? "falha desconhecida"}`);
+                setOrderSavedAddresses([]);
+                return;
+            }
+            applyList((json.addresses ?? []) as SavedCustomerAddress[]);
+        } catch {
+            if (companyId) {
+                const list = await loadCachedAddressesForCustomer(companyId, customerId);
+                applyList(list);
+                if (list.length === 0) {
+                    setMsg("Erro ao buscar endereços: falha de rede");
+                } else {
+                    setMsg("Rede falhou — endereços em cache.");
+                }
+                return;
+            }
+            setMsg("Erro ao buscar endereços: falha de rede");
+            setOrderSavedAddresses([]);
         }
     }
 
@@ -805,17 +845,6 @@ export default function PedidosPage() {
         if (row) {
             setCustomerName(row.name ?? "");
             setCustomerPhone(row.phone ?? "");
-        }
-        const offline = typeof navigator !== "undefined" && !navigator.onLine;
-        if (offline && companyId) {
-            type CustRow = { id: string; address?: string | null };
-            const cached = await loadAdminListSnapshotEntries<CustRow>(companyId, "customers");
-            const full = cached.find((c) => c.id === id);
-            setOrderSavedAddresses([]);
-            setOrderSelectedAddrId(null);
-            setOrderAddressMode("free");
-            if (full?.address) setCustomerAddress(String(full.address));
-            return;
         }
         await fetchOrderSavedAddresses(id);
     }
@@ -1339,12 +1368,20 @@ export default function PedidosPage() {
         const offline = typeof navigator !== "undefined" && !navigator.onLine;
 
         if (offline) {
-            // Offline: não cria endereço novo via API; usa texto livre / address do cache
-            if (!isPickup && orderAddressMode === "saved" && !addressForOrder) {
-                setMsg("Offline: use endereço em texto livre ou selecione cliente com endereço em cache.");
+            const resolved = resolveDeliveryAddress({
+                isPickup,
+                mode: orderAddressMode,
+                freeText: customerAddress,
+                selectedAddrId: orderSelectedAddrId,
+                saved: orderSavedAddresses,
+                newForm: newOrderAddrForm,
+            });
+            if (!resolved.ok) {
+                setMsg(resolved.error);
                 setSaving(false);
                 return;
             }
+            addressForOrder = resolved.address;
             if (!customerId && (!customerName.trim() || customerPhone.trim().length < 8)) {
                 setMsg("Informe cliente cadastrado (cache) ou nome + telefone.");
                 setSaving(false);
@@ -1372,28 +1409,18 @@ export default function PedidosPage() {
                 setSaving(false);
                 return;
             }
-            if (!isPickup && orderAddressMode === "saved") {
-                if (orderSavedAddresses.length === 0) {
-                    setMsg("Este cliente não tem endereço salvo. Escolha “Salvar novo endereço” ou “Texto livre”.");
-                    setSaving(false);
-                    return;
-                }
-                if (!orderSelectedAddrId) {
-                    setMsg("Selecione um endereço salvo.");
-                    setSaving(false);
-                    return;
-                }
-                const e = orderSavedAddresses.find((a) => a.id === orderSelectedAddrId);
-                if (!e) {
-                    setMsg("Endereço selecionado não encontrado.");
-                    setSaving(false);
-                    return;
-                }
-                addressForOrder = formatEnderecoLine(e);
-            } else if (!isPickup && orderAddressMode === "new") {
+            if (!isPickup && orderAddressMode === "new") {
                 const f = newOrderAddrForm;
-                if (!f.logradouro?.trim()) {
-                    setMsg("Informe o logradouro do novo endereço.");
+                const resolvedNew = resolveDeliveryAddress({
+                    isPickup,
+                    mode: "new",
+                    freeText: "",
+                    selectedAddrId: null,
+                    saved: orderSavedAddresses,
+                    newForm: f,
+                });
+                if (!resolvedNew.ok) {
+                    setMsg(resolvedNew.error);
                     setSaving(false);
                     return;
                 }
@@ -1422,15 +1449,28 @@ export default function PedidosPage() {
                         return;
                     }
                 } catch (err) {
-                    if (isNetworkOfflineOrFail(err)) {
-                        addressForOrder = formatEnderecoLine(f);
-                    } else {
+                    if (!isNetworkOfflineOrFail(err)) {
                         setMsg("Erro ao salvar endereço.");
                         setSaving(false);
                         return;
                     }
                 }
-                addressForOrder = formatEnderecoLine(f);
+                addressForOrder = resolvedNew.address;
+            } else if (!isPickup) {
+                const resolved = resolveDeliveryAddress({
+                    isPickup,
+                    mode: orderAddressMode,
+                    freeText: customerAddress,
+                    selectedAddrId: orderSelectedAddrId,
+                    saved: orderSavedAddresses,
+                    newForm: newOrderAddrForm,
+                });
+                if (!resolved.ok) {
+                    setMsg(resolved.error);
+                    setSaving(false);
+                    return;
+                }
+                addressForOrder = resolved.address;
             }
             try {
                 const customerRes = await fetch("/api/admin/order-customers", {
@@ -1690,6 +1730,20 @@ export default function PedidosPage() {
         let addressForOrder = isPickup ? "" : customerAddress.trim();
 
         if (typeof navigator !== "undefined" && !navigator.onLine) {
+            const resolved = resolveDeliveryAddress({
+                isPickup,
+                mode: orderAddressMode,
+                freeText: customerAddress,
+                selectedAddrId: orderSelectedAddrId,
+                saved: orderSavedAddresses,
+                newForm: newOrderAddrForm,
+            });
+            if (!resolved.ok) {
+                setMsg(resolved.error);
+                setSaving(false);
+                return;
+            }
+            addressForOrder = resolved.address;
             if (!customerId && (!customerName.trim() || customerPhone.trim().length < 8)) {
                 setMsg("Informe cliente cadastrado (cache) ou nome + telefone.");
                 setSaving(false);
@@ -1715,15 +1769,21 @@ export default function PedidosPage() {
 
         if (customerId) {
             if (!customerName.trim() || !customerPhone.trim()) { setMsg("Cliente sem nome ou telefone."); setSaving(false); return; }
-            if (!isPickup && orderAddressMode === "saved") {
-                if (orderSavedAddresses.length === 0) { setMsg("Este cliente não tem endereço salvo."); setSaving(false); return; }
-                if (!orderSelectedAddrId) { setMsg("Selecione um endereço salvo."); setSaving(false); return; }
-                const e = orderSavedAddresses.find((a) => a.id === orderSelectedAddrId);
-                if (!e) { setMsg("Endereço selecionado não encontrado."); setSaving(false); return; }
-                addressForOrder = formatEnderecoLine(e);
-            } else if (!isPickup && orderAddressMode === "new") {
+            if (!isPickup && orderAddressMode === "new") {
                 const f = newOrderAddrForm;
-                if (!f.logradouro?.trim()) { setMsg("Informe o logradouro do novo endereço."); setSaving(false); return; }
+                const resolvedNew = resolveDeliveryAddress({
+                    isPickup,
+                    mode: "new",
+                    freeText: "",
+                    selectedAddrId: null,
+                    saved: orderSavedAddresses,
+                    newForm: f,
+                });
+                if (!resolvedNew.ok) {
+                    setMsg(resolvedNew.error);
+                    setSaving(false);
+                    return;
+                }
                 const addrRes = await fetch("/api/admin/order-addresses", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
@@ -1743,7 +1803,22 @@ export default function PedidosPage() {
                 });
                 const addrJson = await addrRes.json().catch(() => ({}));
                 if (!addrRes.ok) { setMsg(`Erro ao salvar endereço: ${addrJson?.error ?? "falha desconhecida"}`); setSaving(false); return; }
-                addressForOrder = formatEnderecoLine(f);
+                addressForOrder = resolvedNew.address;
+            } else if (!isPickup) {
+                const resolved = resolveDeliveryAddress({
+                    isPickup,
+                    mode: orderAddressMode,
+                    freeText: customerAddress,
+                    selectedAddrId: orderSelectedAddrId,
+                    saved: orderSavedAddresses,
+                    newForm: newOrderAddrForm,
+                });
+                if (!resolved.ok) {
+                    setMsg(resolved.error);
+                    setSaving(false);
+                    return;
+                }
+                addressForOrder = resolved.address;
             }
             const customerRes = await fetch("/api/admin/order-customers", {
                 method: "POST",

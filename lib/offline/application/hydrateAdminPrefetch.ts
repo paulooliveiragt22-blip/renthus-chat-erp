@@ -58,8 +58,7 @@ export async function hydrateAdminPrefetch(params: {
         const { ok, json } = await fetchJson("/api/admin/orders?page=1&limit=50&status=all");
         if (!ok) throw new Error(String(json.error ?? "orders_prefetch_failed"));
         const entries = Array.isArray(json.orders) ? json.orders : [];
-        const n = await saveDomain(listStore, companyId, "orders", entries);
-        return n;
+        return saveDomain(listStore, companyId, "orders", entries);
     })();
 
     const filaTask = (async () => {
@@ -74,6 +73,13 @@ export async function hydrateAdminPrefetch(params: {
         if (!ok) throw new Error(String(json.error ?? "customers_prefetch_failed"));
         const entries = Array.isArray(json.customers) ? json.customers : [];
         return saveDomain(listStore, companyId, "customers", entries);
+    })();
+
+    const addressesTask = (async () => {
+        const { ok, json } = await fetchJson("/api/admin/customer-addresses/snapshot");
+        if (!ok) throw new Error(String(json.error ?? "customer_addresses_prefetch_failed"));
+        const entries = Array.isArray(json.addresses) ? json.addresses : [];
+        return saveDomain(listStore, companyId, "customer_addresses", entries);
     })();
 
     const driversTask = (async () => {
@@ -95,6 +101,7 @@ export async function hydrateAdminPrefetch(params: {
         ordersTask,
         filaTask,
         customersTask,
+        addressesTask,
         driversTask,
         printersTask,
     ]);
@@ -105,6 +112,7 @@ export async function hydrateAdminPrefetch(params: {
         "orders",
         "fila",
         "customers",
+        "customer_addresses",
         "drivers",
         "printers",
     ];
