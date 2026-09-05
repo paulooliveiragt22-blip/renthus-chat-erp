@@ -2,7 +2,7 @@
 
 import type { ReactNode } from "react";
 import Link from "next/link";
-import { Lock, Loader2 } from "lucide-react";
+import { Lock, Loader2, WifiOff } from "lucide-react";
 import { usePlanFeatures } from "@/lib/billing/usePlanFeatures";
 
 type Props = {
@@ -25,7 +25,7 @@ export default function PlanFeatureGate({
     requiredPlanLabel = "Pro ou Market",
     children,
 }: Props) {
-    const { loading, has } = usePlanFeatures();
+    const { loading, unavailable, has } = usePlanFeatures();
 
     if (loading) {
         return (
@@ -42,6 +42,26 @@ export default function PlanFeatureGate({
           ? has(featureKey)
           : false;
     if (allowed) return <>{children}</>;
+
+    if (unavailable) {
+        return (
+            <div className="rounded-xl border border-dashed border-amber-300/80 bg-amber-50/60 p-6 dark:border-amber-800 dark:bg-amber-950/20">
+                <div className="flex items-start gap-3">
+                    <div className="mt-0.5 rounded-lg bg-amber-100 p-2 dark:bg-amber-900/40">
+                        <WifiOff className="h-4 w-4 text-amber-700 dark:text-amber-300" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                        <p className="text-sm font-bold text-zinc-900 dark:text-zinc-100">{title}</p>
+                        <p className="mt-0.5 text-xs text-zinc-600 dark:text-zinc-400">
+                            Sem conexão e sem cache local do plano. Abra este módulo{" "}
+                            <strong>online uma vez</strong> para liberar o uso offline (reload
+                            inclusive).
+                        </p>
+                    </div>
+                </div>
+            </div>
+        );
+    }
 
     return (
         <div className="rounded-xl border border-dashed border-violet-300/80 bg-violet-50/60 p-6 dark:border-violet-800 dark:bg-violet-950/20">

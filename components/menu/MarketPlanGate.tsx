@@ -2,7 +2,7 @@
 
 import type { ReactNode } from "react";
 import Link from "next/link";
-import { Lock, Loader2 } from "lucide-react";
+import { Lock, Loader2, WifiOff } from "lucide-react";
 import { usePlanFeatures } from "@/lib/billing/usePlanFeatures";
 
 type Props = {
@@ -17,7 +17,7 @@ type Props = {
  * Usa o mesmo cache compartilhado de usePlanFeatures (sem fetch próprio).
  */
 export default function MarketPlanGate({ featureKey, title, description, children }: Props) {
-    const { loading, has, planKey } = usePlanFeatures();
+    const { loading, unavailable, has, planKey } = usePlanFeatures();
     const allowed = has(featureKey) || String(planKey ?? "").toLowerCase() === "market";
 
     if (loading) {
@@ -30,6 +30,25 @@ export default function MarketPlanGate({ featureKey, title, description, childre
     }
 
     if (allowed) return <>{children}</>;
+
+    if (unavailable) {
+        return (
+            <div className="rounded-xl border border-dashed border-amber-300/80 bg-amber-50/60 p-5 dark:border-amber-800 dark:bg-amber-950/20">
+                <div className="flex items-start gap-3">
+                    <div className="mt-0.5 rounded-lg bg-amber-100 p-2 dark:bg-amber-900/40">
+                        <WifiOff className="h-4 w-4 text-amber-700 dark:text-amber-300" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                        <p className="text-sm font-bold text-zinc-900 dark:text-zinc-100">{title}</p>
+                        <p className="mt-0.5 text-xs text-zinc-600 dark:text-zinc-400">
+                            Sem conexão e sem cache local do plano. Abra online uma vez para usar
+                            offline.
+                        </p>
+                    </div>
+                </div>
+            </div>
+        );
+    }
 
     return (
         <div className="rounded-xl border border-dashed border-amber-300/80 bg-amber-50/60 p-5 dark:border-amber-800 dark:bg-amber-950/20">

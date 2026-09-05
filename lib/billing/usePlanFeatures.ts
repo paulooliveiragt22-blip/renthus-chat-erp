@@ -6,6 +6,8 @@ import { useWorkspace } from "@/lib/workspace/useWorkspace";
 
 export const PLAN_FEATURES_STALE_MS = 15 * 60 * 1000;
 export const PLAN_FEATURES_GC_MS = 60 * 60 * 1000;
+/** Cache durável (localStorage) — sobrevive reload / reopen da PWA offline. */
+export const PLAN_FEATURES_LOCAL_TTL_MS = 48 * 60 * 60 * 1000;
 
 type BillingFeaturesJson = {
     plan_key?: string | null;
@@ -23,20 +25,19 @@ function storageKey(companyId: string): string {
     return `renthusagent.planFeatures.v1.${companyId}`;
 }
 
-function readSessionCache(companyId: string): PlanFeaturesData | undefined {
-    if (typeof window === "undefined") return undefined;
+type StoredBlob = {
+    planKey?: string | null;
+    features?: string[];
+    at?: number;
+};
+
+function parseStored(companyId: string, raw: string | null, maxAgeMs: number): PlanFeaturesData | undefined {
+    if (!raw) return undefined;
     try {
-        const raw = sessionStorage.getItem(storageKey(companyId));
-        if (!raw) return undefined;
-        const parsed = JSON.parse(raw) as {
-            planKey?: string | null;
-            features?: string[];
-            at?: number;
-        };
+        const parsed = JSON.parse(raw) as StoredBlob;
         if (!Array.isArray(parsed.features)) return undefined;
         const at = Number(parsed.at ?? 0);
-        // Sessão: no máx. 2h sem revalidar a partir do storage
-        if (!Number.isFinite(at) || Date.now() - at > 2 * 60 * 60 * 1000) return undefined;
+        if (!Number.isFinite(at) || Date.now() - at > maxAgeMs) return undefined;
         return {
             planKey: parsed.planKey ?? null,
             features: parsed.features,
@@ -47,19 +48,67 @@ function readSessionCache(companyId: string): PlanFeaturesData | undefined {
     }
 }
 
-function writeSessionCache(data: PlanFeaturesData): void {
+/** Last-known entitlements: localStorage (PWA reload) + migrate de sessionStorage. */
+function readDurableCache(companyId: string): PlanFeaturesData | undefined {
+    if (typeof window === "undefined") return undefined;
+    try {
+        const fromLocal = parseStored(
+            companyId,
+            localStorage.getItem(storageKey(companyId)),
+            PLAN_FEATURES_LOCAL_TTL_MS
+        );
+        if (fromLocal) return fromLocal;
+
+        const fromSession = parseStored(
+            companyId,
+            sessionStorage.getItem(storageKey(companyId)),
+            PLAN_FEATURES_LOCAL_TTL_MS
+        );
+        if (fromSession) {
+            writeDurableCache(fromSession);
+            try {
+                sessionStorage.removeItem(storageKey(companyId));
+            } catch {
+                /* ignore */
+            }
+            return fromSession;
+        }
+    } catch {
+        /* private mode */
+    }
+    return undefined;
+}
+
+function writeDurableCache(data: PlanFeaturesData): void {
+    if (typeof window === "undefined") return;
+    const payload = JSON.stringify({
+        planKey: data.planKey,
+        features: data.features,
+        at: Date.now(),
+    });
+    try {
+        localStorage.setItem(storageKey(data.companyId), payload);
+    } catch {
+        /* quota / private mode */
+    }
+    try {
+        sessionStorage.setItem(storageKey(data.companyId), payload);
+    } catch {
+        /* ignore */
+    }
+}
+
+function clearDurableCache(companyId: string): void {
     if (typeof window === "undefined") return;
     try {
-        sessionStorage.setItem(
-            storageKey(data.companyId),
-            JSON.stringify({
-                planKey: data.planKey,
-                features: data.features,
-                at: Date.now(),
-            })
-        );
+        localStorage.removeItem(storageKey(companyId));
     } catch {
-        // quota / private mode — ignore
+        /* ignore */
+    }
+    try {
+        sessionStorage.removeItem(storageKey(companyId));
+    } catch {
+        /* ignore */
     }
 }
 
@@ -81,7 +130,7 @@ export async function fetchPlanFeatures(companyId: string): Promise<PlanFeatures
         planKey: json.plan_key ?? null,
         features: Array.isArray(json.enabled_features) ? json.enabled_features : [],
     };
-    writeSessionCache(data);
+    writeDurableCache(data);
     return data;
 }
 
@@ -91,11 +140,7 @@ export function useInvalidatePlanFeatures() {
     const { currentCompanyId } = useWorkspace();
     return useCallback(() => {
         if (!currentCompanyId) return;
-        try {
-            sessionStorage.removeItem(storageKey(currentCompanyId));
-        } catch {
-            /* ignore */
-        }
+        clearDurableCache(currentCompanyId);
         void qc.invalidateQueries({ queryKey: planFeaturesQueryKey(currentCompanyId) });
     }, [qc, currentCompanyId]);
 }
@@ -109,7 +154,7 @@ export function usePrefetchPlanFeatures() {
 
     useEffect(() => {
         if (!currentCompanyId) return;
-        const cached = readSessionCache(currentCompanyId);
+        const cached = readDurableCache(currentCompanyId);
         if (cached) {
             qc.setQueryData(planFeaturesQueryKey(currentCompanyId), cached);
         }
@@ -123,49 +168,62 @@ export function usePrefetchPlanFeatures() {
 
 /**
  * Features do plano atual (endpoint leve /api/billing/features).
- * Cache TanStack Query + sessionStorage por company_id.
- * UI: só "loading" sem dado em cache — com cache, libera na hora e revalida em background.
+ * Cache TanStack Query + localStorage por company_id (sobrevive reload PWA offline).
  */
 export function usePlanFeatures(): {
     loading: boolean;
+    /** Sem last-known e sem rede — não confundir com “plano sem feature”. */
+    unavailable: boolean;
     planKey: string | null;
     features: ReadonlySet<string>;
     has: (key: string) => boolean;
 } {
     const { currentCompanyId, loading: workspaceLoading } = useWorkspace();
+    const browserOffline =
+        typeof navigator !== "undefined" && navigator.onLine === false;
 
-    const { data, isPending, isError } = useQuery({
+    const { data, isPending, isError, fetchStatus } = useQuery({
         queryKey: planFeaturesQueryKey(currentCompanyId ?? "__none__"),
         queryFn: () => fetchPlanFeatures(currentCompanyId!),
         enabled: Boolean(currentCompanyId),
         staleTime: PLAN_FEATURES_STALE_MS,
         gcTime: PLAN_FEATURES_GC_MS,
         refetchOnWindowFocus: false,
-        // Com initialData/cache: não fica isPending; revalida em background se stale.
         retry: 1,
         initialData: () =>
-            currentCompanyId ? readSessionCache(currentCompanyId) : undefined,
+            currentCompanyId ? readDurableCache(currentCompanyId) : undefined,
         initialDataUpdatedAt: () => {
             if (!currentCompanyId) return 0;
-            return readSessionCache(currentCompanyId) ? Date.now() : 0;
+            return readDurableCache(currentCompanyId) ? Date.now() : 0;
         },
     });
 
     const featureList = data?.features ?? [];
     const featureSet = new Set(featureList);
+    const hasData = Boolean(data && Array.isArray(data.features));
+
     /**
-     * Enquanto o workspace resolve `companyId` OU o fetch de features ainda não
-     * trouxe dado, a UI deve tratar como "loading" (fail-open no menu).
-     * Bug antigo: `loading` era false quando `currentCompanyId` ainda era null,
-     * então o sidebar filtrava com Set vazio e as abas gated só apareciam depois
-     * (parecia "demora pra carregar todas as abas").
+     * Offline + Query paused sem dado: não ficar em “Verificando plano…” eterno
+     * (networkMode online do QueryClient).
      */
+    const pausedOffline = fetchStatus === "paused" || browserOffline;
     const loading =
         workspaceLoading ||
-        (Boolean(currentCompanyId) && !data && isPending && !isError);
+        (Boolean(currentCompanyId) &&
+            !hasData &&
+            isPending &&
+            !isError &&
+            !pausedOffline);
+
+    const unavailable =
+        Boolean(currentCompanyId) &&
+        !hasData &&
+        !loading &&
+        (isError || pausedOffline);
 
     return {
         loading,
+        unavailable,
         planKey: data?.planKey ?? null,
         features: featureSet,
         has: (key: string) => featureSet.has(key),

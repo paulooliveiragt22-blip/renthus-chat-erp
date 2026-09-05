@@ -129,6 +129,17 @@ Defaults antigos do ADR (50 cmds / ACK-only print) **supersedidos** pelas decis�
 
 ---
 
+## Hotfix pós-smoke (2026-09-05)
+
+| # | Item | Estado |
+|---|------|--------|
+| HF.1 | Finalize PDV: fallback outbox se `Failed to fetch` (`navigator.onLine` mente no Windows) | [x] código local — redeploy |
+| HF.2 | `planFeatures` em **localStorage** (TTL 48h) + gate fail-soft offline (não mostrar “upgrade”) | [x] código local — redeploy |
+
+**Não confundir:** docs de rate-limit “in-memory → Upstash” (`rateLimitDistributed`, INFRA-1) são **servidor** (Redis). Não substituem cache de entitlements/UI no browser da PWA.
+
+---
+
 ## Explicitamente fora (não fazer “de passagem”)
 
 - Cachear ou enqueue billing / webhooks Pagar.me  
