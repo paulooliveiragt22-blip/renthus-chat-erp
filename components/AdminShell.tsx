@@ -29,6 +29,7 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
         pathname === "/plano/pagar" ||
         pathname === "/plano/bloqueado" ||
         pathname === "/plano/reativar" ||
+        pathname === "/logout" ||
         pathname.startsWith("/c/") ||
         pathname === "/c" ||
         pathname.startsWith("/superadmin") ||

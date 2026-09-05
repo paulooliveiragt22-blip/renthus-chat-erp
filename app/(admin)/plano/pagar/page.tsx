@@ -26,7 +26,7 @@ export default function PlanoPagarPage() {
                         href="/logout"
                         className="text-xs font-semibold text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200"
                     >
-                        Sair
+                        Sair da conta
                     </Link>
                 </div>
             </header>

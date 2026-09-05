@@ -21,7 +21,7 @@ export default function PlanoBloqueadoPage() {
                 Ir para pagamento
             </Link>
             <Link href="/logout" className="text-xs font-semibold text-zinc-500 hover:text-zinc-800">
-                Sair
+                Sair da conta
             </Link>
         </div>
     );

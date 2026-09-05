@@ -32,7 +32,7 @@ export default function PlanoReativarPage() {
         <div className="mx-auto flex max-w-lg items-center justify-between">
           <img src="/brand/renthus-wordmark-on-light.svg?v=mark8" alt="RenthusAgent" className="h-7 w-auto dark:hidden" />
           <img src="/brand/renthus-wordmark-on-dark.svg?v=mark8" alt="RenthusAgent" className="hidden h-7 w-auto dark:block" />
-          <Link href="/logout" className="text-xs font-semibold text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200">Sair</Link>
+          <Link href="/logout" className="text-xs font-semibold text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200">Sair da conta</Link>
         </div>
       </header>
       <main className="mx-auto flex max-w-lg flex-col gap-6 px-4 py-8">
