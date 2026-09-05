@@ -1,5 +1,4 @@
--- Restaura rpc_self_reactivate_subscription: owner check + EXECUTE só service_role.
--- A rota /api/billing/self-reactivate chama via admin (service_role) após requireCompanyAccess.
+-- Fix: COALESCE(text, subscription_plan) — cast enum para text.
 
 create or replace function public.rpc_self_reactivate_subscription(
   p_company_id uuid,
@@ -18,6 +17,7 @@ declare
   v_now       timestamptz := now();
   v_trial_end timestamptz;
   v_cooldown  interval := interval '60 days';
+  v_plan_key  text;
 begin
   if v_user_id is null then
     raise exception 'unauthenticated';
@@ -45,7 +45,8 @@ begin
     raise exception 'subscription_not_found';
   end if;
 
-  if v_sub.status not in ('abandoned', 'blocked', 'cancelled', 'overdue', 'pending_payment') then
+  -- Conta nova (pay-to-start) paga em /plano/pagar — reativação só pós-abandono/inatividade.
+  if v_sub.status not in ('abandoned', 'blocked', 'cancelled') then
     raise exception 'invalid_status_for_reactivation: current status is %', v_sub.status;
   end if;
 
@@ -56,9 +57,11 @@ begin
       (v_sub.abandoned_at + v_cooldown)::date;
   end if;
 
+  v_plan_key := coalesce(nullif(btrim(p_plan_key), ''), v_sub.plan_key, v_sub.plan::text);
+
   v_trial_end := v_now + (
     case
-      when coalesce(p_plan_key, v_sub.plan::text, v_sub.plan_key) = 'essencial' then interval '14 days'
+      when v_plan_key = 'essencial' then interval '14 days'
       else interval '7 days'
     end
   );
@@ -86,6 +89,3 @@ $fn$;
 alter function public.rpc_self_reactivate_subscription(uuid, text, uuid) owner to postgres;
 revoke all on function public.rpc_self_reactivate_subscription(uuid, text, uuid) from public;
 grant execute on function public.rpc_self_reactivate_subscription(uuid, text, uuid) to service_role;
-
--- Assinatura antiga (2 args) — evita EXECUTE acidental em stub legado.
-drop function if exists public.rpc_self_reactivate_subscription(uuid, text);

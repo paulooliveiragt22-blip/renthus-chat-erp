@@ -1,6 +1,7 @@
 "use client";
 
-import React, { useCallback, useEffect, useId, useState } from "react";
+import React, { useCallback, useEffect, useId, useMemo, useState } from "react";
+import Link from "next/link";
 import { CalendarClock, CircleDollarSign, CreditCard, Loader2 } from "lucide-react";
 import { useWorkspace } from "@/lib/workspace/useWorkspace";
 import { useInvalidatePlanFeatures } from "@/lib/billing/usePlanFeatures";
@@ -91,7 +92,7 @@ type PlanBillingPanelProps = {
 };
 
 export default function PlanBillingPanel({ variant = "full" }: PlanBillingPanelProps) {
-    const { currentCompanyId: companyId, loading: workspaceLoading } = useWorkspace();
+    const { currentCompanyId: companyId, loading: workspaceLoading, reload: reloadWorkspace } = useWorkspace();
     const invalidatePlanFeatures = useInvalidatePlanFeatures();
 
     const [companyLoading, setCompanyLoading] = useState(true);
@@ -189,6 +190,12 @@ export default function PlanBillingPanel({ variant = "full" }: PlanBillingPanelP
     useEffect(() => {
         void loadCompany();
     }, [loadCompany]);
+
+    useEffect(() => {
+        if (!companyId && !workspaceLoading) {
+            void reloadWorkspace();
+        }
+    }, [companyId, workspaceLoading, reloadWorkspace]);
 
     useEffect(() => {
         void loadBilling();
@@ -476,6 +483,13 @@ export default function PlanBillingPanel({ variant = "full" }: PlanBillingPanelP
     }
 
     const loading = workspaceLoading || companyLoading || billingLoading;
+    const paywallStatus = billingData?.pagarme_subscription?.status ?? "";
+    const showReactivateHint = useMemo(
+        () =>
+            variant === "pay" &&
+            ["abandoned", "blocked", "cancelled"].includes(String(paywallStatus).toLowerCase()),
+        [variant, paywallStatus]
+    );
 
     return (
         <div className="flex flex-col gap-6">
@@ -490,6 +504,14 @@ export default function PlanBillingPanel({ variant = "full" }: PlanBillingPanelP
             {loading ? (
                 <div className="flex justify-center py-10">
                     <Loader2 className="h-7 w-7 animate-spin text-violet-500" />
+                </div>
+            ) : null}
+
+            {!loading && !billingData && !billingErr ? (
+                <div className="rounded-lg border border-zinc-200 bg-zinc-50 px-4 py-6 text-center text-sm text-zinc-600 dark:border-zinc-700 dark:bg-zinc-800/50 dark:text-zinc-300">
+                    {workspaceLoading || !companyId
+                        ? "Carregando sua empresa…"
+                        : "Não foi possível carregar o checkout. Atualize a página ou tente novamente."}
                 </div>
             ) : null}
 
@@ -1214,6 +1236,19 @@ export default function PlanBillingPanel({ variant = "full" }: PlanBillingPanelP
                     >
                         Atualizar dados
                     </button>
+                </div>
+            ) : null}
+
+            {showReactivateHint ? (
+                <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200">
+                    <strong>Assinatura desativada por inatividade?</strong>{" "}
+                    <Link
+                        href="/plano/reativar"
+                        className="font-semibold underline hover:text-amber-700 dark:hover:text-amber-100"
+                    >
+                        Reative aqui
+                    </Link>{" "}
+                    para ganhar um novo período de teste.
                 </div>
             ) : null}
         </div>

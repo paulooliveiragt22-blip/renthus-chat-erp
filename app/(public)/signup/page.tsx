@@ -295,10 +295,10 @@ export default function SignupPage() {
                 }
             }
 
-            router.replace(
+            window.location.assign(
                 data.payment_required ? "/plano/pagar" : "/ativar"
             );
-            router.refresh();
+            return;
         } catch {
             setError("Erro de conexão. Tente novamente.");
         } finally {
@@ -616,11 +616,16 @@ export default function SignupPage() {
                     {error && <div style={S.errorBox}>{error}</div>}
 
                     <button type="submit" disabled={loading} style={{ ...S.submitBtn, opacity: loading ? 0.7 : 1 }}>
-                        {loading ? "Criando conta…" : "Criar conta e começar o teste →"}
+                        {loading
+                            ? "Criando conta…"
+                            : policyLoaded && trialPolicy.payment_required
+                              ? "Criar conta e ir para pagamento →"
+                              : "Criar conta e começar o teste →"}
                     </button>
                     <p style={S.secureNote}>
-                        Ao continuar, você concorda em usar o sistema nas condições do período de teste e da
-                        mensalidade após o vencimento.
+                        {policyLoaded && trialPolicy.payment_required
+                            ? "Ao continuar, você será direcionado ao pagamento da primeira mensalidade para liberar o acesso."
+                            : "Ao continuar, você concorda em usar o sistema nas condições do período de teste e da mensalidade após o vencimento."}
                     </p>
                 </form>
             )}
