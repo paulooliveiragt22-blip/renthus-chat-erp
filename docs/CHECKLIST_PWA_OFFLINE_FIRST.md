@@ -123,9 +123,26 @@ Defaults antigos do ADR (50 cmds / ACK-only print) **supersedidos** pelas decis�
 1–4. P0 → P2 entregues
 5. P3.1 → P3.6 (SW polish) entregue
 6. P4 no-go (ficar no next-pwa) até nova dor
+7. P5 (D-P6 M1–M9) — ondas P5a → P5e
 ```
 
 **Regra anti-contexto-perdido:** a cada PR, marcar linhas `[x] YYYY-MM-DD` nesta checklist e citar o # (ex.: `P0.5`, `Perf-3`) no corpo do PR. Não abrir P1 mutação com O0.5–O0.9 em `[ ]`. P1 sem Perf-1…5 = incompleto.
+
+---
+
+## Fase P5 — Admin offline ampliado (D-P6 = M1–M9)
+
+**Decisão owner:** M1…M9 **todos** entram (2026-09-05). Implementação por onda.
+
+| Onda | Itens | Função | Estado |
+|------|-------|--------|--------|
+| **P5a** | M2 + prefetch snapshots (pedidos, fila, clientes, drivers, printers) + M8 read | UI/reload sem abrir abas; busca produtos Pedidos = catálogo IDB | [x] 2026-09-05 |
+| **P5b** | M3 + M6 | Status `out_for_delivery` + atribuir entregador | [ ] |
+| **P5c** | M1 | Criar pedido admin → outbox (mesmo catálogo/idempotência do PDV) | [ ] |
+| **P5d** | M4 + M5 + M9 | Estoque / cliente leve / produto preço-cadastro | [ ] |
+| **P5e** | M7 + M8 reprint | Fila claim + reprint offline quando aplicável | [ ] |
+
+**DoD por onda:** testes unitários domínio/sync + smoke galpão daquela onda; RPC/idempotência no Postgres; sem tabela crua no client.
 
 ---
 
@@ -163,3 +180,4 @@ Defaults antigos do ADR (50 cmds / ACK-only print) **supersedidos** pelas decis�
 | D-P3 | 24h / 200 comandos | owner | 2026-09-05 |
 | D-P4 | Sim, concorrente + client_mutation_id | owner | 2026-09-05 |
 | D-P5 | Print local + Local Print Bus (sync marca done, sem reimpressão) | owner | 2026-09-05 |
+| D-P6 | **M1–M9 todos** (P5a→P5e sequenciado) | owner | 2026-09-05 |

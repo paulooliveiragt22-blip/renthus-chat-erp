@@ -13,6 +13,7 @@ import ImpersonationBanner from "@/components/platform/ImpersonationBanner";
 import { SyncStatusBar } from "@/lib/offline/presentation/SyncStatusBar";
 import { PwaUpdateBanner } from "@/lib/offline/presentation/PwaUpdateBanner";
 import { installOutboxWakeListeners } from "@/lib/offline/adapters/workboxBgSyncBridge";
+import { prefetchAdminOfflineSnapshots } from "@/lib/offline/browserStores";
 import { useWorkspace } from "@/lib/workspace/useWorkspace";
 import { installBillingFetchInterceptor } from "@/lib/billing/installBillingFetchInterceptor";
 import { useAdminPrimaryDockVisible } from "@/lib/ui/useAdminPrimaryDockVisible";
@@ -52,6 +53,18 @@ function AdminShellInner({ children }: { children: React.ReactNode }) {
 
     useEffect(() => {
         return installOutboxWakeListeners(() => currentCompanyId);
+    }, [currentCompanyId]);
+
+    // P5a: prefetch catálogo + listas admin enquanto online (sem abrir cada aba)
+    useEffect(() => {
+        if (!currentCompanyId) return;
+        if (typeof navigator !== "undefined" && !navigator.onLine) return;
+        void prefetchAdminOfflineSnapshots(currentCompanyId);
+        const onOnline = () => {
+            void prefetchAdminOfflineSnapshots(currentCompanyId);
+        };
+        window.addEventListener("online", onOnline);
+        return () => window.removeEventListener("online", onOnline);
     }, [currentCompanyId]);
 
     // ── Sidebar mobile ────────────────────────────────────────────────────────

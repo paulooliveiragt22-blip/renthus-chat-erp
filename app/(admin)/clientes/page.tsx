@@ -7,6 +7,7 @@ import {
   CreditCard, Clock, TrendingDown, FileText,
 } from "lucide-react";
 import { useWorkspace } from "@/lib/workspace/useWorkspace";
+import { loadAdminListSnapshotEntries } from "@/lib/offline/browserStores";
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
 const brl = (v: number) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -533,9 +534,27 @@ export default function ClientesPage() {
   const load = useCallback(async () => {
     if (!companyId) return;
     setLoading(true);
-    const res = await fetch("/api/admin/customers", { credentials: "include", cache: "no-store" });
-    const json = await res.json().catch(() => ({}));
-    setCustomers((json.customers as Customer[]) ?? []);
+    const offline = typeof navigator !== "undefined" && !navigator.onLine;
+    if (offline) {
+      const cached = await loadAdminListSnapshotEntries<Customer>(companyId, "customers");
+      setCustomers(cached);
+      setLoading(false);
+      return;
+    }
+    try {
+      const res = await fetch("/api/admin/customers", { credentials: "include", cache: "no-store" });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const cached = await loadAdminListSnapshotEntries<Customer>(companyId, "customers");
+        setCustomers(cached.length > 0 ? cached : ((json.customers as Customer[]) ?? []));
+        setLoading(false);
+        return;
+      }
+      setCustomers((json.customers as Customer[]) ?? []);
+    } catch {
+      const cached = await loadAdminListSnapshotEntries<Customer>(companyId, "customers");
+      setCustomers(cached);
+    }
     setLoading(false);
   }, [companyId]);
 

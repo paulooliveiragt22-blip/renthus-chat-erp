@@ -8,9 +8,12 @@ import { enqueueCommand } from "@/lib/offline/application/enqueueCommand";
 import { isOfflineOrderStatusAllowed } from "@/lib/offline/domain/SyncEligibility";
 import {
     flushCompanyOutbox,
+    getBrowserCatalogSnapshotStore,
     getBrowserOutboxStore,
+    loadAdminListSnapshotEntries,
     refreshSyncPendingBadge,
 } from "@/lib/offline/browserStores";
+import { searchOrderVariantsFromCatalogEntries } from "@/lib/offline/application/mapCatalogToOrderVariant";
 import {
     AlertTriangle,
     Bike,
@@ -558,63 +561,121 @@ export default function PedidosPage() {
         });
         if (q.trim().length >= 2) params.set("q", q.trim());
 
-        const res = await fetch(`/api/admin/orders?${params}`, {
-            cache: "no-store",
-            credentials: "include",
-        });
-        const json = await res.json().catch(() => ({}));
-        if (!res.ok) {
-            setMsg(`Erro ao carregar pedidos: ${json?.error ?? "falha desconhecida"}`);
-            setOrders([]);
-            setListTotal(0);
+        const applyCachedOrders = (incoming: OrderRow[], notice: string | null) => {
+            setOrders(incoming as any);
+            setListTotal(incoming.length);
             setListTotalPages(1);
             setLoading(false);
+            if (notice) setMsg(notice);
+        };
+
+        const offline = typeof navigator !== "undefined" && !navigator.onLine;
+        if (offline && companyId) {
+            let cached = await loadAdminListSnapshotEntries<OrderRow>(companyId, "orders");
+            if (status && status !== "all") {
+                cached = cached.filter(
+                    (o) => String(o.status ?? "").toLowerCase() === status.toLowerCase()
+                );
+            }
+            if (q.trim().length >= 2) {
+                const qq = q.trim().toLowerCase();
+                cached = cached.filter((o) => {
+                    const blob = `${o.customer_name ?? ""} ${o.id} ${o.status ?? ""}`.toLowerCase();
+                    return blob.includes(qq);
+                });
+            }
+            applyCachedOrders(
+                cached,
+                cached.length === 0
+                    ? "Offline: nenhum pedido em cache. Abra o admin online uma vez (prefetch)."
+                    : "Offline — lista em cache (prefetch)."
+            );
             return;
         }
-        const incoming = (Array.isArray(json.orders) ? json.orders : []) as OrderRow[];
-        const meta = (json.meta ?? {}) as {
-            total?: number;
-            total_pages?: number;
-            stats?: typeof serverStats;
-            summary?: typeof serverSummary;
-        };
-        if (meta.stats) setServerStats(meta.stats);
-        if (meta.summary) setServerSummary(meta.summary);
-        setListTotal(Number(meta.total ?? incoming.length));
-        setListTotalPages(Math.max(1, Number(meta.total_pages ?? 1)));
 
-        const nextSnapshot: Record<string, { status: string; total: number }> = {
-            ...ordersSnapshotRef.current,
-        };
-        const toFlash: string[] = [];
-        const now = Date.now();
-        setRecentOrders((prev) => {
-            const next = { ...prev };
-            for (const o of incoming) {
-                nextSnapshot[o.id] = { status: String(o.status ?? ""), total: Number(o.total_amount ?? 0) };
-                const old = ordersSnapshotRef.current[o.id];
-                if (!old) {
-                    next[o.id] = now;
-                    toFlash.push(o.id);
-                } else if (old.status !== nextSnapshot[o.id].status || old.total !== nextSnapshot[o.id].total) {
-                    toFlash.push(o.id);
+        try {
+            const res = await fetch(`/api/admin/orders?${params}`, {
+                cache: "no-store",
+                credentials: "include",
+            });
+            const json = await res.json().catch(() => ({}));
+            if (!res.ok) {
+                if (companyId) {
+                    const cached = await loadAdminListSnapshotEntries<OrderRow>(companyId, "orders");
+                    if (cached.length > 0) {
+                        applyCachedOrders(cached, "Rede indisponível — pedidos em cache.");
+                        return;
+                    }
+                }
+                setMsg(`Erro ao carregar pedidos: ${json?.error ?? "falha desconhecida"}`);
+                setOrders([]);
+                setListTotal(0);
+                setListTotalPages(1);
+                setLoading(false);
+                return;
+            }
+            const incoming = (Array.isArray(json.orders) ? json.orders : []) as OrderRow[];
+            const meta = (json.meta ?? {}) as {
+                total?: number;
+                total_pages?: number;
+                stats?: typeof serverStats;
+                summary?: typeof serverSummary;
+            };
+            if (meta.stats) setServerStats(meta.stats);
+            if (meta.summary) setServerSummary(meta.summary);
+            setListTotal(Number(meta.total ?? incoming.length));
+            setListTotalPages(Math.max(1, Number(meta.total_pages ?? 1)));
+
+            const nextSnapshot: Record<string, { status: string; total: number }> = {
+                ...ordersSnapshotRef.current,
+            };
+            const toFlash: string[] = [];
+            const now = Date.now();
+            setRecentOrders((prev) => {
+                const next = { ...prev };
+                for (const o of incoming) {
+                    nextSnapshot[o.id] = {
+                        status: String(o.status ?? ""),
+                        total: Number(o.total_amount ?? 0),
+                    };
+                    const old = ordersSnapshotRef.current[o.id];
+                    if (!old) {
+                        next[o.id] = now;
+                        toFlash.push(o.id);
+                    } else if (
+                        old.status !== nextSnapshot[o.id].status ||
+                        old.total !== nextSnapshot[o.id].total
+                    ) {
+                        toFlash.push(o.id);
+                    }
+                }
+                return next;
+            });
+            ordersSnapshotRef.current = nextSnapshot;
+            if (toFlash.length > 0) {
+                setFlashOrders((prev) => new Set([...prev, ...toFlash]));
+                globalThis.setTimeout(() => {
+                    setFlashOrders((prev) => {
+                        const next = new Set(prev);
+                        for (const id of toFlash) next.delete(id);
+                        return next;
+                    });
+                }, 2000);
+            }
+            setOrders(incoming as any);
+            setLoading(false);
+        } catch {
+            if (companyId) {
+                const cached = await loadAdminListSnapshotEntries<OrderRow>(companyId, "orders");
+                if (cached.length > 0) {
+                    applyCachedOrders(cached, "Rede indisponível — pedidos em cache.");
+                    return;
                 }
             }
-            return next;
-        });
-        ordersSnapshotRef.current = nextSnapshot;
-        if (toFlash.length > 0) {
-            setFlashOrders((prev) => new Set([...prev, ...toFlash]));
-            globalThis.setTimeout(() => {
-                setFlashOrders((prev) => {
-                    const next = new Set(prev);
-                    for (const id of toFlash) next.delete(id);
-                    return next;
-                });
-            }, 2000);
+            setMsg("Erro ao carregar pedidos: falha de rede");
+            setOrders([]);
+            setLoading(false);
         }
-        setOrders(incoming as any);
-        setLoading(false);
     }
 
     async function runVariantSearch(text: string, opts: { setText:(v:string)=>void; setResults:(v:Variant[])=>void; setSearching:(v:boolean)=>void; ensureDraft:(ids:string[])=>void; }) {
@@ -623,29 +684,82 @@ export default function PedidosPage() {
         setMsg(null);
         if (t.length < 2) { opts.setResults([]); return; }
         opts.setSearching(true);
-        const res = await fetch(`/api/admin/products/search?q=${encodeURIComponent(t)}`, {
-            cache: "no-store",
-            credentials: "include",
-        });
-        const json = await res.json().catch(() => ({}));
-        if (!res.ok) {
-            setMsg(`Erro na busca: ${json?.error ?? "falha desconhecida"}`);
-            opts.setResults([]);
+
+        const applyLocalCatalog = async () => {
+            if (!companyId) return [] as Variant[];
+            const snap = await getBrowserCatalogSnapshotStore().load(companyId);
+            if (!snap?.entries?.length) return [];
+            return searchOrderVariantsFromCatalogEntries(snap.entries, t, 40);
+        };
+
+        const offline = typeof navigator !== "undefined" && !navigator.onLine;
+        if (offline) {
+            const top = await applyLocalCatalog();
+            opts.setResults(top);
+            opts.ensureDraft(top.map((x) => x.id));
             opts.setSearching(false);
+            if (top.length === 0) {
+                setMsg("Offline: catálogo local vazio. Abra o admin online uma vez (prefetch).");
+            }
             return;
         }
 
-        const top = (json.variants ?? []) as Variant[];
-        opts.setResults(top);
-        opts.ensureDraft(top.map((x) => x.id));
-        opts.setSearching(false);
+        try {
+            const res = await fetch(`/api/admin/products/search?q=${encodeURIComponent(t)}`, {
+                cache: "no-store",
+                credentials: "include",
+            });
+            const json = await res.json().catch(() => ({}));
+            if (!res.ok) {
+                const top = await applyLocalCatalog();
+                if (top.length > 0) {
+                    opts.setResults(top);
+                    opts.ensureDraft(top.map((x) => x.id));
+                    opts.setSearching(false);
+                    setMsg("Rede falhou — busca no catálogo local.");
+                    return;
+                }
+                setMsg(`Erro na busca: ${json?.error ?? "falha desconhecida"}`);
+                opts.setResults([]);
+                opts.setSearching(false);
+                return;
+            }
+
+            const top = (json.variants ?? []) as Variant[];
+            opts.setResults(top);
+            opts.ensureDraft(top.map((x) => x.id));
+            opts.setSearching(false);
+        } catch {
+            const top = await applyLocalCatalog();
+            opts.setResults(top);
+            opts.ensureDraft(top.map((x) => x.id));
+            opts.setSearching(false);
+            if (top.length === 0) setMsg("Erro na busca: falha de rede");
+            else setMsg("Rede falhou — busca no catálogo local.");
+        }
     }
 
     async function loadDrivers(cid: string) {
-        const res = await fetch("/api/admin/drivers", { cache: "no-store", credentials: "include" });
-        const json = await res.json().catch(() => ({}));
-        const data = (json.drivers ?? []) as Driver[];
-        setDrivers(data.filter((d) => d.is_active));
+        const offline = typeof navigator !== "undefined" && !navigator.onLine;
+        if (offline) {
+            const cached = await loadAdminListSnapshotEntries<Driver>(cid, "drivers");
+            setDrivers(cached.filter((d) => d.is_active));
+            return;
+        }
+        try {
+            const res = await fetch("/api/admin/drivers", { cache: "no-store", credentials: "include" });
+            const json = await res.json().catch(() => ({}));
+            if (!res.ok) {
+                const cached = await loadAdminListSnapshotEntries<Driver>(cid, "drivers");
+                setDrivers(cached.filter((d) => d.is_active));
+                return;
+            }
+            const data = (json.drivers ?? []) as Driver[];
+            setDrivers(data.filter((d) => d.is_active));
+        } catch {
+            const cached = await loadAdminListSnapshotEntries<Driver>(cid, "drivers");
+            setDrivers(cached.filter((d) => d.is_active));
+        }
     }
 
     async function fetchOrderSavedAddresses(customerId: string) {

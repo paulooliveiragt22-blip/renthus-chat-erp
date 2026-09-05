@@ -3,6 +3,7 @@
 import type { Dispatch, SetStateAction } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useWorkspace } from "@/lib/workspace/useWorkspace";
+import { loadAdminListSnapshotEntries } from "@/lib/offline/browserStores";
 import { Check, Clock, MessageCircle, Pencil, RefreshCcw, ShieldAlert, ShieldCheck, X } from "lucide-react";
 import { FilaOrderEditOverlay } from "@/components/fila/FilaOrderEditOverlay";
 import WhatsAppInbox from "@/components/whatsapp/WhatsAppInbox";
@@ -174,25 +175,44 @@ export default function FilaClient() {
   const fetchOrders = useCallback(async () => {
     if (!companyId) { setLoading(false); return; }
 
-    const res = await fetch("/api/admin/fila/pending-orders", { credentials: "include", cache: "no-store" });
-    const json = await res.json().catch(() => ({}));
-    if (!res.ok) { console.error("[Fila] fetch error:", json?.error ?? res.statusText); setLoading(false); return; }
-
-    const next = (json.orders ?? []) as PendingOrder[];
-
-    // Flash visual em pedidos novos (som fica a cargo do GlobalOrderNotifier)
-    const nextIds = new Set(next.map((o) => o.id));
-    if (prevIdsRef.current.size > 0) {
-      const addedIds = next.map((o) => o.id).filter((id) => !prevIdsRef.current.has(id));
-      if (addedIds.length > 0) {
-        setNewOrderIds((prev) => new Set([...prev, ...addedIds]));
-        scheduleClearNewOrderFlash(addedIds, setNewOrderIds);
+    const applyNext = (next: PendingOrder[]) => {
+      const nextIds = new Set(next.map((o) => o.id));
+      if (prevIdsRef.current.size > 0) {
+        const addedIds = next.map((o) => o.id).filter((id) => !prevIdsRef.current.has(id));
+        if (addedIds.length > 0) {
+          setNewOrderIds((prev) => new Set([...prev, ...addedIds]));
+          scheduleClearNewOrderFlash(addedIds, setNewOrderIds);
+        }
       }
-    }
-    prevIdsRef.current   = nextIds;
+      prevIdsRef.current = nextIds;
+      setOrders(next);
+      setLoading(false);
+    };
 
-    setOrders(next);
-    setLoading(false);
+    const offline = typeof navigator !== "undefined" && !navigator.onLine;
+    if (offline) {
+      const cached = await loadAdminListSnapshotEntries<PendingOrder>(companyId, "fila");
+      applyNext(cached);
+      return;
+    }
+
+    try {
+      const res = await fetch("/api/admin/fila/pending-orders", { credentials: "include", cache: "no-store" });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        console.error("[Fila] fetch error:", json?.error ?? res.statusText);
+        const cached = await loadAdminListSnapshotEntries<PendingOrder>(companyId, "fila");
+        if (cached.length > 0) applyNext(cached);
+        else setLoading(false);
+        return;
+      }
+      applyNext((json.orders ?? []) as PendingOrder[]);
+    } catch (e) {
+      console.error("[Fila] fetch error:", e);
+      const cached = await loadAdminListSnapshotEntries<PendingOrder>(companyId, "fila");
+      if (cached.length > 0) applyNext(cached);
+      else setLoading(false);
+    }
   }, [companyId]);
 
   const fetchApprovalSetting = useCallback(async () => {

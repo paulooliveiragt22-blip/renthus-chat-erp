@@ -1,9 +1,9 @@
 # ADR 0008 — PWA Offline-First: Local Command Outbox + Sync Engine
 
-**Status:** aceito (P0–P3 entregues 2026-09-05; P4 Serwist = no-go por ora)  
+**Status:** aceito (P0–P3 entregues 2026-09-05; P4 Serwist = no-go; **D-P6 M1–M9 fechado** → fase P5)  
 **Data:** 2026-09-05  
-**Escopo técnico:** outbox local (IndexedDB), sync engine, optimistic UI `pending`, cache SW, snapshot PDV, perf D7, Local Print Bus (D-P5).  
-**Escopo comercial / produto:** D-P1…D-P5 **fechadas** (ver § D6).
+**Escopo técnico:** outbox local (IndexedDB), sync engine, optimistic UI `pending`, cache SW, snapshot PDV, perf D7, Local Print Bus (D-P5), **P5 prefetch admin + mutações M1–M9**.  
+**Escopo comercial / produto:** D-P1…D-P6 **fechadas** (ver § D6).
 
 **Checklist:** [`CHECKLIST_PWA_OFFLINE_FIRST.md`](../CHECKLIST_PWA_OFFLINE_FIRST.md)  
 **Predecessor PWA:** `next.config.js` (`@ducanh2912/next-pwa` + Workbox), `app/offline/page.tsx`, `public/manifest.webmanifest`  
@@ -91,6 +91,25 @@ Hoje: `skipWaiting: true` + `reloadOnOnline: true`.
 | **D-P3** | Limite de fila: **24h** / **200** comandos (delivery raramente fica dias offline; 200 aguenta pico sem thundering herd extremo). | `SyncEligibility` | **[x] 2026-09-05** |
 | **D-P4** | Multi-aba/concorrente **sim** + `client_mutation_id` único (idempotência no servidor). | Unique constraint + outbox | **[x] 2026-09-05** |
 | **D-P5** | **Rascunho/impressão local na hora** + sync com sinalização “já impresso” para o agent **não** reimprimir (anti-enxurrada). Estrutura: **Local Print Bus** (abaixo). | Print Agent + outbox + `print_jobs` | **[x] 2026-09-05** |
+| **D-P6** | Escopo offline **admin ampliado** = **M1–M9 todos** (owner 2026-09-05). Entrega **sequenciada** P5a→P5e (não um PR monólito). | Prefetch IDB + allowlist + sync RPCs | **[x] 2026-09-05** |
+
+#### D-P6 — Mutações / recursos offline (M1–M9) — fechado
+
+| ID | Escopo | Write? | Onda |
+|----|--------|--------|------|
+| **M1** | Criar pedido (admin/Pedidos), alinhado ao outbox do PDV | sim | P5c |
+| **M2** | Busca produtos em Pedidos via snapshot catálogo (read) | não | P5a |
+| **M3** | Status offline além de preparing/delivered (ex.: `out_for_delivery`) | sim | P5b |
+| **M4** | Ajuste estoque manual | sim | P5d |
+| **M5** | CRUD cliente leve (nome/fone) | sim | P5d |
+| **M6** | Atribuir entregador / sair pra entrega | sim | P5b |
+| **M7** | Fila: claim / chamar próximo | sim | P5e |
+| **M8** | Impressoras: lista/config local (read) + reprint se job existir | read + reprint | P5a / P5e |
+| **M9** | Produtos: editar preço/cadastro offline | sim | P5d |
+
+**P5a (obrigatório antes das writes):** prefetch no `AdminShell` quando online — catálogo, pedidos recentes, fila, clientes top-N, entregadores, impressoras — em IDB com teto (Perf-1), **sem** exigir abrir cada aba. Reload offline usa last-known.
+
+**Ainda fora de D-P6:** billing/PSP, WhatsApp inbound/outbound, dual-write tabela crua no client.
 
 #### D-P1 — esclarecimento
 

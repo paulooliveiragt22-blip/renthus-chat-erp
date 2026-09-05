@@ -3,6 +3,7 @@
 
 import React, { useCallback, useEffect, useId, useRef, useState } from "react";
 import { useWorkspace } from "@/lib/workspace/useWorkspace";
+import { loadAdminListSnapshotEntries } from "@/lib/offline/browserStores";
 import {
     Bike, CheckCircle2, Loader2, Pencil, Phone,
     Plus, RefreshCw, Search, ToggleLeft, ToggleRight, Trash2, User, X,
@@ -121,10 +122,28 @@ export default function EntregadoresPage() {
     const load = useCallback(async () => {
         if (!companyId) return;
         setLoading(true);
-        const res = await fetch("/api/admin/drivers", { cache: "no-store", credentials: "include" });
-        const json = await res.json().catch(() => ({}));
-        if (!res.ok) { setMsg(`Erro: ${json?.error ?? "falha ao carregar entregadores"}`); setLoading(false); return; }
-        setDrivers((json.drivers as Driver[]) ?? []);
+        const offline = typeof navigator !== "undefined" && !navigator.onLine;
+        if (offline) {
+            const cached = await loadAdminListSnapshotEntries<Driver>(companyId, "drivers");
+            setDrivers(cached);
+            setLoading(false);
+            return;
+        }
+        try {
+            const res = await fetch("/api/admin/drivers", { cache: "no-store", credentials: "include" });
+            const json = await res.json().catch(() => ({}));
+            if (!res.ok) {
+                const cached = await loadAdminListSnapshotEntries<Driver>(companyId, "drivers");
+                if (cached.length > 0) setDrivers(cached);
+                else setMsg(`Erro: ${json?.error ?? "falha ao carregar entregadores"}`);
+                setLoading(false);
+                return;
+            }
+            setDrivers((json.drivers as Driver[]) ?? []);
+        } catch {
+            const cached = await loadAdminListSnapshotEntries<Driver>(companyId, "drivers");
+            setDrivers(cached);
+        }
         setLoading(false);
     }, [companyId]);
 

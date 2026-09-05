@@ -12,11 +12,22 @@ export const OFFLINE_COMMAND_STATUSES = [
 
 export type OfflineCommandStatus = (typeof OFFLINE_COMMAND_STATUSES)[number];
 
-/** Tipos conhecidos; P0 allowlist vazia — mutação de negócio só após D-P1…D-P5. */
+/**
+ * Tipos conhecidos (ADR-0008 D-P6).
+ * Allowlist efetiva em SyncEligibility cresce por onda P5a→P5e — tipo aqui ≠ já enfileirável.
+ */
 export type OfflineCommandType =
     | "noop"
     | "FinalizePdvSale"
-    | "UpdateOrderStatus";
+    | "UpdateOrderStatus"
+    | "CreateOrder" // M1 — P5c
+    | "AdjustStock" // M4 — P5d
+    | "UpsertCustomer" // M5 — P5d
+    | "AssignDriver" // M6 — P5b
+    | "QueueClaim" // M7 — P5e
+    | "ReprintJob" // M8 — P5e
+    | "UpsertProduct" // M9 — P5d
+    | "UpdateOrderStatusExtended"; // M3 — P5b (ou amplia UpdateOrderStatus)
 
 export type OfflineCommand = {
     id: string;

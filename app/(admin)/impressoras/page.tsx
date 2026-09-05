@@ -22,6 +22,7 @@ import {
     Zap,
 } from "lucide-react";
 import PlanFeatureGate from "@/components/billing/PlanFeatureGate";
+import { loadAdminListSnapshotEntries } from "@/lib/offline/browserStores";
 import {
     DEFAULT_AUTO_PRINT_COPIES,
     PRINT_COPY_TYPES,
@@ -177,9 +178,29 @@ export default function ImpressorasPage() {
 
     // ── data loaders ──────────────────────────────────────────────────────────
     const loadAgents = useCallback(async () => {
-        const res = await fetch("/api/agent/keys", { credentials: "include", cache: "no-store" });
-        if (res.ok) setAgents((await res.json()).agents ?? []);
-    }, []);
+        const offline = typeof navigator !== "undefined" && !navigator.onLine;
+        if (offline && companyId) {
+            const cached = await loadAdminListSnapshotEntries<AgentRow>(companyId, "printers");
+            setAgents(cached);
+            return;
+        }
+        try {
+            const res = await fetch("/api/agent/keys", { credentials: "include", cache: "no-store" });
+            if (res.ok) {
+                setAgents((await res.json()).agents ?? []);
+                return;
+            }
+            if (companyId) {
+                const cached = await loadAdminListSnapshotEntries<AgentRow>(companyId, "printers");
+                if (cached.length > 0) setAgents(cached);
+            }
+        } catch {
+            if (companyId) {
+                const cached = await loadAdminListSnapshotEntries<AgentRow>(companyId, "printers");
+                setAgents(cached);
+            }
+        }
+    }, [companyId]);
 
     // Fila agregada no servidor a partir de print_jobs + orders.
     const loadJobs = useCallback(async () => {
