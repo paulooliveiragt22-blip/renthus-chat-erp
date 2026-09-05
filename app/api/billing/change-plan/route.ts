@@ -1,14 +1,14 @@
 /**
  * POST /api/billing/change-plan
  *
- * Trial: qualquer plano comercial (imediato).
- * Active + upgrade: proration PIX (BN-11) — plano só após pagar.
+ * Trial / never-paid: troca livre (só RPC realign, sem PIX).
+ * Active + upgrade pago: proration PIX (BN-11).
  * Active + downgrade: agenda fim do ciclo (keep_user_ids se excesso). BN-12/R3-4.
  */
 
 import { NextResponse } from "next/server";
 import { requireCompanyAccess } from "@/lib/workspace/requireCompanyAccess";
-import { syncLogicalSubscription } from "@/lib/billing/pagarmeSetupPaid";
+import { syncPrepayPlanSelection } from "@/lib/billing/pagarmeSetupPaid";
 import { normalizePlanKey, parseCommercialPlanInput, planRank } from "@/lib/billing/planCatalog";
 import { rebillPendingObligationAfterPlanChange } from "@/lib/billing/rebillPendingObligation";
 import { scheduleDowngrade } from "@/lib/billing/scheduleDowngrade";
@@ -27,7 +27,8 @@ export async function POST(req: Request) {
         });
         if (!ctx.ok) return jsonAccessError(ctx);
 
-        const { admin, companyId } = ctx;
+        const { admin } = ctx;
+        const tenantId = ctx.companyId;
         const body = (await req.json()) as Body;
         const planKey = parseCommercialPlanInput(body?.plan);
         if (!planKey) {
@@ -36,11 +37,12 @@ export async function POST(req: Request) {
                 { status: 400 }
             );
         }
+        const targetPlan = planKey;
 
         const { data: row, error: fetchErr } = await admin
             .from("pagarme_subscriptions")
-            .select("id, plan, status, pending_plan_key")
-            .eq("company_id", companyId)
+            .select("id, plan, status, pending_plan_key, last_paid_at")
+            .eq("company_id", tenantId)
             .maybeSingle();
 
         if (fetchErr) return NextResponse.json({ error: fetchErr.message }, { status: 500 });
@@ -51,8 +53,35 @@ export async function POST(req: Request) {
             );
         }
 
+        const subId = row.id;
         const st = String(row.status ?? "");
         const current = normalizePlanKey(String(row.plan ?? "")) ?? String(row.plan ?? "");
+        const neverPaid =
+            row.last_paid_at == null || String(row.last_paid_at ?? "").trim() === "";
+
+        async function applyPrepayPlanChange() {
+            const { error: upErr } = await admin
+                .from("pagarme_subscriptions")
+                .update({
+                    plan: targetPlan,
+                    pending_plan_key: null,
+                    pending_plan_change_at: null,
+                    pending_keep_user_ids: null,
+                })
+                .eq("id", subId);
+
+            if (upErr) return { error: upErr.message, status: 500 as const };
+            await syncPrepayPlanSelection(admin, tenantId, targetPlan);
+            const rebill = await rebillPendingObligationAfterPlanChange(
+                admin,
+                tenantId,
+                targetPlan
+            );
+            return {
+                ok: true as const,
+                body: { ok: true, action: "changed", plan: targetPlan, rebill },
+            };
+        }
 
         if (st === "blocked" || st === "cancelled" || st === "overdue") {
             return NextResponse.json(
@@ -65,26 +94,22 @@ export async function POST(req: Request) {
         }
 
         if (current === planKey) {
-            const rebill = await rebillPendingObligationAfterPlanChange(admin, companyId, planKey);
+            const rebill = await rebillPendingObligationAfterPlanChange(admin, tenantId, targetPlan);
             return NextResponse.json({ ok: true, action: "noop", plan: current, rebill });
         }
 
         /** Never-paid: troca livre antes do 1º pagamento (checkout / signup). */
-        if (st === "pending_payment" || st === "pending_setup" || st === "trial") {
-            const { error: upErr } = await admin
-                .from("pagarme_subscriptions")
-                .update({
-                    plan: planKey,
-                    pending_plan_key: null,
-                    pending_plan_change_at: null,
-                    pending_keep_user_ids: null,
-                })
-                .eq("id", row.id);
-
-            if (upErr) return NextResponse.json({ error: upErr.message }, { status: 500 });
-            await syncLogicalSubscription(admin, companyId, planKey);
-            const rebill = await rebillPendingObligationAfterPlanChange(admin, companyId, planKey);
-            return NextResponse.json({ ok: true, action: "changed", plan: planKey, rebill });
+        if (
+            st === "pending_payment" ||
+            st === "pending_setup" ||
+            st === "trial" ||
+            (st === "active" && neverPaid)
+        ) {
+            const result = await applyPrepayPlanChange();
+            if ("error" in result) {
+                return NextResponse.json({ error: result.error }, { status: result.status });
+            }
+            return NextResponse.json(result.body);
         }
 
         if (st !== "active") {
@@ -98,7 +123,7 @@ export async function POST(req: Request) {
             const { data: company } = await admin
                 .from("companies")
                 .select("id, name, nome_fantasia, email, cnpj, whatsapp_phone, phone")
-                .eq("id", companyId)
+                .eq("id", tenantId)
                 .maybeSingle();
             if (!company) {
                 return NextResponse.json({ error: "company_not_found" }, { status: 404 });
@@ -106,7 +131,7 @@ export async function POST(req: Request) {
 
             try {
                 const checkout = await ensurePlanUpgradeCheckout(admin, {
-                    companyId,
+                    companyId: tenantId,
                     targetPlan: planKey,
                     company: {
                         name: company.name as string | null,
@@ -155,7 +180,7 @@ export async function POST(req: Request) {
         }
 
         if (planRank(planKey) < planRank(current)) {
-            const scheduled = await scheduleDowngrade(admin, companyId, {
+            const scheduled = await scheduleDowngrade(admin, tenantId, {
                 plan: planKey,
                 keep_user_ids: Array.isArray(body.keep_user_ids) ? body.keep_user_ids : undefined,
             });

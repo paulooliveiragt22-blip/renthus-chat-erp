@@ -255,7 +255,7 @@ export default function PlanBillingPanel({ variant = "full" }: PlanBillingPanelP
             // QR local / order antigo fica inválido após rebill — força novo PIX no valor do plano.
             setPixLiveCode(null);
             setPixLiveUrl(null);
-            await loadBilling();
+            await loadBilling({ silent: true });
             invalidatePlanFeatures();
         } catch {
             setBillingErr("Erro de rede.");
@@ -648,7 +648,13 @@ export default function PlanBillingPanel({ variant = "full" }: PlanBillingPanelP
                     </div>
                     ) : null}
 
-                    <div className={variant === "pay" ? "order-2 lg:order-2" : undefined}>
+                    <div
+                        className={
+                            variant === "pay"
+                                ? "lg:col-start-2 lg:row-start-1 lg:row-span-2 min-w-0"
+                                : undefined
+                        }
+                    >
                     {(() => {
                         const sub = billingData.pagarme_subscription;
                         const st = sub?.status ?? "";
@@ -1059,10 +1065,18 @@ export default function PlanBillingPanel({ variant = "full" }: PlanBillingPanelP
                         const mp = billingData.monthly_prices_brl ?? {};
                         const yp = billingData.yearly_prices_brl ?? {};
                         const ys = billingData.yearly_savings_percent ?? {};
+                        const neverPaid = !billingData.pagarme_subscription?.last_paid_at;
                         return (
-                            <div className={variant === "pay" ? "order-1 lg:order-1" : undefined}>
+                            <div
+                                className={
+                                    variant === "pay"
+                                        ? "lg:col-start-1 lg:row-start-1 min-w-0"
+                                        : undefined
+                                }
+                            >
                             <PlanChangeCatalog
-                                checkoutMode={variant === "pay"}
+                                checkoutMode={variant === "pay" || neverPaid}
+                                neverPaid={neverPaid}
                                 currentPlan={cur}
                                 status={st}
                                 billingPeriod={
@@ -1098,11 +1112,12 @@ export default function PlanBillingPanel({ variant = "full" }: PlanBillingPanelP
                                 planSaving={planSaving}
                                 onUpgradeOrTrial={(plan) => void changeRenthusPlan(plan)}
                                 onReload={async () => {
-                                    await loadBilling();
+                                    await loadBilling({ silent: true });
                                     invalidatePlanFeatures();
                                 }}
                                 onError={(msg) => setBillingErr(msg)}
                                 onPrepayPeriodChange={
+                                    neverPaid ||
                                     st === "pending_payment" ||
                                     st === "pending_setup" ||
                                     st === "trial"
@@ -1133,7 +1148,7 @@ export default function PlanBillingPanel({ variant = "full" }: PlanBillingPanelP
                                                   }
                                                   setPixLiveCode(null);
                                                   setPixLiveUrl(null);
-                                                  await loadBilling();
+                                                  await loadBilling({ silent: true });
                                               } catch {
                                                   setBillingErr("Erro de rede.");
                                               } finally {
@@ -1281,6 +1296,17 @@ export default function PlanBillingPanel({ variant = "full" }: PlanBillingPanelP
                         </div>
                     ) : null}
 
+                    {variant === "pay" ? (
+                        <button
+                            type="button"
+                            onClick={() => {
+                                void loadBilling({ silent: true });
+                            }}
+                            className="text-xs font-semibold text-violet-600 hover:text-violet-700 lg:col-start-2 lg:row-start-2"
+                        >
+                            Atualizar dados
+                        </button>
+                    ) : (
                     <button
                         type="button"
                         onClick={() => {
@@ -1290,6 +1316,7 @@ export default function PlanBillingPanel({ variant = "full" }: PlanBillingPanelP
                     >
                         Atualizar dados
                     </button>
+                    )}
                 </div>
             ) : null}
 

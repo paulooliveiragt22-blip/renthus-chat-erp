@@ -65,6 +65,46 @@ export async function syncLogicalSubscription(
     );
 }
 
+/**
+ * Troca plano antes do 1º pagamento (checkout / trial / pending_payment).
+ * Atualiza plan_id + plan_key sem alterar status nem started_at.
+ */
+export async function syncPrepayPlanSelection(
+    admin: ReturnType<typeof createAdminClient>,
+    companyId: string,
+    planKey: string
+) {
+    if (!companyId || !planKey) return;
+
+    const mappedKey = normalizePlanKey(planKey);
+    if (!mappedKey) return;
+
+    const { data: planRow, error: planErr } = await admin
+        .from("plans")
+        .select("id")
+        .eq("key", mappedKey)
+        .maybeSingle();
+
+    if (planErr || !planRow?.id) {
+        console.warn(
+            "[pagarmeSetupPaid] syncPrepayPlanSelection: plano não encontrado para key=",
+            planKey,
+            "| err=",
+            planErr?.message
+        );
+        return;
+    }
+
+    await admin
+        .from("pagarme_subscriptions")
+        .update({
+            plan_id:  planRow.id,
+            plan:     mappedKey as never,
+            plan_key: mappedKey,
+        })
+        .eq("company_id", companyId);
+}
+
 async function provisionUserAfterPayment(
     admin: ReturnType<typeof createAdminClient>,
     companyId: string,

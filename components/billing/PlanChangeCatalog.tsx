@@ -41,6 +41,8 @@ type Props = {
     onPrepayPeriodChange?: (period: ViewPeriod) => Promise<void> | void;
     /** Checkout inicial (/plano/pagar): seleção livre, sem upgrade/downgrade. */
     checkoutMode?: boolean;
+    /** Sem last_paid_at — nunca tratar como upgrade/downgrade de assinante pago. */
+    neverPaid?: boolean;
 };
 
 function brl(n: number) {
@@ -76,6 +78,7 @@ export function PlanChangeCatalog({
     onError,
     onPrepayPeriodChange,
     checkoutMode = false,
+    neverPaid = false,
 }: Props) {
     const isAnnualSub = String(billingPeriod ?? "month").toLowerCase() === "year";
     const [viewPeriod, setViewPeriod] = useState<ViewPeriod>(isAnnualSub ? "year" : "month");
@@ -288,7 +291,7 @@ export function PlanChangeCatalog({
 
     function onSelectPlan(key: CommercialPlanKey) {
         if (key === currentPlan) return;
-        if (isPrepay || checkoutMode) {
+        if (isPrepay || checkoutMode || neverPaid) {
             void onUpgradeOrTrial(key);
             return;
         }
@@ -334,10 +337,13 @@ export function PlanChangeCatalog({
             : "Upgrade vale na hora. Downgrade agenda para o fim do ciclo atual.";
 
     const canSwitchToAnnual = status === "active" && !isAnnualSub;
-    const isPrepay =
+    const isPrepayFlow =
+        neverPaid ||
+        checkoutMode ||
         status === "pending_payment" ||
         status === "pending_setup" ||
         (status === "trial" && Boolean(onPrepayPeriodChange));
+    const isPrepay = isPrepayFlow;
     const maxYearlyPct = Math.max(
         0,
         ...PLAN_ORDER.map((k) => {
@@ -450,18 +456,18 @@ export function PlanChangeCatalog({
                         !checkoutMode && active && showYear && canSwitchToAnnual;
                     let cta = "Selecionar";
                     if (isMigrateCta) cta = switching ? "Gerando PIX…" : "Migrar para anual";
-                    else if (active && (checkoutMode || isPrepay))
+                    else if (active && (checkoutMode || isPrepay || neverPaid))
                         cta =
                             viewPeriod === "year"
                                 ? "Plano anual selecionado"
                                 : "Plano mensal selecionado";
                     else if (active) cta = isAnnualSub ? "Plano anual atual" : "Plano atual";
-                    else if (checkoutMode || isPrepay || status === "trial")
+                    else if (checkoutMode || isPrepay || neverPaid || status === "trial")
                         cta = "Escolher este plano";
                     else if (higher) cta = "Fazer upgrade";
                     else if (lower) cta = "Agendar downgrade";
                     else cta = "Indisponível";
-                    const btnDisabled = checkoutMode || isPrepay
+                    const btnDisabled = checkoutMode || isPrepay || neverPaid
                         ? planSaving || active
                         : isMigrateCta
                           ? planSaving || switching
