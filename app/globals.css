@@ -229,6 +229,80 @@ body {
   animation-name: dialog-fade-out;
 }
 
+/* Select / dropdown / tooltip: fade + slight zoom (no translate centering) */
+@keyframes popover-enter {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+@keyframes popover-exit {
+  from {
+    opacity: 1;
+    transform: scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+}
+
+.zoom-in-95[data-state="open"].animate-in:not(.fixed.z-50.grid),
+[data-state="open"].animate-in.zoom-in-95:not(.fixed.z-50.grid) {
+  animation-name: popover-enter;
+}
+.zoom-out-95[data-state="closed"].animate-out:not(.fixed.z-50.grid),
+[data-state="closed"].animate-out.zoom-out-95:not(.fixed.z-50.grid) {
+  animation-name: popover-exit;
+}
+
+/* Sheet slides */
+@keyframes sheet-from-right {
+  from { transform: translateX(100%); }
+  to { transform: translateX(0); }
+}
+@keyframes sheet-to-right {
+  from { transform: translateX(0); }
+  to { transform: translateX(100%); }
+}
+@keyframes sheet-from-left {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(0); }
+}
+@keyframes sheet-to-left {
+  from { transform: translateX(0); }
+  to { transform: translateX(-100%); }
+}
+@keyframes sheet-from-top {
+  from { transform: translateY(-100%); }
+  to { transform: translateY(0); }
+}
+@keyframes sheet-to-top {
+  from { transform: translateY(0); }
+  to { transform: translateY(-100%); }
+}
+@keyframes sheet-from-bottom {
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
+}
+@keyframes sheet-to-bottom {
+  from { transform: translateY(0); }
+  to { transform: translateY(100%); }
+}
+
+[data-state="open"].slide-in-from-right { animation-name: sheet-from-right, dialog-fade-in; }
+[data-state="closed"].slide-out-to-right { animation-name: sheet-to-right, dialog-fade-out; }
+[data-state="open"].slide-in-from-left { animation-name: sheet-from-left, dialog-fade-in; }
+[data-state="closed"].slide-out-to-left { animation-name: sheet-to-left, dialog-fade-out; }
+[data-state="open"].slide-in-from-top { animation-name: sheet-from-top, dialog-fade-in; }
+[data-state="closed"].slide-out-to-top { animation-name: sheet-to-top, dialog-fade-out; }
+[data-state="open"].slide-in-from-bottom { animation-name: sheet-from-bottom, dialog-fade-in; }
+[data-state="closed"].slide-out-to-bottom { animation-name: sheet-to-bottom, dialog-fade-out; }
+
 /* ── Admin shell: dock mobile + páginas full-bleed (WhatsApp, PDV) ─────────── */
 @media (min-width: 1024px) {
   :root {
