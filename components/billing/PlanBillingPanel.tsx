@@ -794,10 +794,10 @@ export default function PlanBillingPanel({ variant = "full" }: PlanBillingPanelP
                             <Button
                                 type="button"
                                 size="sm"
-                                variant="outline"
+                                className="bg-[#16364d] text-white hover:bg-[#1f4a68]"
                                 onClick={() => setAddCardOpen(true)}
                             >
-                                Adicionar forma de pagamento
+                                Adicionar cartão
                             </Button>
                         </div>
                         {!billingData.saved_cards?.length ? (

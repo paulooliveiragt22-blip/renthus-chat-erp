@@ -164,6 +164,71 @@ body {
   box-shadow: 0 8px 24px rgba(0,0,0,0.10);
 }
 
+/* ── Dialog enter/exit (Radix data-state + shadcn-style animate-in utilities) ─ */
+@keyframes dialog-enter {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -48%) scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+}
+@keyframes dialog-exit {
+  from {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: translate(-50%, -48%) scale(0.95);
+  }
+}
+@keyframes dialog-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes dialog-fade-out {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+
+.animate-in {
+  animation-duration: 200ms;
+  animation-timing-function: ease-out;
+  animation-fill-mode: both;
+}
+.animate-out {
+  animation-duration: 150ms;
+  animation-timing-function: ease-in;
+  animation-fill-mode: both;
+}
+
+[data-state="open"].animate-in.fade-in-0,
+.fade-in-0[data-state="open"] {
+  animation-name: dialog-fade-in;
+}
+[data-state="closed"].animate-out.fade-out-0,
+.fade-out-0[data-state="closed"] {
+  animation-name: dialog-fade-out;
+}
+
+/* Content: combine fade + zoom via named keyframes on DialogContent */
+.fixed.z-50.grid[data-state="open"].animate-in {
+  animation-name: dialog-enter;
+}
+.fixed.z-50.grid[data-state="closed"].animate-out {
+  animation-name: dialog-exit;
+}
+
+.fixed.inset-0.z-50[data-state="open"].animate-in {
+  animation-name: dialog-fade-in;
+}
+.fixed.inset-0.z-50[data-state="closed"].animate-out {
+  animation-name: dialog-fade-out;
+}
+
 /* ── Admin shell: dock mobile + páginas full-bleed (WhatsApp, PDV) ─────────── */
 @media (min-width: 1024px) {
   :root {

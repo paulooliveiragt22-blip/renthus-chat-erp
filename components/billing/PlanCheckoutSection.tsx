@@ -424,50 +424,9 @@ export function PlanCheckoutSection({
         />
     );
 
-    // /plano: CTA + Dialog. /plano/pagar: checkout inline (paywall).
+    // /plano: só Dialog (abre ao clicar no plano). /plano/pagar: checkout inline.
     if (variant === "full") {
-        return (
-            <>
-                <div className="rounded-xl border border-zinc-200 bg-zinc-50/80 p-4 dark:border-zinc-700 dark:bg-zinc-900/40">
-                    {statusBanners}
-                    <h3 className="text-base font-bold text-zinc-900 dark:text-zinc-50">
-                        {paymentTitle}
-                    </h3>
-                    <p className="mt-0.5 text-xs text-zinc-500">{paymentDesc}</p>
-                    <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
-                        Valor:{" "}
-                        <span className="font-semibold text-zinc-900 dark:text-zinc-100">
-                            {refAmount.toLocaleString("pt-BR", {
-                                style: "currency",
-                                currency: "BRL",
-                            })}
-                        </span>
-                        {pendRecord ? " · cobrança em aberto" : ""}
-                    </p>
-                    {pendInv?.due_at && !isFirstPayment ? (
-                        <p className="mt-0.5 text-xs text-zinc-500">
-                            Vencimento:{" "}
-                            {new Date(pendInv.due_at).toLocaleString("pt-BR", {
-                                dateStyle: "medium",
-                                timeStyle: "short",
-                            })}
-                        </p>
-                    ) : null}
-                    {billingSuccessMsg ? (
-                        <div
-                            data-testid="billing-checkout-success"
-                            className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-200"
-                        >
-                            {billingSuccessMsg}
-                        </div>
-                    ) : null}
-                    <Button type="button" className="mt-4" onClick={() => onCheckoutOpenChange(true)}>
-                        Abrir pagamento
-                    </Button>
-                </div>
-                {modal}
-            </>
-        );
+        return modal;
     }
 
     let pixButtonLabel = "Gerar código PIX";

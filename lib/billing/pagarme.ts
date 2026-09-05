@@ -769,7 +769,7 @@ export async function listCustomerCards(customerId: string): Promise<PagarmeCard
     }
 }
 
-/** POST /customers/{id}/cards — token do browser (sem cobrar). */
+/** POST /customers/{id}/cards — token do browser (carteira Pagar.me, sem cobrar). */
 export async function createCustomerCard(params: {
     customerId: string;
     cardToken: string;
@@ -780,6 +780,8 @@ export async function createCustomerCard(params: {
         state: string;
         country?: string;
     };
+    /** Zero Dollar Auth no Pagar.me ao salvar na carteira. */
+    verifyCard?: boolean;
 }): Promise<PagarmeCardSummary> {
     const customerId = params.customerId.trim();
     const token = params.cardToken.trim();
@@ -795,6 +797,9 @@ export async function createCustomerCard(params: {
             state: params.billingAddress.state,
             country: params.billingAddress.country ?? "BR",
         };
+    }
+    if (params.verifyCard !== false) {
+        body.options = { verify_card: true };
     }
     return pagarmeRequest<PagarmeCardSummary>(
         `/customers/${encodeURIComponent(customerId)}/cards`,

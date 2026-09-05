@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Loader2 } from "lucide-react";
 import {
     Dialog,
@@ -23,6 +23,7 @@ import { lookupCep } from "@/lib/address/cepLookup";
 import type { RenthusBillingAddr, RenthusCardForm } from "@/lib/billing/planBillingTypes";
 
 const PAGARME_PUBLIC_KEY = process.env.NEXT_PUBLIC_PAGARME_PUBLIC_KEY ?? "";
+const BRAND = "#16364d";
 
 type Props = {
     open: boolean;
@@ -54,6 +55,16 @@ export function AddPaymentMethodModal({
     const [addr, setAddr] = useState<RenthusBillingAddr>(initialAddr);
     const [loading, setLoading] = useState(false);
     const [cepLoading, setCepLoading] = useState(false);
+    const [localSuccess, setLocalSuccess] = useState<string | null>(null);
+    const [localError, setLocalError] = useState<string | null>(null);
+
+    useEffect(() => {
+        if (!open) return;
+        setAddr(initialAddr);
+        setLocalSuccess(null);
+        setLocalError(null);
+        setCard({ holder: "", number: "", exp: "", cvv: "" });
+    }, [open, initialAddr]);
 
     async function onCepBlur() {
         const digits = addr.cep.replaceAll(/\D/g, "");
@@ -76,13 +87,17 @@ export function AddPaymentMethodModal({
     }
 
     async function submit() {
+        setLocalError(null);
         onError("");
         if (!PAGARME_PUBLIC_KEY) {
-            onError("Configure NEXT_PUBLIC_PAGARME_PUBLIC_KEY.");
+            const msg = "Configure NEXT_PUBLIC_PAGARME_PUBLIC_KEY.";
+            setLocalError(msg);
+            onError(msg);
             return;
         }
         const validated = validateRenthusCardCheckout(card, addr, nomeFantasia);
         if ("error" in validated) {
+            setLocalError(validated.error);
             onError(validated.error);
             return;
         }
@@ -91,6 +106,7 @@ export function AddPaymentMethodModal({
 
         setLoading(true);
         try {
+            // 1) Token no browser (PCI) — docs Pagar.me POST /tokens?appId=
             const cardToken = await pagarmeCreateCardToken(PAGARME_PUBLIC_KEY, {
                 number: num,
                 holder_name: holder,
@@ -109,6 +125,7 @@ export function AddPaymentMethodModal({
                 },
             });
 
+            // 2) Salva na carteira do customer — POST /customers/{id}/cards { token }
             const res = await fetch("/api/billing/payment-methods", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
@@ -132,15 +149,24 @@ export function AddPaymentMethodModal({
                 message?: string;
             };
             if (!res.ok) {
-                onError(json.error ?? "Não foi possível adicionar o cartão.");
+                const msg = json.error ?? "Não foi possível adicionar o cartão.";
+                setLocalError(msg);
+                onError(msg);
                 return;
             }
-            onSuccess(json.message ?? "Cartão adicionado.");
-            onOpenChange(false);
-            setCard({ holder: "", number: "", exp: "", cvv: "" });
+            const okMsg = json.message ?? "Cartão adicionado à carteira Pagar.me.";
+            setLocalSuccess(okMsg);
+            onSuccess(okMsg);
             await onAdded();
+            window.setTimeout(() => {
+                onOpenChange(false);
+                setCard({ holder: "", number: "", exp: "", cvv: "" });
+                setLocalSuccess(null);
+            }, 900);
         } catch (e: unknown) {
-            onError(e instanceof Error ? e.message : "Erro de conexão.");
+            const msg = e instanceof Error ? e.message : "Erro de conexão.";
+            setLocalError(msg);
+            onError(msg);
         } finally {
             setLoading(false);
         }
@@ -148,14 +174,31 @@ export function AddPaymentMethodModal({
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className="max-h-[90vh] max-w-md overflow-y-auto">
+            <DialogContent
+                className="max-h-[90vh] max-w-md overflow-y-auto border-[#16364d]/30"
+                style={{ borderTopWidth: 3, borderTopColor: BRAND }}
+            >
                 <DialogHeader>
-                    <DialogTitle>Adicionar forma de pagamento</DialogTitle>
+                    <DialogTitle style={{ color: BRAND }}>Adicionar cartão</DialogTitle>
                     <DialogDescription>
-                        O cartão é tokenizado no Pagar.me e fica disponível para renovação
-                        automática. Nada é cobrado agora.
+                        Tokeniza no browser e grava na carteira do cliente no Pagar.me (sem cobrança
+                        agora). O cartão fica disponível para renovação automática.
                     </DialogDescription>
                 </DialogHeader>
+
+                {localSuccess ? (
+                    <div
+                        data-testid="add-card-success"
+                        className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-200"
+                    >
+                        {localSuccess}
+                    </div>
+                ) : null}
+                {localError ? (
+                    <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200">
+                        {localError}
+                    </div>
+                ) : null}
 
                 <div className="grid gap-3 text-sm">
                     <label className="grid gap-1">
@@ -165,6 +208,7 @@ export function AddPaymentMethodModal({
                             value={card.holder}
                             onChange={(e) => setCard((c) => ({ ...c, holder: e.target.value }))}
                             autoComplete="cc-name"
+                            disabled={Boolean(localSuccess)}
                         />
                     </label>
                     <label className="grid gap-1">
@@ -180,6 +224,7 @@ export function AddPaymentMethodModal({
                             }
                             inputMode="numeric"
                             autoComplete="cc-number"
+                            disabled={Boolean(localSuccess)}
                         />
                     </label>
                     <div className="grid grid-cols-2 gap-3">
@@ -197,6 +242,7 @@ export function AddPaymentMethodModal({
                                 placeholder="MM/AA"
                                 inputMode="numeric"
                                 autoComplete="cc-exp"
+                                disabled={Boolean(localSuccess)}
                             />
                         </label>
                         <label className="grid gap-1">
@@ -212,6 +258,7 @@ export function AddPaymentMethodModal({
                                 }
                                 inputMode="numeric"
                                 autoComplete="cc-csc"
+                                disabled={Boolean(localSuccess)}
                             />
                         </label>
                     </div>
@@ -225,6 +272,7 @@ export function AddPaymentMethodModal({
                             onChange={(e) => setAddr((a) => ({ ...a, cep: e.target.value }))}
                             onBlur={() => void onCepBlur()}
                             inputMode="numeric"
+                            disabled={Boolean(localSuccess)}
                         />
                     </label>
                     <label className="grid gap-1">
@@ -233,6 +281,7 @@ export function AddPaymentMethodModal({
                             className="rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 dark:border-zinc-700 dark:bg-zinc-800"
                             value={addr.endereco}
                             onChange={(e) => setAddr((a) => ({ ...a, endereco: e.target.value }))}
+                            disabled={Boolean(localSuccess)}
                         />
                     </label>
                     <div className="grid grid-cols-3 gap-2">
@@ -242,6 +291,7 @@ export function AddPaymentMethodModal({
                                 className="rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 dark:border-zinc-700 dark:bg-zinc-800"
                                 value={addr.numero}
                                 onChange={(e) => setAddr((a) => ({ ...a, numero: e.target.value }))}
+                                disabled={Boolean(localSuccess)}
                             />
                         </label>
                         <label className="col-span-2 grid gap-1">
@@ -250,6 +300,7 @@ export function AddPaymentMethodModal({
                                 className="rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 dark:border-zinc-700 dark:bg-zinc-800"
                                 value={addr.bairro}
                                 onChange={(e) => setAddr((a) => ({ ...a, bairro: e.target.value }))}
+                                disabled={Boolean(localSuccess)}
                             />
                         </label>
                     </div>
@@ -260,6 +311,7 @@ export function AddPaymentMethodModal({
                                 className="rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 dark:border-zinc-700 dark:bg-zinc-800"
                                 value={addr.cidade}
                                 onChange={(e) => setAddr((a) => ({ ...a, cidade: e.target.value }))}
+                                disabled={Boolean(localSuccess)}
                             />
                         </label>
                         <label className="grid gap-1">
@@ -273,16 +325,27 @@ export function AddPaymentMethodModal({
                                         uf: e.target.value.toUpperCase().slice(0, 2),
                                     }))
                                 }
+                                disabled={Boolean(localSuccess)}
                             />
                         </label>
                     </div>
                 </div>
 
                 <DialogFooter>
-                    <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+                    <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => onOpenChange(false)}
+                        disabled={loading || Boolean(localSuccess)}
+                    >
                         Cancelar
                     </Button>
-                    <Button type="button" disabled={loading} onClick={() => void submit()}>
+                    <Button
+                        type="button"
+                        disabled={loading || Boolean(localSuccess)}
+                        onClick={() => void submit()}
+                        className="bg-[#16364d] text-white hover:bg-[#1f4a68]"
+                    >
                         {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
                         Salvar cartão
                     </Button>

@@ -2,7 +2,7 @@
 
 **Status:** aceito (estrutura aprovada 2026-09-05; implementação sob checklist)  
 **Data:** 2026-09-05  
-**Escopo técnico:** outbox local (IndexedDB), sync engine, optimistic UI com estado `pending`, políticas de cache do Service Worker, snapshot de catálogo para PDV.  
+**Escopo técnico:** outbox local (IndexedDB), sync engine, optimistic UI com estado `pending`, políticas de cache do Service Worker, snapshot de catálogo para PDV, **constraints de performance (D7)** — sem over-engineering.  
 **Escopo comercial / produto:** decisões D-P1…D-P5 abaixo — **confirmar antes de mutação offline (fase P1+)**.
 
 **Checklist:** [`CHECKLIST_PWA_OFFLINE_FIRST.md`](../CHECKLIST_PWA_OFFLINE_FIRST.md)  
@@ -38,20 +38,21 @@ UI → enqueueCommand(command) → Outbox (IDB)
 
 | Camada | Responsabilidade | O que **não** faz |
 |--------|------------------|-------------------|
-| Service Worker | Shell, assets, opcional reenvio de fila HTTP | Regra de estoque/crédito/preço |
-| Outbox IDB | Persistência de comandos + status | Cachear billing/WhatsApp |
-| SyncEngine | Flush ordenado, retry, backoff | Calcular amount/estoque no cliente como verdade |
-| TanStack Query | Cache de leitura + optimistic + pause/resume | Substituir outbox para mutações que sobrevivem reload |
+| Service Worker | Shell, assets, opcional reenvio de fila HTTP | Regra de estoque/crédito/preço; “otimizar” API comercial |
+| Outbox IDB | Persistência de comandos + status | Cachear billing/WhatsApp; snapshot ilimitado de catálogo |
+| SyncEngine | Flush **em lote** (teto), ordenado, retry, backoff | Um POST por comando; calcular amount/estoque como verdade |
+| TanStack Query | Cache de leitura + optimistic + pause/resume; **persist só allowlist** | Persistir o `QueryClient` inteiro; substituir outbox |
 | RPC/API | Idempotência, tenant, invariantes | Confiar em POST “cego” do SW sem chave |
 
 ### D2 — Escopo v1 (proposta técnica aprovada; gates de produto abaixo)
 
 | Inclui | Exclui |
 |--------|--------|
-| Snapshot catálogo PDV (produtos/embalagens/preços) | Billing / Pagar.me / webhooks |
+| Snapshot catálogo PDV **enxuto** (campos PDV + teto; ver D7) | Dump ilimitado do catálogo no IDB; billing / Pagar.me / webhooks |
+| Busca/bipagem local sobre o snapshot (índice) | `filter` linear no array inteiro a cada tecla |
 | Enqueue finalização PDV (quando D-P1 ok) | Mutações WhatsApp / chatbot |
 | Optimistic + `pending` em status de pedido (fase P2) | SWR em estoque/saldo/limite crédito |
-| SyncStatus UI | Migrar para Serwist na v1 (P4 opcional) |
+| SyncStatus UI | Migrar para Serwist na v1 (P4 opcional); virtualização/prefetch agressivo “por performance” |
 
 ### D3 — Matriz de cache (obrigatória)
 
@@ -59,10 +60,11 @@ UI → enqueueCommand(command) → Outbox (IDB)
 |--------|------------|----------|
 | `_next/static` | CacheFirst + hash | JS/CSS (já) |
 | Imagens | StaleWhileRevalidate + TTL | (já) |
-| Navegação HTML/RSC | NetworkFirst + `/offline` | (já) |
-| Catálogo PDV | Snapshot IDB + revalidate background | lista/embalagens |
-| Estoque / saldo / limite | NetworkOnly ou TTL curto + badge stale | nunca SWR silencioso |
-| Mutações $ / estoque | Outbox + RPC idempotente | PDV finalize |
+| Navegação HTML/RSC | NetworkFirst + `/offline` | (já); timeout: ver D7 (P3) |
+| Catálogo PDV | Snapshot IDB **com teto + projection** + revalidate background | só campos de venda; índice EAN/código/nome |
+| Estoque / saldo / limite | NetworkOnly ou TTL curto + badge stale | nunca SWR silencioso (perf ≠ cache mentiroso) |
+| Mutações $ / estoque | Outbox + flush em lote + RPC idempotente | PDV finalize |
+| Persist TanStack | Allowlist de `queryKey` (catálogo/PDV) | não dehydratar platform/billing |
 | Billing / WhatsApp | Sempre online; fora do outbox | exclude SW (já) |
 
 ### D4 — Optimistic UI com política

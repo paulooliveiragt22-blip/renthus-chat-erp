@@ -130,6 +130,14 @@ export async function POST(req: Request) {
                     state: uf,
                     country: "BR",
                 };
+            } else {
+                return NextResponse.json(
+                    {
+                        error:
+                            "Informe CEP, endereço, número, cidade e UF para salvar o cartão na carteira Pagar.me.",
+                    },
+                    { status: 400 }
+                );
             }
 
             let card;
@@ -138,6 +146,7 @@ export async function POST(req: Request) {
                     customerId,
                     cardToken,
                     billingAddress,
+                    verifyCard: true,
                 });
             } catch (e: unknown) {
                 const msg = e instanceof Error ? e.message : "Falha ao salvar cartão.";
@@ -145,7 +154,14 @@ export async function POST(req: Request) {
             }
 
             const newId = String(card.id ?? "").trim();
-            if (body.set_as_default !== false && newId) {
+            if (!newId) {
+                return NextResponse.json(
+                    { error: "Pagar.me não retornou o id do cartão." },
+                    { status: 502 }
+                );
+            }
+
+            if (body.set_as_default !== false) {
                 await admin
                     .from("pagarme_subscriptions")
                     .update({
@@ -167,7 +183,7 @@ export async function POST(req: Request) {
                             ? `${String(card.exp_month).padStart(2, "0")}/${card.exp_year}`
                             : "",
                 },
-                message: "Cartão adicionado com sucesso.",
+                message: "Cartão adicionado à carteira Pagar.me.",
             });
         }
 

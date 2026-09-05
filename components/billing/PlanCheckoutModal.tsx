@@ -65,9 +65,9 @@ export function PlanCheckoutModal({
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className="max-h-[90vh] max-w-lg overflow-y-auto">
+            <DialogContent className="max-h-[90vh] max-w-lg overflow-y-auto border-[#16364d]/30">
                 <DialogHeader>
-                    <DialogTitle>{title}</DialogTitle>
+                    <DialogTitle className="text-[#16364d]">{title}</DialogTitle>
                     <DialogDescription>{description}</DialogDescription>
                 </DialogHeader>
 
@@ -97,6 +97,7 @@ export function PlanCheckoutModal({
                         type="button"
                         variant={payMode === "pix" ? "default" : "outline"}
                         size="sm"
+                        className={payMode === "pix" ? "bg-[#16364d] hover:bg-[#1f4a68]" : undefined}
                         onClick={() => onPayModeChange("pix")}
                     >
                         PIX
@@ -105,6 +106,7 @@ export function PlanCheckoutModal({
                         type="button"
                         variant={payMode === "card" ? "default" : "outline"}
                         size="sm"
+                        className={payMode === "card" ? "bg-[#16364d] hover:bg-[#1f4a68]" : undefined}
                         onClick={() => onPayModeChange("card")}
                     >
                         Cartão de crédito
@@ -148,7 +150,7 @@ export function PlanCheckoutModal({
                             type="button"
                             disabled={pixLoading}
                             onClick={onGeneratePix}
-                            className="w-full"
+                            className="w-full bg-[#16364d] text-white hover:bg-[#1f4a68]"
                         >
                             {pixLoading ? (
                                 <Loader2 className="h-4 w-4 animate-spin" />
@@ -163,7 +165,7 @@ export function PlanCheckoutModal({
                             type="button"
                             disabled={cardPayLoading}
                             onClick={onPayCard}
-                            className="w-full"
+                            className="w-full bg-[#16364d] text-white hover:bg-[#1f4a68]"
                         >
                             {cardPayLoading ? (
                                 <Loader2 className="h-4 w-4 animate-spin" />

@@ -18,7 +18,6 @@ import {
     DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Switch } from "@/components/ui/switch";
 
 type Member = {
     user_id: string;
@@ -383,36 +382,51 @@ export function PlanChangeCatalog({
                     </p>
                     <p className="mt-1 text-xs text-zinc-500">{subtitle}</p>
                 </div>
-                <div className="flex items-center justify-center gap-3">
-                    <span
-                        className={`text-sm font-semibold ${
-                            viewPeriod === "month" ? "text-zinc-900 dark:text-zinc-50" : "text-zinc-400"
-                        }`}
+                <div className="flex justify-center">
+                    <div
+                        className="inline-flex rounded-full border border-zinc-200 bg-zinc-100 p-1 dark:border-zinc-700 dark:bg-zinc-800"
+                        role="tablist"
+                        aria-label="Ciclo de cobrança"
                     >
-                        Mensal
-                    </span>
-                    <Switch
-                        checked={viewPeriod === "year"}
-                        onCheckedChange={(checked) =>
-                            void selectViewPeriod(checked ? "year" : "month")
-                        }
-                        aria-label="Alternar ciclo anual"
-                    />
-                    <span
-                        className={`text-sm font-semibold ${
-                            viewPeriod === "year" ? "text-zinc-900 dark:text-zinc-50" : "text-zinc-400"
-                        }`}
-                    >
-                        Anual
-                        {maxYearlyPct > 0 ? (
-                            <span
-                                className="ml-1 text-[10px] font-bold"
-                                style={{ color: PLAN_TOGGLE_ACCENT, opacity: 0.85 }}
-                            >
-                                até −{maxYearlyPct}%
-                            </span>
-                        ) : null}
-                    </span>
+                        <button
+                            type="button"
+                            role="tab"
+                            aria-selected={viewPeriod === "month"}
+                            onClick={() => void selectViewPeriod("month")}
+                            className={`rounded-full px-4 py-1.5 text-sm font-semibold transition ${
+                                viewPeriod === "month"
+                                    ? "bg-[#57ff8f] text-[#16364D] shadow-sm"
+                                    : "text-zinc-500"
+                            }`}
+                        >
+                            Mensal
+                        </button>
+                        <button
+                            type="button"
+                            role="tab"
+                            aria-selected={viewPeriod === "year"}
+                            onClick={() => void selectViewPeriod("year")}
+                            className={`rounded-full px-4 py-1.5 text-sm font-semibold transition ${
+                                viewPeriod === "year"
+                                    ? "bg-[#57ff8f] text-[#16364D] shadow-sm"
+                                    : "text-zinc-500"
+                            }`}
+                        >
+                            Anual
+                            {maxYearlyPct > 0 ? (
+                                <span
+                                    className="ml-1 text-[10px] font-bold"
+                                    style={{
+                                        color:
+                                            viewPeriod === "year" ? "#16364D" : PLAN_TOGGLE_ACCENT,
+                                        opacity: 0.85,
+                                    }}
+                                >
+                                    economize até {maxYearlyPct}%
+                                </span>
+                            ) : null}
+                        </button>
+                    </div>
                 </div>
             </div>
 
