@@ -8,8 +8,7 @@
 import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { getActiveSubscription } from "@/lib/billing/entitlements";
-import { PLAN_CATALOG, normalizePlanKey } from "@/lib/billing/planCatalog";
+import { loadAiIncludedBudget } from "@/lib/billing/loadCommercialPlanPricing";
 import {
     estimateSttCostBrlCents,
     normalizeSttDurationSec,
@@ -50,19 +49,12 @@ export type AiWalletSnapshot = {
     autoRechargePackCents: number | null;
 };
 
-function includedBudgetForPlan(planKey: string | null): number {
-    const k = normalizePlanKey(planKey);
-    if (!k) return PLAN_CATALOG.essencial.aiIncludedCents;
-    return PLAN_CATALOG[k].aiIncludedCents;
-}
-
 export async function ensureAiWallet(
     admin: SupabaseClient,
     companyId: string
 ): Promise<AiWalletSnapshot> {
     const ym = yearMonthUtc();
-    const sub = await getActiveSubscription(admin, companyId);
-    const budget = includedBudgetForPlan(sub?.plan_key ?? null);
+    const budget = await loadAiIncludedBudget(admin, companyId);
 
     const { data: row } = await admin
         .from("company_ai_wallets")

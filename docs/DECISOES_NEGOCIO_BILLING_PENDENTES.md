@@ -189,7 +189,7 @@ Se o superadmin **editar** a lista mensal do plano (R3-5), o 10% passa a usar o 
 | Item | Estado |
 |------|--------|
 | Preços 279/349/449 + year cols + seats cols + setup 0 + trial 0 | `[i]` PR #158 |
-| IA wallet = 10% lista mensal (R3-6) | `[i]` via `planCatalog.aiIncludedCents` |
+| IA wallet = 10% lista mensal (R3-6) | `[i]` `fn_billing_ai_included_cents` + coluna gerada `plans.ai_included_cents` + `rpc_ai_included_budget`; status/carteira não leem o catálogo TS |
 | Superadmin editar mensal/anual/seat (R3-5) + cobrança lê DB+seats | `[i]` C1 → UX C1-fix: anual via desconto %/R$ |
 | `seat_quantity` + gate invite no cap | `[i]` C1 |
 | Tabela `plan_promotions` (schema) | `[i]` C1 schema |

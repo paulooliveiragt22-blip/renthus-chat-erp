@@ -27,7 +27,7 @@ export const PLAN_CATALOG: Record<
         popular?: boolean;
         /** Features booleanas do plano (além das comuns). */
         features: string[];
-        /** Crédito IA incluso = 10% do mensal de lista (BN-06). */
+        /** Espelho UX. Canônico = fn_billing_ai_included_cents(plans.price_cents). */
         aiIncludedCents: number;
         /** Usuários inclusos no preço (BN-17 / R2-C). */
         includedSeats: number;
