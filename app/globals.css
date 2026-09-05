@@ -214,14 +214,27 @@ body {
   animation-name: dialog-fade-out;
 }
 
-/* Content: combine fade + zoom via named keyframes on DialogContent */
+/* Content + overlay: slot estável (não depende de z-50 — Cmd+K / stacked usam z-[60]) */
+[data-slot="dialog-content"][data-state="open"].animate-in {
+  animation-name: dialog-enter;
+}
+[data-slot="dialog-content"][data-state="closed"].animate-out {
+  animation-name: dialog-exit;
+}
+[data-slot="dialog-overlay"][data-state="open"].animate-in {
+  animation-name: dialog-fade-in;
+}
+[data-slot="dialog-overlay"][data-state="closed"].animate-out {
+  animation-name: dialog-fade-out;
+}
+
+/* Fallback legado (antes do data-slot) */
 .fixed.z-50.grid[data-state="open"].animate-in {
   animation-name: dialog-enter;
 }
 .fixed.z-50.grid[data-state="closed"].animate-out {
   animation-name: dialog-exit;
 }
-
 .fixed.inset-0.z-50[data-state="open"].animate-in {
   animation-name: dialog-fade-in;
 }
