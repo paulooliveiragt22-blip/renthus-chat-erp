@@ -646,7 +646,8 @@ export default function ImpressorasPage() {
                                 {clearingQueue ? "Limpando…" : "Limpar fila"}
                             </button>
                             <button
-                                onClick={loadJobs}
+                                type="button"
+                                onClick={() => void loadJobs()}
                                 className="rounded-lg border border-zinc-200 p-1.5 text-zinc-500 hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-800"
                             >
                                 <RefreshCw className="h-3.5 w-3.5" />
