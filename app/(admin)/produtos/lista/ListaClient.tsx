@@ -1,7 +1,6 @@
 // app/(admin)/produtos/lista/ListaClient.tsx
 "use client";
-import React, { useEffect, useMemo, useRef, useState } from "react";
-import { createClient } from "@/lib/supabase/client";
+import React, { useEffect, useRef, useState } from "react";
 import { useWorkspace } from "@/lib/workspace/useWorkspace";
 import {
     Camera, CheckCircle2, Loader2, Pencil, Plus, RefreshCw,
@@ -282,15 +281,6 @@ function ProductListRow({ r, flashId, showEan, onToggleActive, onOpenEdit }: Pro
     );
 }
 
-function subscribeProductListRealtime(
-    client: ReturnType<typeof createClient>,
-    onReload: () => void
-) {
-    return client
-        .channel("products_realtime_v2")
-        .on("postgres_changes", { event: "*", schema: "public", table: "products" }, onReload)
-        .on("postgres_changes", { event: "*", schema: "public", table: "produto_embalagens" }, onReload)
-        .subscribe();
 }
 
 // ─── sub-components ───────────────────────────────────────────────────────────
@@ -399,7 +389,6 @@ function ChoiceSegment({
 // ─── main ─────────────────────────────────────────────────────────────────────
 
 export default function ProdutosListaPage() {
-    const supabase    = useMemo(() => createClient(), []);
     const { currentCompanyId: companyId } = useWorkspace();
 
     const [rows,       setRows]       = useState<Row[]>([]);
@@ -472,9 +461,8 @@ export default function ProdutosListaPage() {
     // ── data loaders ────────────────────────────────────────────────────────
 
     /**
-     * `silent`: usado no refresh disparado por realtime (`products`/`produto_embalagens`
-     * mudam a cada venda que debita estoque) — atualiza a lista sem trocar a tabela
-     * inteira pelos skeletons.
+     * `silent`: refresh em background (poll / pós-salvar) — atualiza a lista sem
+     * trocar a tabela inteira pelos skeletons.
      */
     async function load(opts?: { silent?: boolean }) {
         if (!companyId) { setLoading(false); return; }
@@ -784,23 +772,20 @@ export default function ProdutosListaPage() {
         }
     }
 
-    // ── realtime ─────────────────────────────────────────────────────────────
-
+    // ── background refresh (poll) ─────────────────────────────────────────────
+    //
+    // `products` / `produto_embalagens` NÃO estão em `supabase_realtime` e, mesmo
+    // se estivessem, RLS é `service_role` only — `postgres_changes` no browser
+    // nunca recebe evento. Polling via API (como Pedidos/WhatsApp) é o caminho canônico.
     useEffect(() => {
         if (!companyId) return;
-        // Debounce: rajada de eventos (várias vendas em sequência debitando estoque) não
-        // deve virar um reload por evento; e o reload em si é silencioso (sem skeleton).
-        let debounce: ReturnType<typeof setTimeout> | null = null;
-        const onReload = () => {
-            if (debounce) clearTimeout(debounce);
-            debounce = setTimeout(() => { void load({ silent: true }); }, 400);
-        };
-        const ch = subscribeProductListRealtime(supabase, onReload);
-        return () => {
-            if (debounce) clearTimeout(debounce);
-            Promise.resolve(supabase.removeChannel(ch)).catch(() => {});
-        };
-    }, [supabase, companyId]);
+        const timer = setInterval(() => {
+            if (document.hidden) return;
+            void load({ silent: true });
+        }, 15000);
+        return () => clearInterval(timer);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [companyId]);
 
     // ── toggle active ─────────────────────────────────────────────────────────
 
@@ -1117,7 +1102,7 @@ export default function ProdutosListaPage() {
             }
 
             await loadProductImages(selected.product_id);
-            await load();
+            await load({ silent: true });
             setMsg("✓ Item salvo.");
 
             if (opts?.closeOnSuccess !== false && !opts?.itemIdForImage) {
@@ -1213,7 +1198,7 @@ export default function ProdutosListaPage() {
 
             setSaving(false);
             setOpenCreate(false);
-            await load();
+            await load({ silent: true });
         } catch (e: any) {
             setMsg(`Erro: ${String(e?.message ?? e)}`);
             setSaving(false);
@@ -1412,7 +1397,7 @@ export default function ProdutosListaPage() {
                                     }
                                     setOpen(false);
                                     setSelected(null);
-                                    await load();
+                                    await load({ silent: true });
                                     setMsg(
                                         json?.action === "deactivated"
                                             ? "✓ Produto desativado (já havia vendas)."
@@ -2243,7 +2228,7 @@ export default function ProdutosListaPage() {
                         </div>
                     </div>
                     <div className="mt-4 flex gap-2">
-                        <button onClick={async () => { const id = await quickCreateSigla(newSiglaValue, newSiglaDesc); if (id) { setNewSiglaValue(""); setNewSiglaDesc(""); setAddSiglaOpen(false); load(); } }} className="flex-1 rounded-lg bg-orange-500 py-2 text-sm font-bold text-primary hover:bg-orange-600">Criar</button>
+                        <button onClick={async () => { const id = await quickCreateSigla(newSiglaValue, newSiglaDesc); if (id) { setNewSiglaValue(""); setNewSiglaDesc(""); setAddSiglaOpen(false); void load({ silent: true }); } }} className="flex-1 rounded-lg bg-orange-500 py-2 text-sm font-bold text-primary hover:bg-orange-600">Criar</button>
                         <button onClick={() => setAddSiglaOpen(false)} className="rounded-lg border border-zinc-200 px-4 text-sm font-semibold text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700">Cancelar</button>
                     </div>
                 </Modal>

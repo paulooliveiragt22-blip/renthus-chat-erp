@@ -189,9 +189,10 @@ export default function ImpressorasPage() {
     }, [companyId]);
 
     // Fila agregada no servidor a partir de print_jobs + orders.
-    const loadJobs = useCallback(async () => {
+    // `silent`: polling / reloads pós-ação — não troca a lista por skeletons.
+    const loadJobs = useCallback(async (opts?: { silent?: boolean }) => {
         if (!companyId) return;
-        setLoadingJobs(true);
+        if (!opts?.silent) setLoadingJobs(true);
         const res = await fetch("/api/admin/impressoras/jobs", { credentials: "include", cache: "no-store" });
         const json = await res.json().catch(() => ({}));
         if (res.ok) setJobs((json.jobs ?? []) as PrintJob[]);
@@ -234,12 +235,12 @@ export default function ImpressorasPage() {
         loadSettings();
     }, [companyId, loadAgents, loadJobs, loadSettings]);
 
-    // ── polling leve para status online e jobs ────────────────────────────────
+    // ── polling leve para status online e jobs (background, sem apagar UI) ────
     useEffect(() => {
         if (!companyId) return;
         const id = setInterval(() => {
             void loadAgents();
-            void loadJobs();
+            void loadJobs({ silent: true });
         }, 8000);
         return () => clearInterval(id);
     }, [companyId, loadAgents, loadJobs]);
@@ -310,7 +311,7 @@ export default function ImpressorasPage() {
         const json = await res.json().catch(() => ({}));
         setReprintMsg(res.ok ? "✓ Job de reimpressão criado" : (json?.error ?? "Erro ao reimprimir"));
         setReprintingId(null);
-        if (res.ok) { setTimeout(() => { setReprintMsg(null); loadJobs(); }, 3000); }
+        if (res.ok) { setTimeout(() => { setReprintMsg(null); void loadJobs({ silent: true }); }, 3000); }
     }
 
     async function clearQueue() {
@@ -332,7 +333,7 @@ export default function ImpressorasPage() {
         const pending = Number(json.canceled_pending ?? 0);
         const stale = Number(json.canceled_stale_processing ?? 0);
         setReprintMsg(`✓ Fila limpa: ${pending} pendente(s), ${stale} travado(s)`);
-        void loadJobs();
+        void loadJobs({ silent: true });
         setTimeout(() => setReprintMsg(null), 4000);
     }
 
@@ -385,7 +386,7 @@ export default function ImpressorasPage() {
         if (!res.ok) { setTestMsg(`Erro: ${json?.error ?? "falha"}`); setTestLoading(false); return; }
         setTestMsg("Pedido de teste criado e enviado para a fila.");
         setTestLoading(false);
-        setTimeout(() => { setTestMsg(null); loadJobs(); }, 5000);
+        setTimeout(() => { setTestMsg(null); void loadJobs({ silent: true }); }, 5000);
     }
 
     // ── render ────────────────────────────────────────────────────────────────

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import {
     AreaChart,
@@ -21,7 +21,6 @@ import {
     TrendingUp,
     Zap,
 } from "lucide-react";
-import { createClient } from "@/lib/supabase/client";
 import { usePlanFeatures } from "@/lib/billing/usePlanFeatures";
 import { Skeleton } from "@/components/ui/skeleton";
 
@@ -129,7 +128,6 @@ export default function DashboardClient() {
     const planFeatures = usePlanFeatures();
     const canOpenFinanceiro = planFeatures.has("financeiro_full");
 
-    const supabase = useMemo(() => createClient(), []);
     const refreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     async function loadStats(silent = false) {
@@ -146,6 +144,11 @@ export default function DashboardClient() {
             }
             setData(json as StatsData);
             setLastUpdated(new Date());
+            if (silent) {
+                setRealtimeFlash(true);
+                if (refreshTimer.current) clearTimeout(refreshTimer.current);
+                refreshTimer.current = setTimeout(() => setRealtimeFlash(false), 1200);
+            }
         } catch {
             if (!silent) setError("Falha de conexão");
         } finally {
@@ -175,46 +178,21 @@ export default function DashboardClient() {
         }
     }
 
-    function scheduleRealtimeRefresh() {
-        if (refreshTimer.current) clearTimeout(refreshTimer.current);
-        refreshTimer.current = setTimeout(async () => {
-            await loadStats(true);
-            setRealtimeFlash(true);
-            setTimeout(() => setRealtimeFlash(false), 1200);
-        }, 800);
-    }
-
     useEffect(() => {
-        loadStats();
-        loadPlanData();
-        const timer = setInterval(() => loadStats(true), 60_000);
+        void loadStats();
+        void loadPlanData();
+        // Poll canônico: `orders`/`order_items` estão na publication, mas RLS
+        // service_role_only impede postgres_changes no browser autenticado.
+        const timer = setInterval(() => {
+            if (document.hidden) return;
+            void loadStats(true);
+        }, 15_000);
         return () => {
             clearInterval(timer);
             if (refreshTimer.current) clearTimeout(refreshTimer.current);
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
-
-    useEffect(() => {
-        const channel = supabase
-            .channel("dashboard_realtime")
-            .on(
-                "postgres_changes",
-                { event: "*", schema: "public", table: "orders" },
-                scheduleRealtimeRefresh
-            )
-            .on(
-                "postgres_changes",
-                { event: "INSERT", schema: "public", table: "order_items" },
-                scheduleRealtimeRefresh
-            )
-            .subscribe();
-
-        return () => {
-            supabase.removeChannel(channel);
-        };
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [supabase]);
 
     const financeHref =
         data?.day != null ? `/financeiro?from=${data.day}&to=${data.day}` : "/financeiro";

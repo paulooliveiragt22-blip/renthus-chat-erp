@@ -286,7 +286,8 @@ export default function PedidosPage() {
         novosQtd: 0, novosTotal: 0, prepQtd: 0, entregaQtd: 0, finalHojeQtd: 0, finalHojeTotal: 0,
     });
     const [recentOrders, setRecentOrders] = useState<Record<string, number>>({});
-    // IDs com flash ativo (ring verde por ~2s após INSERT ou UPDATE via realtime)
+    // IDs com flash ativo (ring verde por ~2s após INSERT ou UPDATE via refresh)
+    const hasLoadedOrdersRef = useRef(false);
     const [flashOrders,  setFlashOrders]  = useState<Set<string>>(new Set());
     const ordersSnapshotRef = useRef<Record<string, { status: string; total: number }>>({});
     const loadParamsRef = useRef({ page: 1, status: "all" as string, q: "" });
@@ -569,6 +570,7 @@ export default function PedidosPage() {
             setOrders(incoming as any);
             setListTotal(incoming.length);
             setListTotalPages(1);
+            hasLoadedOrdersRef.current = true;
             setLoading(false);
             if (notice) setMsg(notice);
         };
@@ -667,6 +669,7 @@ export default function PedidosPage() {
                 }, 2000);
             }
             setOrders(incoming as any);
+            hasLoadedOrdersRef.current = true;
             setLoading(false);
         } catch {
             if (companyId) {
@@ -1006,6 +1009,8 @@ export default function PedidosPage() {
             page,
             status: statusFilter,
             q: searchDebounced,
+            // Troca de filtro/página/busca: mantém cards visíveis (sem skeleton).
+            silent: hasLoadedOrdersRef.current,
         });
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [companyId, page, statusFilter, searchDebounced]);
@@ -1241,7 +1246,7 @@ export default function PedidosPage() {
         );
         setOpenAction(false);
         setActionSaving(false);
-        await loadOrders();
+        await loadOrders({ silent: true });
         if (viewOrder?.id === orderId) setViewOrder(await fetchOrderFull(orderId));
         if (editOrder?.id === orderId) setEditOrder(await fetchOrderFull(orderId));
     }
@@ -1301,7 +1306,7 @@ export default function PedidosPage() {
                   : "✅ Pedido atualizado."
         );
         setOpenAction(false); setActionSaving(false);
-        await loadOrders();
+        await loadOrders({ silent: true });
         if (viewOrder?.id === orderId) setViewOrder(await fetchOrderFull(orderId));
         if (editOrder?.id  === orderId) setEditOrder(await fetchOrderFull(orderId));
     }
@@ -1576,7 +1581,7 @@ export default function PedidosPage() {
                 company_id: companyId,
                 order_id: newId || null,
             });
-            setSaving(false); setOpenNew(false); resetNewOrder(); await loadOrders();
+            setSaving(false); setOpenNew(false); resetNewOrder(); await loadOrders({ silent: true });
         } catch (err) {
             if (isNetworkOfflineOrFail(err)) {
                 const ok = await enqueueCreateOrderOffline({
@@ -1719,7 +1724,7 @@ export default function PedidosPage() {
         if (!itemsRes.ok) { setMsg(`Erro ao inserir itens: ${itemsJson?.error ?? "falha desconhecida"}`); setEditSaving(false); return; }
         await applySelectedServiceFees(editOrder.id, editSelectedServiceFeeIds);
         setMsg("✅ Pedido editado com sucesso."); setEditSaving(false); setOpenEdit(false);
-        await loadOrders();
+        await loadOrders({ silent: true });
         if (viewOrder?.id === editOrder.id) setViewOrder(await fetchOrderFull(editOrder.id));
     }
 
@@ -1913,7 +1918,7 @@ export default function PedidosPage() {
                     });
                 } catch { /* silent */ }
             }
-            setSaving(false); setOpenNew(false); resetNewOrder(); await loadOrders();
+            setSaving(false); setOpenNew(false); resetNewOrder(); await loadOrders({ silent: true });
         } catch (err) {
             if (isNetworkOfflineOrFail(err)) {
                 await enqueueCreateOrderOffline({

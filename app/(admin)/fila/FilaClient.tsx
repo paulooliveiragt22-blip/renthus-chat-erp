@@ -224,7 +224,9 @@ export default function FilaClient() {
     } catch { /* ignore */ }
   }, [companyId]);
 
-  // ── Realtime + polling ────────────────────────────────────────────────────
+  // ── Polling (não Realtime) ────────────────────────────────────────────────
+  // `orders` está na publication, mas RLS service_role_only impede eventos no
+  // browser. Poll via API é o caminho canônico (igual Pedidos/WhatsApp).
 
   useEffect(() => {
     if (!companyId) return;

@@ -115,9 +115,9 @@ export default function EstoquePage() {
 
     // ── load ─────────────────────────────────────────────────────────────────
 
-    const load = useCallback(async () => {
+    const load = useCallback(async (opts?: { silent?: boolean }) => {
         if (!companyId) return;
-        setLoading(true);
+        if (!opts?.silent) setLoading(true);
         try {
             const res = await fetch("/api/admin/estoque", {
                 credentials: "include",
@@ -126,7 +126,7 @@ export default function EstoquePage() {
             const json = await res.json().catch(() => ({}));
             if (!res.ok) {
                 console.error("[Estoque] load error:", json?.error ?? res.status);
-                setItems([]);
+                if (!opts?.silent) setItems([]);
                 return;
             }
             setItems((json.items ?? []) as StockItem[]);
@@ -135,7 +135,18 @@ export default function EstoquePage() {
         }
     }, [companyId]);
 
-    useEffect(() => { load(); }, [load]);
+    useEffect(() => { void load(); }, [load]);
+
+    // Poll silencioso: estoque muda em vendas (trigger) e o browser não recebe
+    // postgres_changes (RLS service_role + tabela fora da publication).
+    useEffect(() => {
+        if (!companyId) return;
+        const timer = setInterval(() => {
+            if (document.hidden) return;
+            void load({ silent: true });
+        }, 15000);
+        return () => clearInterval(timer);
+    }, [companyId, load]);
 
     // ── movement modal ────────────────────────────────────────────────────────
 
@@ -207,7 +218,7 @@ export default function EstoquePage() {
                     <h1 className="text-xl font-bold text-zinc-900 dark:text-zinc-50">Estoque</h1>
                     <p className="mt-0.5 text-xs text-zinc-400">Saldo por volume — UN e CX compartilham o mesmo estoque</p>
                 </div>
-                <button onClick={load} className="flex h-8 w-8 items-center justify-center rounded-lg border border-zinc-200 text-zinc-500 hover:bg-zinc-50 dark:border-zinc-700">
+                <button onClick={() => void load()} className="flex h-8 w-8 items-center justify-center rounded-lg border border-zinc-200 text-zinc-500 hover:bg-zinc-50 dark:border-zinc-700">
                     <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
                 </button>
             </div>
