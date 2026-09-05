@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { makeMockAdmin } from "../helpers/mockSupabaseAdmin";
 import {
+    expireDueTrials,
     markAbandonedDue,
     transitionBillingStatus,
 } from "../../lib/billing/transitionBillingStatus";
@@ -105,5 +106,57 @@ describe("markAbandonedDue", () => {
         assert.deepEqual(r.companyIds, ["co-old"]);
         assert.equal(db.tables.pagarme_subscriptions?.[0]?.status, "abandoned");
         assert.equal(db.tables.pagarme_subscriptions?.[1]?.status, "pending_payment");
+    });
+});
+
+describe("expireDueTrials", () => {
+    it("trial vencido com plano → pending_payment e empresa inativa", async () => {
+        const db = makeMockAdmin({
+            pagarme_subscriptions: [
+                {
+                    id: "sub-1",
+                    company_id: "co-1",
+                    status: "trial",
+                    plan: "pro",
+                    trial_ends_at: "2020-01-01T00:00:00.000Z",
+                },
+                {
+                    id: "sub-live",
+                    company_id: "co-live",
+                    status: "trial",
+                    plan: "pro",
+                    trial_ends_at: "2099-01-01T00:00:00.000Z",
+                },
+            ],
+            companies: [
+                { id: "co-1", is_active: true },
+                { id: "co-live", is_active: true },
+            ],
+        });
+        const r = await expireDueTrials(db.client as unknown as SupabaseClient, 100);
+        assert.equal(r.expired, 1);
+        assert.deepEqual(r.companyIds, ["co-1"]);
+        assert.equal(db.tables.pagarme_subscriptions?.[0]?.status, "pending_payment");
+        assert.equal(db.tables.companies?.[0]?.is_active, false);
+        assert.equal(db.tables.pagarme_subscriptions?.[1]?.status, "trial");
+        assert.equal(db.tables.companies?.[1]?.is_active, true);
+    });
+
+    it("trial vencido sem plano → pending_setup", async () => {
+        const db = makeMockAdmin({
+            pagarme_subscriptions: [
+                {
+                    id: "sub-1",
+                    company_id: "co-1",
+                    status: "trial",
+                    plan: "  ",
+                    trial_ends_at: "2020-01-01T00:00:00.000Z",
+                },
+            ],
+            companies: [{ id: "co-1", is_active: true }],
+        });
+        const r = await expireDueTrials(db.client as unknown as SupabaseClient);
+        assert.equal(r.expired, 1);
+        assert.equal(db.tables.pagarme_subscriptions?.[0]?.status, "pending_setup");
     });
 });
