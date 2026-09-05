@@ -12,10 +12,10 @@ import type { Session } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/client";
 import PasswordInput from "@/components/PasswordInput";
 import { BillingPeriodToggle } from "@/components/billing/BillingPeriodToggle";
-import { PlanSelect, type PlanSelectOption } from "@/components/billing/PlanSelect";
 import {
     PLAN_CARD_ACCENT,
     PLAN_CARD_ACCENT_FG,
+    PLAN_CARD_ACCENT_SHADOW,
     PLAN_TOGGLE_ACCENT,
 } from "@/lib/billing/planOfferUi";
 import { PLAN_CATALOG, PLAN_ORDER, type CommercialPlanKey } from "@/lib/billing/planCatalog";
@@ -219,40 +219,6 @@ export default function SignupPage() {
     const plan = selectedPlan ? plans.find((p) => p.key === selectedPlan)! : null;
     const maxYearlyPct = Math.max(0, ...plans.map((p) => p.yearlySavingsPercent));
 
-    const planSelectOptions: PlanSelectOption[] = useMemo(() => {
-        return plans.map((p) => {
-            const hasPromo =
-                p.promoLabel != null && p.offerMonthlyCents < p.listMonthlyCents;
-            const showYear =
-                billingPeriod === "year" &&
-                p.listYearlyCents != null &&
-                p.listYearlyCents > 0;
-            const yearPerMonth = showYear ? yearlyPerMonthCents(p.listYearlyCents!) : 0;
-            const yearPct = showYear ? p.yearlySavingsPercent : 0;
-            const priceLabel = showYear
-                ? `${fmtCents(yearPerMonth)}/mês`
-                : `${fmtCents(p.offerMonthlyCents)}/mês`;
-            let secondaryLabel: string | null = null;
-            if (showYear && p.listYearlyCents) {
-                secondaryLabel = `${fmtCents(p.listYearlyCents)}/ano à vista${
-                    yearPct > 0 ? ` · economize ${yearPct}%` : ""
-                }`;
-            } else if (hasPromo) {
-                secondaryLabel = p.promoLabel;
-            } else {
-                secondaryLabel = p.description;
-            }
-            return {
-                key: p.key,
-                name: p.name,
-                description: p.description,
-                priceLabel,
-                secondaryLabel,
-                popular: p.popular,
-            };
-        });
-    }, [plans, billingPeriod]);
-
     function selectPlan(key: PlanKey) {
         setSelectedPlan(key);
         setError(null);
@@ -371,65 +337,141 @@ export default function SignupPage() {
                 </p>
             </div>
 
-            <div style={S.planSelectPanel}>
-                <div style={S.periodToggleWrap}>
-                    <BillingPeriodToggle
-                        value={billingPeriod}
-                        onValueChange={setBillingPeriod}
-                        yearlyHint={
-                            maxYearlyPct > 0 ? `economize até ${maxYearlyPct}%` : null
-                        }
-                        disabled={loading}
-                    />
-                </div>
-
-                <label htmlFor="signup-plan-select" style={S.planSelectLabel}>
-                    Plano
-                </label>
-                <PlanSelect
-                    id="signup-plan-select"
-                    mode="signup"
-                    value={selectedPlan}
-                    onValueChange={selectPlan}
-                    options={planSelectOptions}
+            <div style={S.periodToggleWrap}>
+                <BillingPeriodToggle
+                    appearance="onDark"
+                    value={billingPeriod}
+                    onValueChange={setBillingPeriod}
+                    yearlyHint={
+                        maxYearlyPct > 0 ? `economize até ${maxYearlyPct}%` : null
+                    }
                     disabled={loading}
-                    tone="brand"
-                    placeholder="Escolha Essencial, Pro ou Market"
                 />
+            </div>
 
-                {plan ? (
-                    <div style={S.planDetail}>
-                        <p style={S.planDesc}>{plan.description}</p>
-                        <ul style={S.featureList}>
-                            {plan.features.map((f) => (
-                                <li key={f} style={S.featureItem}>
-                                    <svg
-                                        width="14"
-                                        height="14"
-                                        viewBox="0 0 24 24"
-                                        fill="none"
-                                        stroke={BRAND.planAccent}
-                                        strokeWidth="2.5"
-                                        strokeLinecap="round"
-                                        strokeLinejoin="round"
-                                        style={{ flexShrink: 0 }}
-                                        aria-hidden
-                                    >
-                                        <polyline points="20 6 9 17 4 12" />
-                                    </svg>
-                                    {f}
-                                </li>
-                            ))}
-                        </ul>
-                        <p style={S.setupLine}>
-                            {trialPolicy.payment_required
-                                ? "Pague para começar · cancele quando quiser"
-                                : "Após o teste · cancele quando quiser"}
-                        </p>
-                    </div>
-                ) : (
-                    <p style={S.planSelectHint}>Selecione um plano para continuar o cadastro.</p>
-                )}
+            <div style={S.plansRow} role="radiogroup" aria-label="Planos disponíveis">
+                {plans.map((p) => {
+                    const active = selectedPlan === p.key;
+                    const hasPromo =
+                        p.promoLabel != null && p.offerMonthlyCents < p.listMonthlyCents;
+                    const showYear =
+                        billingPeriod === "year" &&
+                        p.listYearlyCents != null &&
+                        p.listYearlyCents > 0;
+                    const yearPerMonth = showYear ? yearlyPerMonthCents(p.listYearlyCents!) : 0;
+                    const yearPct = showYear ? p.yearlySavingsPercent : 0;
+                    return (
+                        <div
+                            key={p.key}
+                            role="radio"
+                            aria-checked={active}
+                            style={{
+                                ...S.planCard,
+                                ...(active ? S.planCardActive : S.planCardInactive),
+                                cursor: "default",
+                            }}
+                        >
+                            {p.popular && <div style={S.popularBadge}>MAIS POPULAR</div>}
+                            <div style={S.planName}>{p.name}</div>
+                            <div style={S.planDesc}>{p.description}</div>
+                            <div style={{ ...S.priceRow, transition: "opacity 0.25s" }}>
+                                {showYear ? (
+                                    <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                                        <span
+                                            style={{
+                                                ...S.pricePer,
+                                                textDecoration: "line-through",
+                                                opacity: 0.75,
+                                            }}
+                                        >
+                                            De {fmtCents(p.listMonthlyCents)}/mês
+                                        </span>
+                                        <span>
+                                            <span style={S.priceValue}>
+                                                {fmtCents(yearPerMonth)}
+                                            </span>
+                                            <span style={S.pricePer}>/mês</span>
+                                        </span>
+                                    </div>
+                                ) : hasPromo ? (
+                                    <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                                        <span
+                                            style={{
+                                                ...S.pricePer,
+                                                textDecoration: "line-through",
+                                                opacity: 0.75,
+                                            }}
+                                        >
+                                            De {fmtCents(p.listMonthlyCents)}
+                                        </span>
+                                        <span>
+                                            <span style={S.priceValue}>
+                                                {fmtCents(p.offerMonthlyCents)}
+                                            </span>
+                                            <span style={S.pricePer}>/mês</span>
+                                        </span>
+                                    </div>
+                                ) : (
+                                    <>
+                                        <span style={S.priceValue}>
+                                            {fmtCents(p.offerMonthlyCents)}
+                                        </span>
+                                        <span style={S.pricePer}>/mês</span>
+                                    </>
+                                )}
+                            </div>
+                            {showYear ? (
+                                <div style={{ ...S.setupLine, color: BRAND.planAccent, fontWeight: 600 }}>
+                                    {fmtCents(p.listYearlyCents!)}/ano à vista
+                                    {yearPct > 0 ? ` · economize ${yearPct}%` : ""}
+                                </div>
+                            ) : (
+                                hasPromo && (
+                                    <div style={{ ...S.setupLine, color: BRAND.planAccent, fontWeight: 600 }}>
+                                        {p.promoLabel}
+                                    </div>
+                                )
+                            )}
+                            <div style={S.setupLine}>
+                                {trialPolicy.payment_required
+                                    ? "Pague para começar · cancele quando quiser"
+                                    : "Após o teste · cancele quando quiser"}
+                            </div>
+                            <ul style={S.featureList}>
+                                {p.features.map((f) => (
+                                    <li key={f} style={S.featureItem}>
+                                        <svg
+                                            width="14"
+                                            height="14"
+                                            viewBox="0 0 24 24"
+                                            fill="none"
+                                            stroke={BRAND.planAccent}
+                                            strokeWidth="2.5"
+                                            strokeLinecap="round"
+                                            strokeLinejoin="round"
+                                            style={{ flexShrink: 0 }}
+                                            aria-hidden
+                                        >
+                                            <polyline points="20 6 9 17 4 12" />
+                                        </svg>
+                                        {f}
+                                    </li>
+                                ))}
+                            </ul>
+                            <button
+                                type="button"
+                                onClick={() => selectPlan(p.key)}
+                                aria-pressed={active}
+                                style={{
+                                    ...S.planBtn,
+                                    ...(active ? S.planBtnActive : S.planBtnInactive),
+                                }}
+                            >
+                                {active ? "Plano selecionado ✓" : "Quero este plano"}
+                            </button>
+                        </div>
+                    );
+                })}
             </div>
 
             {plan && (
@@ -628,55 +670,129 @@ const S = {
         display:        "flex",
         justifyContent: "center",
         width:          "100%",
-        marginBottom:   20,
+        marginBottom:   28,
     },
-    planSelectPanel: {
-        background:   "#fff",
-        borderRadius: 24,
-        padding:      "28px 24px",
-        width:        "100%",
-        maxWidth:     560,
-        marginBottom: 32,
-        boxShadow:    "0 16px 48px rgba(0,0,0,0.35)",
-        boxSizing:    "border-box" as const,
+    periodToggle: {
+        display:      "inline-flex",
+        background:   "rgba(255,255,255,0.08)",
+        border:       "1px solid rgba(255,255,255,0.14)",
+        borderRadius: 999,
+        padding:      4,
+        gap:          4,
     },
-    planSelectLabel: {
-        display:      "block",
-        fontSize:     13,
-        fontWeight:   600,
-        color:        "#374151",
-        marginBottom: 8,
+    periodBtn: {
+        display:      "inline-flex",
+        alignItems:   "center",
+        gap:          8,
+        border:       "none",
+        background:   "transparent",
+        color:        "rgba(255,255,255,0.7)",
+        fontSize:     14,
+        fontWeight:   700,
+        padding:      "9px 20px",
+        borderRadius: 999,
+        cursor:       "pointer",
+        transition:   "all 0.15s",
     },
-    planSelectHint: {
-        margin:     "16px 0 0",
-        fontSize:   13,
-        color:      "#6b7280",
-        textAlign:  "center" as const,
+    periodBtnActive: {
+        background: BRAND.accent,
+        color:      BRAND.accentFg,
+        boxShadow:  "0 3px 10px rgba(87,255,143,0.35)",
     },
-    planDetail: {
-        marginTop: 20,
-        paddingTop: 16,
-        borderTop: "1px solid #e5e7eb",
+    periodBtnHint: {
+        fontSize:      10,
+        fontWeight:    700,
+        letterSpacing: "0.2px",
+        opacity:       0.85,
+    },
+    plansRow: {
+        display:        "flex",
+        gap:            28,
+        flexWrap:       "wrap" as const,
+        justifyContent: "center",
+        alignItems:     "stretch",
+        width:          "100%",
+        maxWidth:       1120,
+        marginBottom:   40,
+    },
+    planCard: {
+        position:      "relative" as const,
+        borderRadius:  28,
+        padding:       "36px 28px 28px",
+        flex:          "1 1 280px",
+        minWidth:      260,
+        minHeight:     520,
+        display:       "flex",
+        flexDirection: "column" as const,
+        background:    "#fff",
+        cursor:        "pointer",
+        outline:       "none",
+        boxSizing:     "border-box" as const,
+        transition:    "box-shadow 0.15s, border-color 0.15s, transform 0.15s",
+    },
+    planCardActive: {
+        border:    `2.5px solid ${BRAND.planAccent}`,
+        boxShadow: `0 12px 36px ${PLAN_CARD_ACCENT_SHADOW}`,
+        transform: "translateY(-2px)",
+    },
+    planCardInactive: {
+        border:    "2px solid transparent",
+        boxShadow: "0 8px 28px rgba(0,0,0,0.18)",
+    },
+    popularBadge: {
+        position:      "absolute" as const,
+        top:           -13,
+        left:          "50%",
+        transform:     "translateX(-50%)",
+        background:    BRAND.planAccent,
+        color:         BRAND.planAccentFg,
+        fontSize:      10,
+        fontWeight:    800,
+        padding:       "4px 14px",
+        borderRadius:  999,
+        letterSpacing: "1px",
+        whiteSpace:    "nowrap" as const,
+    },
+    planName: {
+        fontSize:     22,
+        fontWeight:   800,
+        color:        "#111827",
+        marginBottom: 6,
     },
     planDesc: {
         fontSize:     14,
         color:        "#6b7280",
-        marginBottom: 16,
+        marginBottom: 22,
         lineHeight:   1.5,
+    },
+    priceRow: {
+        display:      "flex",
+        alignItems:   "baseline",
+        gap:          4,
+        marginBottom: 6,
+    },
+    priceValue: {
+        fontSize:   32,
+        fontWeight: 800,
+        color:      "#111827",
+    },
+    pricePer: {
+        fontSize: 14,
+        color:    "#6b7280",
     },
     setupLine: {
         fontSize:     12,
         color:        "#9ca3af",
-        marginTop:    8,
-        marginBottom: 0,
+        marginBottom: 20,
     },
     featureList: {
         listStyle:     "none",
-        margin:        "0 0 8px",
+        margin:        "0 0 28px",
         padding:       0,
         display:       "flex",
         flexDirection: "column" as const,
         gap:           12,
+        flex:          1,
     },
     featureItem: {
         display:    "flex",
@@ -686,6 +802,26 @@ const S = {
         color:      "#374151",
         fontWeight: 500,
         lineHeight: 1.4,
+    },
+    planBtn: {
+        width:        "100%",
+        padding:      "14px 0",
+        border:       "none",
+        borderRadius: 12,
+        fontSize:     15,
+        fontWeight:   700,
+        cursor:       "pointer",
+        marginTop:    "auto",
+        transition:   "all 0.15s",
+    },
+    planBtnInactive: {
+        background: BRAND.planAccent,
+        color:      BRAND.planAccentFg,
+        boxShadow:  `0 3px 10px ${PLAN_CARD_ACCENT_SHADOW}`,
+    },
+    planBtnActive: {
+        background: BRAND.primary,
+        color:      BRAND.planAccent,
     },
     form: {
         background:      "#fff",

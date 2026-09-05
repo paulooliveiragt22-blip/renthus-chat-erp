@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Loader2 } from "lucide-react";
 import {
     getPlanLabel,
@@ -22,11 +22,6 @@ import {
     BillingPeriodToggle,
     type BillingPeriodValue,
 } from "@/components/billing/BillingPeriodToggle";
-import {
-    PlanSelect,
-    type PlanSelectMode,
-    type PlanSelectOption,
-} from "@/components/billing/PlanSelect";
 
 type Member = {
     user_id: string;
@@ -176,11 +171,6 @@ export function PlanChangeCatalog({
         status === "active" &&
         !isAnnualSub;
 
-    const selectMode: PlanSelectMode =
-        initialCheckout || checkoutMode || neverPaid || isPrepay
-            ? "initial_checkout"
-            : "subscriber";
-
     async function cancelPending() {
         setCancelling(true);
         try {
@@ -203,6 +193,7 @@ export function PlanChangeCatalog({
         if (!downgradeTo) return;
         setSaving(true);
         try {
+            const toAnnualImmediate = viewPeriod === "year" && !isAnnualSub;
             const res = await fetch("/api/billing/change-plan", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
@@ -210,6 +201,7 @@ export function PlanChangeCatalog({
                 body: JSON.stringify({
                     plan: downgradeTo,
                     keep_user_ids: [...keep],
+                    to_annual: toAnnualImmediate,
                 }),
             });
             const json = await res.json().catch(() => ({}));
@@ -222,6 +214,12 @@ export function PlanChangeCatalog({
                 onSuccess?.(json.message);
             }
             await onReload();
+            if (
+                (json as { action?: string }).action === "downgrade_to_annual_quoted" ||
+                (json as { action?: string }).action === "upgrade_to_annual_quoted"
+            ) {
+                onCheckoutNeeded?.();
+            }
         } finally {
             setSaving(false);
         }
@@ -330,21 +328,13 @@ export function PlanChangeCatalog({
             void onUpgradeOrTrial(key);
             return;
         }
-        if (status === "active") {
-            // Mensal → anual (mesmo/↑/↓): checkout imediato com proration — igual ao upgrade.
-            // Não abre dialog de keep users (só downgrade no mesmo ciclo).
-            if (viewPeriod === "year" && !isAnnualSub) {
-                void startUpgradeCheckout(key);
-                return;
-            }
-            if (rankDiff > 0) {
-                void startUpgradeCheckout(key);
-                return;
-            }
-            if (rankDiff < 0) {
-                setDowngradeTo(key);
-                return;
-            }
+        if (rankDiff > 0 && status === "active") {
+            void startUpgradeCheckout(key);
+            return;
+        }
+        if (rankDiff < 0 && status === "active") {
+            setDowngradeTo(key);
+            return;
         }
         onError("Alteração de plano não disponível nesta situação.");
     }
@@ -387,83 +377,6 @@ export function PlanChangeCatalog({
         }
     }
 
-    const showYear = viewPeriod === "year";
-    const isMigrateCta =
-        !initialCheckout &&
-        !checkoutMode &&
-        !neverPaid &&
-        !isPrepay &&
-        showYear &&
-        canSwitchToAnnual;
-
-    const options: PlanSelectOption[] = useMemo(() => {
-        return PLAN_ORDER.map((key) => {
-            const monthlyPrice = prices[key] ?? 0;
-            const yearPrice = yearlyPrices?.[key] ?? 0;
-            const yearPerMonth = showYear && yearPrice > 0 ? yearPrice / 12 : 0;
-            const yearPct =
-                showYear && yearPrice > 0
-                    ? yearlySavingsPercent?.[key] && yearlySavingsPercent[key]! > 0
-                        ? yearlySavingsPercent[key]!
-                        : yearlyDiscountPct(monthlyPrice, yearPrice)
-                    : 0;
-            const active = key === currentPlan;
-            const pending = pendingPlanKey === key;
-            const priceLabel =
-                showYear && yearPrice > 0
-                    ? `${brl(yearPerMonth)}/mês`
-                    : `${brl(monthlyPrice)}/mês`;
-            let secondaryLabel: string | null = null;
-            if (showYear && yearPrice > 0) {
-                secondaryLabel = `${brl(yearPrice)}/ano à vista${
-                    yearPct > 0 ? ` · economize ${yearPct}%` : ""
-                }`;
-            } else if (active) {
-                secondaryLabel = isAnnualSub ? "Plano anual atual" : "Plano atual";
-            } else if (pending) {
-                secondaryLabel = `Migração em ${whenLabel}`;
-            } else {
-                secondaryLabel = BLURBS[key];
-            }
-            return {
-                key,
-                name: getPlanLabel(key),
-                description: BLURBS[key],
-                priceLabel,
-                secondaryLabel,
-                popular: key === "pro",
-                disabled: false,
-            };
-        });
-    }, [
-        prices,
-        yearlyPrices,
-        yearlySavingsPercent,
-        showYear,
-        currentPlan,
-        pendingPlanKey,
-        whenLabel,
-        isAnnualSub,
-    ]);
-
-    let cta = "Selecionar";
-    if (isMigrateCta) cta = switching ? "Preparando…" : "Migrar para anual";
-    else if (selectMode === "initial_checkout")
-        cta =
-            viewPeriod === "year"
-                ? "Plano anual selecionado"
-                : "Plano mensal selecionado";
-    else if (status === "trial") cta = "Escolher este plano";
-    else cta = isAnnualSub ? "Plano anual atual" : "Plano atual";
-
-    const showUpgradeHint =
-        selectMode === "subscriber" &&
-        status === "active" &&
-        viewPeriod === "year" &&
-        !isAnnualSub;
-
-    const ctaDisabled = isMigrateCta ? planSaving || switching : true;
-
     return (
         <div className="space-y-3">
             <div className="flex flex-col items-center gap-3 sm:items-stretch">
@@ -480,7 +393,7 @@ export function PlanChangeCatalog({
                         yearlyHint={
                             maxYearlyPct > 0 ? `economize até ${maxYearlyPct}%` : null
                         }
-                        disabled={planSaving || switching}
+                        disabled={planSaving || switching || saving}
                     />
                 </div>
             </div>
@@ -508,64 +421,151 @@ export function PlanChangeCatalog({
                 </div>
             ) : null}
 
-            <div className="space-y-3">
-                <PlanSelect
-                    mode={selectMode}
-                    value={currentPlan}
-                    onValueChange={onSelectPlan}
-                    options={options}
-                    disabled={planSaving || saving || switching}
-                    loading={
-                        saving ||
-                        switching ||
-                        (planSaving && selectMode === "initial_checkout")
-                    }
-                    tone="brand"
-                    aria-label="Selecionar plano"
-                />
+            <div
+                className={`grid gap-3 ${checkoutMode ? "grid-cols-1" : "sm:grid-cols-3"}`}
+            >
+                {PLAN_ORDER.map((key) => {
+                    const active = key === currentPlan;
+                    const pending = pendingPlanKey === key;
+                    const monthlyPrice = prices[key] ?? 0;
+                    const yearPrice = yearlyPrices?.[key] ?? 0;
+                    const showYear = viewPeriod === "year" && yearPrice > 0;
+                    const yearPerMonth = showYear ? yearPrice / 12 : 0;
+                    const yearPct = showYear
+                        ? yearlySavingsPercent?.[key] && yearlySavingsPercent[key]! > 0
+                            ? yearlySavingsPercent[key]!
+                            : yearlyDiscountPct(monthlyPrice, yearPrice)
+                        : 0;
+                    const higher = planRank(key) > planRank(currentPlan);
+                    const lower = planRank(key) < planRank(currentPlan);
+                    // Ação anual específica: plano atual, sub mensal ativa, view anual.
+                    const isMigrateCta =
+                        !initialCheckout &&
+                        !checkoutMode &&
+                        !neverPaid &&
+                        !isPrepay &&
+                        active &&
+                        showYear &&
+                        canSwitchToAnnual;
+                    let cta = "Selecionar";
+                    if (isMigrateCta) cta = switching ? "Preparando…" : "Migrar para anual";
+                    else if (active && (checkoutMode || isPrepay || neverPaid))
+                        cta =
+                            viewPeriod === "year"
+                                ? "Plano anual selecionado"
+                                : "Plano mensal selecionado";
+                    else if (active) cta = isAnnualSub ? "Plano anual atual" : "Plano atual";
+                    else if (checkoutMode || isPrepay || neverPaid || status === "trial")
+                        cta = "Escolher este plano";
+                    else if (higher && showYear && !isAnnualSub)
+                        cta = saving ? "Cotando…" : "Upgrade para anual";
+                    else if (higher) cta = "Fazer upgrade";
+                    else if (lower && showYear && !isAnnualSub)
+                        cta = "Migrar para anual";
+                    else if (lower) cta = "Confirmar migração";
+                    else cta = "Indisponível";
+                    const btnDisabled =
+                        status === "overdue"
+                            ? true
+                            : initialCheckout || checkoutMode || isPrepay || neverPaid
+                              ? planSaving || active
+                              : isMigrateCta
+                                ? planSaving || switching
+                                : planSaving ||
+                                  saving ||
+                                  active ||
+                                  (lower && status !== "active");
 
-                {showUpgradeHint ? (
-                    <p className="text-xs text-zinc-500">
-                        No ciclo anual, upgrade de plano usa{" "}
-                        <span className="font-semibold" style={{ color: PLAN_CARD_ACCENT }}>
-                            Upgrade para anual
-                        </span>
-                        . Manter o plano atual e só mudar o ciclo: use o botão abaixo.
-                    </p>
-                ) : null}
-
-                {isMigrateCta ? (
-                    <Button
-                        type="button"
-                        className="w-full bg-[#16364d] text-white hover:bg-[#1f4a68]"
-                        disabled={ctaDisabled}
-                        onClick={() => void startPeriodSwitch()}
-                    >
-                        {switching ? (
-                            <>
-                                <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
-                                Preparando…
-                            </>
-                        ) : (
-                            "Migrar para anual"
-                        )}
-                    </Button>
-                ) : selectMode === "initial_checkout" || status === "trial" ? (
-                    <p className="text-center text-xs font-medium text-zinc-500">{cta}</p>
-                ) : null}
+                    return (
+                        <div
+                            key={key}
+                            className={`rounded-xl border-2 p-4 ${
+                                active
+                                    ? "border-violet-500 bg-violet-50 dark:border-violet-500 dark:bg-violet-950/30"
+                                    : pending
+                                      ? "border-amber-400 bg-amber-50/80 dark:border-amber-600 dark:bg-amber-950/20"
+                                      : "border-zinc-200 dark:border-zinc-700"
+                            }`}
+                        >
+                            {key === "pro" ? (
+                                <p className="mb-1 text-[10px] font-bold uppercase tracking-wide text-violet-600">
+                                    Mais popular
+                                </p>
+                            ) : null}
+                            <p className="font-bold text-zinc-900 dark:text-zinc-100">
+                                {getPlanLabel(key)}
+                            </p>
+                            <p className="mt-0.5 text-xs text-zinc-500">{BLURBS[key]}</p>
+                            {showYear ? (
+                                <>
+                                    <p className="mt-2 text-xs text-zinc-400 line-through">
+                                        De {brl(monthlyPrice)}/mês
+                                    </p>
+                                    <p className="text-lg font-bold text-zinc-900 dark:text-zinc-100">
+                                        {brl(yearPerMonth)}
+                                        <span className="text-sm font-semibold text-zinc-500">
+                                            /mês
+                                        </span>
+                                    </p>
+                                    <p
+                                        className="mt-0.5 text-[11px] font-semibold"
+                                        style={{ color: PLAN_CARD_ACCENT }}
+                                    >
+                                        {brl(yearPrice)}/ano à vista
+                                        {yearPct > 0 ? ` · economize ${yearPct}%` : ""}
+                                    </p>
+                                </>
+                            ) : (
+                                <p className="mt-2 text-lg font-bold text-zinc-900 dark:text-zinc-100">
+                                    {brl(monthlyPrice)}
+                                    <span className="text-sm font-semibold text-zinc-500">
+                                        /mês
+                                    </span>
+                                </p>
+                            )}
+                            {pending ? (
+                                <p className="mt-1 text-[10px] font-medium text-amber-700 dark:text-amber-300">
+                                    Migração em {whenLabel}
+                                </p>
+                            ) : null}
+                            <Button
+                                type="button"
+                                disabled={btnDisabled}
+                                onClick={() =>
+                                    isMigrateCta
+                                        ? void startPeriodSwitch()
+                                        : onSelectPlan(key)
+                                }
+                                className="mt-3 w-full bg-[#16364d] text-white hover:bg-[#1f4a68]"
+                            >
+                                {isMigrateCta && switching ? (
+                                    <>
+                                        <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+                                        Preparando…
+                                    </>
+                                ) : (
+                                    cta
+                                )}
+                            </Button>
+                        </div>
+                    );
+                })}
             </div>
 
             <Dialog open={downgradeTo != null} onOpenChange={(o) => !o && setDowngradeTo(null)}>
                 <DialogContent className="max-w-xl overflow-x-hidden">
                     <DialogHeader>
                         <DialogTitle>
-                            {downgradeTo
-                                ? `Confirmar migração para ${getPlanLabel(downgradeTo)}`
-                                : "Confirmar migração"}
+                            {downgradeTo && viewPeriod === "year" && !isAnnualSub
+                                ? `Migrar para ${getPlanLabel(downgradeTo)} anual`
+                                : downgradeTo
+                                  ? `Confirmar migração para ${getPlanLabel(downgradeTo)}`
+                                  : "Confirmar migração"}
                         </DialogTitle>
                         <DialogDescription>
-                            A migração será concluída no final do ciclo do plano atual (vencimento{" "}
-                            {whenLabel}).
+                            {viewPeriod === "year" && !isAnnualSub
+                                ? "Vale na hora após o pagamento (anual − crédito do mês)."
+                                : `A migração será concluída no final do ciclo do plano atual (vencimento ${whenLabel}).`}
                         </DialogDescription>
                     </DialogHeader>
                     <p className="text-xs text-zinc-500">
@@ -599,9 +599,12 @@ export function PlanChangeCatalog({
                             type="button"
                             disabled={saving || loadingMembers}
                             onClick={() => void confirmDowngrade()}
-                            className="bg-[#16364d] text-white hover:bg-[#1f4a68]"
                         >
-                            {saving ? "Confirmando…" : "Confirmar migração"}
+                            {saving
+                                ? "Confirmando…"
+                                : viewPeriod === "year" && !isAnnualSub
+                                  ? "Continuar para pagamento"
+                                  : "Confirmar migração"}
                         </Button>
                     </DialogFooter>
                 </DialogContent>

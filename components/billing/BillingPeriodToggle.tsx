@@ -2,45 +2,72 @@
 
 import * as React from "react";
 import { cva, type VariantProps } from "class-variance-authority";
-import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
 import { PLAN_TOGGLE_ACCENT } from "@/lib/billing/planOfferUi";
 
 export type BillingPeriodValue = "month" | "year";
 
-const wrapVariants = cva("inline-flex items-center gap-3", {
+const listVariants = cva("inline-flex rounded-full border p-1", {
   variants: {
+    appearance: {
+      light:
+        "border-zinc-200 bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-800",
+      onDark: "border-white/15 bg-white/10",
+    },
     size: {
-      sm: "text-xs",
-      md: "text-sm",
+      sm: "gap-0.5",
+      md: "gap-1",
     },
   },
-  defaultVariants: { size: "md" },
+  defaultVariants: { appearance: "light", size: "md" },
 });
 
-const labelVariants = cva("font-semibold transition-colors", {
-  variants: {
-    active: {
-      true: "text-zinc-900 dark:text-zinc-50",
-      false: "text-zinc-400 dark:text-zinc-500",
+const tabVariants = cva(
+  "inline-flex items-center justify-center rounded-full font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50",
+  {
+    variants: {
+      appearance: {
+        light: "focus-visible:ring-[#57ff8f]/50",
+        onDark: "focus-visible:ring-[#57ff8f]/60",
+      },
+      size: {
+        sm: "px-3 py-1 text-xs",
+        md: "px-4 py-1.5 text-sm",
+      },
+      selected: {
+        true: "bg-[#57ff8f] text-[#16364D] shadow-sm",
+        false: "",
+      },
     },
-  },
-  defaultVariants: { active: false },
-});
+    compoundVariants: [
+      {
+        appearance: "light",
+        selected: false,
+        class: "text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300",
+      },
+      {
+        appearance: "onDark",
+        selected: false,
+        class: "text-white/70 hover:text-white",
+      },
+    ],
+    defaultVariants: { appearance: "light", size: "md", selected: false },
+  }
+);
 
 export type BillingPeriodToggleProps = {
   value: BillingPeriodValue;
   onValueChange: (next: BillingPeriodValue) => void;
-  /** Ex.: "economize até 20%" ao lado de Anual. */
+  /** Ex.: "economize até 20%" no tab Anual. */
   yearlyHint?: string | null;
   disabled?: boolean;
   id?: string;
   className?: string;
-} & VariantProps<typeof wrapVariants>;
+} & VariantProps<typeof listVariants>;
 
 /**
- * Toggle Mensal ↔ Anual via Radix Switch.
- * checked = year; unchecked = month.
+ * Toggle Mensal | Anual — segmented tabs (não Switch booleano).
+ * Domínio é month|year; tabs deixam as duas opções explícitas.
  */
 export function BillingPeriodToggle({
   value,
@@ -48,44 +75,77 @@ export function BillingPeriodToggle({
   yearlyHint,
   disabled = false,
   id = "billing-period",
+  appearance,
   size,
   className,
 }: BillingPeriodToggleProps) {
-  const isYear = value === "year";
+  const tabs: BillingPeriodValue[] = ["month", "year"];
+
+  function onKeyDown(e: React.KeyboardEvent<HTMLDivElement>) {
+    if (disabled) return;
+    const idx = tabs.indexOf(value);
+    if (e.key === "ArrowRight" || e.key === "ArrowDown") {
+      e.preventDefault();
+      onValueChange(tabs[(idx + 1) % tabs.length]!);
+    } else if (e.key === "ArrowLeft" || e.key === "ArrowUp") {
+      e.preventDefault();
+      onValueChange(tabs[(idx - 1 + tabs.length) % tabs.length]!);
+    } else if (e.key === "Home") {
+      e.preventDefault();
+      onValueChange("month");
+    } else if (e.key === "End") {
+      e.preventDefault();
+      onValueChange("year");
+    }
+  }
 
   return (
     <div
-      className={cn(wrapVariants({ size }), className)}
-      role="group"
+      id={id}
+      role="tablist"
       aria-label="Ciclo de cobrança"
+      className={cn(listVariants({ appearance, size }), className)}
+      onKeyDown={onKeyDown}
     >
-      <span className={cn(labelVariants({ active: !isYear }))} id={`${id}-month`}>
-        Mensal
-      </span>
-      <Switch
-        id={id}
-        checked={isYear}
+      <button
+        type="button"
+        role="tab"
+        id={`${id}-month`}
+        aria-selected={value === "month"}
+        tabIndex={value === "month" ? 0 : -1}
         disabled={disabled}
-        aria-labelledby={`${id}-month ${id}-year`}
-        onCheckedChange={(checked) => onValueChange(checked ? "year" : "month")}
-        className="data-[state=checked]:bg-[color:var(--plan-toggle-accent)]"
-        style={
-          {
-            "--plan-toggle-accent": PLAN_TOGGLE_ACCENT,
-          } as React.CSSProperties
-        }
-      />
-      <span className={cn(labelVariants({ active: isYear }), "inline-flex items-center gap-1.5")}>
-        <span id={`${id}-year`}>Anual</span>
+        onClick={() => onValueChange("month")}
+        className={cn(
+          tabVariants({ appearance, size, selected: value === "month" })
+        )}
+      >
+        Mensal
+      </button>
+      <button
+        type="button"
+        role="tab"
+        id={`${id}-year`}
+        aria-selected={value === "year"}
+        tabIndex={value === "year" ? 0 : -1}
+        disabled={disabled}
+        onClick={() => onValueChange("year")}
+        className={cn(
+          tabVariants({ appearance, size, selected: value === "year" })
+        )}
+      >
+        Anual
         {yearlyHint ? (
           <span
-            className="text-[10px] font-bold"
-            style={{ color: isYear ? "#16364D" : PLAN_TOGGLE_ACCENT, opacity: 0.9 }}
+            className="ml-1 text-[10px] font-bold"
+            style={{
+              color: value === "year" ? "#16364D" : PLAN_TOGGLE_ACCENT,
+              opacity: 0.85,
+            }}
           >
             {yearlyHint}
           </span>
         ) : null}
-      </span>
+      </button>
     </div>
   );
 }
