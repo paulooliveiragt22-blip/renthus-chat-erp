@@ -60,6 +60,26 @@ export async function transitionBillingStatus(
     };
 }
 
+export async function expireDueTrials(
+    admin: Admin,
+    limit = 100
+): Promise<{ expired: number; companyIds: string[] }> {
+    const { data, error } = await admin.rpc("rpc_expire_due_trials", {
+        p_limit: limit,
+    });
+    if (error) {
+        throw new Error(error.message);
+    }
+    const row = (data ?? {}) as { expired?: number; company_ids?: unknown };
+    const ids = Array.isArray(row.company_ids)
+        ? row.company_ids.filter((id): id is string => typeof id === "string")
+        : [];
+    return {
+        expired: Number(row.expired ?? 0),
+        companyIds: ids,
+    };
+}
+
 export async function markAbandonedDue(admin: Admin): Promise<{
     marked: number;
     companyIds: string[];

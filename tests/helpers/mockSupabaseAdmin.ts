@@ -241,6 +241,36 @@ export function makeMockAdmin(tables: Tables): MockAdminHandle {
                         error: null,
                     };
                 }
+                if (name === "rpc_expire_due_trials") {
+                    const cap = Math.max(1, Math.min(Number(params.p_limit ?? 100), 500));
+                    const now = Date.now();
+                    const subs = tables.pagarme_subscriptions ?? [];
+                    const companies = tables.companies ?? (tables.companies = []);
+                    const companyIds: string[] = [];
+                    const due = subs
+                        .filter((s) => {
+                            if (String(s.status ?? "") !== "trial") return false;
+                            if (s.trial_ends_at == null) return false;
+                            return new Date(String(s.trial_ends_at)).getTime() <= now;
+                        })
+                        .sort(
+                            (a, b) =>
+                                new Date(String(a.trial_ends_at)).getTime() -
+                                new Date(String(b.trial_ends_at)).getTime()
+                        )
+                        .slice(0, cap);
+                    for (const sub of due) {
+                        const plan = String(sub.plan ?? "").trim();
+                        sub.status = plan.length > 0 ? "pending_payment" : "pending_setup";
+                        const co = companies.find((c) => c.id === sub.company_id);
+                        if (co) co.is_active = false;
+                        companyIds.push(String(sub.company_id));
+                    }
+                    return {
+                        data: { status: "ok", expired: companyIds.length, company_ids: companyIds },
+                        error: null,
+                    };
+                }
                 if (name === "rpc_list_commercial_plan_pricing") {
                     const defaults = [
                         { key: "essencial", price_cents: 27900, price_year_cents: 267840, ai_included_cents: 2790, yearly_discount_mode: "percent", yearly_discount_value: 2000 },
