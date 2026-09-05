@@ -10,6 +10,7 @@ export const OFFLINE_COMMAND_ALLOWLIST: ReadonlySet<string> = new Set<OfflineCom
     "noop",
     "FinalizePdvSale",
     "UpdateOrderStatus",
+    "CreateOrder",
 ]);
 
 /** Status de pedido permitidos offline (P2 — sem finalize/cancel financeiros). */

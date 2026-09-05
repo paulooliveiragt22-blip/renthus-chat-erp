@@ -246,9 +246,11 @@ export default function AdminSidebar({
           <div className="rounded-xl bg-white/5 px-3 py-2.5">
             <p className="text-[11px] font-semibold text-white">Dica rápida</p>
             <p className="mt-1 text-[10px] leading-relaxed text-white/50">
-              Use o botão{" "}
-              <span className="font-semibold text-accent">+ Novo pedido</span>{" "}
-              na tela de Pedidos para agilizar o atendimento.
+              Pressione{" "}
+              <kbd className="rounded bg-white/10 px-1 font-semibold text-accent">Ctrl</kbd>
+              +
+              <kbd className="rounded bg-white/10 px-1 font-semibold text-accent">K</kbd>
+              {" "}para abrir o menu de comandos (navegação rápida).
             </p>
           </div>
         )}

@@ -20,6 +20,7 @@ import { useAdminPrimaryDockVisible } from "@/lib/ui/useAdminPrimaryDockVisible"
 import { cn } from "@/lib/utils";
 import Modal from "@/lib/orders/Modal";
 import { Skeleton } from "@/components/ui/skeleton";
+import { CommandMenu } from "@/components/command/CommandMenu";
 
 // ── Wrapper externo: só lê pathname (resolve rules-of-hooks) ──────────────────
 export default function AdminShell({ children }: { children: React.ReactNode }) {
@@ -74,6 +75,26 @@ function AdminShellInner({ children }: { children: React.ReactNode }) {
 
     // ── Sidebar recolhido (desktop) ───────────────────────────────────────────
     const [collapsed, setCollapsed] = useState(false);
+
+    // ── Cmd/Ctrl+K ────────────────────────────────────────────────────────────
+    const [commandOpen, setCommandOpen] = useState(false);
+
+    useEffect(() => {
+        const onKeyDown = (e: KeyboardEvent) => {
+            if (e.key.toLowerCase() !== "k" || !(e.metaKey || e.ctrlKey)) return;
+            const target = e.target as HTMLElement | null;
+            const tag = target?.tagName?.toLowerCase();
+            // Não intercepta se o usuário está digitando em campo de texto denso (exceto quando
+            // o atalho é explícito — ainda assim Cmd+K é global tipo Linear).
+            if (tag === "input" || tag === "textarea" || target?.isContentEditable) {
+                // Permite mesmo assim: padrão SaaS; evita conflito só com IME.
+            }
+            e.preventDefault();
+            setCommandOpen((v) => !v);
+        };
+        document.addEventListener("keydown", onKeyDown);
+        return () => document.removeEventListener("keydown", onKeyDown);
+    }, []);
 
     useEffect(() => {
         const stored = localStorage.getItem("sidebar-collapsed");
@@ -221,6 +242,8 @@ function AdminShellInner({ children }: { children: React.ReactNode }) {
 
                 <AdminPrimaryNav variant="dock" dockVisible={primaryDockVisible} />
             </div>
+
+            <CommandMenu open={commandOpen} onOpenChange={setCommandOpen} />
 
             {/* ── Modal de pedido ── */}
             <Modal

@@ -62,6 +62,7 @@
     "lib/delivery/**/*.ts",
     "lib/print/**/*.ts",
     "lib/workspace/staffRoles.ts",
+    "components/command/commandItems.ts",
     "lib/workspace/rbac/capabilities.ts",
     "lib/workspace/rbac/profileTemplates.ts",
     "lib/workspace/rbac/requireCapability.ts",

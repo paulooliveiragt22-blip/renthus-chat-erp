@@ -114,13 +114,13 @@ Estado: `[ ]` pendente · `[~]` parcial · `[x]` feito + data · `[!]` bloqueado
 
 | # | Item | Arquivos criar / alterar | DoD | Estado |
 |---|------|--------------------------|-----|--------|
-| E1 | Dependência cmdk | `package.json` | `cmdk` instalado | [ ] |
-| E2 | Command UI | **Criar** `components/ui/command.tsx` (cmdk + Dialog) | Estilo tokens Renthus | [ ] |
-| E3 | Palette + registry | **Criar** `components/command/CommandMenu.tsx`, `components/command/commandItems.ts` | Grupos: Navegação, Clientes, Billing (só link), Workspace | [ ] |
-| E4 | Hotkey no shell | **Alterar** `AdminShell.tsx` | Ctrl/Cmd+K; não em `/signup` standalone desnecessário | [ ] |
-| E5 | RBAC nos itens | `commandItems.ts` + role do workspace | Member não vê ações admin | [ ] |
-| E6 | Contrato: sem mutação billing | **Criar** `tests/ui/commandMenuContract.test.ts` (grep/source) | Não chama `change-plan` / checkout | [ ] |
-| E7 | Busca cliente (fase 1 = navigate) | deep-link `/clientes?q=` ou focus | Documentado; busca full pode ser E+ | [ ] |
+| E1 | Dependência cmdk | `package.json` | `cmdk` instalado | [x] 2026-09-05 |
+| E2 | Command UI | **Criar** `components/ui/command.tsx` (cmdk + Dialog) | Estilo tokens Renthus | [x] 2026-09-05 |
+| E3 | Palette + registry | **Criar** `components/command/CommandMenu.tsx`, `components/command/commandItems.ts` | Grupos: Navegação, Clientes, Billing (só link), Workspace | [x] 2026-09-05 |
+| E4 | Hotkey no shell | **Alterar** `AdminShell.tsx` | Ctrl/Cmd+K; não em `/signup` standalone desnecessário | [x] 2026-09-05 — só `AdminShellInner` |
+| E5 | RBAC nos itens | `commandItems.ts` + role do workspace | Member não vê ações admin | [x] 2026-09-05 — role via `companies[].role` |
+| E6 | Contrato: sem mutação billing | **Criar** `tests/ui/commandMenuContract.test.ts` (grep/source) | Não chama `change-plan` / checkout | [x] 2026-09-05 |
+| E7 | Busca cliente (fase 1 = navigate) | deep-link `/clientes?q=` ou focus | Documentado; busca full pode ser E+ | [x] 2026-09-05 — `?q=` + focus |
 
 **Melhora da onda:** teclado-first; descoberta; parity com Linear/Vercel-style SaaS.
 
@@ -189,8 +189,9 @@ PDV, produtos lista, mesa, plano/signup (tokens), configuracoes, impressoras, fi
 - [x] Ondas A + B `[x]`
 - [x] Pelo menos PDV **ou** produtos (C1–C3) `[x]`
 - [x] Onda D (admin/platform/WhatsApp) `[x]` 2026-09-05
+- [x] Onda E Cmd+K `[x]` 2026-09-05 — navegação + deep-link clientes; contrato sem mutação billing
 - [ ] Zero `alert(` nos hubs AdminShell / WorkspaceSwitcher / orders Modal
-- [ ] Cmd+K (E) opcional para fechar P0 — se adiado, marcar `[~]` no ADR e abrir P1 UI
+- [x] Cmd+K (E) — entregue; mutação billing continua fora do palette
 - [ ] `npm test` / e2e críticos verdes nos módulos tocados
 
 ---

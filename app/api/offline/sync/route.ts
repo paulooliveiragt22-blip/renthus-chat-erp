@@ -13,6 +13,8 @@ import {
 import { recordOfflinePrintIfNeeded } from "@/lib/offline/application/recordOfflinePrint";
 import type { PrintIntent } from "@/lib/offline/domain/LocalPrintJob";
 import { applyUpdateOrderStatus } from "@/lib/offline/application/applyUpdateOrderStatus";
+import { applyCreateAdminOrder } from "@/lib/offline/application/applyCreateAdminOrder";
+import type { CreateAdminOrderPayload } from "@/lib/offline/application/applyCreateAdminOrder";
 import { isOfflineOrderStatusAllowed } from "@/lib/offline/domain/SyncEligibility";
 
 export const runtime = "nodejs";
@@ -27,7 +29,7 @@ type SyncCommandIn = {
 
 /**
  * POST /api/offline/sync — aplica batch do outbox (Perf-3).
- * P1: FinalizePdvSale + printIntent. P2: UpdateOrderStatus (preparing|delivered).
+ * P1: FinalizePdvSale + printIntent. P2: UpdateOrderStatus. P5c: CreateOrder.
  */
 export async function POST(req: Request) {
     const access = await requireCompanyAccess(["owner", "admin", "member"]);
@@ -174,6 +176,57 @@ export async function POST(req: Request) {
                     clientMutationId,
                     outcome: "synced",
                     serverPayload: { status: result.status },
+                });
+            } else if (result.conflict) {
+                results.push({
+                    clientMutationId,
+                    outcome: "conflict",
+                    error: result.error,
+                });
+            } else {
+                results.push({
+                    clientMutationId,
+                    outcome: "failed",
+                    error: result.error,
+                });
+            }
+            continue;
+        }
+
+        if (cmd.type === "CreateOrder") {
+            const payload = (cmd.payload ?? {}) as CreateAdminOrderPayload;
+            const result = await applyCreateAdminOrder({
+                admin,
+                companyId,
+                body: {
+                    ...payload,
+                    client_mutation_id: clientMutationId,
+                },
+            });
+            if (result.ok) {
+                try {
+                    const { fireCompanyAlertPush, buildOrderNewPushAlert } = await import(
+                        "@/lib/admin-alerts/application/fireCompanyAlertPush"
+                    );
+                    fireCompanyAlertPush(
+                        admin,
+                        companyId,
+                        buildOrderNewPushAlert({
+                            orderId: result.order_id,
+                            source: "admin",
+                            totalAmount: Number(payload.total_amount ?? 0),
+                        })
+                    );
+                } catch {
+                    /* push opcional */
+                }
+                results.push({
+                    clientMutationId,
+                    outcome: "synced",
+                    serverPayload: {
+                        order_id: result.order_id,
+                        alreadyDone: result.alreadyDone === true,
+                    },
                 });
             } else if (result.conflict) {
                 results.push({

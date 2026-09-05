@@ -806,6 +806,17 @@ export default function PedidosPage() {
             setCustomerName(row.name ?? "");
             setCustomerPhone(row.phone ?? "");
         }
+        const offline = typeof navigator !== "undefined" && !navigator.onLine;
+        if (offline && companyId) {
+            type CustRow = { id: string; address?: string | null };
+            const cached = await loadAdminListSnapshotEntries<CustRow>(companyId, "customers");
+            const full = cached.find((c) => c.id === id);
+            setOrderSavedAddresses([]);
+            setOrderSelectedAddrId(null);
+            setOrderAddressMode("free");
+            if (full?.address) setCustomerAddress(String(full.address));
+            return;
+        }
         await fetchOrderSavedAddresses(id);
     }
 
@@ -814,16 +825,71 @@ export default function PedidosPage() {
         let cancelled = false;
         (async () => {
             setOrderCustomersLoading(true);
-            const res = await fetch("/api/admin/order-customers", { cache: "no-store", credentials: "include" });
-            const json = await res.json().catch(() => ({}));
-            if (!cancelled) {
+
+            const mapCached = async (): Promise<OrderCustomerPick[]> => {
+                type CustRow = {
+                    id: string;
+                    name?: string | null;
+                    phone?: string | null;
+                };
+                const cached = await loadAdminListSnapshotEntries<CustRow>(companyId, "customers");
+                return cached
+                    .filter((c) => c.id)
+                    .map((c) => ({
+                        id: String(c.id),
+                        name: c.name ?? null,
+                        phone: c.phone ?? null,
+                    }))
+                    .sort((a, b) =>
+                        String(a.name ?? "").localeCompare(String(b.name ?? ""), "pt-BR")
+                    );
+            };
+
+            const offline = typeof navigator !== "undefined" && !navigator.onLine;
+            if (offline) {
+                const list = await mapCached();
+                if (!cancelled) {
+                    setOrderCustomers(list);
+                    if (list.length === 0) {
+                        setMsg(
+                            "Offline: nenhum cliente em cache. Abra o admin online uma vez (prefetch)."
+                        );
+                    }
+                    setOrderCustomersLoading(false);
+                }
+                return;
+            }
+
+            try {
+                const res = await fetch("/api/admin/order-customers", {
+                    cache: "no-store",
+                    credentials: "include",
+                });
+                const json = await res.json().catch(() => ({}));
+                if (cancelled) return;
                 if (!res.ok) {
-                    setMsg(`Erro ao carregar clientes: ${json?.error ?? "falha desconhecida"}`);
-                    setOrderCustomers([]);
+                    const list = await mapCached();
+                    if (list.length > 0) {
+                        setOrderCustomers(list);
+                        setMsg("Rede falhou — clientes em cache.");
+                    } else {
+                        setMsg(`Erro ao carregar clientes: ${json?.error ?? "falha desconhecida"}`);
+                        setOrderCustomers([]);
+                    }
                 } else {
                     setOrderCustomers((json.customers ?? []) as OrderCustomerPick[]);
                 }
-                setOrderCustomersLoading(false);
+            } catch {
+                if (cancelled) return;
+                const list = await mapCached();
+                setOrderCustomers(list);
+                if (list.length === 0) {
+                    setMsg("Erro ao carregar clientes: falha de rede");
+                } else {
+                    setMsg("Rede falhou — clientes em cache.");
+                }
+            } finally {
+                if (!cancelled) setOrderCustomersLoading(false);
             }
         })();
         return () => {
@@ -1209,6 +1275,59 @@ export default function PedidosPage() {
         if (editOrder?.id  === orderId) setEditOrder(await fetchOrderFull(orderId));
     }
 
+    async function enqueueCreateOrderOffline(opts: {
+        customerId: string | null;
+        addressForOrder: string;
+        fee: number;
+        change: number | null;
+        total: number;
+        isPickup: boolean;
+    }): Promise<boolean> {
+        if (!companyId) return false;
+        const enq = await enqueueCommand(getBrowserOutboxStore(), {
+            type: "CreateOrder",
+            companyId,
+            payload: {
+                customer_id: opts.customerId,
+                customer_name: customerName.trim() || null,
+                customer_phone: customerPhone.trim() || null,
+                customer_address: opts.isPickup ? null : opts.addressForOrder || null,
+                channel: "admin",
+                status: "new",
+                payment_method: paymentMethod,
+                paid,
+                change_for: opts.change,
+                delivery_fee: opts.fee,
+                delivery_address: opts.isPickup ? null : opts.addressForOrder || null,
+                fulfillment_type: fulfillmentType,
+                total_amount: opts.total,
+                details: null,
+                driver_id: opts.isPickup ? null : driverId || null,
+                items: buildItemsPayload("temp", companyId, cart),
+            },
+        });
+        if (!enq.ok) {
+            if (enq.reason === "queue_full") {
+                setMsg("Fila offline cheia (máx. 200). Conecte-se para sincronizar.");
+            } else {
+                setMsg(`Não foi possível enfileirar: ${enq.reason}`);
+            }
+            return false;
+        }
+        await refreshSyncPendingBadge(companyId);
+        setMsg("✅ Pedido na fila offline — sincroniza quando a rede voltar.");
+        setOpenNew(false);
+        resetNewOrder();
+        return true;
+    }
+
+    function isNetworkOfflineOrFail(err: unknown): boolean {
+        if (typeof navigator !== "undefined" && !navigator.onLine) return true;
+        if (err instanceof TypeError) return true;
+        const msg = err instanceof Error ? err.message : String(err ?? "");
+        return /failed to fetch|networkerror|network request failed|load failed/i.test(msg);
+    }
+
     async function createOrder() {
         if (cart.length === 0) { setMsg("Adicione pelo menos 1 item no pedido."); return; }
         if (!companyId) { setMsg("Nenhuma empresa ativa selecionada."); return; }
@@ -1217,6 +1336,35 @@ export default function PedidosPage() {
         const isPickup = fulfillmentType === "pickup";
         let customerId: string | null = selectedOrderCustomerId;
         let addressForOrder = isPickup ? "" : customerAddress.trim();
+        const offline = typeof navigator !== "undefined" && !navigator.onLine;
+
+        if (offline) {
+            // Offline: não cria endereço novo via API; usa texto livre / address do cache
+            if (!isPickup && orderAddressMode === "saved" && !addressForOrder) {
+                setMsg("Offline: use endereço em texto livre ou selecione cliente com endereço em cache.");
+                setSaving(false);
+                return;
+            }
+            if (!customerId && (!customerName.trim() || customerPhone.trim().length < 8)) {
+                setMsg("Informe cliente cadastrado (cache) ou nome + telefone.");
+                setSaving(false);
+                return;
+            }
+            const fee = isPickup ? 0 : deliveryFeeEnabled ? brlToNumber(deliveryFee) : 0;
+            const change = paymentMethod === "cash" ? brlToNumber(changeFor) : null;
+            const total = cartSubtotal(cart) + fee;
+            const ok = await enqueueCreateOrderOffline({
+                customerId,
+                addressForOrder,
+                fee,
+                change,
+                total,
+                isPickup,
+            });
+            setSaving(false);
+            if (ok && companyId) void flushCompanyOutbox(companyId);
+            return;
+        }
 
         if (customerId) {
             if (!customerName.trim() || !customerPhone.trim()) {
@@ -1249,47 +1397,65 @@ export default function PedidosPage() {
                     setSaving(false);
                     return;
                 }
-                const addrRes = await fetch("/api/admin/order-addresses", {
+                try {
+                    const addrRes = await fetch("/api/admin/order-addresses", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        credentials: "include",
+                        body: JSON.stringify({
+                            customer_id: customerId,
+                            apelido: f.apelido.trim() || "Entrega",
+                            logradouro: f.logradouro.trim() || null,
+                            numero: f.numero.trim() || null,
+                            complemento: f.complemento.trim() || null,
+                            bairro: f.bairro.trim() || null,
+                            cidade: f.cidade.trim() || null,
+                            estado: f.estado.trim() || null,
+                            cep: f.cep.trim() || null,
+                            is_principal: orderSavedAddresses.length === 0,
+                        }),
+                    });
+                    const addrJson = await addrRes.json().catch(() => ({}));
+                    if (!addrRes.ok) {
+                        setMsg(`Erro ao salvar endereço: ${addrJson?.error ?? "falha desconhecida"}`);
+                        setSaving(false);
+                        return;
+                    }
+                } catch (err) {
+                    if (isNetworkOfflineOrFail(err)) {
+                        addressForOrder = formatEnderecoLine(f);
+                    } else {
+                        setMsg("Erro ao salvar endereço.");
+                        setSaving(false);
+                        return;
+                    }
+                }
+                addressForOrder = formatEnderecoLine(f);
+            }
+            try {
+                const customerRes = await fetch("/api/admin/order-customers", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
                     credentials: "include",
                     body: JSON.stringify({
-                        customer_id: customerId,
-                        apelido: f.apelido.trim() || "Entrega",
-                        logradouro: f.logradouro.trim() || null,
-                        numero: f.numero.trim() || null,
-                        complemento: f.complemento.trim() || null,
-                        bairro: f.bairro.trim() || null,
-                        cidade: f.cidade.trim() || null,
-                        estado: f.estado.trim() || null,
-                        cep: f.cep.trim() || null,
-                        is_principal: orderSavedAddresses.length === 0,
+                        id: customerId,
+                        name: customerName.trim(),
+                        phone: customerPhone.trim(),
+                        address: addressForOrder || null,
                     }),
                 });
-                const addrJson = await addrRes.json().catch(() => ({}));
-                if (!addrRes.ok) {
-                    setMsg(`Erro ao salvar endereço: ${addrJson?.error ?? "falha desconhecida"}`);
+                const customerJson = await customerRes.json().catch(() => ({}));
+                if (!customerRes.ok) {
+                    setMsg(`Erro ao atualizar cliente: ${customerJson?.error ?? "falha desconhecida"}`);
                     setSaving(false);
                     return;
                 }
-                addressForOrder = formatEnderecoLine(f);
-            }
-            const customerRes = await fetch("/api/admin/order-customers", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                credentials: "include",
-                body: JSON.stringify({
-                    id: customerId,
-                    name: customerName.trim(),
-                    phone: customerPhone.trim(),
-                    address: addressForOrder || null,
-                }),
-            });
-            const customerJson = await customerRes.json().catch(() => ({}));
-            if (!customerRes.ok) {
-                setMsg(`Erro ao atualizar cliente: ${customerJson?.error ?? "falha desconhecida"}`);
-                setSaving(false);
-                return;
+            } catch (err) {
+                if (!isNetworkOfflineOrFail(err)) {
+                    setMsg("Erro ao atualizar cliente.");
+                    setSaving(false);
+                    return;
+                }
             }
         } else {
             const createdId = await upsertCustomerFromFields(
@@ -1297,39 +1463,80 @@ export default function PedidosPage() {
                 customerPhone,
                 isPickup ? "" : customerAddress
             );
-            if (!createdId) { setSaving(false); return; }
+            if (!createdId) {
+                // Falha de rede → enfileira com dados do formulário
+                if (typeof navigator !== "undefined" && !navigator.onLine) {
+                    const fee = isPickup ? 0 : deliveryFeeEnabled ? brlToNumber(deliveryFee) : 0;
+                    const change = paymentMethod === "cash" ? brlToNumber(changeFor) : null;
+                    const total = cartSubtotal(cart) + fee;
+                    await enqueueCreateOrderOffline({
+                        customerId: null,
+                        addressForOrder,
+                        fee,
+                        change,
+                        total,
+                        isPickup,
+                    });
+                    setSaving(false);
+                    return;
+                }
+                setSaving(false);
+                return;
+            }
             customerId = createdId;
         }
         const fee    = isPickup ? 0 : deliveryFeeEnabled ? brlToNumber(deliveryFee) : 0;
         const change = paymentMethod === "cash" ? brlToNumber(changeFor) : null;
         const total  = cartSubtotal(cart) + fee;
-        const createRes = await fetch("/api/admin/orders", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            credentials: "include",
-            body: JSON.stringify({
-                customer_id: customerId,
-                channel: "admin",
-                status: "new",
-                payment_method: paymentMethod,
-                paid,
-                change_for: change,
-                delivery_fee: fee,
-                delivery_address: isPickup ? null : addressForOrder || null,
-                fulfillment_type: fulfillmentType,
-                total_amount: total,
-                details: null,
-                driver_id: isPickup ? null : driverId || null,
-                items: buildItemsPayload("temp", companyId, cart),
-            }),
-        });
-        const createJson = await createRes.json().catch(() => ({}));
-        if (!createRes.ok) { setMsg(`Erro ao criar pedido: ${createJson?.error ?? "falha desconhecida"}`); setSaving(false); return; }
-        const newId = String(createJson?.order_id ?? "");
-        if (newId) {
-            await applySelectedServiceFees(newId, selectedServiceFeeIds);
+        try {
+            const createRes = await fetch("/api/admin/orders", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                credentials: "include",
+                body: JSON.stringify({
+                    customer_id: customerId,
+                    channel: "admin",
+                    status: "new",
+                    payment_method: paymentMethod,
+                    paid,
+                    change_for: change,
+                    delivery_fee: fee,
+                    delivery_address: isPickup ? null : addressForOrder || null,
+                    fulfillment_type: fulfillmentType,
+                    total_amount: total,
+                    details: null,
+                    driver_id: isPickup ? null : driverId || null,
+                    items: buildItemsPayload("temp", companyId, cart),
+                }),
+            });
+            const createJson = await createRes.json().catch(() => ({}));
+            if (!createRes.ok) {
+                setMsg(`Erro ao criar pedido: ${createJson?.error ?? "falha desconhecida"}`);
+                setSaving(false);
+                return;
+            }
+            const newId = String(createJson?.order_id ?? "");
+            if (newId) {
+                await applySelectedServiceFees(newId, selectedServiceFeeIds);
+            }
+            setSaving(false); setOpenNew(false); resetNewOrder(); await loadOrders();
+        } catch (err) {
+            if (isNetworkOfflineOrFail(err)) {
+                const ok = await enqueueCreateOrderOffline({
+                    customerId,
+                    addressForOrder,
+                    fee,
+                    change,
+                    total,
+                    isPickup,
+                });
+                setSaving(false);
+                if (ok && companyId) void flushCompanyOutbox(companyId);
+                return;
+            }
+            setMsg("Erro ao criar pedido: falha de rede");
+            setSaving(false);
         }
-        setSaving(false); setOpenNew(false); resetNewOrder(); await loadOrders();
     }
 
     async function openEditOrder(orderId: string) {
@@ -1482,6 +1689,30 @@ export default function PedidosPage() {
         let customerId: string | null = selectedOrderCustomerId;
         let addressForOrder = isPickup ? "" : customerAddress.trim();
 
+        if (typeof navigator !== "undefined" && !navigator.onLine) {
+            if (!customerId && (!customerName.trim() || customerPhone.trim().length < 8)) {
+                setMsg("Informe cliente cadastrado (cache) ou nome + telefone.");
+                setSaving(false);
+                return;
+            }
+            const fee = isPickup ? 0 : deliveryFeeEnabled ? brlToNumber(deliveryFee) : 0;
+            const change = paymentMethod === "cash" ? brlToNumber(changeFor) : null;
+            const total = cartSubtotal(cart) + fee;
+            const ok = await enqueueCreateOrderOffline({
+                customerId,
+                addressForOrder,
+                fee,
+                change,
+                total,
+                isPickup,
+            });
+            setSaving(false);
+            if (ok) {
+                setMsg("✅ Pedido na fila offline. Impressão após sync (ou Print Agent local).");
+            }
+            return;
+        }
+
         if (customerId) {
             if (!customerName.trim() || !customerPhone.trim()) { setMsg("Cliente sem nome ou telefone."); setSaving(false); return; }
             if (!isPickup && orderAddressMode === "saved") {
@@ -1541,38 +1772,65 @@ export default function PedidosPage() {
         const change = paymentMethod === "cash" ? brlToNumber(changeFor) : null;
         const total  = cartSubtotal(cart) + fee;
 
-        const createRes = await fetch("/api/admin/orders", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            credentials: "include",
-            body: JSON.stringify({
-                customer_id: customerId,
-                channel: "admin",
-                status: "new",
-                payment_method: paymentMethod,
-                paid,
-                change_for: change,
-                delivery_fee: fee,
-                delivery_address: isPickup ? null : addressForOrder || null,
-                fulfillment_type: fulfillmentType,
-                total_amount: total,
-                details: null,
-                driver_id: isPickup ? null : driverId || null,
-                items: buildItemsPayload("temp", companyId, cart),
-            }),
-        });
-        const createJson = await createRes.json().catch(() => ({}));
-        if (!createRes.ok) { setMsg(`Erro ao criar pedido: ${createJson?.error ?? "falha desconhecida"}`); setSaving(false); return; }
+        try {
+            const createRes = await fetch("/api/admin/orders", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                credentials: "include",
+                body: JSON.stringify({
+                    customer_id: customerId,
+                    channel: "admin",
+                    status: "new",
+                    payment_method: paymentMethod,
+                    paid,
+                    change_for: change,
+                    delivery_fee: fee,
+                    delivery_address: isPickup ? null : addressForOrder || null,
+                    fulfillment_type: fulfillmentType,
+                    total_amount: total,
+                    details: null,
+                    driver_id: isPickup ? null : driverId || null,
+                    items: buildItemsPayload("temp", companyId, cart),
+                }),
+            });
+            const createJson = await createRes.json().catch(() => ({}));
+            if (!createRes.ok) { setMsg(`Erro ao criar pedido: ${createJson?.error ?? "falha desconhecida"}`); setSaving(false); return; }
 
-        const newId = String(createJson?.order_id ?? "");
-        if (newId) {
-            await applySelectedServiceFees(newId, selectedServiceFeeIds);
+            const newId = String(createJson?.order_id ?? "");
+            if (newId) {
+                await applySelectedServiceFees(newId, selectedServiceFeeIds);
+            }
+            // continue with print below - need rest of original function
+            if (newId) {
+                try {
+                    await fetch("/api/agent/reprint", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        credentials: "include",
+                        body: JSON.stringify({
+                            order_id: newId,
+                            copy_types: ["kitchen", "cashier"],
+                        }),
+                    });
+                } catch { /* silent */ }
+            }
+            setSaving(false); setOpenNew(false); resetNewOrder(); await loadOrders();
+        } catch (err) {
+            if (isNetworkOfflineOrFail(err)) {
+                await enqueueCreateOrderOffline({
+                    customerId,
+                    addressForOrder,
+                    fee,
+                    change,
+                    total,
+                    isPickup,
+                });
+                setSaving(false);
+                return;
+            }
+            setMsg("Erro ao criar pedido: falha de rede");
+            setSaving(false);
         }
-
-        // Usa reprint explícito (source='reprint') — não depende do trigger de confirmation_status
-        // para evitar dupla impressão quando trigger antigo (status='new') ainda coexiste
-        await callReprint(newId);
-        setSaving(false); setOpenNew(false); resetNewOrder(); await loadOrders();
     }
 
     async function saveEditAndPrint() {

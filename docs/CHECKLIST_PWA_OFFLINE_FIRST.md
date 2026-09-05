@@ -138,7 +138,7 @@ Defaults antigos do ADR (50 cmds / ACK-only print) **supersedidos** pelas decis�
 |------|-------|--------|--------|
 | **P5a** | M2 + prefetch snapshots (pedidos, fila, clientes, drivers, printers) + M8 read | UI/reload sem abrir abas; busca produtos Pedidos = catálogo IDB | [x] 2026-09-05 |
 | **P5b** | M3 + M6 | Status `out_for_delivery` + atribuir entregador | [ ] |
-| **P5c** | M1 | Criar pedido admin → outbox (mesmo catálogo/idempotência do PDV) | [ ] |
+| **P5c** | M1 | Criar pedido admin → outbox (mesmo catálogo/idempotência do PDV) | [x] 2026-09-05 |
 | **P5d** | M4 + M5 + M9 | Estoque / cliente leve / produto preço-cadastro | [ ] |
 | **P5e** | M7 + M8 reprint | Fila claim + reprint offline quando aplicável | [ ] |
 

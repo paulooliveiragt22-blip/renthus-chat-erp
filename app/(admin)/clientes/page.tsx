@@ -1,6 +1,7 @@
 "use client";
 
-import React, { useCallback, useEffect, useId, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import {
   AlertCircle, CheckCircle2, Edit2,
   Home, Mail, MapPin, Phone, Plus, Search, Trash2, User, Users, X,
@@ -551,10 +552,20 @@ function AddressFormModal({
 // ─── page ────────────────────────────────────────────────────────────────────
 export default function ClientesPage() {
   const { currentCompanyId: companyId } = useWorkspace();
+  const searchParams = useSearchParams();
+  const searchInputRef = useRef<HTMLInputElement>(null);
 
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [loading,   setLoading]   = useState(true);
   const [search,    setSearch]    = useState("");
+
+  useEffect(() => {
+    const q = searchParams.get("q");
+    if (q == null) return;
+    setSearch(q);
+    // Deep-link Cmd+K: foca o campo após pintar.
+    requestAnimationFrame(() => searchInputRef.current?.focus());
+  }, [searchParams]);
 
   const [selected, setSelected]     = useState<Customer | null>(null);
   const [enderecos, setEnderecos]   = useState<Endereco[]>([]);
@@ -843,9 +854,13 @@ export default function ClientesPage() {
         </div>
         <div className="relative">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400 pointer-events-none" />
-          <input value={search} onChange={e => setSearch(e.target.value)}
+          <input
+            ref={searchInputRef}
+            value={search}
+            onChange={e => setSearch(e.target.value)}
             placeholder="Buscar nome, fone, CPF…"
-            className="w-64 rounded-xl border border-zinc-200 bg-white py-2 pl-9 pr-4 text-sm text-zinc-800 placeholder-zinc-400 focus:border-violet-400 focus:outline-none dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100" />
+            className="w-64 rounded-xl border border-zinc-200 bg-white py-2 pl-9 pr-4 text-sm text-zinc-800 placeholder-zinc-400 focus:border-violet-400 focus:outline-none dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100"
+          />
         </div>
         <button type="button" onClick={openNew}
           className="flex items-center gap-2 rounded-xl bg-orange-500 px-4 py-2 text-sm font-bold text-primary hover:bg-orange-600 shadow-[0_0_14px_rgba(87,255,143,0.35)] transition-all">

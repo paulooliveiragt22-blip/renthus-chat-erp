@@ -13,6 +13,8 @@ import {
 export type Company = {
     id: string;
     name: string;
+    /** Papel na empresa (vindo de `/api/workspace/list`). */
+    role?: string;
 };
 
 type WorkspaceState = {
