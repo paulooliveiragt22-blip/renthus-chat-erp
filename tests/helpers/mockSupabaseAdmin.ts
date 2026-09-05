@@ -241,6 +241,49 @@ export function makeMockAdmin(tables: Tables): MockAdminHandle {
                         error: null,
                     };
                 }
+                if (name === "rpc_list_commercial_plan_pricing") {
+                    const defaults = [
+                        { key: "essencial", price_cents: 27900, price_year_cents: 267840, ai_included_cents: 2790, yearly_discount_mode: "percent", yearly_discount_value: 2000 },
+                        { key: "pro", price_cents: 34900, price_year_cents: 335040, ai_included_cents: 3490, yearly_discount_mode: "percent", yearly_discount_value: 2000 },
+                        { key: "market", price_cents: 44900, price_year_cents: 431040, ai_included_cents: 4490, yearly_discount_mode: "percent", yearly_discount_value: 2000 },
+                    ];
+                    const fromTable = (tables.plans ?? []).filter((p) =>
+                        ["essencial", "pro", "market"].includes(String(p.key))
+                    );
+                    const rows =
+                        fromTable.length > 0
+                            ? fromTable.map((p) => {
+                                  const price = Number(p.price_cents ?? 0);
+                                  return {
+                                      key: String(p.key),
+                                      price_cents: price,
+                                      price_year_cents: Number(p.price_year_cents ?? 0),
+                                      ai_included_cents: Math.floor((price * 10) / 100),
+                                      yearly_discount_mode: p.yearly_discount_mode ?? "percent",
+                                      yearly_discount_value: p.yearly_discount_value ?? 2000,
+                                  };
+                              })
+                            : defaults;
+                    return { data: rows, error: null };
+                }
+                if (name === "rpc_ai_included_budget") {
+                    const companyId = params.p_company_id;
+                    const subs = tables.pagarme_subscriptions ?? [];
+                    const plans = tables.plans ?? [];
+                    const sub = subs.find((r) => r.company_id === companyId) ?? subs[0];
+                    const raw = String(sub?.plan ?? "essencial").toLowerCase();
+                    const key =
+                        raw === "bot" || raw === "starter"
+                            ? "essencial"
+                            : raw === "complete"
+                              ? "pro"
+                              : raw === "pro" || raw === "market"
+                                ? raw
+                                : "essencial";
+                    const plan = plans.find((p) => p.key === key);
+                    const price = Number(plan?.price_cents ?? (key === "market" ? 44900 : key === "pro" ? 34900 : 27900));
+                    return { data: Math.floor((price * 10) / 100), error: null };
+                }
                 if (name !== "claim_chatbot_queue_jobs") return { data: null, error: { message: "rpc not found" } };
                 const batch = Number(params.batch_size ?? 5);
                 const maxAttempts = Number(params.max_attempts ?? 3);

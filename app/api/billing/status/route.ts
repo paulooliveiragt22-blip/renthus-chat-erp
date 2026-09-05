@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
 import { requireCompanyAccess } from "@/lib/workspace/requireCompanyAccess";
 import { getActiveSubscription, getEnabledFeatures, checkLimit } from "@/lib/billing/entitlements";
-import { getMonthlyPriceCents, getSetupPriceCents, listCustomerCards } from "@/lib/billing/pagarme";
-import { PLAN_CATALOG, getPlanLabel, normalizePlanKey } from "@/lib/billing/planCatalog";
+import { getSetupPriceCents, listCustomerCards } from "@/lib/billing/pagarme";
+import { getPlanLabel, normalizePlanKey, type CommercialPlanKey } from "@/lib/billing/planCatalog";
+import { loadCommercialPlanPricing } from "@/lib/billing/loadCommercialPlanPricing";
 import {
     yearlyDiscountLabelPercent,
     type YearlyDiscountMode,
@@ -42,49 +43,36 @@ export async function GET() {
                 .then(({ data }) => data),
         ]);
 
-        // Preços anuais canônicos do banco (R2-3): price_year_cents por plano.
-        const { data: planYearRows } = await admin
-            .from("plans")
-            .select(
-                "key, price_cents, price_year_cents, yearly_discount_mode, yearly_discount_value"
-            )
-            .in("key", ["essencial", "pro", "market"]);
-        const planByKey = new Map(
-            (planYearRows ?? []).map((r) => [String(r.key), r as Record<string, unknown>])
-        );
-        const yearlyPriceBrl = (key: "essencial" | "pro" | "market") => {
-            const cents = planByKey.get(key)?.price_year_cents;
-            if (typeof cents === "number" && cents > 0) return cents / 100;
-            return PLAN_CATALOG[key].yearlyPriceCents / 100;
-        };
+        const planByKey = await loadCommercialPlanPricing(admin);
+        if (planByKey.size < 3) {
+            throw new Error("commercial_plan_pricing_unavailable");
+        }
+        const listCents = (key: CommercialPlanKey, field: "price_cents" | "price_year_cents") =>
+            planByKey.get(key)?.[field] ?? 0;
         const yearlyPricesBRL = {
-            essencial: yearlyPriceBrl("essencial"),
-            pro: yearlyPriceBrl("pro"),
-            market: yearlyPriceBrl("market"),
+            essencial: listCents("essencial", "price_year_cents") / 100,
+            pro: listCents("pro", "price_year_cents") / 100,
+            market: listCents("market", "price_year_cents") / 100,
         };
-        const yearlySavingsOf = (key: "essencial" | "pro" | "market") => {
+        const yearlySavingsOf = (key: CommercialPlanKey) => {
             const row = planByKey.get(key);
-            const monthly =
-                typeof row?.price_cents === "number" && row.price_cents > 0
-                    ? row.price_cents
-                    : PLAN_CATALOG[key].monthlyPriceCents;
-            const yearly =
-                typeof row?.price_year_cents === "number" && row.price_year_cents > 0
-                    ? row.price_year_cents
-                    : PLAN_CATALOG[key].yearlyPriceCents;
+            if (!row) return 0;
             return yearlyDiscountLabelPercent(
-                row?.yearly_discount_mode as YearlyDiscountMode | undefined,
-                typeof row?.yearly_discount_value === "number"
-                    ? row.yearly_discount_value
-                    : null,
-                monthly,
-                yearly
+                row.yearly_discount_mode as YearlyDiscountMode | undefined,
+                row.yearly_discount_value,
+                row.price_cents,
+                row.price_year_cents
             );
         };
         const yearlySavingsPercent = {
             essencial: yearlySavingsOf("essencial"),
             pro: yearlySavingsOf("pro"),
             market: yearlySavingsOf("market"),
+        };
+        const monthlyPricesBRL = {
+            essencial: listCents("essencial", "price_cents") / 100,
+            pro: listCents("pro", "price_cents") / 100,
+            market: listCents("market", "price_cents") / 100,
         };
 
         const { data: invPending } = await admin
@@ -112,11 +100,6 @@ export async function GET() {
                 ? await listCustomerCards(customerId)
                 : [];
 
-        const monthlyPricesBRL = {
-            essencial: getMonthlyPriceCents("essencial") / 100,
-            pro: getMonthlyPriceCents("pro") / 100,
-            market: getMonthlyPriceCents("market") / 100,
-        };
         let aiWallet = null;
         try {
             aiWallet = await ensureAiWallet(admin, companyId);
@@ -132,14 +115,19 @@ export async function GET() {
         const usingSetup = pendingInvoice?.kind === "setup";
         const obligationAmount =
             pendingInvoice?.amount != null ? Number(pendingInvoice.amount) : null;
-        const canonicalObligationBrl =
-            planKey == null
+        const planRow = planKey ? planByKey.get(planKey) : undefined;
+        const pendingKind = String(pendingInvoice?.kind ?? "");
+        const canonicalObligationCents =
+            planRow == null
                 ? null
                 : usingSetup
-                  ? getSetupPriceCents(planKey) / 100
-                  : getMonthlyPriceCents(planKey) / 100;
-        const canonicalMonthly =
-            planKey != null ? getMonthlyPriceCents(planKey) / 100 : null;
+                  ? getSetupPriceCents(planKey ?? undefined)
+                  : pendingKind === "year" || pendingKind === "period_switch"
+                    ? planRow.price_year_cents
+                    : planRow.price_cents;
+        const canonicalObligationBrl =
+            canonicalObligationCents != null ? canonicalObligationCents / 100 : null;
+        const canonicalMonthly = planRow != null ? planRow.price_cents / 100 : null;
         const amountMismatch =
             canonicalObligationBrl != null &&
             obligationAmount != null &&
@@ -153,11 +141,7 @@ export async function GET() {
             subscription: sub,
             plan_key: planKey,
             plan_label: planKey ? getPlanLabel(planKey) : null,
-            plan_catalog: {
-                essencial: PLAN_CATALOG.essencial.monthlyPriceCents / 100,
-                pro: PLAN_CATALOG.pro.monthlyPriceCents / 100,
-                market: PLAN_CATALOG.market.monthlyPriceCents / 100,
-            },
+            plan_catalog: monthlyPricesBRL,
             ai_wallet: aiWallet,
             pagarme_subscription: pagarmeSubRaw ?? null,
             pending_invoice: pendingInvoice,
