@@ -9,6 +9,8 @@
 export type CspBuildOpts = {
     isDev?: boolean;
     nonce?: string;
+    /** S15: ingest Sentry `/api/{project}/security/` — omitir se DSN vazio. */
+    reportUri?: string;
 };
 
 export const CSP_ENFORCE_HEADER = "Content-Security-Policy";
@@ -51,6 +53,12 @@ export function buildContentSecurityPolicy(opts: CspBuildOpts = {}): string {
         "form-action 'self'",
         "upgrade-insecure-requests",
     ];
+
+    const reportUri = opts.reportUri?.trim() ?? "";
+    if (reportUri) {
+        directives.push(`report-uri ${reportUri}`);
+        directives.push("report-to csp-endpoint");
+    }
 
     return directives.join("; ");
 }

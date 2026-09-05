@@ -38,7 +38,7 @@ Use como guia de implementação e revisão periódica. Itens derivados da anál
 
 ## 4. Webhooks (Meta, Pagar.me)
 
-- [~] **P2 S13:** `WHATSAPP_APP_SECRET` no `.env.local`. `PAGARME_WEBHOOK_BASIC_*` ausente no local (HMAC legado `PAGARME_WEBHOOK_SECRET` existe). Produção: H0.10 [x] — reconfirmar no dashboard Vercel. `check:prod-env --strict` já falha sem Basic.
+- [x] **P2 S13:** `WHATSAPP_APP_SECRET` + `PAGARME_WEBHOOK_BASIC_USER`/`PASSWORD` em Vercel Production (owner 2026-09-05). HMAC `PAGARME_WEBHOOK_SECRET` = legado. `check:prod-env --strict` falha se faltar.
 - [x] Rate limit no webhook de billing. → `app/api/billing/webhook/route.ts`
 - [x] Pago confirmado via GET `/orders/:id` (API = fonte da verdade).
 
@@ -73,7 +73,7 @@ Use como guia de implementação e revisão periódica. Itens derivados da anál
 ## 8. Rate limiting distribuído
 
 - [x] Adapter Upstash + fallback in-memory. → `lib/security/rateLimitDistributed.ts`
-- [~] **P2 S12:** `check:prod-env --strict` agora **falha** sem `UPSTASH_*` (não é mais aviso). Keys no `.env.local`. Falta confirmar Production no dashboard Vercel. → `CHECKLIST_MVP_LANCAMENTO.md` INFRA-1
+- [x] **P2 S12 / INFRA-1:** `UPSTASH_REDIS_REST_URL` + `TOKEN` em Vercel Production (owner 2026-09-05). `check:prod-env --strict` **falha** se faltar.
 
 ---
 
@@ -83,13 +83,14 @@ Use como guia de implementação e revisão periódica. Itens derivados da anál
 - [x] **P2 S1:** Report-Only primeiro (histórico). Substituído por S10.
 - [x] **P2 S10:** `Content-Security-Policy` enforce no `proxy.ts` (`lib/security/cspProxy.ts`): nonce por request + `strict-dynamic`; `x-nonce` no `app/layout.tsx`. Sem CSP em `next.config.js` (AND com nonce quebraria a página).
 - [x] **P2 S11:** `X-Frame-Options: DENY` alinhado a `frame-ancestors 'none'`.
+- [x] **P2 S15:** `report-uri` / `report-to` + headers `Report-To` / `Reporting-Endpoints` para Sentry (`sentryCspReport.ts`), se houver DSN.
 
 ---
 
 ## 10. Segredos e variáveis de ambiente
 
 - [x] `.env*` no `.gitignore`
-- [ ] **P2 S14:** escopos mínimos no Meta Business — tabela em `CHECKLIST_SECURITY_HARDENING_P2.md` (WA + Page/IG).
+- [x] **P2 S14:** escopos canônicos em `lib/meta/metaOauthScopes.ts`. OAuth Page/IG: `debug_token` + rejeita ads/publish. WhatsApp: `whatsapp_business_messaging` obrigatório (templates: `whatsapp_business_management`). Configuration `META_LOGIN_CONFIG_ID` deve espelhar a lista.
 
 ---
 
@@ -131,4 +132,4 @@ Inventário de rotas: `docs/SECURITY_CREATEADMIN_INVENTORY.md`.
 
 ---
 
-*Última atualização: 2026-09-05 — S10/S11 em prod (`check:csp`); S12 `--strict` exige Upstash; S13/S14 ops no dashboard.*
+*Última atualização: 2026-09-05 — P2 S1–S15 fechados.*

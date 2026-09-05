@@ -1,8 +1,10 @@
 import { NextResponse } from "next/server";
 import { parseMetaOAuthState } from "@/lib/meta/oauthState";
 import {
+    assertMetaTokenScopes,
     exchangeCodeForUserToken,
     exchangeForLongLivedUserToken,
+    inspectMetaAccessToken,
     listManageablePages,
 } from "@/lib/meta/exchangePageOAuth";
 import { encryptCredential } from "@/lib/security/credentialCrypto";
@@ -52,6 +54,14 @@ export async function GET(req: Request) {
     try {
         const shortToken = await exchangeCodeForUserToken({ code, redirectUri });
         const longToken = await exchangeForLongLivedUserToken(shortToken);
+        const inspected = await inspectMetaAccessToken(longToken);
+        if (!inspected.isValid) {
+            return settingsRedirect(req, {
+                meta_oauth: "error",
+                meta_oauth_msg: "Token Meta inválido.",
+            });
+        }
+        assertMetaTokenScopes(inspected.scopes, "messaging");
         const pages = await listManageablePages(longToken);
 
         if (pages.length === 0) {

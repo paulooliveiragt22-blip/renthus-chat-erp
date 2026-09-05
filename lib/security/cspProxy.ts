@@ -5,10 +5,16 @@ import {
     X_FRAME_OPTIONS_DENY,
     X_NONCE_HEADER,
 } from "@/lib/security/cspPolicy";
+import {
+    buildCspReportToHeader,
+    buildReportingEndpointsHeader,
+    sentrySecurityReportUrl,
+} from "@/lib/security/sentryCspReport";
 
 export type CspContext = {
     nonce: string;
     value: string;
+    reportUri: string | null;
 };
 
 function requestHeadersWithCsp(request: NextRequest, ctx: CspContext, extra?: Headers): Headers {
@@ -23,12 +29,27 @@ export function createCspContext(
 ): CspContext {
     // Guia Next.js CSP: nonce por request. crypto.randomUUID é Web Crypto (Edge + Node).
     const nonce = Buffer.from(globalThis.crypto.randomUUID()).toString("base64");
-    return { nonce, value: buildContentSecurityPolicy({ isDev, nonce }) };
+    const reportUri = sentrySecurityReportUrl(
+        process.env.NEXT_PUBLIC_SENTRY_DSN ?? process.env.SENTRY_DSN
+    );
+    return {
+        nonce,
+        value: buildContentSecurityPolicy({
+            isDev,
+            nonce,
+            reportUri: reportUri ?? undefined,
+        }),
+        reportUri,
+    };
 }
 
-export function stampCspResponse(response: NextResponse, csp: string): NextResponse {
-    response.headers.set(CSP_ENFORCE_HEADER, csp);
+export function stampCspResponse(response: NextResponse, ctx: CspContext): NextResponse {
+    response.headers.set(CSP_ENFORCE_HEADER, ctx.value);
     response.headers.set("X-Frame-Options", X_FRAME_OPTIONS_DENY);
+    if (ctx.reportUri) {
+        response.headers.set("Report-To", buildCspReportToHeader(ctx.reportUri));
+        response.headers.set("Reporting-Endpoints", buildReportingEndpointsHeader(ctx.reportUri));
+    }
     return response;
 }
 
@@ -41,7 +62,7 @@ export function nextWithCsp(
         NextResponse.next({
             request: { headers: requestHeadersWithCsp(request, ctx, extraRequestHeaders) },
         }),
-        ctx.value
+        ctx
     );
 }
 
@@ -54,6 +75,6 @@ export function rewriteWithCsp(
         NextResponse.rewrite(destination, {
             request: { headers: requestHeadersWithCsp(request, ctx) },
         }),
-        ctx.value
+        ctx
     );
 }

@@ -1,6 +1,6 @@
 # ADR 0007 — Segurança P2: CSP enforce, grants e Storage
 
-**Status:** aceito (S1–S11 código; S12–S15 ops)  
+**Status:** aceito (S1–S15 fechados)  
 **Data:** 2026-09-04 (S10/S11: 2026-09-05)  
 **Checklist:** [`CHECKLIST_SECURITY_HARDENING_P2.md`](../CHECKLIST_SECURITY_HARDENING_P2.md)  
 **Inventário vivo:** [`SECURITY_IMPROVEMENTS_CHECKLIST.md`](../SECURITY_IMPROVEMENTS_CHECKLIST.md)  

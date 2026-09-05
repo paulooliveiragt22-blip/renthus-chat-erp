@@ -46,10 +46,10 @@ Estrutura (Clean Architecture desta stack):
 
 | ID | Item | Como fechar | Estado 2026-09-05 |
 |----|------|-------------|-------------------|
-| S12 | Upstash Redis em Vercel Production | `CHECKLIST_MVP_LANCAMENTO` INFRA-1; `check:prod-env --strict` sem aviso | [~] código: `--strict` **falha** sem `UPSTASH_*`. `.env.local` tem as duas keys. Confirmar as mesmas no dashboard Vercel Production (não listado daqui). |
-| S13 | Confirmar `WHATSAPP_APP_SECRET` + `PAGARME_WEBHOOK_BASIC_*` no env production | `npm run check:prod-env --strict` no deploy | [~] `WHATSAPP_APP_SECRET` no `.env.local`. `PAGARME_WEBHOOK_BASIC_*` **não** está no `.env.local` (só `PAGARME_WEBHOOK_SECRET` legado). H0.10 marca Basic na Vercel Production — confirmar no dashboard. |
-| S14 | Escopos mínimos do token Meta | Meta Business → App Review / Login for Business | [ ] ver tabela abaixo |
-| S15 | `report-uri` / Sentry CSP reports (opcional) | só depois de S10 estável em prod | [ ] S10 já está em `app.renthus.com.br` (`npm run check:csp`); report-uri fica para depois |
+| S12 | Upstash Redis em Vercel Production | `CHECKLIST_MVP_LANCAMENTO` INFRA-1; `check:prod-env --strict` sem aviso | [x] 2026-09-05 — owner: `UPSTASH_*` em Vercel Production; `--strict` falha se faltar |
+| S13 | Confirmar `WHATSAPP_APP_SECRET` + `PAGARME_WEBHOOK_BASIC_*` no env production | `npm run check:prod-env --strict` no deploy | [x] 2026-09-05 — owner: as três keys em Vercel Production |
+| S14 | Escopos mínimos do token Meta | Meta Business → App Review / Login for Business | [x] 2026-09-05 — lista canônica `lib/meta/metaOauthScopes.ts`; OAuth Page chama `debug_token` e rejeita ads/publish + faltas |
+| S15 | `report-uri` / Sentry CSP reports (opcional) | só depois de S10 estável em prod | [x] 2026-09-05 — `report-uri` + `Report-To` a partir de `NEXT_PUBLIC_SENTRY_DSN` |
 
 ### Como testar CSP sem DevTools
 
@@ -63,7 +63,8 @@ curl.exe -sI https://app.renthus.com.br/login
 npm run check:csp -- http://localhost:3000/login
 ```
 
-Esperado: `Content-Security-Policy` com `nonce-` + `strict-dynamic`; **sem** `Report-Only`; `X-Frame-Options: DENY`.
+Esperado: `Content-Security-Policy` com `nonce-` + `strict-dynamic`; **sem** `Report-Only`; `X-Frame-Options: DENY`.  
+S15 (após deploy com DSN): `report-uri` apontando para `…/api/{id}/security/?sentry_key=…` + header `Reporting-Endpoints`.
 
 ### S14 — escopos canônicos (só conferir no Meta)
 

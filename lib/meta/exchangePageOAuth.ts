@@ -5,6 +5,11 @@ import {
     resolveMetaAppId,
     resolveMetaAppSecret,
 } from "@/lib/meta/metaAppCredentials";
+import {
+    evaluateGrantedMetaScopes,
+    metaScopeVerdictMessage,
+    type MetaScopeKind,
+} from "@/lib/meta/metaOauthScopes";
 
 export type MetaOAuthPageOption = {
     pageId: string;
@@ -15,7 +20,11 @@ export type MetaOAuthPageOption = {
 
 async function graphGet<T>(pathAndQuery: string): Promise<T> {
     const url = `https://graph.facebook.com/${metaGraphVersion()}/${pathAndQuery.replace(/^\//, "")}`;
-    const res = await fetch(url, { method: "GET", cache: "no-store" });
+    const res = await fetch(url, {
+        method: "GET",
+        cache: "no-store",
+        signal: AbortSignal.timeout(15_000),
+    });
     const json = (await res.json().catch(() => ({}))) as T & {
         error?: { message?: string };
     };
@@ -44,6 +53,43 @@ export async function exchangeCodeForUserToken(params: {
     const token = json.access_token?.trim();
     if (!token) throw new Error("user_token_missing");
     return token;
+}
+
+export type MetaTokenInspection = {
+    scopes: string[];
+    isValid: boolean;
+    appId: string | null;
+};
+
+/** Graph debug_token — S14. */
+export async function inspectMetaAccessToken(inputToken: string): Promise<MetaTokenInspection> {
+    const appId = resolveMetaAppId();
+    const appSecret = resolveMetaAppSecret();
+    if (!appId || !appSecret) throw new Error("meta_app_credentials_missing");
+
+    const q = new URLSearchParams({
+        input_token: inputToken,
+        access_token: `${appId}|${appSecret}`,
+    });
+    const json = await graphGet<{
+        data?: { scopes?: string[]; is_valid?: boolean; app_id?: string };
+    }>(`debug_token?${q}`);
+    const data = json.data;
+    return {
+        scopes: (data?.scopes ?? []).map((s) => String(s)),
+        isValid: Boolean(data?.is_valid),
+        appId: data?.app_id?.trim() || null,
+    };
+}
+
+export function assertMetaTokenScopes(
+    scopes: readonly string[],
+    kind: MetaScopeKind
+): void {
+    const verdict = evaluateGrantedMetaScopes(scopes, kind);
+    if (!verdict.ok) {
+        throw new Error(metaScopeVerdictMessage(verdict, kind) || "meta_scopes_rejected");
+    }
 }
 
 /** User token curto → longo (~60d). */

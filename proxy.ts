@@ -185,7 +185,7 @@ function handlePlatformDedicatedHost(
                 { error: "Host not allowed", code: "host_not_allowed" },
                 { status: 403 }
             ),
-            csp.value
+            csp
         );
     }
 
@@ -196,7 +196,7 @@ function handlePlatformDedicatedHost(
         url.pathname = "/platform";
         url.search = "";
     }
-    return stampCspResponse(NextResponse.redirect(url, 307), csp.value);
+    return stampCspResponse(NextResponse.redirect(url, 307), csp);
 }
 
 async function handlePlatformBranch(
@@ -241,14 +241,14 @@ async function handlePlatformBranch(
                         { error: "Host not allowed", code: "host_not_allowed" },
                         { status: 403 }
                     ),
-                    csp.value
+                    csp
                 );
             }
             const target = platformAdminCanonicalUrl(
                 pathname,
                 request.nextUrl.search
             );
-            return stampCspResponse(NextResponse.redirect(target, 307), csp.value);
+            return stampCspResponse(NextResponse.redirect(target, 307), csp);
         }
     }
 
@@ -262,13 +262,13 @@ async function handlePlatformBranch(
                     { error: "IP not allowed", code: "ip_not_allowed" },
                     { status: 403 }
                 ),
-                csp.value
+                csp
             );
         }
         const url = request.nextUrl.clone();
         url.pathname = "/platform/forbidden";
         url.search = "";
-        return stampCspResponse(NextResponse.redirect(url), csp.value);
+        return stampCspResponse(NextResponse.redirect(url), csp);
     }
 
     const publicPaths =
@@ -296,7 +296,7 @@ async function handlePlatformBranch(
         const url = request.nextUrl.clone();
         url.pathname = "/platform/login";
         url.searchParams.set("redirectTo", pathname);
-        return stampCspResponse(NextResponse.redirect(url), csp.value);
+        return stampCspResponse(NextResponse.redirect(url), csp);
     }
 
     // Step-up: fator TOTP já verificado mas sessão ainda aal1 → força challenge
@@ -306,7 +306,7 @@ async function handlePlatformBranch(
     if (aal?.currentLevel !== "aal2" && aal?.nextLevel === "aal2") {
         const url = request.nextUrl.clone();
         url.pathname = "/platform/login/mfa";
-        return stampCspResponse(NextResponse.redirect(url), csp.value);
+        return stampCspResponse(NextResponse.redirect(url), csp);
     }
 
     return nextWithCsp(request, csp, requestHeaders);
@@ -323,11 +323,11 @@ function handleSuperadminBranch(
     if (pathname === "/superadmin/login" || pathname === "/api/superadmin/login") {
         const url = request.nextUrl.clone();
         url.pathname = pathname.replace("/superadmin", "/platform");
-        return stampCspResponse(NextResponse.redirect(url), csp.value);
+        return stampCspResponse(NextResponse.redirect(url), csp);
     }
     const url = request.nextUrl.clone();
     url.pathname = pathname.replace(/^\/superadmin/, "/platform");
-    return stampCspResponse(NextResponse.redirect(url, 308), csp.value);
+    return stampCspResponse(NextResponse.redirect(url, 308), csp);
 }
 
 function isTechnicalApiPublic(pathname: string): boolean {
@@ -468,7 +468,7 @@ export async function proxy(
     if (!isLoggedIn) {
         const url = request.nextUrl.clone();
         url.pathname = "/login";
-        return stampCspResponse(NextResponse.redirect(url), csp.value);
+        return stampCspResponse(NextResponse.redirect(url), csp);
     }
 
     // Impersonação platform: somente leitura no tenant (bloqueia mutações)
@@ -487,7 +487,7 @@ export async function proxy(
                 },
                 { status: 403 }
             ),
-            csp.value
+            csp
         );
     }
 
@@ -506,7 +506,7 @@ export async function proxy(
                 serviceKey
             );
             if (guard.type === "redirect") {
-                return stampCspResponse(guard.response, csp.value);
+                return stampCspResponse(guard.response, csp);
             }
         }
     }

@@ -61,9 +61,9 @@ export async function GET(req: Request) {
         redirectUri,
         appId,
         configId: configId || null,
-        scopes: configId ? [] : META_MESSAGING_OAUTH_SCOPES.split(","),
+        scopes: META_MESSAGING_OAUTH_SCOPES.split(","),
         hint: configId
-            ? undefined
+            ? "Login for Business: a Configuration do META_LOGIN_CONFIG_ID deve ter só estes escopos (S14)."
             : "Se a Meta mostrar URL bloqueada com redirect URI já cadastrada, crie uma Configuration em Facebook Login for Business e defina META_LOGIN_CONFIG_ID na Vercel.",
     });
 }

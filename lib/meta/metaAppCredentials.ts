@@ -50,13 +50,7 @@ export function metaGraphVersion(env: EnvLike = process.env): string {
     return env.META_GRAPH_VERSION?.trim() || GRAPH_VERSION;
 }
 
-/** Escopos para Messenger + Instagram Messaging via Facebook Login. */
-export const META_MESSAGING_OAUTH_SCOPES = [
-    "pages_show_list",
-    "pages_manage_metadata",
-    "pages_messaging",
-    "pages_read_engagement",
-    "business_management",
-    "instagram_basic",
-    "instagram_manage_messages",
-].join(",");
+export {
+    META_MESSAGING_OAUTH_SCOPE_LIST,
+    META_MESSAGING_OAUTH_SCOPES,
+} from "@/lib/meta/metaOauthScopes";

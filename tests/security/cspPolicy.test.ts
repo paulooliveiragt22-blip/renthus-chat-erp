@@ -11,7 +11,11 @@ import {
 
 const requireCjs = createRequire(path.join(process.cwd(), "package.json"));
 const cjs = requireCjs("./lib/security/cspPolicy.cjs") as {
-    buildContentSecurityPolicy: (opts?: { isDev?: boolean; nonce?: string }) => string;
+    buildContentSecurityPolicy: (opts?: {
+        isDev?: boolean;
+        nonce?: string;
+        reportUri?: string;
+    }) => string;
     CSP_ENFORCE_HEADER: string;
     CSP_REPORT_ONLY_HEADER: string;
     X_FRAME_OPTIONS_DENY: string;
@@ -48,5 +52,16 @@ describe("cspPolicy", () => {
         assert.match(csp, /unsafe-eval/);
         assert.match(csp, /nonce-devn/);
         assert.equal(cjs.buildContentSecurityPolicy({ isDev: true, nonce: "devn" }), csp);
+    });
+
+    it("S15 report-uri: TS e CJS iguais", () => {
+        const reportUri = "https://o1.ingest.sentry.io/api/2/security/?sentry_key=k";
+        const csp = buildContentSecurityPolicy({ isDev: false, nonce: "n", reportUri });
+        assert.match(csp, /report-uri https:\/\/o1\.ingest\.sentry\.io/);
+        assert.match(csp, /report-to csp-endpoint/);
+        assert.equal(
+            cjs.buildContentSecurityPolicy({ isDev: false, nonce: "n", reportUri }),
+            csp
+        );
     });
 });
