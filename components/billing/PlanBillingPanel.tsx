@@ -708,6 +708,9 @@ export default function PlanBillingPanel({ variant = "full" }: PlanBillingPanelP
                         const pixCode = (pixLiveCode ?? "").trim() || fromPendPix || fromInvPix;
 
                         const pendingKind = String(pendInv?.kind ?? "");
+                        const hasCheckoutIntent = Boolean(
+                            sub?.pending_upgrade_plan_key || sub?.pending_checkout_intent
+                        );
                         const hasOpenObligation =
                             Boolean(pendRecord) &&
                             Number(pendRecord?.amount ?? 0) > 0;
@@ -726,7 +729,8 @@ export default function PlanBillingPanel({ variant = "full" }: PlanBillingPanelP
                             st === "pending_payment" ||
                             st === "overdue" ||
                             st === "blocked" ||
-                            (st === "active" && (!prepaidActive || hasOpenObligation));
+                            (st === "active" &&
+                                (!prepaidActive || hasOpenObligation || hasCheckoutIntent));
 
                         if (!showPay) return null;
 
@@ -751,11 +755,14 @@ export default function PlanBillingPanel({ variant = "full" }: PlanBillingPanelP
                                 ? "Primeira mensalidade — após o pagamento as cobranças seguem a cada 30 dias."
                                 : "Mensalidade recorrente. Próximo vencimento em 30 dias após o pagamento.";
 
-                        if (pendingKind === "plan_upgrade") {
+                        if (pendingKind === "plan_upgrade" || sub?.pending_upgrade_plan_key) {
                             paymentTitle = "Confirmar upgrade de plano";
                             paymentDesc =
                                 "Pague abaixo (PIX ou cartão) para aplicar o upgrade. A data de renovação não muda.";
-                        } else if (pendingKind === "period_switch") {
+                        } else if (
+                            pendingKind === "period_switch" ||
+                            sub?.pending_checkout_intent === "period_switch"
+                        ) {
                             paymentTitle = "Migrar para plano anual";
                             paymentDesc =
                                 "Pague abaixo para migrar ao ciclo anual. Após o pagamento a renovação passa a ser anual.";

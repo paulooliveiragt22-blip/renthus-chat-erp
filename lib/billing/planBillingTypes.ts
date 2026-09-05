@@ -18,6 +18,8 @@ export type BillingStatusJson = {
         pending_plan_key?: string | null;
         pending_plan_change_at?: string | null;
         pending_keep_user_ids?: string[] | null;
+        pending_upgrade_plan_key?: string | null;
+        pending_checkout_intent?: string | null;
         seat_quantity?: number | null;
     } | null;
     pending_invoice?: {

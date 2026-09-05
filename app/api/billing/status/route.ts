@@ -36,7 +36,7 @@ export async function GET() {
             admin
                 .from("pagarme_subscriptions")
                 .select(
-                    "id, plan, status, billing_period, trial_ends_at, next_billing_at, last_paid_at, activated_at, pagarme_customer_id, default_card_id, pending_plan_key, pending_plan_change_at, pending_keep_user_ids, seat_quantity"
+                    "id, plan, status, billing_period, trial_ends_at, next_billing_at, last_paid_at, activated_at, pagarme_customer_id, default_card_id, pending_plan_key, pending_plan_change_at, pending_keep_user_ids, pending_upgrade_plan_key, pending_checkout_intent, seat_quantity"
                 )
                 .eq("company_id", companyId)
                 .maybeSingle()
@@ -86,6 +86,31 @@ export async function GET() {
 
         const pendingInvoice = invPending ?? null;
 
+        let quotedCheckoutBrl: number | null = null;
+        const upgradeIntent = String(
+            (pagarmeSubRaw as { pending_upgrade_plan_key?: string | null } | null)
+                ?.pending_upgrade_plan_key ?? ""
+        ).trim();
+        const checkoutIntent = String(
+            (pagarmeSubRaw as { pending_checkout_intent?: string | null } | null)
+                ?.pending_checkout_intent ?? ""
+        ).trim();
+
+        if (!pendingInvoice && upgradeIntent) {
+            const { data: q } = await admin.rpc("rpc_quote_plan_upgrade", {
+                p_company_id: companyId,
+                p_target_plan: upgradeIntent,
+            });
+            const cents = Number((q as { amount_cents?: number } | null)?.amount_cents ?? 0);
+            if (cents > 0) quotedCheckoutBrl = cents / 100;
+        } else if (!pendingInvoice && checkoutIntent === "period_switch") {
+            const { data: q } = await admin.rpc("rpc_quote_period_switch", {
+                p_company_id: companyId,
+            });
+            const cents = Number((q as { amount_cents?: number } | null)?.amount_cents ?? 0);
+            if (cents > 0) quotedCheckoutBrl = cents / 100;
+        }
+
         const { data: invoiceRows } = await admin
             .from("invoices")
             .select("id, amount, status, due_at, paid_at, created_at")
@@ -132,7 +157,8 @@ export async function GET() {
         const canonicalObligationBrl =
             canonicalObligationCents != null ? canonicalObligationCents / 100 : null;
         const canonicalMonthly = planRow != null ? planRow.price_cents / 100 : null;
-        const checkoutAmountBrl = obligationAmount ?? canonicalObligationBrl;
+        const checkoutAmountBrl =
+            obligationAmount ?? quotedCheckoutBrl ?? canonicalObligationBrl;
         const amountMismatch =
             canonicalObligationBrl != null &&
             obligationAmount != null &&

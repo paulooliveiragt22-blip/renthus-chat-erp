@@ -39,6 +39,7 @@ import {
     loadCheckoutContext,
     checkoutOrderLabels,
 } from "@/lib/billing/ensureCheckout";
+import { materializeCheckoutIntent } from "@/lib/billing/materializeCheckoutIntent";
 import { isCheckoutIdempotencyFresh } from "@/lib/billing/checkoutIdempotency";
 import { reconcileOrCancelLiveOrder } from "@/lib/billing/reconcileLivePagarmeOrder";
 
@@ -160,6 +161,27 @@ export async function POST(req: Request) {
             return NextResponse.json(payload);
         };
 
+        const { data: company, error: compErr } = await admin
+            .from("companies")
+            .select(
+                "name, nome_fantasia, email, whatsapp_phone, meta, cnpj, cep, endereco, numero, cidade, uf"
+            )
+            .eq("id", companyId)
+            .maybeSingle();
+
+        if (compErr || !company) {
+            return NextResponse.json({ error: "Empresa não encontrada" }, { status: 404 });
+        }
+
+        await materializeCheckoutIntent(admin, companyId, {
+            name: company.name as string | null,
+            nome_fantasia: company.nome_fantasia as string | null,
+            email: company.email as string | null,
+            whatsapp_phone: company.whatsapp_phone as string | null,
+            phone: null,
+            cnpj: company.cnpj as string | null,
+        });
+
         const checkout = await loadCheckoutContext(admin, companyId);
         if ("error" in checkout) {
             return NextResponse.json({ error: checkout.error }, { status: checkout.status });
@@ -200,18 +222,6 @@ export async function POST(req: Request) {
                     psp_sync: sync,
                 });
             }
-        }
-
-        const { data: company, error: compErr } = await admin
-            .from("companies")
-            .select(
-                "name, nome_fantasia, email, whatsapp_phone, meta, cnpj, cep, endereco, numero, cidade, uf"
-            )
-            .eq("id", companyId)
-            .maybeSingle();
-
-        if (compErr || !company) {
-            return NextResponse.json({ error: "Empresa não encontrada" }, { status: 404 });
         }
 
         const companyRow = {

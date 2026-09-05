@@ -8,7 +8,7 @@
 
 import { NextResponse } from "next/server";
 import { requireCompanyAccess } from "@/lib/workspace/requireCompanyAccess";
-import { ensurePeriodSwitchCheckout } from "@/lib/billing/ensurePeriodSwitchCheckout";
+import { preparePeriodSwitchSelection } from "@/lib/billing/preparePeriodSwitchSelection";
 import { jsonAccessError } from "@/lib/api/errors";
 
 export const runtime = "nodejs";
@@ -33,17 +33,7 @@ export async function POST() {
         }
 
         try {
-            const checkout = await ensurePeriodSwitchCheckout(admin, {
-                companyId,
-                company: {
-                    name: company.name as string | null,
-                    nome_fantasia: company.nome_fantasia as string | null,
-                    email: company.email as string | null,
-                    whatsapp_phone: company.whatsapp_phone as string | null,
-                    phone: company.phone as string | null,
-                    cnpj: company.cnpj as string | null,
-                },
-            });
+            const checkout = await preparePeriodSwitchSelection(admin, { companyId });
 
             if (checkout.mode === "applied_free") {
                 return NextResponse.json({
@@ -56,16 +46,15 @@ export async function POST() {
 
             return NextResponse.json({
                 ok: true,
-                action: "period_switch_pending",
+                action: "period_switch_quoted",
                 plan: checkout.plan,
-                invoice_id: checkout.invoiceId,
                 amount_cents: checkout.amountCents,
                 amount_brl: checkout.amountBrl,
                 annual_cents: checkout.annualCents,
                 credit_cents: checkout.creditCents,
                 next_billing_at: checkout.nextBillingAt,
                 message:
-                    "Migração para o anual preparada. Pague abaixo (PIX ou cartão) para confirmar.",
+                    "Migração para o anual selecionada. Pague abaixo (PIX ou cartão) para confirmar.",
             });
         } catch (e: unknown) {
             const msg = e instanceof Error ? e.message : String(e);

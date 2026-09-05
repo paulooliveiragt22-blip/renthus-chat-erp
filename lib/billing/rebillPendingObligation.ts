@@ -38,8 +38,6 @@ export async function rebillPendingObligationAfterPlanChange(
 
     if (!sub?.id) return { ok: true, action: "noop" };
 
-    const st = String(sub.status ?? "").toLowerCase();
-
     const { data: inv } = await admin
         .from("invoices")
         .select("id, amount, pagarme_order_id, kind")
@@ -50,9 +48,7 @@ export async function rebillPendingObligationAfterPlanChange(
         .limit(1)
         .maybeSingle();
 
-    const needsObligation =
-        st === "pending_payment" || st === "pending_setup" || st === "trial";
-    if (!inv && !needsObligation) return { ok: true, action: "noop" };
+    if (!inv) return { ok: true, action: "noop" };
 
     if (inv?.pagarme_order_id) {
         const fulfilled = await fulfillIfPagarmeOrderPaid(

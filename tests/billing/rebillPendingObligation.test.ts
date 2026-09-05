@@ -87,7 +87,21 @@ describe("rebillPendingObligationAfterPlanChange", () => {
         assert.equal(rpcCalls.length, 0);
     });
 
-    it("pending_payment chama RPC e não grava amount no app", async () => {
+    it("pending_payment sem invoice pending não cria obrigação", async () => {
+        const { admin, rpcCalls } = mockAdmin({
+            sub: { id: "s1", status: "pending_payment", plan: "pro" },
+            pending: null,
+        });
+        const r = await rebillPendingObligationAfterPlanChange(
+            admin as never,
+            "co-1",
+            "market"
+        );
+        assert.equal(r.action, "noop");
+        assert.equal(rpcCalls.length, 0);
+    });
+
+    it("pending_payment com invoice pending realinha via RPC", async () => {
         const { admin, rpcCalls, updates } = mockAdmin({
             sub: { id: "s1", status: "pending_payment", plan: "pro" },
             pending: { id: "inv-1", amount: 279, pagarme_order_id: null, kind: "subscription" },

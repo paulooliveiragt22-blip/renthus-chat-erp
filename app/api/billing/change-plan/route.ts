@@ -12,7 +12,7 @@ import { syncPrepayPlanSelection } from "@/lib/billing/pagarmeSetupPaid";
 import { normalizePlanKey, parseCommercialPlanInput, planRank } from "@/lib/billing/planCatalog";
 import { rebillPendingObligationAfterPlanChange } from "@/lib/billing/rebillPendingObligation";
 import { scheduleDowngrade } from "@/lib/billing/scheduleDowngrade";
-import { ensurePlanUpgradeCheckout } from "@/lib/billing/ensurePlanUpgradeCheckout";
+import { preparePlanUpgradeSelection } from "@/lib/billing/preparePlanUpgradeSelection";
 import { jsonAccessError } from "@/lib/api/errors";
 
 export const runtime = "nodejs";
@@ -126,27 +126,10 @@ export async function POST(req: Request) {
         }
 
         if (planRank(planKey) > planRank(current)) {
-            const { data: company } = await admin
-                .from("companies")
-                .select("id, name, nome_fantasia, email, cnpj, whatsapp_phone, phone")
-                .eq("id", tenantId)
-                .maybeSingle();
-            if (!company) {
-                return NextResponse.json({ error: "company_not_found" }, { status: 404 });
-            }
-
             try {
-                const checkout = await ensurePlanUpgradeCheckout(admin, {
+                const checkout = await preparePlanUpgradeSelection(admin, {
                     companyId: tenantId,
                     targetPlan: planKey,
-                    company: {
-                        name: company.name as string | null,
-                        nome_fantasia: company.nome_fantasia as string | null,
-                        email: company.email as string | null,
-                        whatsapp_phone: company.whatsapp_phone as string | null,
-                        phone: company.phone as string | null,
-                        cnpj: company.cnpj as string | null,
-                    },
                 });
 
                 if (checkout.mode === "applied_free") {
@@ -160,15 +143,14 @@ export async function POST(req: Request) {
 
                 return NextResponse.json({
                     ok: true,
-                    action: "upgrade_pending",
+                    action: "upgrade_quoted",
                     from_plan: checkout.fromPlan,
                     to_plan: checkout.toPlan,
-                    invoice_id: checkout.invoiceId,
                     amount_cents: checkout.amountCents,
                     amount_brl: checkout.amountBrl,
                     next_billing_at: checkout.nextBillingAt,
                     message:
-                        "Upgrade preparado. Pague abaixo (PIX ou cartão) para confirmar a mudança de plano.",
+                        "Plano selecionado. Pague abaixo (PIX ou cartão) para confirmar o upgrade.",
                 });
             } catch (e: unknown) {
                 const msg = e instanceof Error ? e.message : String(e);
