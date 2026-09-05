@@ -18,6 +18,7 @@ import { billingLog } from "@/lib/billing/billingLog";
 import { isUniqueViolation } from "@/lib/billing/isUniqueViolation";
 import { sendBillingNotification, buildOverdueMessage } from "@/lib/billing/sendBillingNotification";
 import { reconcileOrCancelLiveOrder } from "@/lib/billing/reconcileLivePagarmeOrder";
+import { transitionBillingStatus } from "@/lib/billing/transitionBillingStatus";
 
 type Admin = ReturnType<typeof createAdminClient>;
 
@@ -40,6 +41,7 @@ export type CollectSub = {
     pagarme_customer_id: string | null;
     default_card_id: string | null;
     last_paid_at?: string | null;
+    updated_at?: string | null;
     seat_quantity?: number | null;
     companies?: CollectCompany | CollectCompany[] | null;
 };
@@ -202,6 +204,26 @@ async function attachPixToInvoice(
     return { orderId: order.id, pixUrl: pixUrl ?? null, pixCode: pixCode ?? null };
 }
 
+async function applyFallbackStatus(
+    admin: Admin,
+    sub: CollectSub,
+    to: "overdue" | "pending_payment"
+) {
+    const r = await transitionBillingStatus(admin, {
+        companyId: sub.company_id,
+        to,
+        casUpdatedAt: sub.updated_at ?? null,
+    });
+    if (r.status === "conflict") {
+        billingLog("collect_payment", "status_transition_conflict", {
+            company_id: sub.company_id,
+            to,
+            from: r.from,
+            reason: r.reason,
+        });
+    }
+}
+
 /**
  * Coleta mensalidade: tenta cartão default se pedido; senão/falha → PIX na mesma invoice.
  */
@@ -241,10 +263,7 @@ export async function collectPayment(
                 orderId: invoice.pagarme_order_id,
             };
         }
-        await admin
-            .from("pagarme_subscriptions")
-            .update({ status: fallbackSubStatus })
-            .eq("id", sub.id);
+        await applyFallbackStatus(admin, sub, fallbackSubStatus);
         return {
             ok: true,
             outcome: "pix_pending",
@@ -379,10 +398,7 @@ export async function collectPayment(
         };
     }
 
-    await admin
-        .from("pagarme_subscriptions")
-        .update({ status: fallbackSubStatus })
-        .eq("id", sub.id);
+    await applyFallbackStatus(admin, sub, fallbackSubStatus);
 
     if (notifyWhatsApp && company?.whatsapp_phone) {
         const msg = buildOverdueMessage(1, pix.pixUrl ?? pix.pixCode ?? "");

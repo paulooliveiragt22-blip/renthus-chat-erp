@@ -20,6 +20,7 @@ import { billingLog } from "@/lib/billing/billingLog";
 import { collectPayment, type CollectSub } from "@/lib/billing/collectPayment";
 import { resolveCollectionActionDb } from "@/lib/billing/collectionPolicy";
 import { processAiRechargeJobs } from "@/lib/billing/processAiRechargeJobs";
+import { transitionBillingStatus } from "@/lib/billing/transitionBillingStatus";
 
 export const runtime = "nodejs";
 
@@ -53,7 +54,7 @@ export async function POST(req: Request) {
         .from("pagarme_subscriptions")
         .select(`
             id, company_id, plan, status, activated_at, next_billing_at, trial_ends_at,
-            last_paid_at, pagarme_customer_id, default_card_id, seat_quantity,
+            last_paid_at, updated_at, pagarme_customer_id, default_card_id, seat_quantity,
             companies ( id, name, nome_fantasia, email, whatsapp_phone, meta, cnpj )
         `)
         .in("status", ["trial", "active"])
@@ -121,7 +122,7 @@ export async function POST(req: Request) {
         .select(`
             id, company_id, subscription_id, due_at, pagarme_payment_url, pix_qr_code,
             pagarme_subscriptions (
-              id, status, company_id, plan, pagarme_customer_id, default_card_id, last_paid_at, seat_quantity,
+              id, status, company_id, plan, pagarme_customer_id, default_card_id, last_paid_at, updated_at, seat_quantity,
               companies ( id, name, nome_fantasia, email, whatsapp_phone, meta, cnpj )
             ),
             companies ( whatsapp_phone, is_active )
@@ -220,10 +221,11 @@ async function processOverdueInvoiceRow(
     // (14d). Aqui só normaliza overdue órfão para pending_payment.
     if (neverPaid) {
         if (sub.status === "overdue") {
-            await admin
-                .from("pagarme_subscriptions")
-                .update({ status: "pending_payment" })
-                .eq("id", sub.id);
+            await transitionBillingStatus(admin, {
+                companyId: inv.company_id,
+                to: "pending_payment",
+                casUpdatedAt: sub.updated_at ?? null,
+            });
         }
         return;
     }
@@ -238,8 +240,13 @@ async function processOverdueInvoiceRow(
 
     // D7: bloqueio só para renovação de quem JÁ pagou (last_paid_at presente).
     if (action.type === "block") {
-        await blockCompany(admin, inv.company_id, inv.subscription_id);
-        results.blocked++;
+        const blocked = await blockCompany(
+            admin,
+            inv.company_id,
+            inv.subscription_id,
+            sub.updated_at ?? null
+        );
+        if (blocked) results.blocked++;
         return;
     }
 
@@ -280,19 +287,20 @@ async function processOverdueInvoiceRow(
 async function blockCompany(
     admin: ReturnType<typeof createAdminClient>,
     companyId: string,
-    subscriptionId: string
-) {
-    // H5.3: um UPDATE de assinatura por company_id (+ desativa company)
-    await Promise.all([
-        admin
-            .from("pagarme_subscriptions")
-            .update({ status: "blocked", updated_at: new Date().toISOString() })
-            .eq("company_id", companyId),
-        admin.from("companies").update({ is_active: false }).eq("id", companyId),
-    ]);
-
+    subscriptionId: string,
+    casUpdatedAt: string | null
+): Promise<boolean> {
+    const r = await transitionBillingStatus(admin, {
+        companyId,
+        to: "blocked",
+        casUpdatedAt,
+    });
     billingLog("charge_cron", "company_blocked", {
         company_id: companyId,
         subscription_id: subscriptionId,
+        result: r.status,
+        claimed: r.claimed,
+        reason: r.reason,
     });
+    return r.claimed || r.status === "already";
 }

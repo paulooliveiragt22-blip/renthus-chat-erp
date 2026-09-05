@@ -8,7 +8,7 @@ import { describe, it } from "node:test";
 
 const NOW = new Date("2026-08-28T12:00:00.000Z");
 
-/** Simula a lógica de corte do cron mark-abandoned (ABANDONED_GRACE_DAYS = 14). */
+/** Espelha o corte canônico em rpc_mark_abandoned_due (`interval '14 days'`). */
 function buildAbandonedCutoff(now: Date = NOW): Date {
     const ABANDONED_GRACE_DAYS = 14;
     return new Date(now.getTime() - ABANDONED_GRACE_DAYS * 86_400_000);
