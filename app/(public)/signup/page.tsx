@@ -11,6 +11,12 @@ import { useRouter } from "next/navigation";
 import type { Session } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/client";
 import PasswordInput from "@/components/PasswordInput";
+import {
+    PLAN_CARD_ACCENT,
+    PLAN_CARD_ACCENT_FG,
+    PLAN_CARD_ACCENT_SHADOW,
+    PLAN_TOGGLE_ACCENT,
+} from "@/lib/billing/planOfferUi";
 import { PLAN_CATALOG, PLAN_ORDER, type CommercialPlanKey } from "@/lib/billing/planCatalog";
 import { yearlySavingsPercent } from "@/lib/billing/yearlyFromDiscount";
 
@@ -437,13 +443,13 @@ export default function SignupPage() {
                                 )}
                             </div>
                             {showYear ? (
-                                <div style={{ ...S.setupLine, color: BRAND.accent, fontWeight: 600 }}>
+                                <div style={{ ...S.setupLine, color: BRAND.planAccent, fontWeight: 600 }}>
                                     {fmtCents(p.listYearlyCents!)}/ano à vista
                                     {yearPct > 0 ? ` · economize ${yearPct}%` : ""}
                                 </div>
                             ) : (
                                 hasPromo && (
-                                    <div style={{ ...S.setupLine, color: BRAND.accent, fontWeight: 600 }}>
+                                    <div style={{ ...S.setupLine, color: BRAND.planAccent, fontWeight: 600 }}>
                                         {p.promoLabel}
                                     </div>
                                 )
@@ -461,7 +467,7 @@ export default function SignupPage() {
                                             height="14"
                                             viewBox="0 0 24 24"
                                             fill="none"
-                                            stroke="#57ff8f"
+                                            stroke={BRAND.planAccent}
                                             strokeWidth="2.5"
                                             strokeLinecap="round"
                                             strokeLinejoin="round"
@@ -625,10 +631,12 @@ export default function SignupPage() {
 }
 
 const BRAND = {
-    primary:   "#16364D",
+    primary:     "#16364D",
     primaryDeep: "#11283B",
-    accent:    "#57ff8f",
-    accentFg:  "#16364D",
+    accent:      PLAN_TOGGLE_ACCENT,
+    accentFg:    "#16364D",
+    planAccent:  PLAN_CARD_ACCENT,
+    planAccentFg: PLAN_CARD_ACCENT_FG,
 } as const;
 
 const S = {
@@ -741,8 +749,8 @@ const S = {
         transition:    "box-shadow 0.15s, border-color 0.15s, transform 0.15s",
     },
     planCardActive: {
-        border:    `2.5px solid ${BRAND.accent}`,
-        boxShadow: "0 12px 36px rgba(87,255,143,0.22)",
+        border:    `2.5px solid ${BRAND.planAccent}`,
+        boxShadow: `0 12px 36px ${PLAN_CARD_ACCENT_SHADOW}`,
         transform: "translateY(-2px)",
     },
     planCardInactive: {
@@ -754,8 +762,8 @@ const S = {
         top:           -13,
         left:          "50%",
         transform:     "translateX(-50%)",
-        background:    BRAND.accent,
-        color:         BRAND.accentFg,
+        background:    BRAND.planAccent,
+        color:         BRAND.planAccentFg,
         fontSize:      10,
         fontWeight:    800,
         padding:       "4px 14px",
@@ -825,13 +833,13 @@ const S = {
         transition:   "all 0.15s",
     },
     planBtnInactive: {
-        background: BRAND.accent,
-        color:      BRAND.accentFg,
-        boxShadow:  "0 3px 10px rgba(87,255,143,0.35)",
+        background: BRAND.planAccent,
+        color:      BRAND.planAccentFg,
+        boxShadow:  `0 3px 10px ${PLAN_CARD_ACCENT_SHADOW}`,
     },
     planBtnActive: {
         background: BRAND.primary,
-        color:      BRAND.accent,
+        color:      BRAND.planAccent,
     },
     form: {
         background:      "#fff",

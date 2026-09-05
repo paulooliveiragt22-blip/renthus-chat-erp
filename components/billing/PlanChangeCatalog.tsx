@@ -8,6 +8,7 @@ import {
     type CommercialPlanKey,
     PLAN_ORDER,
 } from "@/lib/billing/planCatalog";
+import { PLAN_CARD_ACCENT, PLAN_TOGGLE_ACCENT } from "@/lib/billing/planOfferUi";
 
 type Member = {
     user_id: string;
@@ -384,7 +385,7 @@ export function PlanChangeCatalog({
                                     className="ml-1 text-[10px] font-bold"
                                     style={{
                                         color:
-                                            viewPeriod === "year" ? "#16364D" : "#57ff8f",
+                                            viewPeriod === "year" ? "#16364D" : PLAN_TOGGLE_ACCENT,
                                         opacity: 0.85,
                                     }}
                                 >
@@ -473,7 +474,7 @@ export function PlanChangeCatalog({
                                     </p>
                                     <p
                                         className="mt-0.5 text-[11px] font-semibold"
-                                        style={{ color: "#57ff8f" }}
+                                        style={{ color: PLAN_CARD_ACCENT }}
                                     >
                                         {brl(yearPrice)}/ano à vista
                                         {yearPct > 0 ? ` · economize ${yearPct}%` : ""}
