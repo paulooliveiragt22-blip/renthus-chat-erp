@@ -807,67 +807,81 @@ export default function PDVPage() {
       due_date: p.due_date ?? null,
     }));
 
+    const isNetworkFailure = (err: unknown): boolean => {
+      if (err instanceof TypeError) return true;
+      const msg = err instanceof Error ? err.message : String(err ?? "");
+      return /failed to fetch|networkerror|network request failed|load failed|fetch failed/i.test(msg);
+    };
+
+    const enqueueOfflineFinalize = async () => {
+      const clientPrintId = createPrintIntentId();
+      let printIntent = {
+        clientPrintId,
+        alreadyPrinted: false as boolean,
+        printedAt: null as string | null,
+        copyType: "cashier",
+      };
+      if (autoPrint) {
+        const intent = await tryLocalPrint({
+          clientPrintId,
+          companyId,
+          total: cartTotal,
+          change,
+          seller: sellerName,
+          items: cart.map((i) => ({
+            name: `${i.variant.product_name} ${i.variant.details ?? ""}`.trim(),
+            qty: i.qty,
+            price: i.variant.unit_price,
+          })),
+          payments: payments.map((p) => ({
+            method: PAY[p.method].label,
+            value: Number.parseFloat(p.value) || 0,
+          })),
+          copyType: "cashier",
+        });
+        printIntent = {
+          clientPrintId: intent.clientPrintId,
+          alreadyPrinted: intent.alreadyPrinted,
+          printedAt: intent.printedAt,
+          copyType: intent.copyType,
+        };
+      }
+      const enq = await enqueueCommand(getBrowserOutboxStore(), {
+        type: "FinalizePdvSale",
+        companyId,
+        payload: {
+          cash_register_id: caixa.id,
+          seller_name: sellerName,
+          customer_id: selectedCustomer?.id ?? null,
+          customer_name: selectedCustomer?.name ?? null,
+          cart: cartPayload,
+          payments: paymentsPayload,
+          active_order_id: activeOrderId,
+          active_order_source: activeOrderSource,
+          auto_print: autoPrint && !printIntent.alreadyPrinted,
+          printIntent,
+        },
+      });
+      if (!enq.ok) {
+        if (enq.reason === "queue_full") {
+          throw new Error("Fila offline cheia (máx. 200). Conecte-se para sincronizar.");
+        }
+        throw new Error(`Não foi possível enfileirar: ${enq.reason}`);
+      }
+      await refreshSyncPendingBadge(companyId);
+      setOfflineQueuedSale(true);
+      setSaleOk(true);
+      setCart([]);
+      setFromOrderBanner(null);
+      setActiveOrderId(null);
+      setActiveOrderSource(null);
+    };
+
     try {
+      // navigator.onLine mente no Windows às vezes; se false, fila direto.
       const offline = typeof navigator !== "undefined" && !navigator.onLine;
       if (offline) {
-        const clientPrintId = createPrintIntentId();
-        let printIntent = {
-          clientPrintId,
-          alreadyPrinted: false as boolean,
-          printedAt: null as string | null,
-          copyType: "cashier",
-        };
-        if (autoPrint) {
-          const intent = await tryLocalPrint({
-            clientPrintId,
-            companyId,
-            total: cartTotal,
-            change,
-            seller: sellerName,
-            items: cart.map((i) => ({
-              name: `${i.variant.product_name} ${i.variant.details ?? ""}`.trim(),
-              qty: i.qty,
-              price: i.variant.unit_price,
-            })),
-            payments: payments.map((p) => ({
-              method: PAY[p.method].label,
-              value: Number.parseFloat(p.value) || 0,
-            })),
-            copyType: "cashier",
-          });
-          printIntent = {
-            clientPrintId: intent.clientPrintId,
-            alreadyPrinted: intent.alreadyPrinted,
-            printedAt: intent.printedAt,
-            copyType: intent.copyType,
-          };
-        }
-        const enq = await enqueueCommand(getBrowserOutboxStore(), {
-          type: "FinalizePdvSale",
-          companyId,
-          payload: {
-            cash_register_id: caixa.id,
-            seller_name: sellerName,
-            customer_id: selectedCustomer?.id ?? null,
-            customer_name: selectedCustomer?.name ?? null,
-            cart: cartPayload,
-            payments: paymentsPayload,
-            active_order_id: activeOrderId,
-            active_order_source: activeOrderSource,
-            auto_print: autoPrint && !printIntent.alreadyPrinted,
-            printIntent,
-          },
-        });
-        if (!enq.ok) {
-          if (enq.reason === "queue_full") {
-            throw new Error("Fila offline cheia (máx. 200). Conecte-se para sincronizar.");
-          }
-          throw new Error(`Não foi possível enfileirar: ${enq.reason}`);
-        }
-        await refreshSyncPendingBadge(companyId);
-        setOfflineQueuedSale(true);
-        setSaleOk(true);
-        setCart([]); setFromOrderBanner(null); setActiveOrderId(null); setActiveOrderSource(null);
+        await enqueueOfflineFinalize();
         return;
       }
 
@@ -915,8 +929,20 @@ export default function PDVPage() {
       setSaleOk(true);
       setCart([]); setFromOrderBanner(null); setActiveOrderId(null); setActiveOrderSource(null);
       loadCaixa();
-    } catch(err:any) {
-      alert("Erro ao finalizar: "+err.message);
+    } catch (err: unknown) {
+      // Rede caiu mas onLine ainda true → enfileira em vez de alert Failed to fetch
+      if (isNetworkFailure(err)) {
+        try {
+          await enqueueOfflineFinalize();
+          return;
+        } catch (enqErr: unknown) {
+          const msg = enqErr instanceof Error ? enqErr.message : String(enqErr);
+          alert("Erro ao finalizar: " + msg);
+          return;
+        }
+      }
+      const msg = err instanceof Error ? err.message : String(err);
+      alert("Erro ao finalizar: " + msg);
     } finally { setFinalizing(false); }
   };
 
