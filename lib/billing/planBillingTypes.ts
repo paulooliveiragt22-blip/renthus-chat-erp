@@ -84,7 +84,14 @@ export type BillingStatusJson = {
 
 export type PlanBillingVariant = "full" | "pay";
 
-export type RenthusCardForm = { number: string; exp: string; cvv: string; holder: string };
+export type RenthusCardForm = {
+    number: string;
+    exp: string;
+    cvv: string;
+    holder: string;
+    /** CPF/CNPJ do titular do cartão (antifraude PSP) — não confundir com CNPJ da empresa. */
+    holder_document: string;
+};
 export type RenthusBillingAddr = {
     cep: string;
     endereco: string;

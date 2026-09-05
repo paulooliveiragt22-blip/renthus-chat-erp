@@ -14,3 +14,19 @@ export function formatCardExpiryInput(raw: string): string {
 export function formatCvvInput(raw: string): string {
     return raw.replaceAll(/\D/g, "").slice(0, 4);
 }
+
+/** Máscara progressiva CPF (11) / CNPJ (14) enquanto digita. */
+export function formatHolderDocumentInput(raw: string): string {
+    const d = raw.replaceAll(/\D/g, "").slice(0, 14);
+    if (d.length <= 11) {
+        return d
+            .replace(/(\d{3})(\d)/, "$1.$2")
+            .replace(/(\d{3})(\d)/, "$1.$2")
+            .replace(/(\d{3})(\d{1,2})$/, "$1-$2");
+    }
+    return d
+        .replace(/^(\d{2})(\d)/, "$1.$2")
+        .replace(/^(\d{2})\.(\d{3})(\d)/, "$1.$2.$3")
+        .replace(/\.(\d{3})(\d)/, ".$1/$2")
+        .replace(/(\d{4})(\d)/, "$1-$2");
+}

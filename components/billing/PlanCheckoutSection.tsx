@@ -22,6 +22,7 @@ import {
     formatCardExpiryInput,
     formatCardNumberInput,
     formatCvvInput,
+    formatHolderDocumentInput,
 } from "@/lib/billing/cardInputFormatters";
 
 const PAGARME_PUBLIC_KEY = process.env.NEXT_PUBLIC_PAGARME_PUBLIC_KEY ?? "";
@@ -280,6 +281,18 @@ export function PlanCheckoutSection({
                     value={renthusCard.holder}
                     onChange={(v) => setRenthusCard((c) => ({ ...c, holder: v }))}
                     placeholder={nomeFantasia || "Como no cartão"}
+                />
+                <Field
+                    label="CPF/CNPJ do titular"
+                    value={renthusCard.holder_document}
+                    onChange={(v) =>
+                        setRenthusCard((c) => ({
+                            ...c,
+                            holder_document: formatHolderDocumentInput(v),
+                        }))
+                    }
+                    placeholder="000.000.000-00"
+                    inputMode="numeric"
                 />
                 <Field
                     label="Número"

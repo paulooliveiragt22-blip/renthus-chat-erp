@@ -1,4 +1,5 @@
 import { parseCardExpiry } from "@/lib/pagarme/cardTokenBrowser";
+import { classifyFiscalDocument } from "@/lib/billing/brazilianFiscalDocument";
 import type { RenthusBillingAddr, RenthusCardForm } from "@/lib/billing/planBillingTypes";
 
 function isExpiryInPast(month: number, year2: number): boolean {
@@ -22,6 +23,7 @@ export function validateRenthusCardCheckout(
           num: string;
           cvv: string;
           holder: string;
+          holderDocument: string;
           addrCep: string;
       } {
     const expRaw = renthusCard.exp.trim();
@@ -52,6 +54,12 @@ export function validateRenthusCardCheckout(
             error: "Informe o nome no cartão ou preencha o nome fantasia da empresa.",
         };
     }
+    const holderDoc = classifyFiscalDocument(renthusCard.holder_document);
+    if (!holderDoc.valid) {
+        return {
+            error: "Informe o CPF ou CNPJ válido do titular do cartão.",
+        };
+    }
     const addrCep = cardAddr.cep.replaceAll(/\D/g, "");
     if (
         !cardAddr.endereco.trim() ||
@@ -66,5 +74,12 @@ export function validateRenthusCardCheckout(
     if (addrCep.length < 8) {
         return { error: "CEP inválido." };
     }
-    return { exp, num, cvv, holder, addrCep };
+    return {
+        exp,
+        num,
+        cvv,
+        holder,
+        holderDocument: holderDoc.digits,
+        addrCep,
+    };
 }
