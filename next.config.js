@@ -15,6 +15,8 @@ const withPWA = require("@ducanh2912/next-pwa").default({
     document: "/offline",
   },
   workboxOptions: {
+    // Web Push: handlers em public/push-sw.js
+    importScripts: ["/push-sw.js"],
     // Não precachar source maps nem rotas de API (só assets estáticos com hash).
     exclude: [
       /\/api\/whatsapp\/incoming/,

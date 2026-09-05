@@ -3,6 +3,13 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Loader2, Minus, Plus, Trash2, UtensilsCrossed } from "lucide-react";
 import MarketPlanGate from "@/components/menu/MarketPlanGate";
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from "@/components/ui/select";
 
 type FloorTable = {
     id: string;
@@ -485,17 +492,18 @@ function MesaFloor() {
                                         </p>
                                     )}
                                 </div>
-                                <label className="block text-xs text-zinc-500">
+                                <label className="block text-xs text-foreground-muted" htmlFor="mesa-payment">
                                     Pagamento
-                                    <select
-                                        className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900"
-                                        value={paymentMethod}
-                                        onChange={(e) => setPaymentMethod(e.target.value)}
-                                    >
-                                        <option value="pix">PIX</option>
-                                        <option value="cash">Dinheiro</option>
-                                        <option value="card">Cartão</option>
-                                    </select>
+                                    <Select value={paymentMethod} onValueChange={setPaymentMethod}>
+                                        <SelectTrigger id="mesa-payment" className="mt-1">
+                                            <SelectValue />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            <SelectItem value="pix">PIX</SelectItem>
+                                            <SelectItem value="cash">Dinheiro</SelectItem>
+                                            <SelectItem value="card">Cartão</SelectItem>
+                                        </SelectContent>
+                                    </Select>
                                 </label>
                                 <button
                                     type="button"

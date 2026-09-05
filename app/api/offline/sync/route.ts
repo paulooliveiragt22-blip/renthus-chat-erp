@@ -101,6 +101,21 @@ export async function POST(req: Request) {
                         printIntent,
                     });
                 }
+                try {
+                    const { fireCompanyAlertPush, buildOrderNewPushAlert } = await import(
+                        "@/lib/admin-alerts/application/fireCompanyAlertPush"
+                    );
+                    fireCompanyAlertPush(
+                        admin,
+                        companyId,
+                        buildOrderNewPushAlert({
+                            orderId: result.order_id,
+                            source: "pdv_direct",
+                        })
+                    );
+                } catch {
+                    /* push opcional */
+                }
                 results.push({
                     clientMutationId,
                     outcome: "synced",

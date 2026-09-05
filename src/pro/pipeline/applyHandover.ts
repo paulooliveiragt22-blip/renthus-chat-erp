@@ -62,6 +62,24 @@ export async function applyProHandover(params: ApplyHandoverParams): Promise<App
         .maybeSingle();
 
     if (byThread?.id) {
+        try {
+            const { fireCompanyAlertPush, buildHandoverPushAlert } = await import(
+                "@/lib/admin-alerts/application/fireCompanyAlertPush"
+            );
+            fireCompanyAlertPush(
+                admin,
+                companyId,
+                buildHandoverPushAlert({
+                    threadId,
+                    handoverAt: nowIso,
+                    channel: messagingChannel,
+                    profileName: customerName,
+                    reason,
+                })
+            );
+        } catch {
+            /* push opcional */
+        }
         return {
             threadUpdated: true,
             ticketCreated: false,
@@ -114,6 +132,25 @@ export async function applyProHandover(params: ApplyHandoverParams): Promise<App
 
     if (ticketErr) {
         throw new Error(`handover_ticket_insert: ${ticketErr.message}`);
+    }
+
+    try {
+        const { fireCompanyAlertPush, buildHandoverPushAlert } = await import(
+            "@/lib/admin-alerts/application/fireCompanyAlertPush"
+        );
+        fireCompanyAlertPush(
+            admin,
+            companyId,
+            buildHandoverPushAlert({
+                threadId,
+                handoverAt: nowIso,
+                channel: messagingChannel,
+                profileName: customerName,
+                reason,
+            })
+        );
+    } catch {
+        /* push opcional */
     }
 
     return {

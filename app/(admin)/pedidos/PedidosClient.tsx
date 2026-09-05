@@ -580,7 +580,7 @@ export default function PedidosPage() {
             if (q.trim().length >= 2) {
                 const qq = q.trim().toLowerCase();
                 cached = cached.filter((o) => {
-                    const blob = `${o.customer_name ?? ""} ${o.id} ${o.status ?? ""}`.toLowerCase();
+                    const blob = `${o.customers?.name ?? ""} ${o.id} ${o.status ?? ""}`.toLowerCase();
                     return blob.includes(qq);
                 });
             }
@@ -998,7 +998,7 @@ export default function PedidosPage() {
         });
     }
 
-    /** Vários `<dialog>.showModal()` empilham; só um modal “grande” pode ficar aberto por vez. */
+    /** Fecha os outros modais de pedidos — só um “grande” aberto por vez (Radix Dialog). */
     function closeAllPedidosModals() {
         modalSessionRef.current += 1;
         setOpenNew(false);

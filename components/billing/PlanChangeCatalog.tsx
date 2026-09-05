@@ -481,14 +481,14 @@ export function PlanChangeCatalog({
                             key={key}
                             className={`rounded-xl border-2 p-4 ${
                                 active
-                                    ? "border-violet-500 bg-violet-50 dark:border-violet-500 dark:bg-violet-950/30"
+                                    ? "border-primary bg-primary/5 dark:border-primary dark:bg-primary/10"
                                     : pending
                                       ? "border-amber-400 bg-amber-50/80 dark:border-amber-600 dark:bg-amber-950/20"
-                                      : "border-zinc-200 dark:border-zinc-700"
+                                      : "border-border"
                             }`}
                         >
                             {key === "pro" ? (
-                                <p className="mb-1 text-[10px] font-bold uppercase tracking-wide text-violet-600">
+                                <p className="mb-1 text-[10px] font-bold uppercase tracking-wide text-primary">
                                     Mais popular
                                 </p>
                             ) : null}

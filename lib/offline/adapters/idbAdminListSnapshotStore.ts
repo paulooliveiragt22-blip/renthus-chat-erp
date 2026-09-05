@@ -52,7 +52,7 @@ function reqToPromise<T>(req: IDBRequest<T>): Promise<T> {
     });
 }
 
-type StoredRow = AdminListSnapshot & { key: string };
+type StoredRow = AdminListSnapshot<unknown> & { key: string };
 
 export function createIdbAdminListSnapshotStore(): AdminListSnapshotStore {
     return {
@@ -81,7 +81,10 @@ export function createIdbAdminListSnapshotStore(): AdminListSnapshotStore {
             }
         },
 
-        async load(companyId, domain) {
+        async load<T>(
+            companyId: string,
+            domain: AdminSnapshotDomain
+        ): Promise<AdminListSnapshot<T> | null> {
             const db = await openDb();
             try {
                 const tx = db.transaction(STORE, "readonly");
@@ -90,7 +93,7 @@ export function createIdbAdminListSnapshotStore(): AdminListSnapshotStore {
                 );
                 if (!row) return null;
                 const { key: _k, ...rest } = row as StoredRow;
-                return rest as AdminListSnapshot;
+                return rest as AdminListSnapshot<T>;
             } finally {
                 db.close();
             }
@@ -120,7 +123,7 @@ export function createIdbAdminListSnapshotStore(): AdminListSnapshotStore {
 }
 
 export function createMemoryAdminListSnapshotStore(): AdminListSnapshotStore {
-    const map = new Map<string, AdminListSnapshot>();
+    const map = new Map<string, AdminListSnapshot<unknown>>();
     return {
         async save(snapshot) {
             const cap = ADMIN_LIST_CAPS[snapshot.domain];
@@ -131,8 +134,12 @@ export function createMemoryAdminListSnapshotStore(): AdminListSnapshotStore {
                 entryCount: entries.length,
             });
         },
-        async load(companyId, domain) {
-            return map.get(rowKey(companyId, domain)) ?? null;
+        async load<T>(
+            companyId: string,
+            domain: AdminSnapshotDomain
+        ): Promise<AdminListSnapshot<T> | null> {
+            const snap = map.get(rowKey(companyId, domain)) ?? null;
+            return snap as AdminListSnapshot<T> | null;
         },
         async clear(companyId, domain) {
             if (domain) map.delete(rowKey(companyId, domain));

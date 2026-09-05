@@ -64,12 +64,12 @@ Estado: `[ ]` pendente · `[~]` parcial · `[x]` feito + data · `[!]` bloqueado
 
 | # | Item | Arquivos criar / alterar | DoD | Estado |
 |---|------|--------------------------|-----|--------|
-| B1 | Modal pedidos → Dialog | **Alterar** `lib/orders/Modal.tsx`; consumidores: `NewOrderModal`, `EditOrderModal`, `ViewOrderModal`, `ActionModal`, WhatsApp modals que usam o hub | Esc fecha; focus trap; sem `showModal` | [ ] |
-| B2 | Workspace switcher → Select | **Alterar** `components/WorkspaceSwitcher.tsx` | Select Radix; erro via **toast** (não `alert`) | [ ] |
-| B3 | AdminShell order peek | **Alterar** `components/AdminShell.tsx` | Dialog ui; toast se aplicável | [ ] |
-| B4 | Remover / arquivar órfãos | **Alterar ou deletar** `components/billing/CheckoutModal.tsx`, `components/OrdersStatsModal.tsx` se sem imports | Zero dead modal nativo | [ ] |
-| B5 | Trocar `alert()` óbvios | Grep `alert(` → toast nos arquivos tocados | Nenhum `alert` nos hubs B | [ ] |
-| B6 | Financeiro Skeleton → ui | **Alterar** `app/(admin)/financeiro/components/Skeleton.tsx` → re-export de `ui/skeleton` **ou** substituir imports | Uma implementação | [ ] |
+| B1 | Modal pedidos → Dialog | **Alterar** `lib/orders/Modal.tsx`; consumidores: `NewOrderModal`, `EditOrderModal`, `ViewOrderModal`, `ActionModal`, WhatsApp modals que usam o hub | Esc fecha; focus trap; sem `showModal` | [x] 2026-09-05 — hub Radix; zClass no overlay+content |
+| B2 | Workspace switcher → Select | **Alterar** `components/WorkspaceSwitcher.tsx` | Select Radix; erro via **toast** (não `alert`) | [x] 2026-09-05 |
+| B3 | AdminShell order peek | **Alterar** `components/AdminShell.tsx` | Dialog ui; toast se aplicável | [x] 2026-09-05 — `Modal` + Skeleton |
+| B4 | Remover / arquivar órfãos | **Alterar ou deletar** `components/billing/CheckoutModal.tsx`, `components/OrdersStatsModal.tsx` se sem imports | Zero dead modal nativo | [x] 2026-09-05 — deletados |
+| B5 | Trocar `alert()` óbvios | Grep `alert(` → toast nos arquivos tocados | Nenhum `alert` nos hubs B | [x] 2026-09-05 — WorkspaceSwitcher |
+| B6 | Financeiro Skeleton → ui | **Alterar** `app/(admin)/financeiro/components/Skeleton.tsx` → re-export de `ui/skeleton` **ou** substituir imports | Uma implementação | [x] 2026-09-05 — feito na Onda A |
 
 **Melhora da onda:** pedidos + WhatsApp + shell sentem “SaaS moderno” de uma vez.
 
@@ -81,12 +81,12 @@ Estado: `[ ]` pendente · `[~]` parcial · `[x]` feito + data · `[!]` bloqueado
 
 | # | Item | Arquivos criar / alterar | DoD | Estado |
 |---|------|--------------------------|-----|--------|
-| C1 | PDV overlays → Dialog/Sheet | **Alterar** `app/(admin)/pdv/page.tsx` | Novo cliente, pagamento, caixa, sangria = Dialog/Sheet | [ ] |
-| C2 | PDV payment select + auto-print Switch | mesmo arquivo | Select + Switch ui | [ ] |
-| C3 | Produtos lista modais/selects | **Alterar** `app/(admin)/produtos/lista/ListaClient.tsx` | Dialog + Select; Skeleton ui | [ ] |
-| C4 | Plano/signup: só tokens + Button | **Alterar** `components/billing/PlanChangeCatalog.tsx`, `app/(public)/signup/page.tsx`, `BillingPeriodToggle.tsx` | Sem hex solto novo; cards+tabs mantidos; Button/tokens | [ ] |
-| C5 | Mesa payment Select | **Alterar** `app/(admin)/mesa/page.tsx` | Select ui | [ ] |
-| C6 | e2e smoke UI críticos | **Alterar** `e2e/plano*.spec.ts` / pdv se selectors mudarem | Verde | [ ] |
+| C1 | PDV overlays → Dialog/Sheet | **Alterar** `app/(admin)/pdv/page.tsx` | Novo cliente, pagamento, caixa, sangria = Dialog/Sheet | [x] 2026-09-05 — Dialog (tema dark PDV) |
+| C2 | PDV payment select + auto-print Switch | mesmo arquivo | Select + Switch ui | [x] 2026-09-05 |
+| C3 | Produtos lista modais/selects | **Alterar** `app/(admin)/produtos/lista/ListaClient.tsx` | Dialog + Select; Skeleton ui | [x] 2026-09-05 — Dialog + Switch + Skeleton; selects densos de linha mantidos nativos |
+| C4 | Plano/signup: só tokens + Button | **Alterar** `components/billing/PlanChangeCatalog.tsx`, `app/(public)/signup/page.tsx`, `BillingPeriodToggle.tsx` | Sem hex solto novo; cards+tabs mantidos; Button/tokens | [x] 2026-09-05 — cards `border-primary` |
+| C5 | Mesa payment Select | **Alterar** `app/(admin)/mesa/page.tsx` | Select ui | [x] 2026-09-05 |
+| C6 | e2e smoke UI críticos | **Alterar** `e2e/plano*.spec.ts` / pdv se selectors mudarem | Verde | [~] 2026-09-05 — sem mudança de selectors de texto; smoke adiado |
 
 **Melhora da onda:** telas que geram receita com a11y e visual alinhados à marca.
 

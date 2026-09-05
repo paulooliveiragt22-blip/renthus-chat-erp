@@ -1,9 +1,17 @@
-// components/WorkspaceSwitcher.tsx
 "use client";
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { toast } from "sonner";
 import { useWorkspace } from "@/lib/workspace/useWorkspace";
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from "@/components/ui/select";
+import { Skeleton } from "@/components/ui/skeleton";
 
 export function WorkspaceSwitcher() {
     const router = useRouter();
@@ -11,76 +19,85 @@ export function WorkspaceSwitcher() {
     const [saving, setSaving] = useState(false);
 
     async function onChangeCompany(companyId: string) {
+        if (!companyId || companyId === currentCompanyId) return;
         setSaving(true);
 
-        const res = await fetch("/api/workspace/select", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            credentials: "include", // <<-- importante
-            body: JSON.stringify({ company_id: companyId }),
-        });
-
-        setSaving(false);
-
-        if (!res.ok) {
-            const err = await res.json().catch(() => ({}));
-            alert(err?.error ?? "Falha ao trocar workspace");
-            return;
-        }
-
-        // reload the client hook first so currentCompanyId updates
-        // then refresh server components so they read the new cookie.
         try {
-            await reload();
-        } catch (e) {
-            console.warn("reload workspace after select failed", e);
-        }
+            const res = await fetch("/api/workspace/select", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                credentials: "include",
+                body: JSON.stringify({ company_id: companyId }),
+            });
 
-        try {
-            router.refresh();
-        } catch (e) {
-            // router.refresh may fail in some envs; ignore
+            if (!res.ok) {
+                const err = (await res.json().catch(() => ({}))) as { error?: string };
+                toast.error(err?.error ?? "Falha ao trocar workspace");
+                return;
+            }
+
+            try {
+                await reload();
+            } catch (e) {
+                console.warn("reload workspace after select failed", e);
+            }
+
+            try {
+                router.refresh();
+            } catch {
+                /* ignore */
+            }
+
+            const name = companies.find((c) => c.id === companyId)?.name;
+            toast.success(name ? `Empresa: ${name}` : "Workspace atualizado");
+        } finally {
+            setSaving(false);
         }
     }
 
     if (loading) {
         return (
-            <div style={{ fontSize: 12, opacity: 0.8 }}>
-                Carregando empresa...
+            <div className="flex items-center gap-2">
+                <Skeleton className="h-4 w-14" />
+                <Skeleton className="h-9 w-40" />
             </div>
         );
     }
 
     if (!companies.length) {
         return (
-            <div style={{ fontSize: 12, opacity: 0.8 }}>
-                Nenhuma empresa disponível
-            </div>
+            <p className="text-xs text-foreground-muted">Nenhuma empresa disponível</p>
         );
     }
 
     return (
-        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-            <label style={{ fontSize: 12, opacity: 0.8 }}>Empresa</label>
-
-            <select
-                value={currentCompanyId ?? ""}
-                onChange={(e) => onChangeCompany(e.target.value)}
+        <div className="flex items-center gap-2">
+            <label htmlFor="workspace-switcher" className="shrink-0 text-xs text-foreground-muted">
+                Empresa
+            </label>
+            <Select
+                value={currentCompanyId ?? undefined}
+                onValueChange={(v) => void onChangeCompany(v)}
                 disabled={saving}
-                style={{ padding: "6px 8px" }}
             >
-                <option value="" disabled>
-                    Selecione...
-                </option>
-
-                {companies.map((c) => (
-                    <option key={c.id} value={c.id}>
-                        {c.name}
-                    </option>
-                ))}
-            </select>
-
-            {saving ? <span style={{ fontSize: 12, opacity: 0.8 }}>Salvando...</span> : null}
+                <SelectTrigger
+                    id="workspace-switcher"
+                    className="h-9 min-w-[10rem] max-w-[16rem]"
+                    aria-label="Trocar empresa"
+                >
+                    <SelectValue placeholder="Selecione…" />
+                </SelectTrigger>
+                <SelectContent>
+                    {companies.map((c) => (
+                        <SelectItem key={c.id} value={c.id}>
+                            <span className="truncate">{c.name}</span>
+                        </SelectItem>
+                    ))}
+                </SelectContent>
+            </Select>
+            {saving ? (
+                <span className="text-xs text-foreground-muted">Salvando…</span>
+            ) : null}
         </div>
     );
 }

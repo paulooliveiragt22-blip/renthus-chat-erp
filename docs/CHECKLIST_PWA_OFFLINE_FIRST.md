@@ -152,6 +152,7 @@ Defaults antigos do ADR (50 cmds / ACK-only print) **supersedidos** pelas decis�
 |---|------|--------|
 | HF.1 | Finalize PDV: fallback outbox se `Failed to fetch` (`navigator.onLine` mente no Windows) | [x] código local — redeploy |
 | HF.2 | `planFeatures` em **localStorage** (TTL 48h) + gate fail-soft offline (não mostrar “upgrade”) | [x] código local — redeploy |
+| HF.3 | Admin alerts clicáveis + Web Push (`admin_push_subscriptions`, `public/push-sw.js`) | [x] 2026-09-05 — precisa env VAPID + redeploy |
 
 **Não confundir:** docs de rate-limit “in-memory → Upstash” (`rateLimitDistributed`, INFRA-1) são **servidor** (Redis). Não substituem cache de entitlements/UI no browser da PWA.
 

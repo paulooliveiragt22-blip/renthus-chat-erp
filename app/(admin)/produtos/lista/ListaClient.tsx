@@ -7,6 +7,16 @@ import {
     Camera, CheckCircle2, Loader2, Pencil, Plus, RefreshCw,
     Search, ShoppingBag, Trash2, ToggleLeft, ToggleRight, X,
 } from "lucide-react";
+import {
+    Dialog,
+    DialogClose,
+    DialogContent,
+    DialogTitle,
+} from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
+import { Switch } from "@/components/ui/switch";
+import { Skeleton } from "@/components/ui/skeleton";
+import { cn } from "@/lib/utils";
 
 // ─── types ────────────────────────────────────────────────────────────────────
 
@@ -286,7 +296,7 @@ function subscribeProductListRealtime(
 
 // ─── sub-components ───────────────────────────────────────────────────────────
 
-const inputCls = "w-full rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-violet-400 focus:outline-none focus:ring-1 focus:ring-violet-400 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100 disabled:opacity-50";
+const inputCls = "w-full rounded-lg border border-border bg-zinc-50 px-3 py-2 text-sm text-foreground placeholder:text-foreground-muted focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/40 dark:bg-zinc-800 disabled:opacity-50";
 const selectCls = inputCls;
 
 function Modal({
@@ -302,47 +312,44 @@ function Modal({
     wide?: boolean;
     children: React.ReactNode;
 }>) {
-    const ref = useRef<HTMLDialogElement>(null);
-    useEffect(() => {
-        const el = ref.current;
-        if (!el) return;
-        if (open) {
-            if (!el.open) el.showModal();
-        } else if (el.open) {
-            el.close();
-        }
-    }, [open]);
-
     return (
-        <dialog
-            ref={ref}
-            className={`fixed left-1/2 top-1/2 z-50 w-full max-h-[90vh] -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-xl border border-zinc-200 bg-white p-0 shadow-2xl backdrop:bg-black/40 dark:border-zinc-700 dark:bg-zinc-900 ${wide ? "max-w-3xl" : "max-w-md"}`}
-            onCancel={(e) => {
-                e.preventDefault();
-                onClose();
-            }}
-        >
-            <div className="flex items-center justify-between border-b border-zinc-100 px-5 py-4 dark:border-zinc-800">
-                <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100">{title}</h3>
-                <button type="button" onClick={onClose} className="flex h-7 w-7 items-center justify-center rounded-lg border border-zinc-200 text-zinc-500 hover:bg-zinc-50 dark:border-zinc-700">
-                    <X className="h-3.5 w-3.5" />
-                </button>
-            </div>
-            <div className="p-5">{children}</div>
-        </dialog>
+        <Dialog open={open} onOpenChange={(next) => !next && onClose()}>
+            <DialogContent
+                hideClose
+                className={cn(
+                    "max-h-[90vh] gap-0 overflow-y-auto rounded-xl p-0 shadow-2xl",
+                    wide ? "max-w-3xl" : "max-w-md"
+                )}
+                aria-describedby={undefined}
+            >
+                <div className="flex items-center justify-between border-b border-border px-5 py-4 pr-14">
+                    <DialogTitle className="text-sm font-bold">{title}</DialogTitle>
+                    <DialogClose asChild>
+                        <Button
+                            type="button"
+                            variant="outline"
+                            size="icon"
+                            className="absolute right-4 top-3 h-7 w-7"
+                            aria-label="Fechar"
+                        >
+                            <X className="h-3.5 w-3.5" />
+                        </Button>
+                    </DialogClose>
+                </div>
+                <div className="p-5">{children}</div>
+            </DialogContent>
+        </Dialog>
     );
 }
 
 function Toggle({ checked, onChange }: { checked: boolean; onChange: (v: boolean) => void }) {
     return (
-        <button type="button" onClick={() => onChange(!checked)} className={`relative inline-flex h-6 w-11 rounded-full border-2 border-transparent transition-colors ${checked ? "bg-violet-600" : "bg-zinc-300"}`}>
-            <span className={`inline-block h-5 w-5 rounded-full bg-white shadow transition-transform ${checked ? "translate-x-5" : "translate-x-0"}`} />
-        </button>
+        <Switch
+            checked={checked}
+            onCheckedChange={onChange}
+            aria-checked={checked}
+        />
     );
-}
-
-function Skeleton() {
-    return <div className="h-12 animate-pulse rounded-lg bg-zinc-100 dark:bg-zinc-800" />;
 }
 
 // ─── main ─────────────────────────────────────────────────────────────────────
@@ -1299,7 +1306,7 @@ export default function ProdutosListaPage() {
                 <div className="divide-y divide-zinc-50 dark:divide-zinc-800/50">
                     {loading
                         ? Array.from({ length: 8 }).map((_, i) => (
-                            <div key={i} className="px-4 py-3"><Skeleton /></div>
+                            <div key={i} className="px-4 py-3"><Skeleton className="h-12" /></div>
                         ))
                         : filtered.length === 0
                         ? (

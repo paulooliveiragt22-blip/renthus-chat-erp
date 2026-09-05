@@ -69,6 +69,28 @@ export async function POST(req: Request) {
         return NextResponse.json({ error: result.error }, { status });
     }
 
+    try {
+        const { fireCompanyAlertPush, buildOrderNewPushAlert } = await import(
+            "@/lib/admin-alerts/application/fireCompanyAlertPush"
+        );
+        const cart = Array.isArray(body.cart) ? body.cart : [];
+        const total = cart.reduce(
+            (s, i) => s + Number(i.unit_price ?? 0) * Number(i.qty ?? 0),
+            0
+        );
+        fireCompanyAlertPush(
+            admin,
+            companyId,
+            buildOrderNewPushAlert({
+                orderId: result.order_id,
+                source: "pdv_direct",
+                totalAmount: total,
+            })
+        );
+    } catch {
+        /* push opcional */
+    }
+
     return NextResponse.json({
         ok: true,
         sale_id: result.sale_id,

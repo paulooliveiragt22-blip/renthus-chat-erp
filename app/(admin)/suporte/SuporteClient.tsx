@@ -13,7 +13,9 @@ import {
     User,
     XCircle,
 } from "lucide-react";
+import Link from "next/link";
 import { toast } from "sonner";
+import { threadOpenHref } from "@/lib/admin-alerts/domain/AlertDeepLink";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -31,6 +33,7 @@ type Ticket = {
     attended_by: string | null;
     created_at: string;
     updated_at: string;
+    thread_id?: string | null;
 };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -276,6 +279,15 @@ function TicketCard({
 
             {/* Actions */}
             <div className="flex gap-2 flex-wrap pt-1">
+                {ticket.thread_id ? (
+                    <Link
+                        href={threadOpenHref(ticket.thread_id)}
+                        className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-600"
+                    >
+                        <MessageCircle className="h-3.5 w-3.5" aria-hidden />
+                        Atender no chat
+                    </Link>
+                ) : null}
                 {ticket.status === "open" && (
                     <ActionButton
                         icon={<Headphones className="w-3.5 h-3.5" />}

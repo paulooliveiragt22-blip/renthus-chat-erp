@@ -7,13 +7,26 @@ import { useSearchParams } from "next/navigation";
 import {
   BadgeDollarSign, Banknote, CreditCard, Minus, Plus, QrCode,
   Search, ShoppingCart, Trash2, X, CheckCircle2, Printer,
-  ChevronDown, User, Keyboard, AlertCircle,
+  User, Keyboard, AlertCircle,
   UserPlus, UserCheck, Lock, Unlock, ArrowDownLeft, ArrowUpRight,
   FileText, TrendingDown, TrendingUp, Clock,
 } from "lucide-react";
 import { useWorkspace } from "@/lib/workspace/useWorkspace";
 import { usePlanFeatures } from "@/lib/billing/usePlanFeatures";
 import PlanFeatureGate from "@/components/billing/PlanFeatureGate";
+import {
+  Dialog,
+  DialogContent,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 import { looksLikeScanCode, normalizeScanDigits } from "@/lib/pdv/scanCode";
 import { enqueueCommand } from "@/lib/offline/application/enqueueCommand";
 import {
@@ -1433,13 +1446,15 @@ export default function PDVPage() {
           CHECKOUT MODAL
       ───────────────────────────────────────────────────────────────────── */}
       {/* ── Novo Cliente Modal ─────────────────────────────────────────── */}
-      {showNewCust && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
-          <div className="w-full max-w-sm rounded-3xl border border-zinc-700 bg-zinc-900 shadow-2xl overflow-hidden">
+      <Dialog open={showNewCust} onOpenChange={(o) => !o && setShowNewCust(false)}>
+        <DialogContent
+          hideClose
+          className="max-w-sm gap-0 overflow-hidden rounded-3xl border-zinc-700 bg-zinc-900 p-0 text-zinc-100 shadow-2xl"
+        >
             <div className="flex items-center gap-3 border-b border-zinc-800 px-5 py-3.5">
               <UserPlus className="h-4 w-4 text-orange-400" />
-              <p className="font-bold text-zinc-100 text-sm">Cadastrar Cliente</p>
-              <button onClick={() => setShowNewCust(false)} className="ml-auto text-zinc-500 hover:text-zinc-200"><X className="h-4 w-4" /></button>
+              <DialogTitle className="font-bold text-zinc-100 text-sm">Cadastrar Cliente</DialogTitle>
+              <button type="button" onClick={() => setShowNewCust(false)} className="ml-auto text-zinc-500 hover:text-zinc-200"><X className="h-4 w-4" /></button>
             </div>
             <div className="overflow-y-auto max-h-[70vh] p-5 space-y-3">
               {[
@@ -1487,32 +1502,40 @@ export default function PDVPage() {
               </div>
             </div>
             <div className="border-t border-zinc-800 px-5 py-3.5 flex gap-3">
-              <button onClick={() => setShowNewCust(false)} className="flex-1 rounded-xl border border-zinc-700 py-2.5 text-sm text-zinc-400 hover:text-zinc-200 transition-colors">Cancelar</button>
-              <button onClick={saveNewCustomer} disabled={savingCust || !custForm.name.trim() || !custForm.phone.trim()}
+              <button type="button" onClick={() => setShowNewCust(false)} className="flex-1 rounded-xl border border-zinc-700 py-2.5 text-sm text-zinc-400 hover:text-zinc-200 transition-colors">Cancelar</button>
+              <button type="button" onClick={saveNewCustomer} disabled={savingCust || !custForm.name.trim() || !custForm.phone.trim()}
                 className="flex-1 rounded-xl bg-orange-500 py-2.5 text-sm font-bold text-primary hover:bg-orange-600 disabled:opacity-40 transition-all">
                 {savingCust ? "Salvando…" : "Cadastrar"}
               </button>
             </div>
-          </div>
-        </div>
-      )}
+        </DialogContent>
+      </Dialog>
 
-      {showCheckout && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4">
-          <div className="relative flex w-full max-w-md flex-col rounded-3xl border border-zinc-700 bg-zinc-900 shadow-2xl max-h-[92vh] overflow-hidden">
-
+      <Dialog
+        open={showCheckout}
+        onOpenChange={(o) => {
+          if (!o) {
+            setShowCheckout(false);
+            setSaleOk(false);
+          }
+        }}
+      >
+        <DialogContent
+          hideClose
+          className="max-h-[92vh] max-w-md gap-0 overflow-hidden rounded-3xl border-zinc-700 bg-zinc-900 p-0 text-zinc-100 shadow-2xl"
+        >
             {/* Modal header */}
             <div className="flex shrink-0 items-center gap-3 border-b border-zinc-800 px-5 py-3.5">
               <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-orange-500/20 text-orange-400">
                 <BadgeDollarSign className="h-4 w-4" />
               </div>
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-bold text-zinc-100">Finalizar Venda</p>
+                <DialogTitle className="text-sm font-bold text-zinc-100">Finalizar Venda</DialogTitle>
                 <p className="text-[11px] text-zinc-500">
                   {cart.length} {cart.length===1?"item":"itens"} · <span className="text-orange-400 font-bold">{brl(cartTotal)}</span>
                 </p>
               </div>
-              <button onClick={()=>{setShowCheckout(false);setSaleOk(false);}}
+              <button type="button" onClick={()=>{setShowCheckout(false);setSaleOk(false);}}
                 className="rounded-lg p-1 text-zinc-500 hover:text-zinc-200">
                 <X className="h-5 w-5" />
               </button>
@@ -1584,19 +1607,26 @@ export default function PDVPage() {
                           <div className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-xl bg-zinc-900 ${cfg.color}`}>
                             <Icon className="h-3.5 w-3.5" />
                           </div>
-                          <div className="relative">
-                            <select value={pay.method}
-                              onChange={e=>updPay(pay.id,"method",e.target.value as PayMethod)}
-                              className="appearance-none rounded-lg bg-zinc-900/60 pl-2.5 pr-6 py-1 text-xs font-medium text-zinc-200 border border-zinc-700 focus:outline-none">
+                          <Select
+                            value={pay.method}
+                            onValueChange={(v) => updPay(pay.id, "method", v as PayMethod)}
+                          >
+                            <SelectTrigger className="h-8 w-auto min-w-[7.5rem] border-zinc-700 bg-zinc-900/60 text-xs font-medium text-zinc-200">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent className="border-zinc-700 bg-zinc-900 text-zinc-100">
                               {(["pix","card","debit","cash",
                                  ...(canUsePrazo && selectedCustomer
                                    ? ["credit","boleto","cheque","promissoria"]
                                    : [])] as PayMethod[])
                                 .filter(m => m === pay.method || !payments.some(p => p.id !== pay.id && p.method === m))
-                                .map(m => <option key={m} value={m}>{PAY[m].label}</option>)}
-                            </select>
-                            <ChevronDown className="pointer-events-none absolute right-1.5 top-1/2 -translate-y-1/2 h-3 w-3 text-zinc-500" />
-                          </div>
+                                .map(m => (
+                                  <SelectItem key={m} value={m} className="text-xs focus:bg-zinc-800 focus:text-zinc-100">
+                                    {PAY[m].label}
+                                  </SelectItem>
+                                ))}
+                            </SelectContent>
+                          </Select>
                           <div className="flex flex-1 items-center overflow-hidden rounded-lg border border-zinc-700 bg-zinc-900/60 focus-within:border-orange-500/70 transition-colors">
                             <span className="px-2 text-[11px] text-zinc-500">R$</span>
                             <input
@@ -1683,10 +1713,12 @@ export default function PDVPage() {
                 {canAutoPrint ? (
                 <div className="border-t border-zinc-800 px-5 py-3">
                   <label className="flex items-center gap-3 cursor-pointer">
-                    <button type="button" onClick={()=>setAutoPrint(v=>!v)}
-                      className={`relative h-5 w-9 rounded-full transition-colors ${autoPrint?"bg-orange-500":"bg-zinc-700"}`}>
-                      <div className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform ${autoPrint?"translate-x-4":"translate-x-0.5"}`} />
-                    </button>
+                    <Switch
+                      checked={autoPrint}
+                      onCheckedChange={setAutoPrint}
+                      className="data-[state=checked]:bg-orange-500"
+                      aria-label="Imprimir comprovante"
+                    />
                     <Printer className="h-3.5 w-3.5 text-zinc-400" />
                     <span className="text-xs text-zinc-400">Imprimir comprovante</span>
                   </label>
@@ -1706,20 +1738,21 @@ export default function PDVPage() {
                 </div>
               </div>
             )}
-          </div>
-        </div>
-      )}
+        </DialogContent>
+      </Dialog>
 
       {/* ── Modal: Abrir Caixa ──────────────────────────────────────────── */}
-      {showAbrirCaixa && (
-        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/75 backdrop-blur-sm p-4">
-          <div className="w-full max-w-xs rounded-3xl border border-zinc-700 bg-zinc-900 shadow-2xl overflow-hidden">
+      <Dialog open={showAbrirCaixa} onOpenChange={(o) => !o && setShowAbrirCaixa(false)}>
+        <DialogContent
+          hideClose
+          className="max-w-xs gap-0 overflow-hidden rounded-3xl border-zinc-700 bg-zinc-900 p-0 text-zinc-100 shadow-2xl"
+        >
             <div className="flex items-center gap-3 border-b border-zinc-800 px-5 py-3.5">
               <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-emerald-600/20">
                 <Unlock className="h-4 w-4 text-emerald-400" />
               </div>
-              <p className="text-sm font-bold text-zinc-100">Abrir Caixa</p>
-              <button onClick={() => setShowAbrirCaixa(false)} className="ml-auto text-zinc-500 hover:text-zinc-200"><X className="h-4 w-4" /></button>
+              <DialogTitle className="text-sm font-bold text-zinc-100">Abrir Caixa</DialogTitle>
+              <button type="button" onClick={() => setShowAbrirCaixa(false)} className="ml-auto text-zinc-500 hover:text-zinc-200"><X className="h-4 w-4" /></button>
             </div>
             <div className="p-5 space-y-4">
               <div>
@@ -1736,28 +1769,31 @@ export default function PDVPage() {
               </div>
             </div>
             <div className="border-t border-zinc-800 px-5 py-3.5 flex gap-3">
-              <button onClick={() => setShowAbrirCaixa(false)}
+              <button type="button" onClick={() => setShowAbrirCaixa(false)}
                 className="flex-1 rounded-xl border border-zinc-700 py-2.5 text-sm text-zinc-400 hover:text-zinc-200 transition-colors">Cancelar</button>
-              <button onClick={handleAbrirCaixa} disabled={caixaSubmitting}
+              <button type="button" onClick={handleAbrirCaixa} disabled={caixaSubmitting}
                 className="flex-1 rounded-xl bg-emerald-600 py-2.5 text-sm font-bold text-white hover:bg-emerald-500 disabled:opacity-50 transition-all">
                 {caixaSubmitting ? "Abrindo…" : "Abrir Caixa"}
               </button>
             </div>
-          </div>
-        </div>
-      )}
+        </DialogContent>
+      </Dialog>
 
       {/* ── Modal: Fechar Caixa ─────────────────────────────────────────── */}
-      {showFecharCaixa && caixa && (
-        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/75 backdrop-blur-sm p-4">
-          <div className="w-full max-w-sm rounded-3xl border border-zinc-700 bg-zinc-900 shadow-2xl overflow-hidden">
+      <Dialog open={Boolean(showFecharCaixa && caixa)} onOpenChange={(o) => !o && setShowFecharCaixa(false)}>
+        <DialogContent
+          hideClose
+          className="max-w-sm gap-0 overflow-hidden rounded-3xl border-zinc-700 bg-zinc-900 p-0 text-zinc-100 shadow-2xl"
+        >
             <div className="flex items-center gap-3 border-b border-zinc-800 px-5 py-3.5">
               <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-red-600/20">
                 <Lock className="h-4 w-4 text-red-400" />
               </div>
-              <p className="text-sm font-bold text-zinc-100">Fechar Caixa</p>
-              <button onClick={() => setShowFecharCaixa(false)} className="ml-auto text-zinc-500 hover:text-zinc-200"><X className="h-4 w-4" /></button>
+              <DialogTitle className="text-sm font-bold text-zinc-100">Fechar Caixa</DialogTitle>
+              <button type="button" onClick={() => setShowFecharCaixa(false)} className="ml-auto text-zinc-500 hover:text-zinc-200"><X className="h-4 w-4" /></button>
             </div>
+            {caixa ? (
+              <>
             <div className="p-5 space-y-4">
               {/* Resumo */}
               <div className="rounded-xl bg-zinc-800/60 border border-zinc-700 divide-y divide-zinc-700">
@@ -1791,21 +1827,24 @@ export default function PDVPage() {
               </div>
             </div>
             <div className="border-t border-zinc-800 px-5 py-3.5 flex gap-3">
-              <button onClick={() => setShowFecharCaixa(false)}
+              <button type="button" onClick={() => setShowFecharCaixa(false)}
                 className="flex-1 rounded-xl border border-zinc-700 py-2.5 text-sm text-zinc-400 hover:text-zinc-200 transition-colors">Cancelar</button>
-              <button onClick={handleFecharCaixa} disabled={caixaSubmitting}
+              <button type="button" onClick={handleFecharCaixa} disabled={caixaSubmitting}
                 className="flex-1 rounded-xl bg-red-600 py-2.5 text-sm font-bold text-white hover:bg-red-500 disabled:opacity-50 transition-all">
                 {caixaSubmitting ? "Fechando…" : "Confirmar Fechamento"}
               </button>
             </div>
-          </div>
-        </div>
-      )}
+              </>
+            ) : null}
+        </DialogContent>
+      </Dialog>
 
       {/* ── Modal: Sangria / Suprimento ────────────────────────────────── */}
-      {showMovimento && caixa && (
-        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/75 backdrop-blur-sm p-4">
-          <div className="w-full max-w-xs rounded-3xl border border-zinc-700 bg-zinc-900 shadow-2xl overflow-hidden">
+      <Dialog open={Boolean(showMovimento && caixa)} onOpenChange={(o) => !o && setShowMovimento(false)}>
+        <DialogContent
+          hideClose
+          className="max-w-xs gap-0 overflow-hidden rounded-3xl border-zinc-700 bg-zinc-900 p-0 text-zinc-100 shadow-2xl"
+        >
             <div className="flex items-center gap-3 border-b border-zinc-800 px-5 py-3.5">
               <div className={`flex h-8 w-8 items-center justify-center rounded-xl ${movForm.type === "sangria" ? "bg-red-600/20" : "bg-emerald-600/20"}`}>
                 {movForm.type === "sangria"
@@ -1813,8 +1852,8 @@ export default function PDVPage() {
                   : <ArrowUpRight className="h-4 w-4 text-emerald-400" />
                 }
               </div>
-              <p className="text-sm font-bold text-zinc-100">Movimento de Caixa</p>
-              <button onClick={() => setShowMovimento(false)} className="ml-auto text-zinc-500 hover:text-zinc-200"><X className="h-4 w-4" /></button>
+              <DialogTitle className="text-sm font-bold text-zinc-100">Movimento de Caixa</DialogTitle>
+              <button type="button" onClick={() => setShowMovimento(false)} className="ml-auto text-zinc-500 hover:text-zinc-200"><X className="h-4 w-4" /></button>
             </div>
             <div className="p-5 space-y-4">
               {/* Tipo toggle */}
@@ -1849,16 +1888,15 @@ export default function PDVPage() {
               </div>
             </div>
             <div className="border-t border-zinc-800 px-5 py-3.5 flex gap-3">
-              <button onClick={() => setShowMovimento(false)}
+              <button type="button" onClick={() => setShowMovimento(false)}
                 className="flex-1 rounded-xl border border-zinc-700 py-2.5 text-sm text-zinc-400 hover:text-zinc-200 transition-colors">Cancelar</button>
-              <button onClick={handleMovimento} disabled={caixaSubmitting || !movForm.amount}
+              <button type="button" onClick={handleMovimento} disabled={caixaSubmitting || !movForm.amount}
                 className="flex-1 rounded-xl bg-orange-500 py-2.5 text-sm font-bold text-primary hover:bg-orange-600 disabled:opacity-50 transition-all">
                 {caixaSubmitting ? "Salvando…" : "Confirmar"}
               </button>
             </div>
-          </div>
-        </div>
-      )}
+        </DialogContent>
+      </Dialog>
     </div>
     </PlanFeatureGate>
   );
