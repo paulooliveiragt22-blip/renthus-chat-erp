@@ -330,7 +330,7 @@ function Modal({
                 </div>
                 <div className="min-h-0 flex-1 overflow-y-auto p-5">{children}</div>
                 {footer ? (
-                    <div className="shrink-0 border-t border-border bg-background-card px-5 py-3">
+                    <div className="max-h-[50vh] shrink-0 overflow-y-auto border-t border-border bg-background-card px-5 py-3">
                         {footer}
                     </div>
                 ) : null}
@@ -382,6 +382,78 @@ function ChoiceSegment({
             >
                 {onLabel}
             </button>
+        </div>
+    );
+}
+
+/** Flags de catálogo — ficam na barra sticky do modal (não somem no scroll). */
+function ProductFlagsSticky({
+    isActive,
+    onActiveChange,
+    venderComEstoqueZero,
+    onVenderZeroChange,
+    isAccomp,
+    onAccompChange,
+    onOpenAcomp,
+    acompNames,
+    compact,
+}: {
+    isActive: boolean;
+    onActiveChange: (v: boolean) => void;
+    venderComEstoqueZero: boolean;
+    onVenderZeroChange: (v: boolean) => void;
+    isAccomp: boolean;
+    onAccompChange: (v: boolean) => void;
+    onOpenAcomp: () => void;
+    acompNames: string[];
+    compact?: boolean;
+}) {
+    const descCls = compact ? "text-[10px] text-zinc-400 line-clamp-1" : "text-xs text-zinc-400";
+    return (
+        <div className="mb-3 flex flex-col gap-2 border-b border-border pb-3">
+            <div className="flex items-center justify-between gap-3 rounded-lg border border-zinc-100 bg-zinc-50/80 px-3 py-2 dark:border-zinc-800 dark:bg-zinc-900/40">
+                <div className="min-w-0">
+                    <p className="text-xs font-bold text-zinc-700 dark:text-zinc-300">Ativo no catálogo</p>
+                    {!compact && (
+                        <p className={descCls}>Desativando, o item some do chatbot e pedidos.</p>
+                    )}
+                </div>
+                <ChoiceSegment
+                    checked={isActive}
+                    onChange={onActiveChange}
+                    onLabel="Ativo"
+                    offLabel="Inativo"
+                />
+            </div>
+            <div className="flex items-center justify-between gap-3 rounded-lg border border-zinc-100 bg-zinc-50/80 px-3 py-2 dark:border-zinc-800 dark:bg-zinc-900/40">
+                <div className="min-w-0">
+                    <p className="text-xs font-bold text-zinc-700 dark:text-zinc-300">Vender com estoque zero</p>
+                    <p className={descCls}>
+                        Não = some do cardápio web e o chatbot não vende quando zerar.
+                    </p>
+                </div>
+                <ChoiceSegment checked={venderComEstoqueZero} onChange={onVenderZeroChange} />
+            </div>
+            <div className="flex items-center justify-between gap-3 rounded-lg border border-zinc-100 bg-zinc-50/80 px-3 py-2 dark:border-zinc-800 dark:bg-zinc-900/40">
+                <div className="min-w-0">
+                    <p className="text-xs font-bold text-zinc-700 dark:text-zinc-300">Acompanhamento (Chatbot)</p>
+                    <p className={descCls}>
+                        {acompNames.length > 0
+                            ? acompNames.join(", ")
+                            : "O bot sugere estes itens após o pedido (até 2)."}
+                    </p>
+                </div>
+                <div className="flex shrink-0 items-center gap-2">
+                    <button
+                        type="button"
+                        onClick={onOpenAcomp}
+                        className="rounded-md bg-orange-500 px-2.5 py-1 text-xs font-bold text-primary hover:bg-orange-600"
+                    >
+                        Selecionar
+                    </button>
+                    <ChoiceSegment checked={isAccomp} onChange={onAccompChange} />
+                </div>
+            </div>
         </div>
     );
 }
@@ -1364,7 +1436,20 @@ export default function ProdutosListaPage() {
                 onClose={() => { setOpen(false); setSelected(null); setMsg(null); }}
                 wide
                 footer={
-                    <div className="flex flex-wrap gap-2">
+                    <>
+                        {!editLoading && (
+                            <ProductFlagsSticky
+                                isActive={isActive}
+                                onActiveChange={setIsActive}
+                                venderComEstoqueZero={venderComEstoqueZero}
+                                onVenderZeroChange={setVenderComEstoqueZero}
+                                isAccomp={isAccomp}
+                                onAccompChange={setIsAccomp}
+                                onOpenAcomp={() => setAcompModalOpen(true)}
+                                acompNames={acompSelected.map((a) => a.name)}
+                            />
+                        )}
+                        <div className="flex flex-wrap gap-2">
                         <button
                             type="button"
                             onClick={saveEdit}
@@ -1422,7 +1507,8 @@ export default function ProdutosListaPage() {
                         >
                             Cancelar
                         </button>
-                    </div>
+                        </div>
+                    </>
                 }
             >
                 <div className="flex flex-col gap-5">
@@ -1785,43 +1871,6 @@ export default function ProdutosListaPage() {
                         )}
                     </div>
 
-                        <div className="flex items-center justify-between rounded-lg border border-zinc-100 p-3 dark:border-zinc-800">
-                            <div>
-                                <p className="text-xs font-bold text-zinc-700 dark:text-zinc-300">Ativo no catálogo</p>
-                                <p className="text-xs text-zinc-400">Desativando, o item some do chatbot e pedidos.</p>
-                            </div>
-                            <ChoiceSegment
-                                checked={isActive}
-                                onChange={setIsActive}
-                                onLabel="Ativo"
-                                offLabel="Inativo"
-                            />
-                        </div>
-                        <div className="flex items-center justify-between rounded-lg border border-zinc-100 p-3 dark:border-zinc-800">
-                            <div>
-                                <p className="text-xs font-bold text-zinc-700 dark:text-zinc-300">Vender com estoque zero</p>
-                                <p className="text-xs text-zinc-400">
-                                    Não = some do cardápio web e o chatbot não vende quando zerar.
-                                </p>
-                            </div>
-                            <ChoiceSegment checked={venderComEstoqueZero} onChange={setVenderComEstoqueZero} />
-                        </div>
-                        <div className="flex items-center justify-between rounded-lg border border-zinc-100 p-3 dark:border-zinc-800">
-                            <div>
-                                <p className="text-xs font-bold text-zinc-700 dark:text-zinc-300">Acompanhamento (Chatbot)</p>
-                                <p className="text-xs text-zinc-400">O bot sugere estes itens após o pedido (até 2).</p>
-                            </div>
-                            <div className="flex items-center gap-2">
-                                <button type="button" onClick={() => setAcompModalOpen(true)} className="rounded-md bg-orange-500 px-2.5 py-1 text-xs font-bold text-primary hover:bg-orange-600">Selecionar</button>
-                                <ChoiceSegment checked={isAccomp} onChange={setIsAccomp} />
-                            </div>
-                        </div>
-                        {acompSelected.length > 0 && (
-                            <div className="rounded-lg border border-zinc-100 p-3 dark:border-zinc-800">
-                                <p className="mb-1 text-xs font-semibold text-zinc-500">Produtos de acompanhamento:</p>
-                                <p className="text-xs text-zinc-600">{acompSelected.map((a) => a.name).join(", ")}</p>
-                            </div>
-                        )}
                         </>
                     )}
 
@@ -1898,7 +1947,19 @@ export default function ProdutosListaPage() {
                 onClose={() => { setOpenCreate(false); setMsg(null); }}
                 wide
                 footer={
-                    <div className="flex flex-wrap gap-2">
+                    <>
+                        <ProductFlagsSticky
+                            isActive={isActive}
+                            onActiveChange={setIsActive}
+                            venderComEstoqueZero={venderComEstoqueZero}
+                            onVenderZeroChange={setVenderComEstoqueZero}
+                            isAccomp={isAccomp}
+                            onAccompChange={setIsAccomp}
+                            onOpenAcomp={() => setAcompModalOpen(true)}
+                            acompNames={acompSelected.map((a) => a.name)}
+                            compact
+                        />
+                        <div className="flex flex-wrap gap-2">
                         <button
                             type="button"
                             onClick={saveCreate}
@@ -1915,7 +1976,8 @@ export default function ProdutosListaPage() {
                         >
                             Cancelar
                         </button>
-                    </div>
+                        </div>
+                    </>
                 }
             >
                 <div className="flex flex-col gap-5">
@@ -2170,41 +2232,6 @@ export default function ProdutosListaPage() {
                             </div>
                         )}
                     </div>
-
-                    {/* Ativo + estoque zero + Acompanhamento */}
-                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                        <div className="flex items-center justify-between rounded-lg border border-zinc-100 p-3 dark:border-zinc-800">
-                            <p className="text-xs font-bold text-zinc-700 dark:text-zinc-300">Ativo no catálogo</p>
-                            <ChoiceSegment
-                                checked={isActive}
-                                onChange={setIsActive}
-                                onLabel="Ativo"
-                                offLabel="Inativo"
-                            />
-                        </div>
-                        <div className="flex items-center justify-between rounded-lg border border-zinc-100 p-3 dark:border-zinc-800">
-                            <div>
-                                <p className="text-xs font-bold text-zinc-700 dark:text-zinc-300">Vender com estoque zero</p>
-                                <p className="text-[10px] text-zinc-400">Não = some do web e chatbot ao zerar.</p>
-                            </div>
-                            <ChoiceSegment checked={venderComEstoqueZero} onChange={setVenderComEstoqueZero} />
-                        </div>
-                        <div className="flex items-center justify-between rounded-lg border border-zinc-100 p-3 dark:border-zinc-800 sm:col-span-2">
-                            <div>
-                                <p className="text-xs font-bold text-zinc-700 dark:text-zinc-300">Acompanhamento (Chatbot)</p>
-                                <p className="text-[10px] text-zinc-400">O bot sugere estes itens após o pedido.</p>
-                            </div>
-                            <div className="flex items-center gap-2">
-                                <button type="button" onClick={() => setAcompModalOpen(true)} className="rounded-md bg-orange-500 px-2 py-1 text-xs font-bold text-primary hover:bg-orange-600">Selecionar</button>
-                                <ChoiceSegment checked={isAccomp} onChange={setIsAccomp} />
-                            </div>
-                        </div>
-                    </div>
-                    {acompSelected.length > 0 && (
-                        <div className="rounded-lg border border-zinc-100 p-3 dark:border-zinc-800">
-                            <p className="text-xs font-semibold text-zinc-500">Acompanhamento: {acompSelected.map((a) => a.name).join(", ")}</p>
-                        </div>
-                    )}
 
                     {msg && <p className="text-xs font-semibold text-red-600">{msg}</p>}
                 </div>
