@@ -16,38 +16,38 @@
  */
 
 import { NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
 import { billingLog } from "@/lib/billing/billingLog";
+import { requireCompanyAccess } from "@/lib/workspace/requireCompanyAccess";
+import { jsonAccessError } from "@/lib/api/errors";
 
 export const runtime = "nodejs";
 
 export async function POST(req: Request) {
-    const supabase = await createClient();
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) {
-        return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
-    }
+    const ctx = await requireCompanyAccess({
+        allowedRoles: ["owner"],
+        billing: "skip",
+    });
+    if (!ctx.ok) return jsonAccessError(ctx);
 
-    let body: { companyId?: string; planKey?: string };
+    const { admin, companyId, userId } = ctx;
+
+    let body: { planKey?: string };
     try {
         body = await req.json();
     } catch {
-        return NextResponse.json({ error: "JSON inválido" }, { status: 400 });
+        body = {};
     }
 
-    const { companyId, planKey } = body;
-    if (!companyId) {
-        return NextResponse.json({ error: "Informe companyId" }, { status: 400 });
-    }
+    const planKey = body.planKey ?? null;
 
     try {
-        // Chamar RPC — retorna trial_ends_at (timestamp) em caso de sucesso.
-        // Em caso de erro, o RPC lança exception (não retorna).
-        const { data: trialEndsAt, error: rpcErr } = await supabase.rpc(
+        // RPC só para service_role; owner validado aqui (cookie workspace + role).
+        const { data: trialEndsAt, error: rpcErr } = await admin.rpc(
             "rpc_self_reactivate_subscription",
             {
                 p_company_id: companyId,
-                p_plan_key: planKey ?? null,
+                p_plan_key:   planKey,
+                p_caller_user_id: userId,
             }
         );
 

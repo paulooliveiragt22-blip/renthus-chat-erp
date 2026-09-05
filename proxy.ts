@@ -326,6 +326,8 @@ function isTechnicalApiPublic(pathname: string): boolean {
          * Faltava aqui: o proxy redirecionava pra /login antes do handler rodar.
          */
         pathname.startsWith("/api/billing/charge") ||
+        pathname.startsWith("/api/billing/expire-trials") ||
+        pathname.startsWith("/api/billing/mark-abandoned") ||
         pathname.startsWith("/api/platform/alerts/check") ||
         pathname.startsWith("/api/platform/audit/archive") ||
         pathname.startsWith("/api/print/") ||

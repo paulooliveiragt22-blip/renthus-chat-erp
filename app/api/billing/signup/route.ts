@@ -11,6 +11,7 @@ import { signupCompany } from "@/lib/billing/signupCompany";
 import { getDefaultTrialDays } from "@/lib/billing/getDefaultTrialDays";
 import { sendBillingNotification } from "@/lib/billing/sendBillingNotification";
 import { parseCommercialPlanInput, getPlanLabel } from "@/lib/billing/planCatalog";
+import { isValidCnpj } from "@/lib/billing/brazilianFiscalDocument";
 import {
     enforceIpRateLimitAsync,
     RATE_LIMIT_WINDOW_15M_MS,
@@ -75,7 +76,7 @@ export async function POST(req: Request) {
         }
 
         const cnpjDigits = cnpj.replaceAll(/\D/g, "");
-        if (cnpjDigits.length !== 14) {
+        if (!isValidCnpj(cnpjDigits)) {
             return NextResponse.json({ error: "CNPJ inválido" }, { status: 400 });
         }
 

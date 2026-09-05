@@ -58,6 +58,11 @@ const withPWA = require("@ducanh2912/next-pwa").default({
   },
 });
 
+const {
+  CSP_REPORT_ONLY_HEADER,
+  buildContentSecurityPolicy,
+} = require("./lib/security/cspPolicy.cjs");
+
 const isProd =
   process.env.VERCEL_ENV === "production" || process.env.NODE_ENV === "production";
 
@@ -69,6 +74,10 @@ const securityHeaders = [
     value: "camera=(), microphone=(), geolocation=(), interest-cohort=()",
   },
   { key: "X-Frame-Options", value: "SAMEORIGIN" },
+  {
+    key: CSP_REPORT_ONLY_HEADER,
+    value: buildContentSecurityPolicy({ isDev: !isProd }),
+  },
 ];
 
 if (isProd) {

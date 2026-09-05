@@ -7,6 +7,7 @@ import { useInvalidatePlanFeatures } from "@/lib/billing/usePlanFeatures";
 import { pagarmeCreateCardToken } from "@/lib/pagarme/cardTokenBrowser";
 import { lookupCep } from "@/lib/address/cepLookup";
 import { validateRenthusCardCheckout } from "@/lib/billing/validateRenthusCardCheckout";
+import { classifyFiscalDocument } from "@/lib/billing/brazilianFiscalDocument";
 import type {
     BillingStatusJson,
     PlanBillingVariant,
@@ -90,7 +91,7 @@ type PlanBillingPanelProps = {
 };
 
 export default function PlanBillingPanel({ variant = "full" }: PlanBillingPanelProps) {
-    const { currentCompanyId: companyId } = useWorkspace();
+    const { currentCompanyId: companyId, loading: workspaceLoading } = useWorkspace();
     const invalidatePlanFeatures = useInvalidatePlanFeatures();
 
     const [companyLoading, setCompanyLoading] = useState(true);
@@ -127,7 +128,10 @@ export default function PlanBillingPanel({ variant = "full" }: PlanBillingPanelP
     const [savedCardBusyId, setSavedCardBusyId] = useState<string | null>(null);
 
     const loadCompany = useCallback(async () => {
-        if (!companyId) return;
+        if (!companyId) {
+            setCompanyLoading(false);
+            return;
+        }
         setCompanyLoading(true);
         try {
             const res = await fetch("/api/companies/update", { credentials: "include", cache: "no-store" });
@@ -397,6 +401,7 @@ export default function PlanBillingPanel({ variant = "full" }: PlanBillingPanelP
             return;
         }
         const { exp, num, cvv, holder, addrCep } = validated;
+        const companyDoc = classifyFiscalDocument(cnpj);
 
         setCardPayLoading(true);
         try {
@@ -408,7 +413,7 @@ export default function PlanBillingPanel({ variant = "full" }: PlanBillingPanelP
                     exp_month: exp.month,
                     exp_year: exp.year,
                     cvv,
-                    holder_document: cnpj.replaceAll(/\D/g, "") || undefined,
+                    holder_document: companyDoc.valid ? companyDoc.digits : undefined,
                     billing_address: {
                         street: cardAddr.endereco.trim(),
                         number: cardAddr.numero.trim(),
@@ -470,7 +475,7 @@ export default function PlanBillingPanel({ variant = "full" }: PlanBillingPanelP
         }
     }
 
-    const loading = companyLoading || billingLoading;
+    const loading = workspaceLoading || companyLoading || billingLoading;
 
     return (
         <div className="flex flex-col gap-6">

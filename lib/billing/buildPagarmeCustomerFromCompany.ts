@@ -5,6 +5,8 @@
 
 import "server-only";
 
+import { classifyFiscalDocument, onlyFiscalDigits } from "@/lib/billing/brazilianFiscalDocument";
+
 export type CompanyRowForPagarme = {
     id: string;
     name: string | null;
@@ -16,10 +18,10 @@ export type CompanyRowForPagarme = {
 };
 
 export function extractCompanyCnpjDigits(company: CompanyRowForPagarme): string {
-    const fromCol = (company.cnpj ?? "").replaceAll(/\D/g, "");
+    const fromCol = onlyFiscalDigits(company.cnpj);
     if (fromCol) return fromCol;
     const meta = company.meta as { cnpj?: string } | null | undefined;
-    return (meta?.cnpj ?? "").replaceAll(/\D/g, "");
+    return onlyFiscalDigits(meta?.cnpj);
 }
 
 export function buildPagarmeCustomerPayload(company: CompanyRowForPagarme): {
@@ -34,18 +36,23 @@ export function buildPagarmeCustomerPayload(company: CompanyRowForPagarme): {
         (company.nome_fantasia ?? "").trim() ||
         (company.name ?? "").trim() ||
         "Empresa";
-    const cnpjDigits = extractCompanyCnpjDigits(company);
-    const isCpf      = cnpjDigits.length === 11;
-    let document_type: "CPF" | "CNPJ" | undefined;
-    if (cnpjDigits) {
-        document_type = isCpf ? "CPF" : "CNPJ";
-    }
-    return {
-        name:          displayName,
-        email:         company.email ?? `${company.id}@renthus.com.br`,
-        type:          isCpf ? "individual" : "company",
-        document:      cnpjDigits || undefined,
-        document_type,
-        phone:         company.whatsapp_phone ?? undefined,
+    const classified = classifyFiscalDocument(extractCompanyCnpjDigits(company));
+    const payload: {
+        name:           string;
+        email:          string;
+        type:           "individual" | "company";
+        document?:      string;
+        document_type?: "CPF" | "CNPJ";
+        phone?:         string;
+    } = {
+        name:  displayName,
+        email: company.email ?? `${company.id}@renthus.com.br`,
+        type:  classified.valid && classified.kind === "CPF" ? "individual" : "company",
+        phone: company.whatsapp_phone ?? undefined,
     };
+    if (classified.valid) {
+        payload.document      = classified.digits;
+        payload.document_type = classified.kind;
+    }
+    return payload;
 }

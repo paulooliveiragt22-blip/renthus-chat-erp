@@ -16,6 +16,7 @@ import {
 } from "@/lib/billing/planCatalog";
 import { isPixEmvPayload, isMundipaggPixStubUrl } from "@/lib/billing/pixEmv";
 import { verifyPagarmeWebhookHmacSignature } from "@/lib/billing/pagarmeWebhookAuth";
+import { classifyFiscalDocument } from "@/lib/billing/brazilianFiscalDocument";
 
 export { isPixEmvPayload, isMundipaggPixStubUrl };
 
@@ -75,16 +76,15 @@ type OrderCustomerPayload = {
 };
 
 function buildOrderCustomerBody(c: OrderCustomerPayload): Record<string, unknown> {
-    const docRaw = c.document?.replaceAll(/\D/g, "") ?? "";
-    const isCpf  = docRaw.length === 11;
+    const classified = classifyFiscalDocument(c.document);
     const cBody: Record<string, unknown> = {
         name:  c.name,
         email: c.email,
-        type:  c.type ?? (isCpf ? "individual" : "company"),
+        type:  c.type ?? (classified.valid && classified.kind === "CPF" ? "individual" : "company"),
     };
-    if (docRaw) {
-        cBody.document      = docRaw;
-        cBody.document_type = c.document_type ?? (isCpf ? "CPF" : "CNPJ");
+    if (classified.valid) {
+        cBody.document      = classified.digits;
+        cBody.document_type = c.document_type ?? classified.kind;
     }
     attachCustomerMobilePhone(cBody, c.phone);
     if (c.address) {
@@ -136,7 +136,10 @@ function buildSetupCreditCardPayment(params: {
             },
         };
         if (params.holderDocument) {
-            cardSub.holder_document = params.holderDocument.replaceAll(/\D/g, "");
+            const holder = classifyFiscalDocument(params.holderDocument);
+            if (holder.valid) {
+                cardSub.holder_document = holder.digits;
+            }
         }
         creditCard.card = cardSub;
     }
@@ -257,13 +260,42 @@ export async function createCustomer(params: {
     };
 
     if (params.document) {
-        body.document = params.document;
-        body.document_type = params.document.length === 11 ? "CPF" : "CNPJ";
+        const classified = classifyFiscalDocument(params.document);
+        if (classified.valid) {
+            body.document      = classified.digits;
+            body.document_type = classified.kind;
+            body.type          = classified.kind === "CPF" ? "individual" : "company";
+        }
     }
 
     attachCustomerMobilePhone(body, params.phone);
 
     return pagarmeRequest<PagarmeCustomer>("/customers", "POST", body);
+}
+
+/** Atualiza documento do customer no PSP (corrige CNPJ inválido gravado no sandbox). */
+export async function updatePagarmeCustomer(params: {
+    customerId:     string;
+    name?:          string;
+    email?:         string;
+    document:       string;
+    document_type:  "CPF" | "CNPJ";
+    type:           "individual" | "company";
+    phone?:         string;
+}): Promise<PagarmeCustomer> {
+    const body: Record<string, unknown> = {
+        document:      params.document.replaceAll(/\D/g, ""),
+        document_type: params.document_type,
+        type:          params.type,
+    };
+    if (params.name) body.name = params.name;
+    if (params.email) body.email = params.email;
+    attachCustomerMobilePhone(body, params.phone);
+    return pagarmeRequest<PagarmeCustomer>(
+        `/customers/${encodeURIComponent(params.customerId)}`,
+        "PATCH",
+        body
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -757,9 +789,12 @@ function buildCheckoutHostedCustomer(c: {
         type:  "company",
     };
     if (c.document) {
-        const digitsDoc = c.document.replaceAll(/\D/g, "");
-        cBody.document      = digitsDoc;
-        cBody.document_type = digitsDoc.length === 11 ? "CPF" : "CNPJ";
+        const classified = classifyFiscalDocument(c.document);
+        if (classified.valid) {
+            cBody.document      = classified.digits;
+            cBody.document_type = classified.kind;
+            cBody.type          = classified.kind === "CPF" ? "individual" : "company";
+        }
     }
     attachCustomerMobilePhone(cBody, c.phone);
     if (c.address) {

@@ -194,7 +194,7 @@ Esperado: `PASS cartão` + `PASS PIX`.
 3. Aba **Cartão** — preencher:
    - Titular, número `4000000000000010`, validade `12/30`, CVV `123`
    - Endereço completo (CEP 8 dígitos)
-   - CNPJ da empresa (se vazio, preencher em Configurações → Geral)
+   - CNPJ da empresa com dígito verificador válido (se vazio ou inválido: em **sandbox** o checkout usa o CNPJ de teste `11444777000161` só no Pagar.me — não altera `companies.cnpj`)
 4. Clicar **Pagar**.
 
 **Esperado (imediato):**

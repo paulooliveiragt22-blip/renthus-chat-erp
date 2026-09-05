@@ -78,6 +78,8 @@ describe("proxy auth routing", () => {
             "/api/chatbot/reactivate",
             "/api/chatbot/detect-abandoned-carts",
             "/api/billing/charge",
+            "/api/billing/expire-trials",
+            "/api/billing/mark-abandoned",
             "/api/platform/alerts/check",
             "/api/platform/audit/archive",
         ];

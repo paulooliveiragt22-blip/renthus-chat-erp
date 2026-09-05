@@ -1,49 +1,82 @@
-# Inventário — rotas `app/api/**` que usam `createAdminClient()` (service role)
+# Inventário — `createAdminClient()` (service role)
 
-Gerado para o item 1 de `SECURITY_IMPROVEMENTS_CHECKLIST.md`. Rever em cada rota: autenticação antes da query, filtro por `company_id` quando aplicável.
+Índice para o item 1 de `SECURITY_IMPROVEMENTS_CHECKLIST.md`.  
+**Atualizado:** 2026-09-04 (auditoria P2). Rotas novas: acrescentar na tabela do **gate** correspondente.
 
-| Rota | Notas |
-|------|--------|
-| `app/api/agent/auth/route.ts` | API key do print agent |
-| `app/api/agent/heartbeat/route.ts` | API key |
-| `app/api/agent/jobs/complete/route.ts` | API key |
-| `app/api/agent/jobs/fail/route.ts` | API key |
-| `app/api/agent/jobs/poll/route.ts` | API key |
-| `app/api/agent/jobs/reserve/route.ts` | API key |
-| `app/api/agent/keys/route.ts` | Sessão (painel) |
-| `app/api/agent/print-data/route.ts` | API key |
-| `app/api/agent/reprint/route.ts` | API key |
-| `app/api/agent/settings/route.ts` | Sessão |
-| `app/api/billing/charge/route.ts` | Sessão + billing |
-| `app/api/billing/create-invoice-checkout/route.ts` | Sessão |
-| `app/api/billing/signup/route.ts` | Fluxo signup |
-| `app/api/billing/status/route.ts` | Sessão; atenção ao `?company_id=` — validar membership dessa empresa |
-| `app/api/billing/webhook/route.ts` | Basic Auth Pagar.me (+ HMAC legado) + rate limit |
-| `app/api/chatbot/process-queue/route.ts` | `CRON_SECRET` / Bearer |
-| `app/api/marketplace/sync-catalog/route.ts` | `CRON_SECRET` / Bearer |
-| `app/api/admin/menu-analytics/route.ts` | `requireCompanyAccess` + RPC `rpc_get_menu_analytics` |
-| `app/api/chatbot/reactivate/route.ts` | Sessão |
-| `app/api/chatbot/resolve/route.ts` | Header interno ou service key (ver rota) |
-| `app/api/companies/create/route.ts` | Fluxo criação empresa |
-| `app/api/companies/update/route.ts` | Sessão |
-| `app/api/debug/whoami/route.ts` | Sessão; desativado em prod salvo `DEBUG_WHOAMI_ENABLED=true` |
-| `app/api/onboarding/route.ts` | Fluxo onboarding |
-| `app/api/orders/[id]/route.ts` | `requireCompanyAccess` |
-| `app/api/orders/by-phone/route.ts` | **410 Gone** — removido (LGPD); usar sessão `wm`/cookie |
-| `app/api/orders/stats/route.ts` | `requireCompanyAccess` |
-| `app/api/orders/status/route.ts` | `requireCompanyAccess` |
-| `app/api/products/upload-image/route.ts` | `requireCompanyAccess` + validação upload |
-| ~~`app/api/signup/complete/route.ts`~~ | Removido P2.3 — signup via `/api/billing/signup` + `/ativar` |
-| `app/api/support/create-ticket/route.ts` | `requireCompanyAccess` |
-| `app/api/whatsapp/incoming/route.ts` | HMAC Meta + rate limit |
-| `app/api/whatsapp/send/route.ts` | `requireCompanyAccess` |
-| `app/api/whatsapp/upload/route.ts` | `requireCompanyAccess` + validação upload |
-| `app/api/workspace/current/route.ts` | Sessão |
-| `app/api/workspace/list/route.ts` | Sessão |
-| `app/api/workspace/select/route.ts` | Sessão |
-
-**Lib (não é rota HTTP direta):** `lib/billing/*`, `lib/print/*`, `lib/workspace/requireCompanyAccess.ts`, `lib/superadmin/actions.ts`, etc.
+Regra: identidade **antes** da query; `company_id` só de cookie/`requireCompanyAccess`/`requireCapability`, nunca de querystring crua.
 
 ---
 
-*Atualizar esta tabela quando novas rotas API usarem `createAdminClient`.*
+## Sessão tenant (`requireCompanyAccess` / `requireCapability`)
+
+Admin operacional, billing self-service, workspace, uploads, WhatsApp painel, delivery, chatbot config, reports.
+
+Exemplos: `app/api/admin/**`, `app/api/billing/status`, `create-invoice-checkout`, `change-plan`, `self-reactivate`, `payment-methods`, `allow-overage`, `pending-plan-change`, `app/api/workspace/**`, `app/api/products/upload-image`, `app/api/whatsapp/send`, `upload`, `threads`, `app/api/orders/**` (exceto gone), `app/api/companies/update`, `app/api/support/create-ticket`, `app/api/delivery/**`, `app/api/chatbot/config`.
+
+`GET /api/billing/status` — **sem** `?company_id=` (P0.3).
+
+## Cron (`validateCronAuthorization` / `CRON_SECRET`)
+
+| Rota | Proxy público? |
+|------|----------------|
+| `app/api/billing/charge` | sim |
+| `app/api/billing/expire-trials` | sim (P2 S5) |
+| `app/api/billing/mark-abandoned` | sim (P2 S5) |
+| `app/api/billing/webhook-health` | sim (`/api/billing/webhook*`) |
+| `app/api/chatbot/detect-abandoned-carts` | sim |
+| `app/api/chatbot/reactivate` | sim |
+| `app/api/marketplace/sync-catalog` | sim |
+| `app/api/platform/alerts/check` | sim |
+| `app/api/platform/audit/archive` | sim |
+
+`app/api/chatbot/process-queue` — legado/SQS; se ainda existir, mesmo gate.
+
+## Webhook / HMAC / Basic Auth
+
+| Rota | Gate |
+|------|------|
+| `app/api/whatsapp/incoming` | HMAC Meta + rate limit |
+| `app/api/meta/messaging/incoming` | HMAC Meta |
+| `app/api/billing/webhook` | Basic Auth Pagar.me (+ HMAC legado) + rate limit + GET order |
+
+## Print agent (`api_key` ou pairing)
+
+`app/api/agent/auth`, `heartbeat`, `jobs/*`, `print-data`, `reprint` — API key.  
+`app/api/agent/activate` — código de pareamento + rate limit (público no proxy).  
+`app/api/agent/keys`, `settings` — **sessão** no handler; proxy ainda libera prefixo `/api/agent/` (P2 S7).
+
+`app/api/orders/[id]` — sessão **ou** API key do agent.
+
+## Platform (`requirePlatformAccess`)
+
+`app/api/platform/**` exceto crons acima — MFA + role. Impersonation, change-plan, replay-fulfill, courtesy-trial.
+
+## Signup / público / health
+
+| Rota | Gate |
+|------|------|
+| `app/api/billing/signup`, `app/api/ativar`, `app/api/onboarding`, `app/api/companies/create` | fluxo signup (sem tenant prévio) |
+| `app/api/billing/public-plans`, `trial-policy` | catálogo público |
+| `app/api/public/menu/**` | slug + rate limit |
+| `app/api/health` | uptime |
+| `app/api/debug/whoami` | 404 em prod salvo flag |
+
+## Removidos
+
+- `app/api/orders/by-phone` — 410 LGPD  
+- `app/api/signup/complete` — signup via billing + `/ativar`  
+- `app/api/superadmin/**` — platform P3  
+
+## Lib (não é rota)
+
+`lib/billing/*`, `lib/print/*`, `lib/workspace/requireCompanyAccess.ts`.  
+`lib/superadmin/**` removido.
+
+## Client residual (não usa service role; viola governança se `.from`/`.rpc`)
+
+| Arquivo | Uso |
+|---------|-----|
+| `components/AdminShell.tsx` | `.from("orders")` / `order_items` — P2 S8 |
+| `app/(admin)/produtos/lista/ListaClient.tsx` | Realtime `subscribeProductListRealtime` |
+| `app/(admin)/configuracoes/page.tsx` | `createClient()` residual |
+| Login / signup / platform MFA | `supabase.auth` — permitido |

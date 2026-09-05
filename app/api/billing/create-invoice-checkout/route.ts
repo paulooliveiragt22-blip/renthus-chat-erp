@@ -20,10 +20,19 @@ import {
     extractCardIdFromOrder,
     isOrderCreditPaid,
     listCustomerCards,
+    updatePagarmeCustomer,
 } from "@/lib/billing/pagarme";
 import { fulfillPayment } from "@/lib/billing/fulfillPayment";
 import { syncPendingObligationFromPsp } from "@/lib/billing/syncPendingObligationFromPsp";
-import { buildPagarmeCustomerPayload } from "@/lib/billing/buildPagarmeCustomerFromCompany";
+import {
+    buildPagarmeCustomerPayload,
+    extractCompanyCnpjDigits,
+} from "@/lib/billing/buildPagarmeCustomerFromCompany";
+import {
+    applyFiscalToPagarmeCustomer,
+    PAGARME_INVALID_DOCUMENT_ERROR,
+    resolvePagarmeFiscalDocument,
+} from "@/lib/billing/pagarmeFiscalDocument";
 import { getPlanLabel } from "@/lib/billing/planCatalog";
 import { isUniqueViolation } from "@/lib/billing/isUniqueViolation";
 import {
@@ -205,7 +214,7 @@ export async function POST(req: Request) {
             return NextResponse.json({ error: "Empresa não encontrada" }, { status: 404 });
         }
 
-        const customerBase = buildPagarmeCustomerPayload({
+        const companyRow = {
             id:               companyId,
             name:             company.name as string | null,
             nome_fantasia:    company.nome_fantasia as string | null,
@@ -213,7 +222,36 @@ export async function POST(req: Request) {
             whatsapp_phone:   company.whatsapp_phone as string | null,
             cnpj:             company.cnpj as string | null,
             meta:             (company.meta as Record<string, unknown> | null) ?? null,
-        });
+        };
+        const customerBuilt = buildPagarmeCustomerPayload(companyRow);
+        const fiscal = resolvePagarmeFiscalDocument(extractCompanyCnpjDigits(companyRow));
+        if (!fiscal.ok) {
+            return NextResponse.json({ error: PAGARME_INVALID_DOCUMENT_ERROR }, { status: 400 });
+        }
+        const customerBase = applyFiscalToPagarmeCustomer(customerBuilt, fiscal.value);
+        let pagarmeCustomerId = sub.pagarme_customer_id?.trim() || undefined;
+        if (pagarmeCustomerId) {
+            try {
+                await updatePagarmeCustomer({
+                    customerId:    pagarmeCustomerId,
+                    name:          customerBase.name,
+                    email:         customerBase.email,
+                    document:      fiscal.value.digits,
+                    document_type: fiscal.value.document_type,
+                    type:          fiscal.value.type,
+                    phone:         customerBase.phone,
+                });
+            } catch (patchErr: unknown) {
+                const patchMsg = patchErr instanceof Error ? patchErr.message : String(patchErr);
+                console.warn("[create-invoice-checkout] PATCH customer document failed:", patchMsg);
+                pagarmeCustomerId = undefined;
+            }
+        }
+        // Customer PSP antigo com CNPJ inválido: order novo sem customer_id (fixture no payload).
+        const reuseCustomerId =
+            pagarmeCustomerId && !fiscal.value.usedSandboxFixture
+                ? pagarmeCustomerId
+                : undefined;
 
         const metaType = strategy.metaType;
         const orderMeta = {
@@ -255,10 +293,10 @@ export async function POST(req: Request) {
             let usedCardId: string | null = savedCardId || null;
 
             if (savedCardId) {
-                const customerId = sub.pagarme_customer_id?.trim();
+                const customerId = pagarmeCustomerId;
                 if (!customerId) {
                     return NextResponse.json(
-                        { error: "Cliente Pagar.me ausente. Cadastre um cartão novo primeiro." },
+                        { error: "Cliente Pagar.me ausente ou com documento inválido. Cadastre um cartão novo." },
                         { status: 400 }
                     );
                 }
@@ -302,7 +340,6 @@ export async function POST(req: Request) {
                 }
 
                 const line1Parts = [num, street, bairro].filter(Boolean);
-                const cnpjDigits = (company.cnpj as string | null ?? "").replaceAll(/\D/g, "");
 
                 order = await createSetupOrder({
                     amountCents,
@@ -310,9 +347,9 @@ export async function POST(req: Request) {
                     installments,
                     cardToken:       token!,
                     itemCode:        labels.itemCode,
-                    holderDocument:  cnpjDigits || undefined,
-                    customerId:      sub.pagarme_customer_id ?? undefined,
-                    customer:        !sub.pagarme_customer_id ? customerBase : undefined,
+                    holderDocument:  fiscal.value.digits,
+                    customerId:      reuseCustomerId,
+                    customer:        reuseCustomerId ? undefined : customerBase,
                     billingAddress: {
                         line_1:   line1Parts.join(", "),
                         line_2:   "",
@@ -437,8 +474,8 @@ export async function POST(req: Request) {
             amountCents,
             description: labels.description,
             itemCode:   labels.itemCode,
-            customerId: sub.pagarme_customer_id ?? undefined,
-            customer:   !sub.pagarme_customer_id ? customerBase : undefined,
+            customerId: reuseCustomerId,
+            customer:   reuseCustomerId ? undefined : customerBase,
             additionalInfo: [
                 { name: "Empresa", value: companyLabel },
                 { name: "Tipo",    value: labels.tipoLabel },
