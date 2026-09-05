@@ -131,6 +131,7 @@ describe("proxy auth routing", () => {
             "/workbox-c18c662b.js",
             "/icons/icon-192.png",
             "/offline",
+            "/offline/",
         ];
         for (const path of paths) {
             const response = await proxy(createRequest(path), undefined, {
@@ -139,6 +140,20 @@ describe("proxy auth routing", () => {
             assert.strictEqual(response.headers.get("location"), null, path);
         }
         assert.strictEqual(factory.mock.calls.length, 0);
+    });
+
+    it("does not treat /api/offline/sync as public PWA asset", async () => {
+        // Deve exigir auth/sessão no fluxo normal — não está na lista de exempt PWA
+        const response = await proxy(createRequest("/api/offline/sync", undefined, "POST"), undefined, {
+            createClient: factory,
+        });
+        // Sem cookie de sessão: redirect login ou 401/403 — nunca next() silencioso como /offline
+        const loc = response.headers.get("location");
+        const status = response.status;
+        assert.ok(
+            loc != null || status === 401 || status === 403 || status === 307 || status === 302,
+            `expected auth gate, got status=${status} loc=${loc}`
+        );
     });
 
     it("exempts public brand/assets without auth (login/signup logos)", async () => {

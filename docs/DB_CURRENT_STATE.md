@@ -1025,3 +1025,13 @@ Implementar POST /api/print/agents/generate_download_token e GET /api/print/agen
 Empacotar instalador do agent (Windows exe / ZIP com Node + script) e documentar procedimento de instalação (1-click / seleciona impressora / confirmar).
 
 Testes de aceitação fim-a-fim em staging (criar job → agent claim → impressão real → status/logs).
+
+---
+
+## PWA Offline-First (ADR-0008) — idempotência PDV
+
+- Outbox browser envia `FinalizePdvSale` com `clientMutationId` (UUID).
+- No sync / finalize, esse UUID é gravado como `sales.idempotency_key`.
+- Unique já existente: `sales_idempotency_key_unique` on `(company_id, idempotency_key) WHERE idempotency_key IS NOT NULL` (migration `20260811110000_pdv_finalize_idempotency_key.sql`).
+- **Não** foi criada coluna `client_mutation_id` separada — radical: reutilizar a chave de idempotência do PDV.
+- D-P5 Local Print Bus: `print_jobs.client_print_id` + unique parcial `(company_id, client_print_id)`; RPC `rpc_record_offline_print_done` grava status `done` / source `offline_local` (migration `20260905180000_print_jobs_client_print_id_offline.sql`).

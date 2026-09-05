@@ -11,6 +11,9 @@ import AdminPrimaryNav from "@/components/AdminPrimaryNav";
 import BillingStatusBanner from "@/components/billing/BillingStatusBanner";
 import ImpersonationBanner from "@/components/platform/ImpersonationBanner";
 import { SyncStatusBar } from "@/lib/offline/presentation/SyncStatusBar";
+import { PwaUpdateBanner } from "@/lib/offline/presentation/PwaUpdateBanner";
+import { installOutboxWakeListeners } from "@/lib/offline/adapters/workboxBgSyncBridge";
+import { useWorkspace } from "@/lib/workspace/useWorkspace";
 import { installBillingFetchInterceptor } from "@/lib/billing/installBillingFetchInterceptor";
 import { useAdminPrimaryDockVisible } from "@/lib/ui/useAdminPrimaryDockVisible";
 import { cn } from "@/lib/utils";
@@ -45,6 +48,11 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
 function AdminShellInner({ children }: { children: React.ReactNode }) {
     const supabase = useMemo(() => createClient(), []);
     const primaryDockVisible = useAdminPrimaryDockVisible();
+    const { currentCompanyId } = useWorkspace();
+
+    useEffect(() => {
+        return installOutboxWakeListeners(() => currentCompanyId);
+    }, [currentCompanyId]);
 
     // ── Sidebar mobile ────────────────────────────────────────────────────────
     const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -173,6 +181,7 @@ function AdminShellInner({ children }: { children: React.ReactNode }) {
                 />
                 <BillingStatusBanner />
                 <ImpersonationBanner />
+                <PwaUpdateBanner />
                 <SyncStatusBar />
 
                 {/* Corpo: sidebar + conteúdo */}

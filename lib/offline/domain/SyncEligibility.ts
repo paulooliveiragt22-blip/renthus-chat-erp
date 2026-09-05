@@ -5,13 +5,25 @@
 
 import type { OfflineCommand, OfflineCommandType } from "./OfflineCommand";
 
-/** Tipos permitidos na v1 — vazio até fechar D-P1. `noop` só para dry-run/testes. */
+/** Tipos permitidos — P1 finalize + P2 status leve + noop. */
 export const OFFLINE_COMMAND_ALLOWLIST: ReadonlySet<string> = new Set<OfflineCommandType | string>([
     "noop",
+    "FinalizePdvSale",
+    "UpdateOrderStatus",
 ]);
 
+/** Status de pedido permitidos offline (P2 — sem finalize/cancel financeiros). */
+export const OFFLINE_ORDER_STATUS_ALLOWLIST: ReadonlySet<string> = new Set([
+    "preparing",
+    "delivered",
+]);
+
+export function isOfflineOrderStatusAllowed(status: string): boolean {
+    return OFFLINE_ORDER_STATUS_ALLOWLIST.has(String(status).trim().toLowerCase());
+}
+
 /** Defaults sugeridos no ADR (confirmar owner em D-P3). */
-export const DEFAULT_MAX_PENDING_COMMANDS = 50;
+export const DEFAULT_MAX_PENDING_COMMANDS = 200;
 export const DEFAULT_MAX_COMMAND_AGE_MS = 24 * 60 * 60 * 1000;
 
 export type SyncEligibilityLimits = {

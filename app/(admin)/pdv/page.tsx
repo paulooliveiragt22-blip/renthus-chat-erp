@@ -15,6 +15,28 @@ import { useWorkspace } from "@/lib/workspace/useWorkspace";
 import { usePlanFeatures } from "@/lib/billing/usePlanFeatures";
 import PlanFeatureGate from "@/components/billing/PlanFeatureGate";
 import { looksLikeScanCode, normalizeScanDigits } from "@/lib/pdv/scanCode";
+import { enqueueCommand } from "@/lib/offline/application/enqueueCommand";
+import {
+  buildCatalogSearchIndex,
+  lookupCatalogExact,
+  searchCatalogByName,
+  type CatalogSearchIndex,
+} from "@/lib/offline/application/buildCatalogSearchIndex";
+import {
+  hydrateCatalogSnapshotFromApi,
+  snapshotEntryToPdvVariantShape,
+} from "@/lib/offline/application/hydrateCatalogSnapshot";
+import { isCatalogSnapshotStale } from "@/lib/offline/adapters/idbCatalogSnapshotStore";
+import {
+  flushCompanyOutbox,
+  getBrowserCatalogSnapshotStore,
+  getBrowserOutboxStore,
+  refreshSyncPendingBadge,
+} from "@/lib/offline/browserStores";
+import { patchSyncStatus } from "@/lib/offline/syncStatusStore";
+import { tryLocalPrint } from "@/lib/offline/adapters/localPrintBridge";
+import { createPrintIntentId } from "@/lib/offline/domain/LocalPrintJob";
+import type { CatalogSnapshotEntry } from "@/lib/offline/ports/CatalogSnapshotStore";
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
@@ -165,7 +187,20 @@ export default function PDVPage() {
   const [loadingProd, setLoadingProd] = useState(true);
   const [search,      setSearch]      = useState("");
   const [activeCat,   setActiveCat]   = useState("Todos");
+  const [catalogStale, setCatalogStale] = useState(false);
+  const [offlineQueuedSale, setOfflineQueuedSale] = useState(false);
+  const catalogIndexRef = useRef<CatalogSearchIndex | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
+
+  const applySnapshotEntries = useCallback((entries: CatalogSnapshotEntry[]) => {
+    catalogIndexRef.current = buildCatalogSearchIndex(entries);
+    const mapped = entries.map((e) => mapPdvRowToVariant(snapshotEntryToPdvVariantShape(e)));
+    setVariants(mapped);
+    const cats = [
+      ...new Set(entries.map((e) => String(e.categoryName ?? "").trim()).filter(Boolean)),
+    ].sort((a, b) => a.localeCompare(b, "pt-BR"));
+    setCategories(["Todos", ...cats]);
+  }, []);
 
   const [cart,       setCart]       = useState<CartItem[]>([]);
   const [sellerName, setSellerName] = useState("");
@@ -209,27 +244,111 @@ export default function PDVPage() {
   const pendingFocusId = useRef<string | null>(null);
   const manuallyEdited = useRef(new Set<string>());
 
-  // ── products (top sellers no mount; busca sob demanda) ────────────────────
+  // ── products (top sellers no mount; busca sob demanda; snapshot offline) ──
   const loadVariants = useCallback(async (opts?: { q?: string; category?: string }) => {
     if (!companyId) return;
     setLoadingProd(true);
-    const params = new URLSearchParams({ limit: "60" });
     const q = opts?.q?.trim() ?? "";
     const category = opts?.category ?? "Todos";
+    const offline = typeof navigator !== "undefined" && !navigator.onLine;
+
+    if (offline && catalogIndexRef.current) {
+      let entries: CatalogSnapshotEntry[] = [];
+      if (looksLikeScanCode(q)) {
+        const hit = lookupCatalogExact(catalogIndexRef.current, q);
+        entries = hit ? [hit] : [];
+      } else if (q.length >= 2) {
+        entries = searchCatalogByName(catalogIndexRef.current, q, 60);
+      } else {
+        entries = [...catalogIndexRef.current.byId.values()]
+          .sort((a, b) => (b.salesCount ?? 0) - (a.salesCount ?? 0))
+          .slice(0, 60);
+      }
+      if (category && category !== "Todos") {
+        entries = entries.filter((e) => e.categoryName === category);
+      }
+      setVariants(entries.map((e) => mapPdvRowToVariant(snapshotEntryToPdvVariantShape(e))));
+      setLoadingProd(false);
+      return;
+    }
+
+    const params = new URLSearchParams({ limit: "60" });
     if (q.length >= 2) params.set("q", q);
     if (category && category !== "Todos") params.set("category", category);
 
-    const res = await fetch(`/api/admin/pdv/products?${params}`, {
-      credentials: "include",
-      cache: "no-store",
-    });
-    const json = await res.json().catch(() => ({}));
-    if (!res.ok) console.error("[pdv] loadVariants:", json?.error ?? res.statusText);
+    try {
+      const res = await fetch(`/api/admin/pdv/products?${params}`, {
+        credentials: "include",
+        cache: "no-store",
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) console.error("[pdv] loadVariants:", json?.error ?? res.statusText);
 
-    const rows = (json.rows ?? []) as Record<string, unknown>[];
-    setVariants(rows.map((r) => mapPdvRowToVariant(r)));
+      const rows = (json.rows ?? []) as Record<string, unknown>[];
+      setVariants(rows.map((r) => mapPdvRowToVariant(r)));
+    } catch (e) {
+      console.warn("[pdv] loadVariants network:", e);
+      if (catalogIndexRef.current) {
+        const entries = searchCatalogByName(catalogIndexRef.current, q || " ", 60);
+        // empty query fallback: top by sales from index
+        const fallback =
+          q.length >= 2
+            ? entries
+            : [...catalogIndexRef.current.byId.values()]
+                .sort((a, b) => (b.salesCount ?? 0) - (a.salesCount ?? 0))
+                .slice(0, 60);
+        setVariants(fallback.map((e) => mapPdvRowToVariant(snapshotEntryToPdvVariantShape(e))));
+      }
+    }
     setLoadingProd(false);
   }, [companyId]);
+
+  // Hydrate snapshot IDB + flush outbox quando online
+  useEffect(() => {
+    if (!companyId) return;
+    let cancelled = false;
+    (async () => {
+      const store = getBrowserCatalogSnapshotStore();
+      try {
+        const existing = await store.load(companyId);
+        if (existing && !cancelled) {
+          applySnapshotEntries(existing.entries);
+          const stale = isCatalogSnapshotStale(existing.savedAt);
+          setCatalogStale(stale);
+          patchSyncStatus({ catalogStale: stale });
+          setLoadingProd(false);
+        }
+        if (navigator.onLine) {
+          const snap = await hydrateCatalogSnapshotFromApi(store, companyId);
+          if (!cancelled) {
+            applySnapshotEntries(snap.entries);
+            setCatalogStale(false);
+            patchSyncStatus({ catalogStale: false });
+          }
+          await refreshSyncPendingBadge(companyId);
+          await flushCompanyOutbox(companyId);
+        }
+      } catch (e) {
+        console.warn("[pdv] catalog snapshot:", e);
+      }
+    })();
+
+    const onOnline = () => {
+      void flushCompanyOutbox(companyId);
+      void hydrateCatalogSnapshotFromApi(getBrowserCatalogSnapshotStore(), companyId)
+        .then((snap) => {
+          applySnapshotEntries(snap.entries);
+          setCatalogStale(false);
+          patchSyncStatus({ catalogStale: false });
+        })
+        .catch(() => {});
+    };
+    window.addEventListener("online", onOnline);
+    return () => {
+      cancelled = true;
+      window.removeEventListener("online", onOnline);
+    };
+  }, [companyId, applySnapshotEntries]);
 
   const loadCategories = useCallback(async () => {
     if (!companyId) return;
@@ -523,6 +642,17 @@ export default function PDVPage() {
           setSearch("");
           return;
         }
+        if (catalogIndexRef.current) {
+          const hit = lookupCatalogExact(catalogIndexRef.current, qRaw);
+          if (hit) {
+            const v = mapPdvRowToVariant(snapshotEntryToPdvVariantShape(hit));
+            addToCart(v);
+            setVariants((prev) => (prev.some((x) => x.id === v.id) ? prev : [...prev, v]));
+            setSearch("");
+            return;
+          }
+        }
+        if (typeof navigator !== "undefined" && !navigator.onLine) return;
         const res = await fetch(
           `/api/admin/pdv/products?code=${encodeURIComponent(qRaw)}`,
           { credentials: "include", cache: "no-store" }
@@ -641,7 +771,7 @@ export default function PDVPage() {
   }, [cart.length, cartTotal]);
 
   const closeSaleAndReset = () => {
-    setShowCheckout(false); setSaleOk(false);
+    setShowCheckout(false); setSaleOk(false); setOfflineQueuedSale(false);
     setSelectedCustomer(null); setCustomerQuery("");
     setCart([]); setFromOrderBanner(null); setActiveOrderId(null); setActiveOrderSource(null);
     setTimeout(() => searchRef.current?.focus(), 100);
@@ -662,7 +792,85 @@ export default function PDVPage() {
       alert("Abra o caixa antes de finalizar uma venda."); return;
     }
     setFinalizing(true);
+    const cartPayload = cart.map((i) => ({
+      variant_id: i.variant.id,
+      produto_id: i.variant.produto_id,
+      product_name: i.variant.product_name,
+      details: i.variant.details,
+      unit_price: i.variant.unit_price,
+      qty: i.qty,
+      sigla_comercial: i.variant.sigla_comercial,
+    }));
+    const paymentsPayload = payments.map((p) => ({
+      method: p.method,
+      value: Number.parseFloat(p.value) || 0,
+      due_date: p.due_date ?? null,
+    }));
+
     try {
+      const offline = typeof navigator !== "undefined" && !navigator.onLine;
+      if (offline) {
+        const clientPrintId = createPrintIntentId();
+        let printIntent = {
+          clientPrintId,
+          alreadyPrinted: false as boolean,
+          printedAt: null as string | null,
+          copyType: "cashier",
+        };
+        if (autoPrint) {
+          const intent = await tryLocalPrint({
+            clientPrintId,
+            companyId,
+            total: cartTotal,
+            change,
+            seller: sellerName,
+            items: cart.map((i) => ({
+              name: `${i.variant.product_name} ${i.variant.details ?? ""}`.trim(),
+              qty: i.qty,
+              price: i.variant.unit_price,
+            })),
+            payments: payments.map((p) => ({
+              method: PAY[p.method].label,
+              value: Number.parseFloat(p.value) || 0,
+            })),
+            copyType: "cashier",
+          });
+          printIntent = {
+            clientPrintId: intent.clientPrintId,
+            alreadyPrinted: intent.alreadyPrinted,
+            printedAt: intent.printedAt,
+            copyType: intent.copyType,
+          };
+        }
+        const enq = await enqueueCommand(getBrowserOutboxStore(), {
+          type: "FinalizePdvSale",
+          companyId,
+          payload: {
+            cash_register_id: caixa.id,
+            seller_name: sellerName,
+            customer_id: selectedCustomer?.id ?? null,
+            customer_name: selectedCustomer?.name ?? null,
+            cart: cartPayload,
+            payments: paymentsPayload,
+            active_order_id: activeOrderId,
+            active_order_source: activeOrderSource,
+            auto_print: autoPrint && !printIntent.alreadyPrinted,
+            printIntent,
+          },
+        });
+        if (!enq.ok) {
+          if (enq.reason === "queue_full") {
+            throw new Error("Fila offline cheia (máx. 200). Conecte-se para sincronizar.");
+          }
+          throw new Error(`Não foi possível enfileirar: ${enq.reason}`);
+        }
+        await refreshSyncPendingBadge(companyId);
+        setOfflineQueuedSale(true);
+        setSaleOk(true);
+        setCart([]); setFromOrderBanner(null); setActiveOrderId(null); setActiveOrderSource(null);
+        return;
+      }
+
       const res = await fetch("/api/admin/pdv/finalize", {
         method: "POST",
         credentials: "include",
@@ -672,20 +880,8 @@ export default function PDVPage() {
           seller_name: sellerName,
           customer_id: selectedCustomer?.id ?? null,
           customer_name: selectedCustomer?.name ?? null,
-          cart: cart.map((i) => ({
-            variant_id: i.variant.id,
-            produto_id: i.variant.produto_id,
-            product_name: i.variant.product_name,
-            details: i.variant.details,
-            unit_price: i.variant.unit_price,
-            qty: i.qty,
-            sigla_comercial: i.variant.sigla_comercial,
-          })),
-          payments: payments.map((p) => ({
-            method: p.method,
-            value: Number.parseFloat(p.value) || 0,
-            due_date: p.due_date ?? null,
-          })),
+          cart: cartPayload,
+          payments: paymentsPayload,
           active_order_id: activeOrderId,
           active_order_source: activeOrderSource,
           auto_print: autoPrint,
@@ -694,6 +890,7 @@ export default function PDVPage() {
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(json?.error ?? "Falha ao finalizar");
       const oid = String(json.order_id ?? "");
+      setOfflineQueuedSale(false);
 
       if (autoPrint) {
         // Electron (desktop): impressão direta via IPC
@@ -815,6 +1012,14 @@ export default function PDVPage() {
             className="w-full rounded-lg border border-zinc-700 bg-zinc-800 py-1.5 pl-8 pr-3 text-sm text-zinc-100 placeholder-zinc-500 focus:border-orange-500 focus:outline-none"
           />
         </div>
+        {catalogStale && (
+          <span
+            className="hidden shrink-0 rounded-md border border-amber-700/60 bg-amber-950/50 px-2 py-1 text-[10px] font-medium text-amber-200 sm:inline"
+            title="Snapshot local antigo — preços/códigos podem estar desatualizados"
+          >
+            Catálogo pode estar desatualizado
+          </span>
+        )}
 
         {/* Seller */}
         <div className="hidden items-center gap-1.5 rounded-lg border border-zinc-700 bg-zinc-800 px-2.5 py-1.5 shrink-0 md:flex">
@@ -1294,7 +1499,14 @@ export default function PDVPage() {
                 <div className="flex h-16 w-16 items-center justify-center rounded-full bg-emerald-900/40 ring-4 ring-emerald-500/30">
                   <CheckCircle2 className="h-8 w-8 text-emerald-400" />
                 </div>
-                <p className="text-lg font-bold text-zinc-100">Venda Finalizada!</p>
+                <p className="text-lg font-bold text-zinc-100">
+                  {offlineQueuedSale ? "Venda na fila offline" : "Venda Finalizada!"}
+                </p>
+                {offlineQueuedSale && (
+                  <p className="text-center text-xs text-zinc-400 max-w-xs">
+                    Será sincronizada quando a internet voltar. Se o Print Agent local imprimiu, o sync marca o cupom como já impresso (sem reimpressão).
+                  </p>
+                )}
                 {change > 0 && (
                   <div className="w-full rounded-2xl border border-orange-700 bg-orange-950/40 px-6 py-3 text-center">
                     <p className="text-xs text-orange-400 font-medium mb-0.5">Troco</p>

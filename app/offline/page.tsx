@@ -9,10 +9,10 @@ export const metadata: Metadata = {
 export default function OfflinePage() {
   return (
     <div className="flex min-h-screen flex-col items-center justify-center gap-6 bg-zinc-50 px-6 text-center dark:bg-zinc-950">
-      <div className="flex h-20 w-20 items-center justify-center rounded-2xl bg-violet-100 dark:bg-violet-900/30">
+      <div className="flex h-20 w-20 items-center justify-center rounded-2xl bg-amber-100 dark:bg-amber-900/30">
         <svg
           xmlns="http://www.w3.org/2000/svg"
-          className="h-10 w-10 text-violet-600 dark:text-violet-400"
+          className="h-10 w-10 text-amber-700 dark:text-amber-400"
           fill="none"
           viewBox="0 0 24 24"
           stroke="currentColor"
@@ -31,17 +31,26 @@ export default function OfflinePage() {
           Sem conexão com a internet
         </h1>
         <p className="text-sm text-zinc-500 dark:text-zinc-400">
-          Verifique sua rede e tente novamente. Alguns dados podem estar
-          disponíveis em cache.
+          O PDV pode continuar com o catálogo em cache e vendas na fila
+          local. Assim que a rede voltar, as pendências sincronizam
+          automaticamente.
         </p>
       </div>
 
-      <Link
-        href="/dashboard"
-        className="inline-flex items-center gap-2 rounded-xl bg-violet-600 px-5 py-2.5 text-sm font-semibold text-white shadow hover:bg-violet-700 transition-colors"
-      >
-        Tentar novamente
-      </Link>
+      <div className="flex flex-col items-center gap-3 sm:flex-row">
+        <Link
+          href="/pdv"
+          className="inline-flex items-center gap-2 rounded-xl bg-orange-600 px-5 py-2.5 text-sm font-semibold text-white shadow hover:bg-orange-700 transition-colors"
+        >
+          Ir ao PDV
+        </Link>
+        <Link
+          href="/dashboard"
+          className="inline-flex items-center gap-2 rounded-xl border border-zinc-300 bg-white px-5 py-2.5 text-sm font-semibold text-zinc-800 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:bg-zinc-800 transition-colors"
+        >
+          Tentar novamente
+        </Link>
+      </div>
     </div>
   );
 }

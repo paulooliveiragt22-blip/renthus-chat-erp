@@ -17,16 +17,16 @@ Estado: `[ ]` pendente · `[~]` parcial · `[x]` feito + data · `[!]` bloqueado
 | O0.2 | Matriz de cache (shell SWR ok; estoque/crédito NetworkOnly/TTL+badge) | D3 | [x] 2026-09-05 |
 | O0.3 | Optimistic com política (PDV = semi-otimista / pending) | D4 | [x] 2026-09-05 |
 | O0.4 | SW update: waiting + prompt (não skipWaiting cego no PDV) | D5 / Perf-A | [x] 2026-09-05 (meta; código em P3) |
-| O0.5 | **D-P1** escopo v1 (PDV read? + enqueue finalize? + pedidos?) | D6 | [ ] |
-| O0.6 | **D-P2** estoque insuficiente no sync (rejeitar vs negativo) | D6 | [ ] |
-| O0.7 | **D-P3** máx. horas / máx. comandos na fila | D6 | [ ] |
-| O0.8 | **D-P4** multi-aba / idempotência concorrente | D6 | [ ] |
-| O0.9 | **D-P5** Print Agent só após ACK vs rascunho local | D6 | [ ] |
+| O0.5 | **D-P1** escopo = catálogo + finalize PDV + status pedidos (entrega P1→P2) | D6 | [x] 2026-09-05 owner |
+| O0.6 | **D-P2** sync estoque = `vender_com_estoque_zero` (stockPolicy) | D6 | [x] 2026-09-05 owner |
+| O0.7 | **D-P3** máx. fila **24h / 200** cmds | D6 | [x] 2026-09-05 owner |
+| O0.8 | **D-P4** multi-aba + `client_mutation_id` único | D6 | [x] 2026-09-05 owner |
+| O0.9 | **D-P5** print local + Local Print Bus (anti-reimpressão no sync) | D6 | [x] 2026-09-05 owner |
 | O0.10 | Performance D7 (Perf-1…5 obrigatório; A–D só com dor) | D7 | [x] 2026-09-05 ADR |
 
-> Sem O0.5–O0.9 fechados: executar **só P0** (fundações). P1+ mutação = `[!]`.
+> O0.5–O0.9 **fechados 2026-09-05**. P1+ liberado sob ADR-0008 D6 (Local Print Bus em P1; status pedidos em P2).
 
-Defaults sugeridos no ADR (confirmar owner): D-P1=PDV read+enqueue finalize; D-P2=rejeitar; D-P3=24h/50; D-P4=sim; D-P5=ACK only.
+Defaults antigos do ADR (50 cmds / ACK-only print) **supersedidos** pelas decisões do owner acima.
 
 ---
 
@@ -55,26 +55,28 @@ Defaults sugeridos no ADR (confirmar owner): D-P1=PDV read+enqueue finalize; D-P
 
 ## Fase P1 — PDV offline-read + enqueue finalize
 
-**Pré-requisito:** O0.5–O0.9 = `[x]` (ou owner aceitar defaults do ADR por escrito nesta checklist).
+**Pré-requisito:** O0.5–O0.9 = `[x]` (fechado 2026-09-05).
 
 | # | Item | Arquivos | Função | DoD | Estado |
 |---|------|----------|--------|-----|--------|
-| P1.0 | Registrar decisões D-P1…D-P5 no ADR § D6 | `~ docs/ADR/0008-…` · esta checklist O0.5–O0.9 | Gate produto | Todos `[x]` com data | [ ] |
-| P1.1 | Snapshot store catálogo **enxuto** | `+ lib/offline/adapters/idbCatalogSnapshotStore.ts` | Perf-1: teto + projection | save/load por `company_id`; TTL/version; sem dump ilimitado | [ ] |
-| P1.1b | Índice busca/bipagem no snapshot | `+ lib/offline/application/buildCatalogSearchIndex.ts` · `~` PDV | Perf-2 | Lookup EAN/código/nome sem filter full-scan a cada tecla | [ ] |
-| P1.2 | Job/ hook de hydrate snapshot | `~ app/(admin)/pdv/page.tsx` (+ API read existente se houver) | Popular IDB quando online | PDV abre catálogo do snapshot se rede cair | [ ] |
-| P1.3 | Badge “catálogo pode estar desatualizado” | `~` PDV UI · SyncStatusBar | Honestidade de cache (Perf-5 vibe) | Visível quando snapshot age > limiar | [ ] |
-| P1.4 | Migration idempotência `client_mutation_id` | `+ supabase/migrations/…_offline_client_mutation_idempotency.sql` · apply remoto MCP | Unique real | `execute_sql` confirma constraint; RLS/security checklist | [ ] |
-| P1.5 | Allowlist: `FinalizePdvSale` (nome final) | `~ SyncEligibility.ts` | D-P1 | Só tipos aprovados | [ ] |
-| P1.6 | API `POST /api/offline/sync` aplica **batch** | `~ app/api/offline/sync/route.ts` → RPC existente ou nova | Perf-3 + mutação canônica | Idempotente; teto cmds/request; valida company/user | [ ] |
-| P1.7 | PDV finalize → `enqueueCommand` | `~ app/(admin)/pdv/page.tsx` (+ helpers) | Semi-otimista | Offline: entra fila; UI `pending`; online: flush em lote | [ ] |
-| P1.8 | Print / cupom vs D-P5 | `~` PDV + print agent paths | Não mentir confirmação | Comportamento = decisão D-P5 | [ ] |
-| P1.9 | Conflito estoque = D-P2 | `~ resolveConflict.ts` · UI PDV | Rejeitar/reabrir ou regra escolhida | Caso teste documentado | [ ] |
-| P1.10 | Limites fila = D-P3 | `~ SyncEligibility.ts` · UI bloqueio | Cap horas/cmds | Nova venda bloqueada com mensagem clara | [ ] |
-| P1.11 | Testes + smoke manual galpão | `+ tests/offline/pdv-*.test.ts` · nota em ADR/checklist | Regressão | Unit + roteiro manual (offline airplane mode) | [ ] |
-| P1.12 | `docs/DB_CURRENT_STATE.md` | `~` | Doc schema | Coluna/constraint descrita | [ ] |
+| P1.0 | Registrar decisões D-P1…D-P5 no ADR § D6 | `~ docs/ADR/0008-…` · esta checklist O0.5–O0.9 | Gate produto | Todos `[x]` com data | [x] 2026-09-05 |
+| P1.1 | Snapshot store catálogo **enxuto** | `+ lib/offline/adapters/idbCatalogSnapshotStore.ts` | Perf-1: teto + projection | save/load por `company_id`; TTL/version; sem dump ilimitado | [x] 2026-09-05 |
+| P1.1b | Índice busca/bipagem no snapshot | `+ lib/offline/application/buildCatalogSearchIndex.ts` · `~` PDV | Perf-2 | Lookup EAN/código/nome sem filter full-scan a cada tecla | [x] 2026-09-05 |
+| P1.2 | Job/ hook de hydrate snapshot | `~ app/(admin)/pdv/page.tsx` · `+ /api/admin/pdv/catalog-snapshot` | Popular IDB quando online | PDV abre catálogo do snapshot se rede cair | [x] 2026-09-05 |
+| P1.3 | Badge “catálogo pode estar desatualizado” | `~` PDV UI · SyncStatusBar | Honestidade de cache (Perf-5 vibe) | Visível quando snapshot age > limiar | [x] 2026-09-05 |
+| P1.4 | Idempotência offline = `client_mutation_id` → `sales.idempotency_key` (unique já existe) | reuse `20260811110000_pdv_finalize_idempotency_key.sql` · doc DB | Unique real | Sem migration nova; UUID do outbox vira idempotency_key | [x] 2026-09-05 |
+| P1.5 | Allowlist: `FinalizePdvSale` | `~ SyncEligibility.ts` | D-P1 | FinalizePdvSale + noop | [x] 2026-09-05 |
+| P1.6 | API `POST /api/offline/sync` aplica **batch** | `~ app/api/offline/sync/route.ts` · `applyFinalizePdvOrder` | Perf-3 + mutação canônica | Idempotente; teto cmds/request; stockPolicy | [x] 2026-09-05 |
+| P1.7 | PDV finalize → `enqueueCommand` | `~ app/(admin)/pdv/page.tsx` | Semi-otimista | Offline: entra fila; UI pending; online: flush | [x] 2026-09-05 |
+| P1.8 | D-P5 Local Print Bus | `+` localPrintBridge · `rpc_record_offline_print_done` · sync printIntent | Anti-enxurrada | Já impresso → print_jobs `done` + unique client_print_id | [x] 2026-09-05 |
+| P1.9 | Conflito estoque = D-P2 (`vender_com_estoque_zero` / stockPolicy) | `~ applyFinalizePdvOrder.ts` | Aceita se flag permite; senão 409 conflict | Enforced no sync/finalize | [x] 2026-09-05 |
+| P1.10 | Limites fila = D-P3 (**24h / 200**) | `~ SyncEligibility.ts` · UI PDV | Cap horas/cmds | 200 default; mensagem fila cheia | [x] 2026-09-05 |
+| P1.11 | Testes + smoke manual galpão | `+ tests/offline/*.test.ts` | Regressão | Unit offline verde | [x] 2026-09-05 |
+| P1.12 | `docs/DB_CURRENT_STATE.md` | `~` | Doc schema | Nota offline→idempotency_key + client_print_id | [x] 2026-09-05 |
 
-**Saída P1:** vender no PDV com rede intermitente; sync ao voltar; sem double charge (idempotência); **Perf-1…5 atendidos**.
+**Ordem de execução P1:** `1.0 → … → 1.7 → **1.8** → 1.9 → … → 1.12` (cronologia ADR).
+
+**Saída P1 completa:** vender offline + sync + Local Print Bus.
 
 ---
 
@@ -82,10 +84,10 @@ Defaults sugeridos no ADR (confirmar owner): D-P1=PDV read+enqueue finalize; D-P
 
 | # | Item | Arquivos | Função | DoD | Estado |
 |---|------|----------|--------|-----|--------|
-| P2.1 | Allowlist transições de status | `~ SyncEligibility.ts` · `ConflictPolicy.ts` | Só status “leves” | Lista explícita no ADR ou neste doc | [ ] |
-| P2.2 | `useOfflineMutation` nos call sites | `~ app/(admin)/pedidos/PedidosClient.tsx` | Optimistic + pending | Rollback/toast em failed | [ ] |
-| P2.3 | Sync route aceita tipos pedido | `~ app/api/offline/sync/route.ts` | Server apply | RPC/API; sem bypass RLS | [ ] |
-| P2.4 | Testes transição + conflito | `+ tests/offline/pedidos-*.test.ts` | | Verde | [ ] |
+| P2.1 | Allowlist transições de status | `~ SyncEligibility.ts` · preparing/delivered | Só status “leves” | finalize/cancel online-only | [x] 2026-09-05 |
+| P2.2 | `useOfflineMutation` / enqueue nos call sites | `~ PedidosClient.tsx` applyOrderStatus | Optimistic + pending | Rollback se enqueue falha | [x] 2026-09-05 |
+| P2.3 | Sync route aceita tipos pedido | `~ app/api/offline/sync/route.ts` · applyUpdateOrderStatus | Server apply | RPC set status | [x] 2026-09-05 |
+| P2.4 | Testes transição | `+ tests/offline/orderStatus.test.ts` | | Verde | [x] 2026-09-05 |
 
 **Fora P2:** alterar custo em massa, financeiro, a prazo complex — só se D-P1 expandir.
 
@@ -95,12 +97,12 @@ Defaults sugeridos no ADR (confirmar owner): D-P1=PDV read+enqueue finalize; D-P
 
 | # | Item | Arquivos | Função | DoD | Estado |
 |---|------|----------|--------|-----|--------|
-| P3.1 | Revisar `runtimeCaching` vs matriz D3 + Perf-5 | `~ next.config.js` | Não SWR em API comercial | Patterns documentados | [ ] |
-| P3.2 | Update prompt (waiting) — Perf-A | `~ next.config.js` · `+` componente “Nova versão” | Evitar reload mid-PDV | skipWaiting cego desligado ou gated | [ ] |
-| P3.3 | Copy `/offline` alinhada a fila | `~ app/offline/page.tsx` | UX | Menciona sync/pendentes se houver | [ ] |
-| P3.4 | `workboxBgSyncBridge` opcional — Perf-C | `+ lib/offline/adapters/workboxBgSyncBridge.ts` | Wake flush no Chrome | Feature-detect; fallback `online`; só se dor | [ ] |
-| P3.5 | Proxy/e2e PWA assets | `~ proxy.ts` · `~ tests/proxy.test.ts` · e2e offline se existir | Exempts corretos | Testes proxy verdes | [ ] |
-| P3.6 | (Opcional) baixar `networkTimeoutSeconds` NetworkFirst — Perf-B | `~ next.config.js` | PDV não “pende” 8s | Só se dor medida; cair no snapshot/`/offline` | [ ] |
+| P3.1 | Revisar `runtimeCaching` vs matriz D3 + Perf-5 | `~ next.config.js` | Não SWR em API comercial | NetworkOnly `/api/*` + exclude | [x] 2026-09-05 |
+| P3.2 | Update prompt (waiting) — Perf-A | `skipWaiting:false` · `PwaUpdateBanner` | Evitar reload mid-PDV | Banner Atualizar/Depois | [x] 2026-09-05 |
+| P3.3 | Copy `/offline` alinhada a fila | `~ app/offline/page.tsx` | UX | Menciona fila/PDV cache | [x] 2026-09-05 |
+| P3.4 | `workboxBgSyncBridge` | `+ workboxBgSyncBridge.ts` · AdminShell wake | Wake flush online/visibility + SyncManager se houver | [x] 2026-09-05 |
+| P3.5 | Proxy/e2e PWA assets | `~ tests/proxy.test.ts` | Exempts corretos; `/api/offline/sync` não é public | [x] 2026-09-05 |
+| P3.6 | Timeout NetworkFirst 4s — Perf-B | `~ next.config.js` | PDV não “pende” 8s | [x] 2026-09-05 |
 
 ---
 
@@ -108,21 +110,19 @@ Defaults sugeridos no ADR (confirmar owner): D-P1=PDV read+enqueue finalize; D-P
 
 | # | Item | Arquivos | Função | DoD | Estado |
 |---|------|----------|--------|-----|--------|
-| P4.1 | Avaliar custo migração next-pwa → Serwist (Perf-D) | doc curto no ADR ou nota aqui | Manutenção SW, não speed | Decisão go/no-go | [ ] |
-| P4.2 | Se go: migrar + parity cache matrix | `~ next.config.*` · SW entry | Mesma matriz D3 | Smoke PWA + PDV | [ ] |
+| P4.1 | Avaliar custo migração next-pwa → Serwist (Perf-D) | nota abaixo | Manutenção SW, não speed | **no-go agora** — next-pwa atende matriz D3 | [x] 2026-09-05 |
+| P4.2 | Se go: migrar + parity cache matrix | — | — | Adiado até dor de manutenção Workbox | [ ] n/a |
+
+**P4 decisão (2026-09-05):** manter `@ducanh2912/next-pwa`. Serwist só se o plugin ficar abandonado ou bloquear Turbopack/build.
 
 ---
 
 ## Ordem cronológica (não pular)
 
 ```text
-1. Fechar O0.1–O0.4 + O0.10 (já) + executar P0.1 → P0.12
-2. Fechar O0.5–O0.9 (produto) ──┐
-3. P1.0 registrar no ADR         ├── bloqueia P1.4+
-4. P1.1 → P1.1b → P1.12 (PDV; DoD cita Perf-1…5)
-5. P2.1 → P2.4 (pedidos)
-6. P3.1 → P3.5 (+ P3.6 só com dor)
-7. P4 só se necessário (Perf-D)
+1–4. P0 → P2 entregues
+5. P3.1 → P3.6 (SW polish) entregue
+6. P4 no-go (ficar no next-pwa) até nova dor
 ```
 
 **Regra anti-contexto-perdido:** a cada PR, marcar linhas `[x] YYYY-MM-DD` nesta checklist e citar o # (ex.: `P0.5`, `Perf-3`) no corpo do PR. Não abrir P1 mutação com O0.5–O0.9 em `[ ]`. P1 sem Perf-1…5 = incompleto.
@@ -147,8 +147,8 @@ Defaults sugeridos no ADR (confirmar owner): D-P1=PDV read+enqueue finalize; D-P
 
 | Decisão | Valor escolhido | Quem | Data |
 |---------|-----------------|------|------|
-| D-P1 | | | |
-| D-P2 | | | |
-| D-P3 | | | |
-| D-P4 | | | |
-| D-P5 | | | |
+| D-P1 | Catálogo + finalize PDV + status pedidos (P1→P2) | owner | 2026-09-05 |
+| D-P2 | Por produto: `vender_com_estoque_zero` / stockPolicy | owner | 2026-09-05 |
+| D-P3 | 24h / 200 comandos | owner | 2026-09-05 |
+| D-P4 | Sim, concorrente + client_mutation_id | owner | 2026-09-05 |
+| D-P5 | Print local + Local Print Bus (sync marca done, sem reimpressão) | owner | 2026-09-05 |

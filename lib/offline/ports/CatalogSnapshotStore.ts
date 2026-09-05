@@ -19,7 +19,15 @@ export type CatalogSnapshotEntry = {
     fatorConversao: number;
     ean: string | null;
     codigoInterno: string | null;
+    /** Código interno da embalagem (mesmo campo view quando unificado). */
     codigoInternoEmbalagem: string | null;
+    /** D-P2: espelho de products.vender_com_estoque_zero (default true). */
+    venderComEstoqueZero?: boolean;
+    categoryName?: string | null;
+    details?: string | null;
+    siglaHumanizada?: string | null;
+    volumeFormatado?: string | null;
+    salesCount?: number;
 };
 
 export type CatalogSnapshot = CatalogSnapshotMeta & {

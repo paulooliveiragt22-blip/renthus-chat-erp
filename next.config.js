@@ -6,8 +6,10 @@ const withPWA = require("@ducanh2912/next-pwa").default({
   // Só ativa service worker em produção
   disable: process.env.NODE_ENV === "development",
   register: true,
-  skipWaiting: true,
-  reloadOnOnline: true,
+  // ADR-0008 D5 / P3.2: não ativar SW novo no meio da venda — banner pede confirmação
+  skipWaiting: false,
+  clientsClaim: true,
+  reloadOnOnline: false,
   // Fallback offline para navegação
   fallbacks: {
     document: "/offline",
@@ -26,6 +28,11 @@ const withPWA = require("@ducanh2912/next-pwa").default({
       /^\/api\//,
     ],
     runtimeCaching: [
+      // Matriz D3 / Perf-5: APIs comerciais sempre rede (nunca SWR)
+      {
+        urlPattern: ({ url }) => url.pathname.startsWith("/api/"),
+        handler: "NetworkOnly",
+      },
       // Assets estáticos Next.js — CacheFirst (imutáveis com hash)
       {
         urlPattern: /\/_next\/static\/.*/i,
@@ -45,12 +52,13 @@ const withPWA = require("@ducanh2912/next-pwa").default({
         },
       },
       // Documentos HTML: rede primeiro — evita shell/RSC stale após deploy
+      // Timeout 4s (era 8): em galpão cai mais cedo no cache/offline (P3.6 / Perf-B)
       {
         urlPattern: ({ request }) => request.mode === "navigate",
         handler: "NetworkFirst",
         options: {
           cacheName: "pages",
-          networkTimeoutSeconds: 8,
+          networkTimeoutSeconds: 4,
           expiration: { maxEntries: 32, maxAgeSeconds: 60 * 60 * 24 },
         },
       },

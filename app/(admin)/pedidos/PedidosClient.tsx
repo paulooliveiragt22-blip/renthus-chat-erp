@@ -4,6 +4,13 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useWorkspace } from "@/lib/workspace/useWorkspace";
+import { enqueueCommand } from "@/lib/offline/application/enqueueCommand";
+import { isOfflineOrderStatusAllowed } from "@/lib/offline/domain/SyncEligibility";
+import {
+    flushCompanyOutbox,
+    getBrowserOutboxStore,
+    refreshSyncPendingBadge,
+} from "@/lib/offline/browserStores";
 import {
     AlertTriangle,
     Bike,
@@ -933,6 +940,44 @@ export default function PedidosPage() {
     ) {
         setActionSaving(true);
         setMsg(null);
+
+        const offline = typeof navigator !== "undefined" && !navigator.onLine;
+        if (offline && companyId && isOfflineOrderStatusAllowed(newStatus)) {
+            const prev = orders.find((o) => o.id === orderId);
+            const prevStatus = prev?.status;
+            setOrders((list) =>
+                list.map((o) => (o.id === orderId ? { ...o, status: newStatus } : o))
+            );
+            const enq = await enqueueCommand(getBrowserOutboxStore(), {
+                type: "UpdateOrderStatus",
+                companyId,
+                payload: {
+                    orderId,
+                    status: newStatus,
+                    details: opts.details ?? null,
+                },
+            });
+            if (!enq.ok) {
+                if (prevStatus != null) {
+                    setOrders((list) =>
+                        list.map((o) =>
+                            o.id === orderId ? { ...o, status: prevStatus } : o
+                        )
+                    );
+                }
+                setMsg(
+                    enq.reason === "queue_full"
+                        ? "Fila offline cheia. Conecte-se para sincronizar."
+                        : `Não foi possível enfileirar: ${enq.reason}`
+                );
+                setActionSaving(false);
+                return false;
+            }
+            await refreshSyncPendingBadge(companyId);
+            setActionSaving(false);
+            return true;
+        }
+
         const res = await fetch("/api/admin/orders", {
             method: "PATCH",
             headers: { "Content-Type": "application/json" },
@@ -966,6 +1011,9 @@ export default function PedidosPage() {
             setMsg(label);
             setActionSaving(false);
             return false;
+        }
+        if (companyId && typeof navigator !== "undefined" && navigator.onLine) {
+            void flushCompanyOutbox(companyId);
         }
         return true;
     }

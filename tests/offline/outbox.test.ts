@@ -15,14 +15,16 @@ import { resolveConflict } from "../../lib/offline/application/resolveConflict";
 import { shouldPersistOfflineQuery } from "../../lib/offline/persistQueryAllowlist";
 
 describe("offline SyncEligibility", () => {
-    it("permite noop e bloqueia FinalizePdvSale em P0", () => {
+    it("permite noop, FinalizePdvSale e UpdateOrderStatus", () => {
         assert.equal(isCommandTypeAllowed("noop"), true);
-        assert.equal(isCommandTypeAllowed("FinalizePdvSale"), false);
+        assert.equal(isCommandTypeAllowed("FinalizePdvSale"), true);
+        assert.equal(isCommandTypeAllowed("UpdateOrderStatus"), true);
+        assert.equal(isCommandTypeAllowed("SomethingElse"), false);
     });
 
     it("rejeita type_not_allowed e queue_full", () => {
         const base = createOfflineCommand({
-            type: "FinalizePdvSale",
+            type: "SomethingElse",
             companyId: "co-1",
         });
         const denied = canEnqueueCommand(base, 0);
@@ -91,7 +93,7 @@ describe("offline outbox memory + flush batch", () => {
     it("rejeita tipo fora da allowlist no enqueue", async () => {
         const store = createMemoryOutboxStore();
         const r = await enqueueCommand(store, {
-            type: "FinalizePdvSale",
+            type: "SomethingElse",
             companyId: "co-1",
         });
         assert.equal(r.ok, false);

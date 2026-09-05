@@ -1,9 +1,9 @@
 # ADR 0008 — PWA Offline-First: Local Command Outbox + Sync Engine
 
-**Status:** aceito (estrutura 2026-09-05; **P0 fundações entregue** 2026-09-05; P1+ aguarda D-P1…D-P5)  
+**Status:** aceito (P0–P3 entregues 2026-09-05; P4 Serwist = no-go por ora)  
 **Data:** 2026-09-05  
-**Escopo técnico:** outbox local (IndexedDB), sync engine, optimistic UI com estado `pending`, políticas de cache do Service Worker, snapshot de catálogo para PDV, **constraints de performance (D7)** — sem over-engineering.  
-**Escopo comercial / produto:** decisões D-P1…D-P5 abaixo — **confirmar antes de mutação offline (fase P1+)**.
+**Escopo técnico:** outbox local (IndexedDB), sync engine, optimistic UI `pending`, cache SW, snapshot PDV, perf D7, Local Print Bus (D-P5).  
+**Escopo comercial / produto:** D-P1…D-P5 **fechadas** (ver § D6).
 
 **Checklist:** [`CHECKLIST_PWA_OFFLINE_FIRST.md`](../CHECKLIST_PWA_OFFLINE_FIRST.md)  
 **Predecessor PWA:** `next.config.js` (`@ducanh2912/next-pwa` + Workbox), `app/offline/page.tsx`, `public/manifest.webmanifest`  
@@ -48,9 +48,9 @@ UI → enqueueCommand(command) → Outbox (IDB)
 
 | Inclui | Exclui |
 |--------|--------|
-| Snapshot catálogo PDV **enxuto** (campos PDV + teto; ver D7) | Dump ilimitado do catálogo no IDB; billing / Pagar.me / webhooks |
+| Snapshot catálogo PDV **enxuto** + finalize PDV offline + status pedidos (P2) | Dump ilimitado do catálogo no IDB; billing / Pagar.me / webhooks |
 | Busca/bipagem local sobre o snapshot (índice) | `filter` linear no array inteiro a cada tecla |
-| Enqueue finalização PDV (quando D-P1 ok) | Mutações WhatsApp / chatbot |
+| Print local + Local Print Bus (D-P5) | Reenqueue `pending` de cupom já impresso offline |
 | Optimistic + `pending` em status de pedido (fase P2) | SWR em estoque/saldo/limite crédito |
 | SyncStatus UI | Migrar para Serwist na v1 (P4 opcional); virtualização/prefetch agressivo “por performance” |
 
@@ -82,17 +82,57 @@ Hoje: `skipWaiting: true` + `reloadOnOnline: true`.
 **Meta deste ADR:** em sessão PDV, preferir **waiting + prompt** “Nova versão → Atualizar” (evitar mid-sale reload). Detalhe na fase P3.  
 **Nota de perf:** isto é estabilidade de sessão, não ganho de FPS — ainda assim obrigatório no PDV (P3). BG Sync / Periodic Sync = wake opcional do flush; **não** contar como otimização em iOS.
 
-### D6 — Decisões de produto (gates — não implementar mutação offline sem fechar)
+### D6 — Decisões de produto (fechadas 2026-09-05 — owner)
 
-| ID | Pergunta | Impacto | Estado |
-|----|----------|---------|--------|
-| D-P1 | Escopo offline v1: só PDV read? + enqueue finalize? + pedidos status? | fases P1/P2 | **pendente** (estrutura ok; mutação bloqueada até resposta) |
-| D-P2 | Estoque insuficiente no sync: rejeitar e reabrir UI vs permitir negativo? | RPC + conflict UI | **pendente** |
-| D-P3 | Máx. horas / máx. comandos na fila antes de bloquear novas vendas | SyncEligibility | **pendente** |
-| D-P4 | Multi-aba: um outbox por profile; sync concorrente via idempotência? | Outbox + RPC | **pendente** (default técnico proposto: sim, idempotência) |
-| D-P5 | Print Agent: imprimir só após ACK vs rascunho local? | PDV + print | **pendente** |
+| ID | Decisão fechada | Impacto técnico | Estado |
+|----|-----------------|-----------------|--------|
+| **D-P1** | Escopo produto = **os três**: (1) leitura catálogo PDV offline, (2) enqueue finalizar venda PDV, (3) mudança de status de pedidos. *Nota:* não era “escolher um”; era “até onde na v1”. Entrega ainda **sequenciada** P1→P2 para não misturar risco (P1 = 1+2+print; P2 = 3). | Allowlist + fases P1/P2 | **[x] 2026-09-05** |
+| **D-P2** | Estoque no sync **segue a regra já existente** `products.vender_com_estoque_zero` (`lib/products/stockPolicy.ts`): se o produto **pode** vender com estoque zero/negativo → aceita sync; se **não** → rejeita e reabre na UI. Sem política nova “global rejeitar/aceitar”. | RPC sync por item/produto | **[x] 2026-09-05** |
+| **D-P3** | Limite de fila: **24h** / **200** comandos (delivery raramente fica dias offline; 200 aguenta pico sem thundering herd extremo). | `SyncEligibility` | **[x] 2026-09-05** |
+| **D-P4** | Multi-aba/concorrente **sim** + `client_mutation_id` único (idempotência no servidor). | Unique constraint + outbox | **[x] 2026-09-05** |
+| **D-P5** | **Rascunho/impressão local na hora** + sync com sinalização “já impresso” para o agent **não** reimprimir (anti-enxurrada). Estrutura: **Local Print Bus** (abaixo). | Print Agent + outbox + `print_jobs` | **[x] 2026-09-05** |
 
-Default técnico sugerido (só após owner confirmar): **D-P1 = PDV read + enqueue finalize**; **D-P2 = rejeitar**; **D-P3 = 24h / 50 cmds**; **D-P4 = sim**; **D-P5 = imprimir só após ACK**.
+#### D-P1 — esclarecimento
+
+As três opções são pertinentes e **todas entram no produto**. A fase P0/P1 do checklist só separava entrega técnica (finalize antes de status) — não exclui status do roadmap. P2 deixa de ser “opcional de produto” e passa a ser **obrigatório após P1**.
+
+#### D-P5 — Local Print Bus (estrutura escolhida)
+
+**Como o Print Agent funciona hoje (online):**  
+Electron/agent autentica com API key → faz poll em `/api/agent/jobs/*` → reserva `print_jobs` **no Postgres** → imprime → `complete`. Não “lê o banco direto” com service role; a fila canônica é `print_jobs` via API. Offline, se no sync criarmos jobs `pending`, o agent (quando a net voltar) **imprimiria de novo** tudo que o caixa já imprimiu localmente → enxurrada.
+
+**Desenho alvo (capaz de anti-reimpressão):**
+
+```
+PDV offline finalize
+  → OfflineCommand FinalizePdvSale (+ printIntent)
+  → LocalPrintQueue (IDB) ──localhost/WS──► Print Agent (modo local)
+  → Agent imprime → marca job local printed_at + client_print_id
+  → Outbox atualiza payload: printIntent.alreadyPrinted = true
+
+Sync (rede volta)
+  → RPC cria pedido (idempotent client_mutation_id)
+  → Para cada client_print_id já impresso:
+        INSERT print_jobs status='done' (ou 'skipped_local')
+        + UNIQUE (company_id, client_print_id)
+        + meta.printed_offline = true
+     Sem alreadyPrinted:
+        rpc_enqueue_print_job normal (pending) — agent cloud imprime 1×
+```
+
+| Peça | Função |
+|------|--------|
+| `LocalPrintQueue` (IDB) | Fila de cupons offline no browser; irmã do outbox de comandos |
+| Bridge localhost no Print Agent | Segundo consumer além do poll cloud: recebe jobs da PWA na mesma máquina (HTTP loopback ou WS); **não** exige Supabase offline |
+| `client_print_id` (UUID) | Idempotência de impressão; sobe no sync |
+| `print_jobs` sync path | Já impresso → grava `done`/`skipped_local` (auditoria, zero poll pending); não impresso → `pending` como hoje |
+| Unique `(company_id, client_print_id)` | Retry de sync não duplica job nem reabre pending |
+
+**Fora deste desenho:** agent continuar só no poll cloud sem sinal local; dual-write “imprimir local e também enqueue pending sem flag”.
+
+**Implementação:** P1.8 na cronologia após finalize (P1.7). Bridge: Electron IPC ou `POST http://127.0.0.1:17890/local-print` — ver `lib/offline/localPrintBridgeContract.ts`.
+
+---
 
 ### D7 — Performance (obrigatório no desenho; sem exagero)
 
