@@ -7,22 +7,21 @@ import "server-only";
 import type { createAdminClient } from "@/lib/supabase/admin";
 import {
     getMonthlyPriceCents,
-    getSetupPriceCents,
     centsToBRL,
 } from "@/lib/billing/pagarme";
 
 type Admin = ReturnType<typeof createAdminClient>;
 
-/** Tipo lógico enviado ao PSP; ambos persistem em `invoices`. */
-export type CheckoutObligationKind = "setup" | "invoice";
+/** Tipo lógico enviado ao PSP; persiste em `invoices`. */
+export type CheckoutObligationKind = "invoice";
 
 export type CheckoutStrategy = {
     kind: CheckoutObligationKind;
     isFirstPayment: boolean;
-    metaType: "setup" | "invoice";
+    metaType: "invoice";
     amountCents: number;
     /** `year` = ciclo anual (R2-3); canônico vindo de rpc_create_billing_obligation. */
-    invoiceKind: "setup" | "subscription" | "year";
+    invoiceKind: "subscription" | "year";
 };
 
 export type PendingCheckoutRow = {
@@ -34,10 +33,9 @@ export type PendingCheckoutRow = {
 };
 
 /**
- * Decide setup vs invoice a partir do status da assinatura e preço de setup.
- * - pending_setup legado, trial ou pending_payment nunca pago + setup>0 → setup
- * - demais → mensalidade
- * Amount: `opts.amountCents` (DB+seats) ou fallback catálogo (H4.3).
+ * Sempre invoice (BN-05: setup abolido).
+ * 1ª cobrança = never-paid (pending_setup legado | pending_payment).
+ * Amount: `opts.amountCents` (RPC) ou fallback catálogo.
  */
 export function resolveCheckoutStrategy(
     status: string | null | undefined,
@@ -47,29 +45,23 @@ export function resolveCheckoutStrategy(
     opts?: { amountCents?: number }
 ): CheckoutStrategy {
     const planKey = String(plan ?? "essencial");
-    const setupCents = getSetupPriceCents(planKey);
     const st = String(status ?? "").toLowerCase();
 
     const neverPaid = !lastPaidAt || String(lastPaidAt).trim() === "";
     const isFirstPayment =
-        st === "pending_setup" ||
-        (st === "trial" && setupCents > 0) ||
-        (st === "pending_payment" && neverPaid);
+        st === "pending_setup" || (st === "pending_payment" && neverPaid);
 
-    const chargesSetup = isFirstPayment && setupCents > 0;
-    const kind: CheckoutObligationKind = chargesSetup ? "setup" : "invoice";
-    const amountCents = chargesSetup
-        ? setupCents
-        : typeof opts?.amountCents === "number" && opts.amountCents >= 0
-          ? Math.floor(opts.amountCents)
-          : getMonthlyPriceCents(planKey);
+    const amountCents =
+        typeof opts?.amountCents === "number" && opts.amountCents >= 0
+            ? Math.floor(opts.amountCents)
+            : getMonthlyPriceCents(planKey);
 
     return {
-        kind,
+        kind: "invoice",
         isFirstPayment,
-        metaType: chargesSetup ? "setup" : "invoice",
+        metaType: "invoice",
         amountCents,
-        invoiceKind: chargesSetup ? "setup" : "subscription",
+        invoiceKind: "subscription",
     };
 }
 
@@ -225,13 +217,6 @@ export async function loadCheckoutContext(
 
 /** Helper de descrição/itemCode alinhado à estratégia. */
 export function checkoutOrderLabels(strategy: CheckoutStrategy, planLabel: string) {
-    if (strategy.kind === "setup") {
-        return {
-            description: `Taxa de ativação Renthus — Plano ${planLabel}`,
-            itemCode: "setup" as const,
-            tipoLabel: "Taxa de ativação",
-        };
-    }
     if (strategy.invoiceKind === "year") {
         return {
             description: `Plano anual Renthus — ${planLabel}`,

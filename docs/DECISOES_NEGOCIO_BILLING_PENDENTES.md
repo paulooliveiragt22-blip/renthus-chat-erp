@@ -16,7 +16,7 @@ Estado: `[i]` implementado · `[~]` implementado com **desvio** a corrigir · `[
 | **BN-02** | **A** — DB `plan_features` canônico |
 | **BN-03** | Manter cotas no DB (editável depois, baixo retrabalho) |
 | **BN-04** `[i]` | Mensal **279 / 349 / 449**; anual default **−20%**; **editáveis** no superadmin + promo (modelo R2) |
-| **BN-05** `[~]` | **A** — Setup = 0 (**não existe mais** como produto; kind `setup` / `generateSetupCharge` são legado a limpar) |
+| **BN-05** `[i]` | **A** — Setup = 0 (**não existe**); `kind=setup` removido do CHECK; histórico remapeado para `subscription` |
 | **BN-06** `[i]` | **A** — IA incluso = **10% do preço de lista mensal do plano** (ver R3-6) |
 | **BN-07** `[i]` | **A** — Trial self-serve 0 (pay-to-start) |
 | **BN-08** `[~]` | **A** — Courtesy **1–30d** (platform); RPC ok; **use case ainda 1–14** |
@@ -205,7 +205,7 @@ Se o superadmin **editar** a lista mensal do plano (R3-5), o 10% passa a usar o 
 | BN-13 dunning D7 | `[i]` `fn_billing_collection_action` D1/D3/D5 retry + D7 block; cron filtra `kind∈{subscription,year}` |
 | BN-14 reativação pós-bloqueio (ciclo cheio) | `[i]` checkout interativo puxa obrigação canônica (subscription\|year); fulfill → `active` + `next=paid+período`; **≠** `self-reactivate` (abandoned→trial) |
 | BN-15 packs | `[>]` |
-| Limpeza legado setup (BN-05) | `[~]` fee=0 ok; paths/invoices `kind=setup` ainda existem |
+| Limpeza legado setup (BN-05) | `[i]` CHECK sem setup; fulfill/checkout/status sem ramo; `computeNextBillingAt` removido |
 
 ---
 

@@ -1,6 +1,6 @@
 /**
  * FulfillPayment — único efeito pós-pago (webhook + checkout sync).
- * Invoice/setup: RPC `rpc_fulfill_obligation` (claim + sub atômico).
+ * Invoice: RPC `rpc_fulfill_obligation` (claim + sub atômico).
  * ai_pack: ledger no Node. Provision auth: pós-claim no Node.
  */
 
@@ -50,7 +50,7 @@ export function isRetryableFulfillError(e: unknown): e is RetryableFulfillError 
 export type FulfillPaymentResult =
     | {
           ok: true;
-          kind: "setup" | "invoice" | "ai_pack" | "seat_add" | "plan_upgrade" | "period_switch";
+          kind: "invoice" | "ai_pack" | "seat_add" | "plan_upgrade" | "period_switch";
           alreadyDone?: boolean;
       }
     | { ok: true; kind: "none"; alreadyDone?: boolean };
@@ -132,15 +132,13 @@ async function fulfillInvoiceViaRpc(
     }
 
     const kind =
-        row.kind === "setup"
-            ? ("setup" as const)
-            : row.kind === "seat_add"
-              ? ("seat_add" as const)
-              : row.kind === "plan_upgrade"
-                ? ("plan_upgrade" as const)
-                : row.kind === "period_switch"
-                  ? ("period_switch" as const)
-                  : ("invoice" as const);
+        row.kind === "seat_add"
+            ? ("seat_add" as const)
+            : row.kind === "plan_upgrade"
+              ? ("plan_upgrade" as const)
+              : row.kind === "period_switch"
+                ? ("period_switch" as const)
+                : ("invoice" as const);
 
     if (status === "already_done") {
         return { ok: true, kind, alreadyDone: true };
@@ -155,7 +153,7 @@ async function fulfillInvoiceViaRpc(
     const companyId = typeof row.company_id === "string" ? row.company_id : "";
     const plan = typeof row.plan === "string" ? row.plan : "";
 
-    if (kind === "setup" && companyId && plan) {
+    if (kind === "invoice" && companyId && plan) {
         await provisionUserAfterPaymentIfNeeded(admin, companyId, plan);
     }
 
@@ -188,8 +186,8 @@ export async function fulfillPayment(
     if (ai) return ai;
 
     if (
-        metaType === "setup" ||
         metaType === "invoice" ||
+        metaType === "setup" || // PSP legado
         metaType === "seat_add" ||
         metaType === "plan_upgrade" ||
         metaType === "period_switch" ||

@@ -5,10 +5,10 @@ import { describe, it } from "node:test";
 function mapRpcFulfillStatus(row: {
     status?: string;
     kind?: string;
-}): { kind: "setup" | "invoice"; alreadyDone?: boolean } | "not_found" | "bad" {
+}): { kind: "invoice"; alreadyDone?: boolean } | "not_found" | "bad" {
     const status = String(row.status ?? "");
     if (status === "not_found") return "not_found";
-    const kind = row.kind === "setup" ? ("setup" as const) : ("invoice" as const);
+    const kind = "invoice" as const;
     if (status === "already_done") return { kind, alreadyDone: true };
     if (status === "fulfilled") return { kind };
     return "bad";
@@ -19,9 +19,9 @@ describe("mapRpcFulfillStatus (EX3)", () => {
         assert.equal(mapRpcFulfillStatus({ status: "not_found" }), "not_found");
     });
 
-    it("already_done setup", () => {
-        assert.deepEqual(mapRpcFulfillStatus({ status: "already_done", kind: "setup" }), {
-            kind: "setup",
+    it("already_done invoice", () => {
+        assert.deepEqual(mapRpcFulfillStatus({ status: "already_done", kind: "subscription" }), {
+            kind: "invoice",
             alreadyDone: true,
         });
     });

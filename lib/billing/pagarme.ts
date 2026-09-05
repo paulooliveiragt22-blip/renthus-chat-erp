@@ -323,7 +323,7 @@ export async function createSetupOrder(params: {
                 amount:      params.amountCents,
                 description: params.description,
                 quantity:    1,
-                code:        params.itemCode ?? "setup",
+                code:        params.itemCode ?? "mensalidade",
             },
         ],
         payments: [

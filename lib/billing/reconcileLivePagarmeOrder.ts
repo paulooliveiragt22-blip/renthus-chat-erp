@@ -19,7 +19,7 @@ export type ReconcileLiveOrderResult =
 export async function reconcileOrCancelLiveOrder(
     admin: Admin,
     orderId: string | null | undefined,
-    metaType: "invoice" | "setup"
+    metaType: "invoice"
 ): Promise<ReconcileLiveOrderResult> {
     const oid = typeof orderId === "string" ? orderId.trim() : "";
     if (!oid) return { action: "noop" };

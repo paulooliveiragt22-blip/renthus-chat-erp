@@ -15,7 +15,7 @@ describe("preços canônicos BN-04/05 (sem pagarme server-only)", () => {
         assert.equal(getMonthlyPriceCentsForPlan("complete"), 34900);
     });
 
-    it("anual −20% default; setup canônico = 0 no app via getSetupPriceCents", () => {
+    it("anual −20% default (BN-04); setup abolido (BN-05)", () => {
         assert.equal(getYearlyPriceCentsForPlan("essencial"), 267840);
         assert.equal(getYearlyPriceCentsForPlan("pro"), 335040);
         assert.equal(getYearlyPriceCentsForPlan("market"), 431040);

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireCompanyAccess } from "@/lib/workspace/requireCompanyAccess";
 import { getActiveSubscription, getEnabledFeatures, checkLimit } from "@/lib/billing/entitlements";
-import { getSetupPriceCents, listCustomerCards } from "@/lib/billing/pagarme";
+import { listCustomerCards } from "@/lib/billing/pagarme";
 import { getPlanLabel, normalizePlanKey, type CommercialPlanKey } from "@/lib/billing/planCatalog";
 import { loadCommercialPlanPricing } from "@/lib/billing/loadCommercialPlanPricing";
 import {
@@ -112,7 +112,6 @@ export async function GET() {
         );
 
         const subStatus = String(pagarmeSubRaw?.status ?? "");
-        const usingSetup = pendingInvoice?.kind === "setup";
         const obligationAmount =
             pendingInvoice?.amount != null ? Number(pendingInvoice.amount) : null;
         const planRow = planKey ? planByKey.get(planKey) : undefined;
@@ -120,11 +119,9 @@ export async function GET() {
         const canonicalObligationCents =
             planRow == null
                 ? null
-                : usingSetup
-                  ? getSetupPriceCents(planKey ?? undefined)
-                  : pendingKind === "year" || pendingKind === "period_switch"
-                    ? planRow.price_year_cents
-                    : planRow.price_cents;
+                : pendingKind === "year" || pendingKind === "period_switch"
+                  ? planRow.price_year_cents
+                  : planRow.price_cents;
         const canonicalObligationBrl =
             canonicalObligationCents != null ? canonicalObligationCents / 100 : null;
         const canonicalMonthly = planRow != null ? planRow.price_cents / 100 : null;
