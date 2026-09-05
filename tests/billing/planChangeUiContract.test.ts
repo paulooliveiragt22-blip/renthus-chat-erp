@@ -56,8 +56,12 @@ describe("billing UI contract — seleção ≠ fatura", () => {
         const src = read("components/billing/PlanChangeCatalog.tsx");
         assert.match(src, /to_annual:\s*toAnnual/);
         assert.match(src, /Upgrade para anual/);
-        assert.match(src, /to_annual:\s*toAnnualImmediate/);
         assert.match(src, /Migrar para anual/);
+        // Mensal→anual (qualquer rank) vai no checkout de upgrade, não no dialog de migração.
+        assert.match(
+            src,
+            /viewPeriod === "year" && !isAnnualSub[\s\S]*startUpgradeCheckout/
+        );
     });
 
     it("prepareUpgradeToAnnualSelection aceita plano inferior (keep)", () => {

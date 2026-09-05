@@ -203,7 +203,6 @@ export function PlanChangeCatalog({
         if (!downgradeTo) return;
         setSaving(true);
         try {
-            const toAnnualImmediate = viewPeriod === "year" && !isAnnualSub;
             const res = await fetch("/api/billing/change-plan", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
@@ -211,7 +210,6 @@ export function PlanChangeCatalog({
                 body: JSON.stringify({
                     plan: downgradeTo,
                     keep_user_ids: [...keep],
-                    to_annual: toAnnualImmediate,
                 }),
             });
             const json = await res.json().catch(() => ({}));
@@ -224,12 +222,6 @@ export function PlanChangeCatalog({
                 onSuccess?.(json.message);
             }
             await onReload();
-            if (
-                (json as { action?: string }).action === "downgrade_to_annual_quoted" ||
-                (json as { action?: string }).action === "upgrade_to_annual_quoted"
-            ) {
-                onCheckoutNeeded?.();
-            }
         } finally {
             setSaving(false);
         }
@@ -338,13 +330,21 @@ export function PlanChangeCatalog({
             void onUpgradeOrTrial(key);
             return;
         }
-        if (rankDiff > 0 && status === "active") {
-            void startUpgradeCheckout(key);
-            return;
-        }
-        if (rankDiff < 0 && status === "active") {
-            setDowngradeTo(key);
-            return;
+        if (status === "active") {
+            // Mensal → anual (mesmo/↑/↓): checkout imediato com proration — igual ao upgrade.
+            // Não abre dialog de keep users (só downgrade no mesmo ciclo).
+            if (viewPeriod === "year" && !isAnnualSub) {
+                void startUpgradeCheckout(key);
+                return;
+            }
+            if (rankDiff > 0) {
+                void startUpgradeCheckout(key);
+                return;
+            }
+            if (rankDiff < 0) {
+                setDowngradeTo(key);
+                return;
+            }
         }
         onError("Alteração de plano não disponível nesta situação.");
     }
@@ -559,16 +559,13 @@ export function PlanChangeCatalog({
                 <DialogContent className="max-w-xl overflow-x-hidden">
                     <DialogHeader>
                         <DialogTitle>
-                            {downgradeTo && viewPeriod === "year" && !isAnnualSub
-                                ? `Migrar para ${getPlanLabel(downgradeTo)} anual`
-                                : downgradeTo
-                                  ? `Confirmar migração para ${getPlanLabel(downgradeTo)}`
-                                  : "Confirmar migração"}
+                            {downgradeTo
+                                ? `Confirmar migração para ${getPlanLabel(downgradeTo)}`
+                                : "Confirmar migração"}
                         </DialogTitle>
                         <DialogDescription>
-                            {viewPeriod === "year" && !isAnnualSub
-                                ? "Vale na hora após o pagamento (anual − crédito do mês)."
-                                : `A migração será concluída no final do ciclo do plano atual (vencimento ${whenLabel}).`}
+                            A migração será concluída no final do ciclo do plano atual (vencimento{" "}
+                            {whenLabel}).
                         </DialogDescription>
                     </DialogHeader>
                     <p className="text-xs text-zinc-500">
@@ -602,12 +599,9 @@ export function PlanChangeCatalog({
                             type="button"
                             disabled={saving || loadingMembers}
                             onClick={() => void confirmDowngrade()}
+                            className="bg-[#16364d] text-white hover:bg-[#1f4a68]"
                         >
-                            {saving
-                                ? "Confirmando…"
-                                : viewPeriod === "year" && !isAnnualSub
-                                  ? "Continuar para pagamento"
-                                  : "Confirmar migração"}
+                            {saving ? "Confirmando…" : "Confirmar migração"}
                         </Button>
                     </DialogFooter>
                 </DialogContent>
