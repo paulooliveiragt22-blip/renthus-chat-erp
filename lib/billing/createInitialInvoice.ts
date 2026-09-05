@@ -129,9 +129,14 @@ export async function createInitialInvoice(
     } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);
         console.error("[createInitialInvoice] Pagar.me:", msg);
-        billingLog("signup_invoice", "pagarme_error", { company_id: companyId, error: msg });
-        await admin.from("invoices").update({ status: "failed" }).eq("id", invoiceId);
-        return { invoiceId: null, pixCode: null };
+        billingLog("signup_invoice", "pagarme_pix_prep_failed", {
+            company_id: companyId,
+            invoice_id: invoiceId,
+            error: msg,
+        });
+        // Mantém invoice pending — falha foi só no PIX automático do signup; o cliente
+        // paga em /plano/pagar (cartão ou PIX). Não marcar failed sem tentativa de pagamento.
+        return { invoiceId, pixCode: null };
     }
 
     await admin

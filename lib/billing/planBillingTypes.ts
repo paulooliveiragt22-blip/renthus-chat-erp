@@ -79,6 +79,8 @@ export type BillingStatusJson = {
     amount_mismatch?: boolean;
 };
 
+export type PlanBillingVariant = "full" | "pay";
+
 export type RenthusCardForm = { number: string; exp: string; cvv: string; holder: string };
 export type RenthusBillingAddr = {
     cep: string;
