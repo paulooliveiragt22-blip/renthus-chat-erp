@@ -13,11 +13,11 @@ import {
 import { Button } from "@/components/ui/button";
 import { pagarmeCreateCardToken } from "@/lib/pagarme/cardTokenBrowser";
 import { validateRenthusCardCheckout } from "@/lib/billing/validateRenthusCardCheckout";
-import { classifyFiscalDocument } from "@/lib/billing/brazilianFiscalDocument";
 import {
     formatCardExpiryInput,
     formatCardNumberInput,
     formatCvvInput,
+    formatHolderDocumentInput,
 } from "@/lib/billing/cardInputFormatters";
 import { lookupCep } from "@/lib/address/cepLookup";
 import type { RenthusBillingAddr, RenthusCardForm } from "@/lib/billing/planBillingTypes";
@@ -36,6 +36,14 @@ type Props = {
     onSuccess: (msg: string) => void;
 };
 
+const EMPTY_CARD: RenthusCardForm = {
+    holder: "",
+    holder_document: "",
+    number: "",
+    exp: "",
+    cvv: "",
+};
+
 export function AddPaymentMethodModal({
     open,
     onOpenChange,
@@ -46,12 +54,7 @@ export function AddPaymentMethodModal({
     onError,
     onSuccess,
 }: Props) {
-    const [card, setCard] = useState<RenthusCardForm>({
-        holder: "",
-        number: "",
-        exp: "",
-        cvv: "",
-    });
+    const [card, setCard] = useState<RenthusCardForm>(EMPTY_CARD);
     const [addr, setAddr] = useState<RenthusBillingAddr>(initialAddr);
     const [loading, setLoading] = useState(false);
     const [cepLoading, setCepLoading] = useState(false);
@@ -63,8 +66,12 @@ export function AddPaymentMethodModal({
         setAddr(initialAddr);
         setLocalSuccess(null);
         setLocalError(null);
-        setCard({ holder: "", number: "", exp: "", cvv: "" });
-    }, [open, initialAddr]);
+        setCard({
+            ...EMPTY_CARD,
+            // Prefill opcional com CNPJ da empresa; o usuário pode trocar pelo CPF do titular.
+            holder_document: formatHolderDocumentInput(cnpj),
+        });
+    }, [open, initialAddr, cnpj]);
 
     async function onCepBlur() {
         const digits = addr.cep.replaceAll(/\D/g, "");
@@ -101,19 +108,17 @@ export function AddPaymentMethodModal({
             onError(validated.error);
             return;
         }
-        const { exp, num, cvv, holder, addrCep } = validated;
-        const companyDoc = classifyFiscalDocument(cnpj);
+        const { exp, num, cvv, holder, holderDocument, addrCep } = validated;
 
         setLoading(true);
         try {
-            // 1) Token no browser (PCI) — docs Pagar.me POST /tokens?appId=
             const cardToken = await pagarmeCreateCardToken(PAGARME_PUBLIC_KEY, {
                 number: num,
                 holder_name: holder,
                 exp_month: exp.month,
                 exp_year: exp.year,
                 cvv,
-                holder_document: companyDoc.valid ? companyDoc.digits : undefined,
+                holder_document: holderDocument,
                 billing_address: {
                     street: addr.endereco.trim(),
                     number: addr.numero.trim(),
@@ -125,7 +130,6 @@ export function AddPaymentMethodModal({
                 },
             });
 
-            // 2) Salva na carteira do customer — POST /customers/{id}/cards { token }
             const res = await fetch("/api/billing/payment-methods", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
@@ -134,6 +138,7 @@ export function AddPaymentMethodModal({
                     action: "add_card",
                     card_token: cardToken,
                     set_as_default: true,
+                    holder_document: holderDocument,
                     billing_address: {
                         cep: addrCep,
                         endereco: addr.endereco.trim(),
@@ -160,7 +165,7 @@ export function AddPaymentMethodModal({
             await onAdded();
             window.setTimeout(() => {
                 onOpenChange(false);
-                setCard({ holder: "", number: "", exp: "", cvv: "" });
+                setCard(EMPTY_CARD);
                 setLocalSuccess(null);
             }, 900);
         } catch (e: unknown) {
@@ -181,8 +186,8 @@ export function AddPaymentMethodModal({
                 <DialogHeader>
                     <DialogTitle style={{ color: BRAND }}>Adicionar cartão</DialogTitle>
                     <DialogDescription>
-                        Tokeniza no browser e grava na carteira do cliente no Pagar.me (sem cobrança
-                        agora). O cartão fica disponível para renovação automática.
+                        Informe o CPF/CNPJ do titular do cartão (pode ser de terceiro). O cartão é
+                        tokenizado e gravado na carteira Pagar.me — nada é cobrado agora.
                     </DialogDescription>
                 </DialogHeader>
 
@@ -208,6 +213,24 @@ export function AddPaymentMethodModal({
                             value={card.holder}
                             onChange={(e) => setCard((c) => ({ ...c, holder: e.target.value }))}
                             autoComplete="cc-name"
+                            disabled={Boolean(localSuccess)}
+                        />
+                    </label>
+                    <label className="grid gap-1">
+                        <span className="text-xs font-semibold text-zinc-600">
+                            CPF/CNPJ do titular
+                        </span>
+                        <input
+                            className="rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 dark:border-zinc-700 dark:bg-zinc-800"
+                            value={card.holder_document}
+                            onChange={(e) =>
+                                setCard((c) => ({
+                                    ...c,
+                                    holder_document: formatHolderDocumentInput(e.target.value),
+                                }))
+                            }
+                            placeholder="000.000.000-00"
+                            inputMode="numeric"
                             disabled={Boolean(localSuccess)}
                         />
                     </label>

@@ -8,7 +8,6 @@ import { useInvalidatePlanFeatures } from "@/lib/billing/usePlanFeatures";
 import { pagarmeCreateCardToken } from "@/lib/pagarme/cardTokenBrowser";
 import { lookupCep } from "@/lib/address/cepLookup";
 import { validateRenthusCardCheckout } from "@/lib/billing/validateRenthusCardCheckout";
-import { classifyFiscalDocument } from "@/lib/billing/brazilianFiscalDocument";
 import type {
     BillingStatusJson,
     PlanBillingVariant,
@@ -80,6 +79,7 @@ export default function PlanBillingPanel({ variant = "full" }: PlanBillingPanelP
     const [renthusPayMode, setRenthusPayMode] = useState<"pix" | "card">("pix");
     const [renthusCard, setRenthusCard] = useState<RenthusCardForm>({
         holder: "",
+        holder_document: "",
         number: "",
         exp: "",
         cvv: "",
@@ -381,8 +381,7 @@ export default function PlanBillingPanel({ variant = "full" }: PlanBillingPanelP
             setBillingErr(validated.error);
             return;
         }
-        const { exp, num, cvv, holder, addrCep } = validated;
-        const companyDoc = classifyFiscalDocument(cnpj);
+        const { exp, num, cvv, holder, holderDocument, addrCep } = validated;
 
         setCardPayLoading(true);
         try {
@@ -394,7 +393,7 @@ export default function PlanBillingPanel({ variant = "full" }: PlanBillingPanelP
                     exp_month: exp.month,
                     exp_year: exp.year,
                     cvv,
-                    holder_document: companyDoc.valid ? companyDoc.digits : undefined,
+                    holder_document: holderDocument,
                     billing_address: {
                         street: cardAddr.endereco.trim(),
                         number: cardAddr.numero.trim(),
@@ -417,6 +416,7 @@ export default function PlanBillingPanel({ variant = "full" }: PlanBillingPanelP
                     payment_method: "credit_card",
                     card_token: cardToken,
                     installments: renthusInstallments,
+                    holder_document: holderDocument,
                     billing_address: {
                         cep: addrCep,
                         endereco: cardAddr.endereco.trim(),

@@ -33,6 +33,7 @@ import {
     PAGARME_INVALID_DOCUMENT_ERROR,
     resolvePagarmeFiscalDocument,
 } from "@/lib/billing/pagarmeFiscalDocument";
+import { classifyFiscalDocument } from "@/lib/billing/brazilianFiscalDocument";
 import { getPlanLabel } from "@/lib/billing/planCatalog";
 import { isUniqueViolation } from "@/lib/billing/isUniqueViolation";
 import {
@@ -87,6 +88,8 @@ type Body = {
     card_token?:      string;
     /** Cartão já salvo no customer Pagar.me (retry / default). */
     card_id?:         string;
+    /** CPF/CNPJ do titular do cartão (obrigatório com card_token). */
+    holder_document?: string;
     installments?:    number;
     idempotency_key?: string;
     billing_address?: {
@@ -373,13 +376,24 @@ export async function POST(req: Request) {
 
                 const line1Parts = [num, street, bairro].filter(Boolean);
 
+                const holderDoc = classifyFiscalDocument(body.holder_document);
+                if (!holderDoc.valid) {
+                    return NextResponse.json(
+                        {
+                            error:
+                                "Informe o CPF ou CNPJ válido do titular do cartão (holder_document).",
+                        },
+                        { status: 400 }
+                    );
+                }
+
                 order = await createSetupOrder({
                     amountCents,
                     description:     labels.description,
                     installments,
                     cardToken:       token!,
                     itemCode:        labels.itemCode,
-                    holderDocument:  fiscal.value.digits,
+                    holderDocument:  holderDoc.digits,
                     customerId:      reuseCustomerId,
                     customer:        reuseCustomerId ? undefined : customerBase,
                     billingAddress: {

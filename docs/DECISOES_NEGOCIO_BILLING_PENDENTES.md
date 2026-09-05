@@ -1,6 +1,6 @@
 # Decisões de negócio — Billing
 
-**Atualizado:** 2026-09-04 (Pacote 5 — UI anual /signup + /plano toggle + troca mensal→anual pay-to-switch R2-5)  
+**Atualizado:** 2026-09-05 (checkout aberto: CPF/CNPJ do titular do cartão)  
 **Gate:** `.cursor/rules/decisoes-negocio-antes-codigo.mdc`  
 **Status:** Rodadas 1–3 **fechadas**. Este arquivo é a fonte de verdade comercial.
 
@@ -80,6 +80,8 @@ Uma única obrigação no ano (PIX/cartão valor cheio).
 | Anual → anual **superior** | Imediato (delta anual / 365) |
 | Anual → anual **inferior** | Agendado fim do ciclo anual |
 | Anual → mensal | Fora de escopo (anual só migra para anual) |
+
+**Emenda 2026-09-05c — CPF/CNPJ do titular do cartão `[i]`:** checkout aberto (padrão de mercado). Campo obrigatório “CPF/CNPJ do titular” no pagamento com cartão novo e em “Adicionar cartão”. Enviado ao Pagar.me como `holder_document` (token + order). O CNPJ/CPF da **empresa** continua no `customer` da cobrança; o documento do **titular** pode ser de terceiro (antifraude/3DS no banco). Cartão salvo (`card_id`) não pede de novo — já está na carteira PSP.
 
 ### R2-4 — Seats Pro
 
