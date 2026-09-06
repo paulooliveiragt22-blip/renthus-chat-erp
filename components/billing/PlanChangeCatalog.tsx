@@ -75,8 +75,8 @@ function yearlyDiscountPct(monthlyBrl: number, yearlyBrl: number) {
 }
 
 const BLURBS: Record<CommercialPlanKey, string> = {
-    essencial: "WhatsApp + cardápio + IA",
-    pro: "ERP + impressão + IA",
+    essencial: "WhatsApp + cardápio + PDV",
+    pro: "ERP + impressão",
     market: "Pro + iFood/Aiqfome + omni",
 };
 

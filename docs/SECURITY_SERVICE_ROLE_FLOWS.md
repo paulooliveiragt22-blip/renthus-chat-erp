@@ -11,7 +11,7 @@ Objetivo: saber onde o Postgres vê `auth.role() = 'service_role'` (RLS contorna
 | Webhook WhatsApp `POST /api/whatsapp/incoming` | Assinatura `X-Hub-Signature-256` + `WHATSAPP_APP_SECRET` |
 | Webhook Meta messaging `POST /api/meta/messaging/incoming` | HMAC Meta (`META_APP_SECRET` / `WHATSAPP_APP_SECRET`) |
 | Webhook Pagar.me `POST /api/billing/webhook` | Rate limit IP; **Basic Auth** (`PAGARME_WEBHOOK_BASIC_*`); HMAC legado se header; **confirmação paid via GET order API** |
-| Cron (billing, chatbot, marketplace, platform) | `Authorization: Bearer CRON_SECRET` — **um** secret por enquanto (decisão B10) |
+| Cron (billing, chatbot, marketplace, platform) | `Authorization: Bearer CRON_SECRET` — **um** secret; playbook: [`RUNBOOK_CRON_SECRET_ROTATION.md`](./RUNBOOK_CRON_SECRET_ROTATION.md) |
 | Print agent (várias rotas `/api/agent/*`) | API key `rpa_*` validada em servidor; **não logar** plaintext. Rotação: `PATCH /api/agent/keys` `{ agent_id }`; revogar scramble hash. |
 | Chatbot resolve interno `POST /api/chatbot/resolve` | `X-Service-Key: INTERNAL_CHATBOT_SECRET` + `_companyId` — **não** service_role |
 | Cardápio público (HMAC sessão/link) | `WEB_MENU_SESSION_SECRET` — **obrigatório**; sem fallback para service_role |
@@ -26,7 +26,8 @@ Objetivo: saber onde o Postgres vê `auth.role() = 'service_role'` (RLS contorna
 
 > **Nunca** aceitar só `x-vercel-cron` sem Bearer — header é indicativo, não segredo.
 
-Rotas em `vercel.json` (2026-08-28): `/api/billing/charge`, `/api/chatbot/detect-abandoned-carts`, `/api/marketplace/sync-catalog`, `/api/platform/alerts/check`, `/api/platform/audit/archive`.
+Rotas em `vercel.json` (atual): charge, mark-abandoned, expire-trials, webhook-health, detect-abandoned-carts, sync-catalog, platform alerts/check, platform audit/archive.  
+Playbook de rotação: [`RUNBOOK_CRON_SECRET_ROTATION.md`](./RUNBOOK_CRON_SECRET_ROTATION.md).
 
 Ver ADR-0004: billing **não** usa Edge Functions.
 

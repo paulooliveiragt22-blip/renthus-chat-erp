@@ -34,7 +34,7 @@
 | **B5** | Export PII clientes | Paginação + lista leve; export completo com `customers.export` + rate limit. Capability já no catálogo. | Staff sem export não baixa dump PII | [x] 2026-09-05 — `?export=1` + list leve; UI clientes usa export |
 | **B6** | `GET /api/orders/[id]` | Cookie: `requireCapability("orders.read")`. Agent: projecção mínima. | Sem capability → 403 | [x] 2026-09-05 |
 | **B7** | Print Agent keys | Rotação / invalidação + scramble no revoke; `verifyAgentByApiKey` exige ativo | Key antiga 401 | [x] 2026-09-05 — PATCH rotate + UI |
-| **B8** | Impersonation platform | TTL curto + audit | Sessão expira | [ ] |
+| **B8** | Impersonation platform | TTL 30 min; expire→audit; PII mask em customers/orders; banner com countdown | Sessão expira + audit | [x] 2026-09-05 |
 
 ---
 
@@ -42,9 +42,9 @@
 
 | ID | Item | Ação | Aceite | Status |
 |----|------|------|--------|--------|
-| **B9** | Webhooks Meta / Pagar.me | Fail-closed secret ausente | Nunca processa sem auth | [ ] |
-| **B10** | `CRON_SECRET` | Playbook de rotação (secret único) | Doc rotação | [ ] |
-| **B11** | Billing public | Allowlist + rate limit | Sem enum útil | [ ] |
+| **B9** | Webhooks Meta / Pagar.me | Fail-closed secret ausente | Nunca processa sem auth | [x] 2026-09-05 — Meta 503; Pagarme ignora ALLOW_INSECURE em prod |
+| **B10** | `CRON_SECRET` | Playbook de rotação (secret único) | Doc rotação | [x] 2026-09-05 — `docs/RUNBOOK_CRON_SECRET_ROTATION.md` |
+| **B11** | Billing public | Allowlist + rate limit IP; signup + email/CNPJ; conflito 409 único | Sem enum útil além do catálogo | [x] 2026-09-05 — `signupPublicAbuse` + `enforceKeyRateLimitAsync` |
 
 ---
 
@@ -70,7 +70,7 @@
 ## Ordem restante
 
 ```
-B7 → B8 → B9 → B10 → B11 → B12 → B13 → B14
+B12 → B13 → B14
 ```
 
 ## Fora de escopo

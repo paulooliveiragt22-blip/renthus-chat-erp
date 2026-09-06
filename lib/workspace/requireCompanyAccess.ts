@@ -8,6 +8,7 @@ import {
     isImpersonationActive,
     type ImpersonationSessionRow,
 } from "@/lib/platform/impersonation";
+import { finalizeExpiredImpersonationSession } from "@/lib/platform/finalizeExpiredImpersonation";
 import {
     requireBillingActive,
     type BillingAccessStatus,
@@ -84,7 +85,9 @@ export async function requireCompanyAccess(
             .maybeSingle();
 
         const row = session as ImpersonationSessionRow | null;
-        if (isImpersonationActive(row) && row!.company_id === companyId) {
+        if (row && !isImpersonationActive(row)) {
+            await finalizeExpiredImpersonationSession(admin, row);
+        } else if (isImpersonationActive(row) && row!.company_id === companyId) {
             const { data: platformUser } = await admin
                 .from("platform_users")
                 .select("id, auth_user_id, is_active")

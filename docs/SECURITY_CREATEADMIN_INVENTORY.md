@@ -62,8 +62,9 @@ Impersonation — proxy `isTenantMutationPath` deny-by-default sob `/api/*` tena
 
 | Rota | Gate |
 |------|------|
-| `app/api/billing/signup`, `app/api/ativar`, `app/api/onboarding`, `app/api/companies/create` | fluxo signup (sem tenant prévio) |
-| `app/api/billing/public-plans`, `trial-policy` | catálogo público — **proxy allowlist A7** + rate limit IP |
+| `app/api/billing/signup` | público — IP + email/CNPJ RL (B11); conflito 409 sem enum e-mail vs CNPJ |
+| `app/api/ativar`, `app/api/onboarding`, `app/api/companies/create` | pós-auth / wizard (não superfície anônima) |
+| `app/api/billing/public-plans`, `trial-policy` | catálogo público — **proxy allowlist A7** + rate limit IP; oferta sem UUID de plano |
 | `app/api/public/menu/**` | slug + rate limit |
 | `app/api/health` | uptime |
 | `app/api/debug/whoami` | 404 em prod salvo flag |

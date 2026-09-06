@@ -3,7 +3,8 @@
 /**
  * app/(public)/signup/page.tsx  →  rota: /signup
  *
- * Cadastro com senha. Trial configurável no platform (default 0 = pagamento antes de usar).
+ * Landing comercial MVP Zampell Delivery + checkout na mesma tela.
+ * Trial configurável no platform (default 0 = pagamento antes de usar).
  */
 
 import { useMemo, useState, useRef, useEffect } from "react";
@@ -44,9 +45,8 @@ type SignupPlanCard = {
 
 const PLAN_FEATURE_BLURBS: Record<CommercialPlanKey, string[]> = {
     essencial: [
-        "Pedidos no WhatsApp (Flow + IA)",
+        "Agente inteligente no WhatsApp (Flow + IA)",
         "Cardápio web com capa e foto",
-        "Crédito IA incluso (10%) + packs R$10/20/50",
         "PDV básico · 1 usuário",
     ],
     pro: [
@@ -189,7 +189,8 @@ export default function SignupPage() {
                             key,
                             name: row.name || c.name,
                             popular: Boolean(row.popular ?? c.popular),
-                            description: row.description || c.description,
+                            /** Copy comercial canônico no código (não ecoar texto legado do DB). */
+                            description: c.description,
                             listMonthlyCents: row.list_monthly_cents,
                             offerMonthlyCents: row.offer_monthly_cents,
                             listYearlyCents:
@@ -340,16 +341,25 @@ export default function SignupPage() {
                         borderRadius: 12,
                     }}
                 />
-                <span style={S.brandName}>RenthusAgent</span>
+                <div style={S.brandTextCol}>
+                    <span style={S.brandName}>Zampell</span>
+                    <span style={S.brandProduct}>Delivery</span>
+                </div>
             </div>
 
             <div style={S.hero}>
-                <h1 style={S.title}>Crie sua conta</h1>
+                <p style={S.slogan}>Agentes inteligentes para o seu delivery.</p>
+                <h1 style={S.title}>
+                    Seu delivery com agente inteligente no WhatsApp.
+                </h1>
                 <p style={S.subtitle}>
+                    Atendimento e gestão de ponta, monta o pedido e joga na operação.
+                </p>
+                <p style={S.policyLine}>
                     {policyLoaded && trialPolicy.payment_required
-                        ? "Pagamento na primeira mensalidade para acessar o app"
+                        ? "Escolha o plano e pague na primeira mensalidade para acessar."
                         : policyLoaded
-                          ? `${trialPolicy.trial_days} dias de teste completos · depois, pague a mensalidade para continuar`
+                          ? `${trialPolicy.trial_days} dias de teste · depois, pague a mensalidade para continuar`
                           : "Carregando…"}
                 </p>
             </div>
@@ -493,7 +503,7 @@ export default function SignupPage() {
 
             {plan && (
                 <form ref={formRef} onSubmit={handleSubmit} style={S.form}>
-                    <h2 style={S.formTitle}>Dados de acesso</h2>
+                    <h2 style={S.formTitle}>Criar conta e pagar</h2>
 
                     <div style={S.resumoBox}>
                         <div style={S.resumoQuestion}>Como funciona</div>
@@ -513,7 +523,7 @@ export default function SignupPage() {
                                         {chargeLabel}) por PIX ou cartão.
                                     </div>
                                     <div style={S.resumoHighlight}>
-                                        Só depois do pagamento você acessa o ERP e configura WhatsApp e
+                                        Só depois do pagamento você acessa o painel e configura WhatsApp e
                                         produtos.
                                     </div>
                                 </>
@@ -624,7 +634,23 @@ export default function SignupPage() {
                 </form>
             )}
 
-            <p style={S.footer}>© {new Date().getFullYear()} RenthusAgent · Todos os direitos reservados</p>
+            <div style={S.otherProducts}>
+                <div style={S.otherProductsLabel}>Outros produtos Zampell</div>
+                <div style={S.otherProductsRow}>
+                    <span style={S.otherProductChip}>Clínicas · em breve</span>
+                    <span style={S.otherProductChip}>Estética · em breve</span>
+                </div>
+            </div>
+
+            <p style={S.loginLine}>
+                Já tem conta?{" "}
+                <a href="/login" style={S.loginLink}>
+                    Entrar
+                </a>
+            </p>
+            <p style={S.footer}>
+                © {new Date().getFullYear()} Zampell · Todos os direitos reservados
+            </p>
         </div>
     );
 }
@@ -657,11 +683,25 @@ const S = {
         marginBottom:   28,
         width:          "100%",
     },
+    brandTextCol: {
+        display:       "flex",
+        flexDirection: "column" as const,
+        alignItems:    "flex-start",
+        gap:           2,
+        lineHeight:    1.1,
+    },
     brandName: {
         fontSize:      20,
         fontWeight:    700,
         color:         "#ffffff",
         letterSpacing: "-0.02em",
+    },
+    brandProduct: {
+        fontSize:      12,
+        fontWeight:    600,
+        color:         BRAND.accent,
+        letterSpacing: "0.04em",
+        textTransform: "uppercase" as const,
     },
     hero: {
         textAlign:    "center" as const,
@@ -669,19 +709,32 @@ const S = {
         maxWidth:     640,
         padding:      "0 8px",
     },
+    slogan: {
+        margin:        "0 0 14px",
+        fontSize:      13,
+        fontWeight:    600,
+        color:         BRAND.accent,
+        letterSpacing: "0.02em",
+    },
     title: {
         margin:        "0 0 12px",
-        fontSize:      40,
+        fontSize:      "clamp(26px, 5vw, 36px)",
         fontWeight:    800,
         color:         "#ffffff",
         letterSpacing: "-0.6px",
         lineHeight:    1.15,
     },
     subtitle: {
-        margin:     0,
-        fontSize:   15,
+        margin:     "0 0 14px",
+        fontSize:   16,
         lineHeight: 1.5,
-        color:      "rgba(255,255,255,0.58)",
+        color:      "rgba(255,255,255,0.78)",
+    },
+    policyLine: {
+        margin:     0,
+        fontSize:   13,
+        lineHeight: 1.45,
+        color:      "rgba(255,255,255,0.48)",
     },
     periodToggleWrap: {
         display:        "flex",
@@ -934,8 +987,47 @@ const S = {
         fontSize:  12,
         color:     "#9ca3af",
     },
+    otherProducts: {
+        marginTop:  48,
+        textAlign:  "center" as const,
+        maxWidth:   480,
+        width:      "100%",
+    },
+    otherProductsLabel: {
+        fontSize:      11,
+        fontWeight:    600,
+        letterSpacing: "0.06em",
+        textTransform: "uppercase" as const,
+        color:         "rgba(255,255,255,0.40)",
+        marginBottom:  12,
+    },
+    otherProductsRow: {
+        display:        "flex",
+        flexWrap:       "wrap" as const,
+        gap:            8,
+        justifyContent: "center",
+    },
+    otherProductChip: {
+        fontSize:     12,
+        fontWeight:   500,
+        color:        "rgba(255,255,255,0.55)",
+        border:       "1px solid rgba(255,255,255,0.14)",
+        borderRadius: 999,
+        padding:      "6px 12px",
+        background:   "rgba(255,255,255,0.04)",
+    },
+    loginLine: {
+        marginTop:  28,
+        fontSize:   14,
+        color:      "rgba(255,255,255,0.55)",
+    },
+    loginLink: {
+        color:          BRAND.accent,
+        fontWeight:     700,
+        textDecoration: "none",
+    },
     footer: {
-        marginTop: 40,
+        marginTop: 16,
         fontSize:  12,
         color:     "rgba(255,255,255,0.30)",
     },

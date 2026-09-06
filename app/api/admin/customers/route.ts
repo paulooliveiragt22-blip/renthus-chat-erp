@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireCapability } from "@/lib/workspace/rbac/requireCapability";
 import { checkRateLimit, RATE_LIMIT_WINDOW_MS } from "@/lib/security/rateLimit";
+import {
+    maskEmailForImpersonation,
+    maskPhoneForImpersonation,
+} from "@/lib/platform/impersonation";
 
 export const runtime = "nodejs";
 
@@ -20,6 +24,28 @@ function parseLimit(raw: string | null, fallback: number, max: number): number {
     const n = Number.parseInt(String(raw ?? ""), 10);
     if (!Number.isFinite(n) || n < 1) return fallback;
     return Math.min(n, max);
+}
+
+function redactCustomerRow(
+    row: Record<string, unknown>,
+    impersonating: boolean
+): Record<string, unknown> {
+    if (!impersonating) return row;
+    return {
+        ...row,
+        phone: maskPhoneForImpersonation(
+            typeof row.phone === "string" ? row.phone : null
+        ),
+        phone_e164: maskPhoneForImpersonation(
+            typeof row.phone_e164 === "string" ? row.phone_e164 : null
+        ),
+        email: maskEmailForImpersonation(
+            typeof row.email === "string" ? row.email : null
+        ),
+        cpf_cnpj: row.cpf_cnpj ? "***" : null,
+        address: row.address ? "[redacted]" : null,
+        notes: null,
+    };
 }
 
 export async function GET(req: NextRequest) {
@@ -55,10 +81,14 @@ export async function GET(req: NextRequest) {
             .limit(limit);
 
         if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+        const customers = (data ?? []).map((row) =>
+            redactCustomerRow(row as Record<string, unknown>, ctx.impersonating)
+        );
         return NextResponse.json({
             mode: "export",
             limit,
-            customers: data ?? [],
+            customers,
+            pii_redacted: ctx.impersonating,
         });
     }
 
@@ -80,10 +110,14 @@ export async function GET(req: NextRequest) {
         .limit(limit);
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    const customers = (data ?? []).map((row) =>
+        redactCustomerRow(row as Record<string, unknown>, ctx.impersonating)
+    );
     return NextResponse.json({
         mode: "list",
         limit,
-        customers: data ?? [],
+        customers,
+        pii_redacted: ctx.impersonating,
     });
 }
 

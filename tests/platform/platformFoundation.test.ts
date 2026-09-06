@@ -144,4 +144,29 @@ describe("platform impersonation helpers", () => {
             false
         );
     });
+
+    it("B8: TTL é 30 minutos e máscaras de PII", async () => {
+        const {
+            PLATFORM_IMPERSONATION_TTL_MS,
+            maskPhoneForImpersonation,
+            maskEmailForImpersonation,
+            isImpersonationExpired,
+        } = await import("../../lib/platform/impersonation");
+
+        assert.strictEqual(PLATFORM_IMPERSONATION_TTL_MS, 30 * 60 * 1000);
+        assert.strictEqual(maskPhoneForImpersonation("+5511999887766"), "***7766");
+        assert.strictEqual(maskEmailForImpersonation("alice@loja.com"), "al***@loja.com");
+        assert.strictEqual(
+            isImpersonationExpired({
+                id: "1",
+                platform_user_id: "u",
+                company_id: "c",
+                reason: "x",
+                started_at: new Date().toISOString(),
+                expires_at: new Date(Date.now() - 1000).toISOString(),
+                ended_at: null,
+            }),
+            true
+        );
+    });
 });

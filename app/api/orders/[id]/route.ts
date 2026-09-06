@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { verifyAgentByApiKey } from "@/lib/print/agents";
 import { requireCapability } from "@/lib/workspace/rbac/requireCapability";
+import { maskPhoneForImpersonation } from "@/lib/platform/impersonation";
 
 export const runtime = "nodejs";
 
@@ -16,6 +17,30 @@ const ORDER_SELECT_AGENT =
 
 const ITEMS_SELECT =
     "id, order_id, product_name, unit_type, quantity, unit_price, line_total, created_at, produto_embalagem_id, produto_embalagens ( descricao, fator_conversao, siglas_comerciais ( sigla, descricao ), product_volumes ( volume_quantidade, unit_types ( sigla ) ), products ( name ) )";
+
+function redactOrderForImpersonation(
+    order: Record<string, unknown>,
+    impersonating: boolean
+): Record<string, unknown> {
+    if (!impersonating) return order;
+    const customers = order.customers as Record<string, unknown> | null | undefined;
+    return {
+        ...order,
+        customer_phone: maskPhoneForImpersonation(
+            typeof order.customer_phone === "string" ? order.customer_phone : null
+        ),
+        delivery_address: order.delivery_address ? "[redacted]" : null,
+        customers: customers
+            ? {
+                  ...customers,
+                  phone: maskPhoneForImpersonation(
+                      typeof customers.phone === "string" ? customers.phone : null
+                  ),
+                  address: customers.address ? "[redacted]" : null,
+              }
+            : customers,
+    };
+}
 
 export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
     try {
@@ -78,7 +103,14 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
             .eq("order_id", orderId)
             .order("created_at", { ascending: true });
 
-        return NextResponse.json({ order, items: itemsErr ? [] : items });
+        return NextResponse.json({
+            order: redactOrderForImpersonation(
+                order as Record<string, unknown>,
+                access.impersonating
+            ),
+            items: itemsErr ? [] : items,
+            pii_redacted: access.impersonating,
+        });
     } catch (e: unknown) {
         const msg = e instanceof Error ? e.message : String(e);
         return NextResponse.json({ error: msg }, { status: 500 });

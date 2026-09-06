@@ -105,3 +105,15 @@ export async function enforceIpRateLimitAsync(
     if (rl.allowed) return null;
     return rateLimitExceededResponse(rl, body);
 }
+
+/** Rate limit por chave arbitrária (email, CNPJ, slug…) — Upstash quando ativo. */
+export async function enforceKeyRateLimitAsync(
+    key: string,
+    limit: number,
+    windowMs: number,
+    body: Record<string, unknown> = { error: "rate_limit_exceeded" }
+): Promise<NextResponse | null> {
+    const rl = await checkRateLimitAsync(key, limit, windowMs);
+    if (rl.allowed) return null;
+    return rateLimitExceededResponse(rl, body);
+}

@@ -41,7 +41,7 @@ export const PLAN_CATALOG: Record<
         name: "Essencial",
         monthlyPriceCents: 27900,
         yearlyPriceCents: defaultYearlyCentsFromMonthly(27900),
-        description: "WhatsApp + cardápio web + IA com crédito + packs",
+        description: "WhatsApp + cardápio web + PDV básico",
         features: [
             "whatsapp_messages",
             "ai_parser",
@@ -58,7 +58,7 @@ export const PLAN_CATALOG: Record<
         name: "Pro",
         monthlyPriceCents: 34900,
         yearlyPriceCents: defaultYearlyCentsFromMonthly(34900),
-        description: "ERP completo + impressão + IA (canal próprio)",
+        description: "ERP completo + impressão (canal próprio)",
         popular: true,
         features: [
             "whatsapp_messages",

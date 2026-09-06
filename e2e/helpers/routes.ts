@@ -19,7 +19,7 @@ export type ScreenRoute = {
 
 export const PUBLIC_SCREENS: ScreenRoute[] = [
     { path: "/login", name: "Login", group: "public", expectText: /entrar|login|e-mail/i },
-    { path: "/signup", name: "Cadastro", group: "public", expectText: /crie sua conta|quero este plano|essencial/i },
+    { path: "/signup", name: "Cadastro", group: "public", expectText: /zampell|agente inteligente|quero este plano|essencial/i },
     { path: "/onboarding", name: "Onboarding público", group: "public", expectText: /ativ|renthus|whatsapp/i },
     { path: "/logout", name: "Logout", group: "public" },
     { path: "/offline", name: "Offline PWA", group: "public", expectText: /offline|conexão|internet/i },

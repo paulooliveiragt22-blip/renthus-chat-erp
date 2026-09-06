@@ -17,6 +17,7 @@ export type CapabilityContext = {
     admin: SupabaseClient;
     profileId: string | null;
     capabilities: CapabilityKey[];
+    impersonating: boolean;
 };
 
 async function loadMemberCapabilities(
@@ -67,6 +68,7 @@ export async function requireCapability(
             admin: ctx.admin,
             profileId: null,
             capabilities: [],
+            impersonating: ctx.impersonating,
         };
     }
 
@@ -99,5 +101,6 @@ export async function requireCapability(
         admin: ctx.admin,
         profileId,
         capabilities,
+        impersonating: ctx.impersonating,
     };
 }

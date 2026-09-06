@@ -21,6 +21,7 @@ export const PLATFORM_AUDIT_ACTIONS = [
     "platform.billing.checkout_ensured",
     "platform.impersonation.started",
     "platform.impersonation.ended",
+    "platform.impersonation.expired",
     "platform.user.created",
     "platform.user.role_changed",
     "platform.user.deactivated",

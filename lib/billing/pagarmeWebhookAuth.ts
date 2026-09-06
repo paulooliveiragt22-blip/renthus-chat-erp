@@ -49,7 +49,9 @@ export function readPagarmeWebhookAuthEnv(
         basicUser: env.PAGARME_WEBHOOK_BASIC_USER?.trim() || undefined,
         basicPassword: env.PAGARME_WEBHOOK_BASIC_PASSWORD?.trim() || undefined,
         hmacSecret: env.PAGARME_WEBHOOK_SECRET?.trim() || undefined,
-        allowInsecure: env.ALLOW_INSECURE_PAGARME_WEBHOOK?.trim() === "1",
+        // B9: flag insecure nunca vale em production (mesmo se env estiver setada).
+        allowInsecure:
+            !isProduction && env.ALLOW_INSECURE_PAGARME_WEBHOOK?.trim() === "1",
         isProduction,
     };
 }
@@ -138,7 +140,8 @@ export function assertPagarmeWebhookAuth(input: {
     env?: PagarmeWebhookAuthEnv;
 }): PagarmeWebhookAuthResult {
     const env = input.env ?? readPagarmeWebhookAuthEnv();
-    const requireAuth = env.isProduction && !env.allowInsecure;
+    // B9: production sempre exige Basic — allowInsecure só em non-prod.
+    const requireAuth = env.isProduction;
 
     const hasBasic =
         Boolean(env.basicUser?.length) && Boolean(env.basicPassword?.length);

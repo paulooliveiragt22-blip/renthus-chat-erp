@@ -118,6 +118,19 @@ export async function enforceIpRateLimitAsync(
     return distributed(req, prefix, limit, windowMs, body);
 }
 
+/** Rate limit por chave arbitrária (email/CNPJ/slug). Ver `rateLimitDistributed`. */
+export async function enforceKeyRateLimitAsync(
+    key: string,
+    limit: number,
+    windowMs: number,
+    body: Record<string, unknown> = { error: "rate_limit_exceeded" }
+): Promise<NextResponse | null> {
+    const { enforceKeyRateLimitAsync: distributed } = await import(
+        "@/lib/security/rateLimitDistributed"
+    );
+    return distributed(key, limit, windowMs, body);
+}
+
 /** Limpa buckets expirados (evita crescimento em processos longos). */
 export function pruneRateLimitBuckets(): void {
     const now = Date.now();

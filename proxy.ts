@@ -470,7 +470,9 @@ export async function proxy(
 
     if (!isLoggedIn) {
         const url = request.nextUrl.clone();
-        url.pathname = "/login";
+        // MVP comercial: raiz e rotas protegidas sem sessão → vitrine /signup (compra).
+        // Login explícito permanece em /login para quem já tem conta.
+        url.pathname = pathname === "/" ? "/signup" : "/login";
         return stampCspResponse(NextResponse.redirect(url), csp);
     }
 

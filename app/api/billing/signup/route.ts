@@ -3,6 +3,8 @@
  *
  * Orquestra: validate → createUser → SignupCompany → notify.
  * Se Pagar.me falhar no pay-to-start: 200 + invoice_ready:false (não 500).
+ *
+ * B11: rate limit IP + email + CNPJ; conflitos sem enum e-mail vs CNPJ.
  */
 
 import { NextResponse } from "next/server";
@@ -13,22 +15,26 @@ import { sendBillingNotification } from "@/lib/billing/sendBillingNotification";
 import { parseCommercialPlanInput, getPlanLabel } from "@/lib/billing/planCatalog";
 import { isValidCnpj } from "@/lib/billing/brazilianFiscalDocument";
 import {
+    BILLING_SIGNUP_IP_LIMIT,
+    BILLING_SIGNUP_WINDOW_MS,
+    enforceSignupIdentityRateLimits,
+    signupConflictResponse,
+} from "@/lib/billing/signupPublicAbuse";
+import {
     enforceIpRateLimitAsync,
-    RATE_LIMIT_WINDOW_15M_MS,
 } from "@/lib/security/rateLimit";
 
 export const runtime = "nodejs";
 
 const RENTHUS_PHONE = process.env.RENTHUS_SUPPORT_PHONE ?? "5566992071285";
-const BILLING_SIGNUP_RATE_LIMIT = 10;
 
 export async function POST(req: Request) {
     try {
         const limited = await enforceIpRateLimitAsync(
             req,
             "billing_signup",
-            BILLING_SIGNUP_RATE_LIMIT,
-            RATE_LIMIT_WINDOW_15M_MS
+            BILLING_SIGNUP_IP_LIMIT,
+            BILLING_SIGNUP_WINDOW_MS
         );
         if (limited) return limited;
 
@@ -86,6 +92,9 @@ export async function POST(req: Request) {
             return NextResponse.json({ error: "WhatsApp inválido" }, { status: 400 });
         }
 
+        const identityLimited = await enforceSignupIdentityRateLimits(emailNorm, cnpjDigits);
+        if (identityLimited) return identityLimited;
+
         const admin = createAdminClient();
 
         const { data: dupCol } = await admin
@@ -102,10 +111,7 @@ export async function POST(req: Request) {
                 .maybeSingle();
 
             if (sub && sub.status !== "cancelled") {
-                return NextResponse.json(
-                    { error: "Este CNPJ já possui cadastro. Faça login ou fale com o suporte." },
-                    { status: 409 }
-                );
+                return signupConflictResponse();
             }
         }
 
@@ -119,10 +125,7 @@ export async function POST(req: Request) {
         if (authErr || !authData?.user?.id) {
             const msg = authErr?.message ?? "Não foi possível criar o usuário";
             if (msg.toLowerCase().includes("already") || msg.toLowerCase().includes("registered")) {
-                return NextResponse.json(
-                    { error: "Este e-mail já está cadastrado. Use outro ou faça login." },
-                    { status: 409 }
-                );
+                return signupConflictResponse();
             }
             console.error("[signup] createUser:", msg);
             return NextResponse.json({ error: msg }, { status: 400 });

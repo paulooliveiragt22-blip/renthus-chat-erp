@@ -4,6 +4,15 @@ import { useQuery } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import { EyeOff } from "lucide-react";
 
+function formatExpiresIn(expiresAt: string | undefined): string | null {
+    if (!expiresAt) return null;
+    const ms = new Date(expiresAt).getTime() - Date.now();
+    if (!Number.isFinite(ms) || ms <= 0) return "expirando";
+    const mins = Math.ceil(ms / 60_000);
+    if (mins <= 1) return "<1 min";
+    return `${mins} min`;
+}
+
 export default function ImpersonationBanner() {
     const router = useRouter();
     const { data, isLoading } = useQuery({
@@ -20,10 +29,12 @@ export default function ImpersonationBanner() {
             }>;
         },
         staleTime: 15_000,
-        refetchInterval: 60_000,
+        refetchInterval: 30_000,
     });
 
     if (isLoading || !data?.active) return null;
+
+    const expiresIn = formatExpiresIn(data.expiresAt);
 
     async function endSession() {
         await fetch("/api/platform/impersonate", { method: "DELETE" });
@@ -39,6 +50,7 @@ export default function ImpersonationBanner() {
                 <span className="truncate">
                     {data.companyName ?? "empresa"}
                     {data.reason ? ` · ${data.reason}` : ""}
+                    {expiresIn ? ` · expira em ${expiresIn}` : ""}
                 </span>
             </div>
             <button

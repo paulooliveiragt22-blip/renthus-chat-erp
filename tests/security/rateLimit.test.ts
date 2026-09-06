@@ -4,6 +4,7 @@ import {
     checkRateLimit,
     checkRateLimitByIp,
     enforceIpRateLimit,
+    enforceKeyRateLimitAsync,
     requesterIp,
     resetRateLimitForTests,
 } from "../../lib/security/rateLimit";
@@ -90,6 +91,17 @@ describe("enforceIpRateLimit", () => {
         assert.equal(res!.status, 429);
         const retryAfter = Number(res!.headers.get("Retry-After"));
         assert.ok(retryAfter >= 1 && retryAfter <= 60);
+    });
+});
+
+describe("enforceKeyRateLimitAsync", () => {
+    beforeEach(() => resetRateLimitForTests());
+
+    it("bloqueia chave arbitrária após o limite", async () => {
+        assert.equal(await enforceKeyRateLimitAsync("billing_signup_email:x", 1, 60_000), null);
+        const blocked = await enforceKeyRateLimitAsync("billing_signup_email:x", 1, 60_000);
+        assert.ok(blocked);
+        assert.equal(blocked!.status, 429);
     });
 });
 

@@ -4,6 +4,7 @@ import { describe, it } from "node:test";
 import {
     assertPagarmeWebhookAuth,
     parseBasicAuthorizationHeader,
+    readPagarmeWebhookAuthEnv,
     verifyPagarmeWebhookBasicAuth,
     verifyPagarmeWebhookHmacSignature,
     type PagarmeWebhookAuthEnv,
@@ -126,7 +127,7 @@ describe("assertPagarmeWebhookAuth (L1 Basic + HMAC legado)", () => {
         });
     });
 
-    it("prod + ALLOW_INSECURE sem Basic → aceita", () => {
+    it("B9: prod ignora allowInsecure — sem Basic → 503", () => {
         const r = assertPagarmeWebhookAuth({
             authorization: null,
             signatureHeader: null,
@@ -137,7 +138,23 @@ describe("assertPagarmeWebhookAuth (L1 Basic + HMAC legado)", () => {
                 allowInsecure: true,
             }),
         });
-        assert.deepEqual(r, { ok: true });
+        assert.deepEqual(r, {
+            ok: false,
+            status: 503,
+            error: "auth_not_configured",
+        });
+    });
+
+    it("B9: readPagarmeWebhookAuthEnv zera allowInsecure em production", () => {
+        const e = readPagarmeWebhookAuthEnv({
+            NODE_ENV: "production",
+            VERCEL_ENV: "production",
+            ALLOW_INSECURE_PAGARME_WEBHOOK: "1",
+            PAGARME_WEBHOOK_BASIC_USER: "u",
+            PAGARME_WEBHOOK_BASIC_PASSWORD: "p",
+        } as NodeJS.ProcessEnv);
+        assert.equal(e.isProduction, true);
+        assert.equal(e.allowInsecure, false);
     });
 
     it("non-prod sem Basic → aceita", () => {

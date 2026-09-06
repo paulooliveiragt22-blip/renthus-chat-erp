@@ -32,4 +32,29 @@ describe("validateMetaWebhookSignature", () => {
         delete process.env.WHATSAPP_APP_SECRET;
         delete process.env.META_APP_SECRET;
     });
+
+    it("B9: produção sem secrets → server_misconfigured", async () => {
+        const { assertMetaWebhookSecretsReady } = await import(
+            "../../lib/meta/validateMetaWebhookSignature"
+        );
+        const r = assertMetaWebhookSecretsReady({
+            NODE_ENV: "production",
+            VERCEL_ENV: "production",
+        });
+        assert.deepEqual(r, {
+            ok: false,
+            status: 503,
+            error: "server_misconfigured",
+        });
+    });
+
+    it("B9: non-prod sem secrets → ok (dev)", async () => {
+        const { assertMetaWebhookSecretsReady } = await import(
+            "../../lib/meta/validateMetaWebhookSignature"
+        );
+        const r = assertMetaWebhookSecretsReady({
+            NODE_ENV: "development",
+        });
+        assert.deepEqual(r, { ok: true });
+    });
 });

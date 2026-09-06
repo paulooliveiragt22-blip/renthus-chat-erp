@@ -241,6 +241,16 @@ describe("proxy auth routing", () => {
         assert.strictEqual(response.headers.get("location"), "https://example.com/login");
     });
 
+    it("redirects unauthenticated root to commercial signup", async () => {
+        const { factory: protectedFactory } = createMockClient(null);
+        const response = await proxy(createRequest("/"), undefined, {
+            createClient: protectedFactory,
+        });
+
+        assert.strictEqual(response.status, 307);
+        assert.strictEqual(response.headers.get("location"), "https://example.com/signup");
+    });
+
     it("redirects superadmin to platform", async () => {
         const response = await proxy(createRequest("/superadmin/empresas"), undefined, {
             createClient: factory,

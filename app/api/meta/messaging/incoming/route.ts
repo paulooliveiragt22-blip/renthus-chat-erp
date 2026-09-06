@@ -9,7 +9,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { isValidMetaWebhookSignature } from "@/lib/meta/validateMetaWebhookSignature";
+import { isValidMetaWebhookSignature, assertMetaWebhookSecretsReady } from "@/lib/meta/validateMetaWebhookSignature";
 import {
     collectMetaAccountIds,
     extractMetaMessagingEvents,
@@ -90,6 +90,15 @@ export async function POST(req: NextRequest) {
         RATE_LIMIT_WINDOW_MS
     );
     if (limited) return limited;
+
+    const secretsReady = assertMetaWebhookSecretsReady();
+    if (!secretsReady.ok) {
+        console.error("[meta/incoming] nenhum META/WHATSAPP app secret configurado em produção");
+        return NextResponse.json(
+            { error: secretsReady.error },
+            { status: secretsReady.status }
+        );
+    }
 
     const rawBody = await req.text();
     const signature = req.headers.get("x-hub-signature-256");

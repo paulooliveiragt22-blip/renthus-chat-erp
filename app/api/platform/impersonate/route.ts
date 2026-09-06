@@ -3,6 +3,7 @@ import { cookies } from "next/headers";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { withPlatformAccess } from "@/lib/platform/apiHelpers";
 import { recordPlatformAudit } from "@/lib/platform/audit/recordPlatformAudit";
+import { finalizeExpiredImpersonationSession } from "@/lib/platform/finalizeExpiredImpersonation";
 import {
     PLATFORM_IMPERSONATION_COOKIE,
     PLATFORM_IMPERSONATION_TTL_MS,
@@ -14,8 +15,8 @@ export const runtime = "nodejs";
 
 /**
  * Status do banner no AdminShell (host tenant).
- * Sem cookie → 200 { active:false } (não exige sessão platform — evita 403 no console).
- * Com cookie → valida sessão via service_role.
+ * Sem cookie → 200 { active:false }.
+ * Com cookie → valida sessão; se expirada, finaliza + audit e retorna inactive.
  */
 export async function GET() {
     const jar = await cookies();
@@ -32,23 +33,33 @@ export async function GET() {
         .maybeSingle();
 
     const row = data as ImpersonationSessionRow | null;
+    if (!row) {
+        const res = NextResponse.json({ active: false });
+        res.cookies.delete(PLATFORM_IMPERSONATION_COOKIE);
+        return res;
+    }
+
     if (!isImpersonationActive(row)) {
-        return NextResponse.json({ active: false });
+        await finalizeExpiredImpersonationSession(admin, row);
+        const res = NextResponse.json({ active: false, expired: true });
+        res.cookies.delete(PLATFORM_IMPERSONATION_COOKIE);
+        return res;
     }
 
     const { data: company } = await admin
         .from("companies")
         .select("id, name")
-        .eq("id", row!.company_id)
+        .eq("id", row.company_id)
         .maybeSingle();
 
     return NextResponse.json({
         active: true,
-        sessionId: row!.id,
-        companyId: row!.company_id,
-        companyName: company?.name ?? row!.company_id,
-        reason: row!.reason,
-        expiresAt: row!.expires_at,
+        sessionId: row.id,
+        companyId: row.company_id,
+        companyName: company?.name ?? row.company_id,
+        reason: row.reason,
+        expiresAt: row.expires_at,
+        ttlMinutes: Math.floor(PLATFORM_IMPERSONATION_TTL_MS / 60_000),
     });
 }
 
@@ -73,7 +84,6 @@ export async function POST(req: Request) {
             return NextResponse.json({ error: "Empresa não encontrada" }, { status: 404 });
         }
 
-        // Encerra sessão anterior do mesmo actor
         await ctx.admin
             .from("platform_impersonation_sessions")
             .update({ ended_at: new Date().toISOString() })
@@ -106,9 +116,15 @@ export async function POST(req: Request) {
             requestId: ctx.requestId,
             ipAddress: ctx.ipAddress,
             userAgent: ctx.userAgent,
-            metadata: { reason, session_id: session.id },
+            metadata: {
+                reason,
+                session_id: session.id,
+                expires_at: expiresAt,
+                ttl_ms: PLATFORM_IMPERSONATION_TTL_MS,
+            },
         });
 
+        const maxAge = Math.floor(PLATFORM_IMPERSONATION_TTL_MS / 1000);
         const res = NextResponse.json({
             ok: true,
             sessionId: session.id,
@@ -121,14 +137,14 @@ export async function POST(req: Request) {
             secure: process.env.NODE_ENV === "production",
             sameSite: "strict",
             path: "/",
-            maxAge: Math.floor(PLATFORM_IMPERSONATION_TTL_MS / 1000),
+            maxAge,
         });
         res.cookies.set("renthus_company_id", companyId, {
             httpOnly: true,
             secure: process.env.NODE_ENV === "production",
             sameSite: "lax",
             path: "/",
-            maxAge: Math.floor(PLATFORM_IMPERSONATION_TTL_MS / 1000),
+            maxAge,
         });
 
         return res;
