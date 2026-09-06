@@ -1,0 +1,30 @@
+---
+description: B15 — gate obrigatório antes de createAdminClient em app/api
+globs: app/api/**/*.ts
+alwaysApply: false
+---
+
+# API routes — gate `createAdminClient` (B15)
+
+Ao criar ou editar `app/api/**/route.ts`:
+
+1. **Nunca** chamar `createAdminClient()` sem gate na mesma rota (ou helper chamado no handler).
+2. Escolher **um** gate canônico e registrar em `docs/SECURITY_CREATEADMIN_INVENTORY.md`:
+
+| Superfície | Gate |
+|------------|------|
+| Tenant ERP | `requireCapability` / `requireCompanyAccess` |
+| Billing self | `requireCompanyAccess` + billing mode |
+| Cron | `validateCronAuthorization` (`CRON_SECRET`) |
+| Platform | `withPlatformAccess` / `requirePlatformAccess` |
+| Print agent | `verifyPrintAgentApiKey` |
+| Webhook | HMAC Meta / Basic Pagar.me |
+| Interno resolve | `validateInternalChatbotSecret` |
+| Menu público | `enforcePublicMenuRateLimit` + slug |
+| Signup/vitrine | rate limit IP (+ identidade no signup) |
+
+3. `company_id` **só** da sessão/cookie/gate — nunca de query/body solto.
+4. Se a rota for exceção (ex.: `GET /api/health`), entrar em `CREATE_ADMIN_GATE_ALLOWLIST` em `lib/security/createAdminRouteGate.ts` **e** no inventário.
+5. Rodar / manter verde: `tests/security/createAdminRouteGate.test.ts`.
+
+Proibido: dual-path “service_role no header **ou** cookie” sem secret dedicado; inventar gate novo sem atualizar o inventário + o regex do teste.

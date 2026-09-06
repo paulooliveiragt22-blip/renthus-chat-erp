@@ -1,9 +1,22 @@
 # Inventário — `createAdminClient()` (service role)
 
 Índice para o item 1 de `SECURITY_IMPROVEMENTS_CHECKLIST.md`.  
-**Atualizado:** 2026-09-05 (S9). Rotas novas: acrescentar na tabela do **gate** correspondente.
+**Atualizado:** 2026-09-06 (B15 processo). Rotas novas: acrescentar na tabela do **gate** correspondente **na mesma PR**.
 
 Regra: identidade **antes** da query; `company_id` só de cookie/`requireCompanyAccess`/`requireCapability`, nunca de querystring crua.
+
+---
+
+## Processo contínuo (B15)
+
+Ao adicionar `app/api/**/route.ts` que importa `createAdminClient`:
+
+1. Gate canônico no handler (ver `.cursor/rules/api-createadmin-gate.mdc`).
+2. Linha neste inventário (seção do gate).
+3. Teste estático `tests/security/createAdminRouteGate.test.ts` deve continuar verde  
+   (padrões em `lib/security/createAdminRouteGate.ts`; allowlist só com justificativa).
+
+**Allowlist atual (sem gate de sessão):** `app/api/health/route.ts` — probe de uptime (ping Postgres).
 
 ---
 

@@ -62,15 +62,15 @@
 
 | ID | Item | Ação | Status |
 |----|------|------|--------|
-| **B15** | Gate createAdmin | Inventário em toda rota nova | [ ] processo |
-| **B16** | Teste de regressão | resolve + cron + meta + menu secret | [x] parcial (B1) |
+| **B15** | Gate createAdmin | Inventário + rule + teste scan em toda rota `createAdmin` | Processo + CI local | [x] 2026-09-06 — `api-createadmin-gate.mdc` + `createAdminRouteGate.test.ts` |
+| **B16** | Teste de regressão | resolve + cron + meta + menu secret + gate createAdmin | Suite security | [x] 2026-09-06 — B1 + createAdmin scan (+ testes B5/B6/B7/B11–B13) |
 
 ---
 
 ## Ordem restante
 
 ```
-(nenhum item de entrega — só B15 processo contínuo)
+(plano P3 de entrega concluído — B15/B16 = processo + regressão contínua)
 ```
 
 ## Fora de escopo
