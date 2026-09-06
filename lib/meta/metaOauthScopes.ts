@@ -24,6 +24,11 @@ const MESSAGING_SCOPE_ALIASES: Record<string, MetaMessagingOauthScope> = {
 
 export const META_WHATSAPP_REQUIRED_SCOPES = ["whatsapp_business_messaging"] as const;
 export const META_WHATSAPP_TEMPLATE_SCOPES = ["whatsapp_business_management"] as const;
+/** Embedded Signup: as duas permissões do App Review. */
+export const META_WHATSAPP_EMBEDDED_REQUIRED_SCOPES = [
+    "whatsapp_business_messaging",
+    "whatsapp_business_management",
+] as const;
 
 /** Nunca aceitar num token de canal (Page OAuth ou WABA). */
 export const META_FORBIDDEN_TOKEN_SCOPES = [
@@ -41,7 +46,7 @@ export const META_FORBIDDEN_TOKEN_SCOPES = [
     "pages_manage_engagement",
 ] as const;
 
-export type MetaScopeKind = "messaging" | "whatsapp";
+export type MetaScopeKind = "messaging" | "whatsapp" | "whatsapp_embedded";
 
 export type MetaScopeVerdict = {
     ok: boolean;
@@ -71,7 +76,9 @@ export function evaluateGrantedMetaScopes(
     const required =
         kind === "messaging"
             ? META_MESSAGING_OAUTH_SCOPE_LIST
-            : META_WHATSAPP_REQUIRED_SCOPES;
+            : kind === "whatsapp_embedded"
+              ? META_WHATSAPP_EMBEDDED_REQUIRED_SCOPES
+              : META_WHATSAPP_REQUIRED_SCOPES;
     const missing = required.filter((s) => !have.has(s));
     return {
         ok: forbidden.length === 0 && missing.length === 0,
@@ -91,7 +98,9 @@ export function metaScopeVerdictMessage(v: MetaScopeVerdict, kind: MetaScopeKind
         bits.push(
             kind === "messaging"
                 ? `faltam permissões de Page/IG: ${v.missing.join(", ")}`
-                : `falta ${v.missing.join(", ")} no token WhatsApp`
+                : kind === "whatsapp_embedded"
+                  ? `faltam permissões WhatsApp Embedded Signup: ${v.missing.join(", ")}`
+                  : `falta ${v.missing.join(", ")} no token WhatsApp`
         );
     }
     return bits.join("; ");

@@ -1,7 +1,7 @@
 # Env — Meta / Canais / WhatsApp (plataforma)
 
 `.env*` está no `.gitignore` — este doc é o inventário canônico para ops/Vercel.
-O paste do lojista (Configurações → **Canais**) só funciona se o número/token forem do **mesmo Meta App** da plataforma (webhook + secrets abaixo).
+O lojista conecta em Configurações → **Canais** via Embedded Signup (mesmo Meta App do webhook). Paste de token no tenant foi removido (ADR-0010).
 
 ## Obrigatórias (produção)
 
@@ -19,7 +19,9 @@ O paste do lojista (Configurações → **Canais**) só funciona se o número/to
 
 | Variável | Uso |
 |----------|-----|
-| `META_LOGIN_CONFIG_ID` | Configuration ID do **Facebook Login for Business** (obrigatório em muitos apps Business; sem isso o dialog pode dar “URL bloqueada”) |
+| `META_LOGIN_CONFIG_ID` | Configuration ID do **Facebook Login for Business** Page/IG (não reutilizar no WhatsApp) |
+| `META_EMBEDDED_SIGNUP_CONFIG_ID` | Configuration ID **só** WhatsApp Embedded Signup |
+| `NEXT_PUBLIC_META_APP_ID` | Opcional no client; o botão lê `appId` do GET config (server `META_APP_ID`) |
 | `META_MESSAGING_WEBHOOK_VERIFY_TOKEN` | Challenge webhook Page/IG `/api/meta/messaging/incoming` |
 | `WHATSAPP_BASE_URL` | Default `https://graph.facebook.com/v20.0` |
 | `CRON_SECRET` | Workers outbound / filas (único — decisão B10). Rotação: `docs/RUNBOOK_CRON_SECRET_ROTATION.md` |
@@ -46,9 +48,20 @@ O paste do lojista (Configurações → **Canais**) só funciona se o número/to
    - Nome do cliente IG/Messenger no inbox: User Profile API (`name` / `username` / `first_name`) — usa o **page access token** já salvo no OAuth; em Dev só testers recebem perfil completo.
 3. Copie o **Configuration ID** → Vercel `META_LOGIN_CONFIG_ID` → redeploy  
 
-## Fora desta entrega
+## Embedded Signup (C6 — ADR-0010)
 
-- **Embedded Signup** (Tech Provider product) — coluna `provisioning_mode` reservada; sem UI.
+Quando o App estiver Live + Configuration WhatsApp criada:
+
+| Variável | Uso |
+|----------|-----|
+| `META_EMBEDDED_SIGNUP_CONFIG_ID` | Configuration ID **só** WhatsApp Embedded Signup (não reutilizar `META_LOGIN_CONFIG_ID`) |
+| `NEXT_PUBLIC_META_APP_ID` | `FB.init` no browser — mesmo App Tech Provider |
+
+Webhook do App deve assinar também `account_update`, `history`, `smb_app_state_sync`, `smb_message_echoes`.
+Checklist: [`CHECKLIST_WHATSAPP_EMBEDDED_SIGNUP.md`](./CHECKLIST_WHATSAPP_EMBEDDED_SIGNUP.md).
+
+## Fora desta entrega (Canais C5)
+
 - Token plaintext / fallback env por tenant em prod — removido; credencial só canal cifrado.
 
 Ver também: [`CHECKLIST_CANAIS_WABA_IG_MESSENGER.md`](./CHECKLIST_CANAIS_WABA_IG_MESSENGER.md) (C5), [`META_APP_REVIEW_WHATSAPP.md`](./META_APP_REVIEW_WHATSAPP.md).

@@ -124,6 +124,7 @@ export type PublicWhatsappChannel = {
     last_health_at?:     string | null;
     last_health_ok?:     boolean | null;
     last_health_error?:  string | null;
+    is_on_biz_app?:      boolean;
 };
 
 /** Remove segredos antes de enviar ao cliente (platform / tenant UI). */
@@ -141,6 +142,7 @@ export function sanitizeWhatsappChannelForClient(row: {
     last_health_at?: string | null;
     last_health_ok?: boolean | null;
     last_health_error?: string | null;
+    is_on_biz_app?: boolean | null;
 }): PublicWhatsappChannel {
     const pm = (row.provider_metadata ?? {}) as Record<string, unknown>;
     const hasAccessToken = Boolean(row.encrypted_access_token?.trim())
@@ -161,5 +163,6 @@ export function sanitizeWhatsappChannelForClient(row: {
         last_health_at: row.last_health_at ?? null,
         last_health_ok: row.last_health_ok ?? null,
         last_health_error: row.last_health_error ?? null,
+        is_on_biz_app: Boolean(row.is_on_biz_app),
     };
 }

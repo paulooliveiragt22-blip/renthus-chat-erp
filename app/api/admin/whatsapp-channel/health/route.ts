@@ -15,7 +15,7 @@ export async function POST() {
     const { data: channel } = await admin
         .from("whatsapp_channels")
         .select(
-            "id, company_id, from_identifier, status, provider_metadata, encrypted_access_token, waba_id, created_at, provisioning_mode, credential_source, last_health_at, last_health_ok, last_health_error"
+            "id, company_id, from_identifier, status, provider_metadata, encrypted_access_token, waba_id, created_at, provisioning_mode, credential_source, last_health_at, last_health_ok, last_health_error, is_on_biz_app, token_expires_at"
         )
         .eq("company_id", companyId)
         .eq("provider", "meta")

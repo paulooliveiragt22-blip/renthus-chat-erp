@@ -41,10 +41,9 @@ export default async function RootLayout({
   // Next lê x-nonce + CSP do request (proxy) e aplica nos scripts do runtime.
   // headers() força render dinâmico — nonce não pode ser estático.
   const nonce = (await headers()).get(X_NONCE_HEADER);
-  void nonce;
 
   return (
-    <html lang="pt-BR" suppressHydrationWarning>
+    <html lang="pt-BR" suppressHydrationWarning data-csp-nonce={nonce ?? undefined}>
       <body>
         <ThemeProvider>
           <Providers>

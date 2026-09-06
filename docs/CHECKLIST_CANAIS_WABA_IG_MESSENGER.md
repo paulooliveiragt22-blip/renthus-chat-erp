@@ -6,8 +6,10 @@ ao concluir cada item.
 **Processo:** uma fase por vez até `npm test` verde; migrations via MCP `apply_migration` +
 validação `execute_sql`; postura pré-produção radical (sem dual-path legado após cutover).
 
-**Fora deste épico (decidido):**
-- WA Embedded Signup (App Meta ainda sem o produto) — só preparar `provisioning_mode`
+**Fora deste épico (decidido na época; C6 aberto):**
+- WA Embedded Signup — gancho `provisioning_mode` feito; implementação em
+  [`ADR/0010`](./ADR/0010-whatsapp-embedded-signup-coexistence.md) +
+  [`CHECKLIST_WHATSAPP_EMBEDDED_SIGNUP.md`](./CHECKLIST_WHATSAPP_EMBEDDED_SIGNUP.md)
 - Mídia na inbox Meta
 - Recovery ativo no IG (B3)
 - Migrar tokens para Supabase Vault (manter AES `CREDENTIALS_ENCRYPTION_KEY`)
@@ -32,7 +34,7 @@ validação `execute_sql`; postura pré-produção radical (sem dual-path legado
 | D6 | Encrypt | `CREDENTIALS_ENCRYPTION_KEY` **obrigatório** em prod; sem plaintext em `provider_metadata` |
 | D7 | RLS | `whatsapp_channels` alinhado a `service_role_only` (como `meta_messaging_channels`) |
 | D8 | Plan gates | WA: feature `whatsapp_messages`; IG/Messenger: `omnichannel_ig_messenger` (Market) |
-| D9 | Embedded Signup | Adiado; coluna/campo `provisioning_mode` = `tenant_paste` \| `platform` \| `embedded_signup` (futuro) |
+| D9 | Embedded Signup | Adiado em C5; **supersedido** em 2026-09-06 por ADR-0010 (C6) |
 
 ---
 

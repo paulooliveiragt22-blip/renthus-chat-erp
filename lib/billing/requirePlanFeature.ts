@@ -21,6 +21,7 @@ const FEATURE_HINTS: Record<string, string> = {
     pdv_basic: "Disponível nos planos Essencial, Pro ou Market.",
     whatsapp_templates_broadcast:
         "Templates WhatsApp e campanhas disponíveis no plano Pro ou Market. Faça upgrade em Configurações → Plano.",
+    whatsapp_messages: "Canal WhatsApp não incluído no seu plano. Faça upgrade em Configurações → Plano.",
 };
 
 /** True se a empresa tem ao menos uma das features. */

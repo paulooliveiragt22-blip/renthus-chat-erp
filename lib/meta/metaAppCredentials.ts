@@ -46,6 +46,15 @@ export function resolveMetaLoginConfigId(env: EnvLike = process.env): string {
     );
 }
 
+/** Configuration ID do Embedded Signup WhatsApp — nunca reutilizar o do IG/Page. */
+export function resolveEmbeddedSignupConfigId(env: EnvLike = process.env): string {
+    return (
+        env.META_EMBEDDED_SIGNUP_CONFIG_ID?.trim() ||
+        env.WHATSAPP_EMBEDDED_SIGNUP_CONFIG_ID?.trim() ||
+        ""
+    );
+}
+
 export function metaGraphVersion(env: EnvLike = process.env): string {
     return env.META_GRAPH_VERSION?.trim() || GRAPH_VERSION;
 }

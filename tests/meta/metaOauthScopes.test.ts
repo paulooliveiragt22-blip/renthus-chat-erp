@@ -44,4 +44,18 @@ describe("metaOauthScopes (S14)", () => {
         assert.equal(v.ok, true);
         assert.ok(META_FORBIDDEN_TOKEN_SCOPES.includes("ads_management"));
     });
+
+    it("whatsapp_embedded exige messaging + management", () => {
+        const onlyMsg = evaluateGrantedMetaScopes(
+            ["whatsapp_business_messaging"],
+            "whatsapp_embedded"
+        );
+        assert.equal(onlyMsg.ok, false);
+        assert.ok(onlyMsg.missing.includes("whatsapp_business_management"));
+        const both = evaluateGrantedMetaScopes(
+            ["whatsapp_business_messaging", "whatsapp_business_management"],
+            "whatsapp_embedded"
+        );
+        assert.equal(both.ok, true);
+    });
 });

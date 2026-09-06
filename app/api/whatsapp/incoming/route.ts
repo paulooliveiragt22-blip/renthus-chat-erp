@@ -28,6 +28,9 @@ import { tryTranscribeInboundAudio } from "@/lib/chatbot/transcribeInboundAudio"
 import { handleWhatsappConsentKeyword } from "@/lib/channels/messageConsent";
 import { scheduleInboundAfterEnqueue } from "@/lib/queue/afterEnqueue";
 import { canProcessInboundChannel } from "@/lib/billing/canProcessInboundChannel";
+import { isCoexistenceWebhookField } from "@/lib/channels/coexistenceWebhookParse";
+import { ingestCoexistenceWebhookField } from "@/lib/channels/ingestCoexistenceWebhook";
+import { toE164Phone, upsertWhatsappThread } from "@/lib/whatsapp/upsertWhatsappThread";
 
 export const runtime = "nodejs";
 const INBOUND_ENQUEUE_DEDUP_WINDOW_SECONDS = getPositiveIntEnv("INBOUND_DEDUP_WINDOW_SECONDS", 20);
@@ -204,8 +207,18 @@ async function parseIncomingBody(req: NextRequest): Promise<{ payload?: any; err
 async function processIncomingEntries(admin: ReturnType<typeof createAdminClient>, payload: any): Promise<void> {
     for (const entry of payload?.entry ?? []) {
         for (const change of entry?.changes ?? []) {
-            if (change?.field !== "messages") continue;
-            await processIncomingChange(admin, change?.value ?? {});
+            const field = String(change?.field ?? "");
+            if (field === "messages") {
+                await processIncomingChange(admin, change?.value ?? {});
+                continue;
+            }
+            if (isCoexistenceWebhookField(field)) {
+                await ingestCoexistenceWebhookField({
+                    admin,
+                    field,
+                    value: change?.value ?? {},
+                });
+            }
         }
     }
 }
@@ -320,7 +333,7 @@ async function processSingleInboundMessage(params: {
     const msgType = msg?.type as string;
     if (!fromRaw || !waId) return;
 
-    const phoneE164 = fromRaw.startsWith("+") ? fromRaw : `+${fromRaw}`;
+    const phoneE164 = toE164Phone(fromRaw);
     const contact = (value?.contacts ?? []).find((c: any) => c.wa_id === fromRaw);
     const profileName: string | null = contact?.profile?.name ?? null;
     let bodyText = extractMessageText(msg, msgType);
@@ -337,7 +350,7 @@ async function processSingleInboundMessage(params: {
         if (transcribed) bodyText = transcribed;
     }
 
-    const threadId = await upsertThread({
+    const threadId = await upsertWhatsappThread({
         admin,
         companyId: channel.company_id,
         channelId: channel.id,
@@ -575,74 +588,3 @@ async function enqueueInboundIfNeeded(params: {
     }
 }
 
-async function upsertThread(params: {
-    admin:       ReturnType<typeof createAdminClient>;
-    companyId:   string;
-    channelId:   string;
-    phoneE164:   string;
-    profileName: string | null;
-}): Promise<string | null> {
-    const { admin, companyId, channelId, phoneE164, profileName } = params;
-    const channel = "whatsapp";
-    const externalId = phoneE164;
-
-    // Preferência: identidade de canal; fallback: phone_e164 legado.
-    let existing: { id: string; profile_name: string | null } | null = null;
-
-    const byIdentity = await admin
-        .from("whatsapp_threads")
-        .select("id, profile_name")
-        .eq("company_id", companyId)
-        .eq("channel", channel)
-        .eq("external_id", externalId)
-        .maybeSingle();
-    if (byIdentity.data?.id) {
-        existing = byIdentity.data as { id: string; profile_name: string | null };
-    } else {
-        const byPhone = await admin
-            .from("whatsapp_threads")
-            .select("id, profile_name")
-            .eq("company_id", companyId)
-            .eq("phone_e164", phoneE164)
-            .maybeSingle();
-        if (byPhone.data?.id) {
-            existing = byPhone.data as { id: string; profile_name: string | null };
-        }
-    }
-
-    if (existing?.id) {
-        const update: Record<string, unknown> = {
-            channel_id:      channelId,
-            channel,
-            external_id:     externalId,
-            phone_e164:      phoneE164,
-            last_message_at: new Date().toISOString(),
-        };
-        if (profileName && profileName !== existing.profile_name) {
-            update.profile_name = profileName;
-        }
-        await admin.from("whatsapp_threads").update(update).eq("id", existing.id);
-        return existing.id;
-    }
-
-    const { data: created, error } = await admin
-        .from("whatsapp_threads")
-        .insert({
-            company_id:           companyId,
-            channel_id:           channelId,
-            channel,
-            external_id:          externalId,
-            phone_e164:           phoneE164,
-            profile_name:         profileName ?? null,
-            last_message_at:      new Date().toISOString(),
-            last_message_preview: null,
-        })
-        .select("id")
-        .single();
-
-    if (error || !created?.id) {
-        console.error("[wa/incoming] upsertThread error:", error?.message);
-        return null;
-    }
-    return created.id;
-}

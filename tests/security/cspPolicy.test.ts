@@ -36,6 +36,8 @@ describe("cspPolicy", () => {
         assert.match(csp, /frame-ancestors 'none'/);
         assert.match(csp, /object-src 'none'/);
         assert.match(csp, /https:\/\/\*\.supabase\.co/);
+        assert.match(csp, /https:\/\/connect\.facebook\.net/);
+        assert.match(csp, /frame-src https:\/\/www\.facebook\.com https:\/\/web\.facebook\.com/);
         assert.doesNotMatch(csp, /unsafe-eval/);
         assert.equal(cjs.buildContentSecurityPolicy({ isDev: false }), csp);
     });

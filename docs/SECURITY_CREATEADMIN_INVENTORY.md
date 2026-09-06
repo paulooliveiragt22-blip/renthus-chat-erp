@@ -26,6 +26,8 @@ Admin operacional, billing self-service, workspace, uploads, WhatsApp painel, de
 
 Exemplos: `app/api/admin/**`, `app/api/billing/status`, `create-invoice-checkout`, `change-plan`, `self-reactivate`, `payment-methods`, `allow-overage`, `pending-plan-change`, `app/api/workspace/**`, `app/api/products/upload-image`, `app/api/whatsapp/send`, `upload`, `threads`, `app/api/orders/**` (exceto gone), `app/api/companies/update`, `app/api/support/create-ticket` (`requireCompanyAccess` + `mutating`; company_id só do cookie), `app/api/delivery/**`, `app/api/chatbot/config`.
 
+`GET/POST /api/admin/whatsapp-channel/embedded-signup/*` — `requireCompanyPlanFeature("whatsapp_messages", ["owner","admin"])`. `company_id` só da sessão. Complete: rate limit 5/10min por empresa.
+
 `GET /api/billing/status` — **sem** `?company_id=` (P0.3).
 `GET /api/orders/stats` e `/status` — `requireCapability("orders.read")` (A2).
 Mutações de cliente — `customers.write` + `mutating` (A4).

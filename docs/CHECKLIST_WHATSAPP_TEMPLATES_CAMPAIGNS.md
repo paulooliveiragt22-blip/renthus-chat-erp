@@ -8,7 +8,8 @@ pré-produção radical (sem dual-path).
 **Relacionado:** [`CHECKLIST_CANAIS_WABA_IG_MESSENGER.md`](./CHECKLIST_CANAIS_WABA_IG_MESSENGER.md)
 (credenciais WABA na aba Canais — pré-requisito operacional).
 
-**Fora deste épico:** Embedded Signup; broadcast IG/Messenger; Vault; editor visual rico.
+**Fora deste épico:** broadcast IG/Messenger; Vault; editor visual rico.
+Embedded Signup (C6): [`ADR/0010`](./ADR/0010-whatsapp-embedded-signup-coexistence.md).
 
 ---
 

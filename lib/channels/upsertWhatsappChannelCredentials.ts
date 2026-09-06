@@ -13,6 +13,8 @@ export type CredentialActor =
     | { kind: "platform"; userId: string }
     | { kind: "company_user"; userId: string };
 
+export type WhatsappProvisioningMode = "platform" | "tenant_paste" | "embedded_signup";
+
 export type UpsertWhatsappChannelInput = {
     companyId: string;
     phoneNumberId: string;
@@ -24,6 +26,9 @@ export type UpsertWhatsappChannelInput = {
     actor: CredentialActor;
     /** force encryption failure in prod instead of plaintext */
     requireEncryption?: boolean;
+    provisioningMode?: WhatsappProvisioningMode;
+    isOnBizApp?: boolean;
+    tokenExpiresAt?: string | null;
 };
 
 export type UpsertWhatsappChannelResult = {
@@ -43,9 +48,16 @@ function actorLabel(actor: CredentialActor): string {
         : `company_user:${actor.userId}`;
 }
 
-function provisioningMode(actor: CredentialActor): "platform" | "tenant_paste" {
+function provisioningMode(
+    actor: CredentialActor,
+    explicit?: WhatsappProvisioningMode
+): WhatsappProvisioningMode {
+    if (explicit) return explicit;
     return actor.kind === "platform" ? "platform" : "tenant_paste";
 }
+
+const CHANNEL_PUBLIC_SELECT =
+    "id, company_id, from_identifier, status, provider_metadata, encrypted_access_token, waba_id, created_at, provisioning_mode, credential_source, last_health_at, last_health_ok, last_health_error, is_on_biz_app, token_expires_at";
 
 function credentialSource(actor: CredentialActor): "platform_user" | "company_user" {
     return actor.kind === "platform" ? "platform_user" : "company_user";
@@ -122,9 +134,15 @@ export async function upsertWhatsappChannelCredentials(
         provider: "meta",
         status: "active",
         from_identifier: phoneNumberId,
-        provisioning_mode: provisioningMode(input.actor),
+        provisioning_mode: provisioningMode(input.actor, input.provisioningMode),
         credential_source: credentialSource(input.actor),
     };
+    if (input.isOnBizApp !== undefined) {
+        payload.is_on_biz_app = input.isOnBizApp;
+    }
+    if (input.tokenExpiresAt !== undefined) {
+        payload.token_expires_at = input.tokenExpiresAt;
+    }
 
     if (wabaId !== undefined) {
         payload.waba_id = wabaId;
@@ -148,9 +166,7 @@ export async function upsertWhatsappChannelCredentials(
             .from("whatsapp_channels")
             .update(payload)
             .eq("id", existing.id)
-            .select(
-                "id, company_id, from_identifier, status, provider_metadata, encrypted_access_token, waba_id, created_at, provisioning_mode, credential_source, last_health_at, last_health_ok, last_health_error"
-            )
+            .select(CHANNEL_PUBLIC_SELECT)
             .single();
         if (error || !data) throw new Error(error?.message ?? "update_failed");
         row = data as Record<string, unknown>;
@@ -159,9 +175,7 @@ export async function upsertWhatsappChannelCredentials(
         const { data, error } = await admin
             .from("whatsapp_channels")
             .insert(payload)
-            .select(
-                "id, company_id, from_identifier, status, provider_metadata, encrypted_access_token, waba_id, created_at, provisioning_mode, credential_source, last_health_at, last_health_ok, last_health_error"
-            )
+            .select(CHANNEL_PUBLIC_SELECT)
             .single();
         if (error || !data) {
             if (error?.code === "23505") throw new Error("phone_number_id_conflict");
@@ -208,6 +222,7 @@ export async function upsertWhatsappChannelCredentials(
             last_health_at: row.last_health_at as string | null | undefined,
             last_health_ok: row.last_health_ok as boolean | null | undefined,
             last_health_error: row.last_health_error as string | null | undefined,
+            is_on_biz_app: row.is_on_biz_app as boolean | undefined,
         }),
     };
 }
@@ -222,9 +237,7 @@ export async function setWhatsappChannelStatus(
 ): Promise<PublicWhatsappChannel | null> {
     const { data: existing, error } = await admin
         .from("whatsapp_channels")
-        .select(
-            "id, company_id, from_identifier, status, provider_metadata, encrypted_access_token, waba_id, created_at, provisioning_mode, credential_source, last_health_at, last_health_ok, last_health_error"
-        )
+        .select(CHANNEL_PUBLIC_SELECT)
         .eq("company_id", params.companyId)
         .eq("provider", "meta")
         .maybeSingle();
@@ -235,9 +248,7 @@ export async function setWhatsappChannelStatus(
         .from("whatsapp_channels")
         .update({ status: params.status })
         .eq("id", existing.id)
-        .select(
-            "id, company_id, from_identifier, status, provider_metadata, encrypted_access_token, waba_id, created_at, provisioning_mode, credential_source, last_health_at, last_health_ok, last_health_error"
-        )
+        .select(CHANNEL_PUBLIC_SELECT)
         .single();
     if (upErr || !data) throw new Error(upErr?.message ?? "status_update_failed");
 
