@@ -1,6 +1,6 @@
 # ADR 0010 — WhatsApp Embedded Signup + Coexistence (Tech Provider)
 
-**Status:** aceito — C6.1–C6.7 implementados (C6.0 ops Meta pendente no dashboard)  
+**Status:** aceito — C6.1–C6.7 implementados (C6.0 ops Meta pendente no dashboard; C6.8 disconnect D11 especificado, código não entregue)  
 **Data:** 2026-09-06  
 **Aprovação produto:** dono, 2026-09-06 (App Review `whatsapp_business_messaging` + `whatsapp_business_management` aprovados)  
 **Checklist:** [`CHECKLIST_WHATSAPP_EMBEDDED_SIGNUP.md`](../CHECKLIST_WHATSAPP_EMBEDDED_SIGNUP.md)  
@@ -102,6 +102,22 @@ Sem abrir `script-src 'unsafe-inline'`. Testes CSP existentes precisam continuar
 
 Igual Canais: `owner` / `admin` + `requirePlanFeature(..., "whatsapp_messages")`. `company_id` só da sessão. Rota nova no inventário B15 (`SECURITY_CREATEADMIN_INVENTORY.md`).
 
+### D11 — Desconectar = wipe + unsubscribe (sem dual-path de pausa)
+
+O lojista desconecta na aba Canais. **Não** é o `PATCH status=inactive` atual (token fica no banco; webhook ainda pode chegar).
+
+| Peça | Comportamento |
+|------|----------------|
+| Token AES | Zera. Sem credencial, sem envio e sem health. |
+| App na WABA | `DELETE /{waba_id}/subscribed_apps` (best-effort com o token ainda válido). |
+| Celular / WABA | **Não** mexe. Sem `/{phone}/deregister`, sem apagar WABA na Meta. |
+| Inbox / pedidos | Permanecem. Só o canal para. |
+| Reconectar | Mesmo **Conectar WhatsApp** (Embedded Signup). |
+
+**Some** Desativar/Reativar na UI do tenant (pré-produção radical: um verbo só). Soft-pause com ciphertext órfão não fica.
+
+Quem: `owner` / `admin` + `whatsapp_messages`. `company_id` só da sessão. Audit `disconnected`.
+
 ---
 
 ## Estrutura (Clean Architecture nesta stack)
@@ -114,11 +130,14 @@ Presentation
 API
   app/api/admin/whatsapp-channel/embedded-signup/config/route.ts     # GET appId + flags (sem secret)
   app/api/admin/whatsapp-channel/embedded-signup/complete/route.ts   # POST code + session
+  app/api/admin/whatsapp-channel/route.ts                            # GET; PUT 410; DELETE disconnect (D11)
 
 Application
   lib/channels/completeWhatsappEmbeddedSignup.ts
   lib/channels/exchangeEmbeddedSignupCode.ts
   lib/channels/subscribeWabaToApp.ts
+  lib/channels/unsubscribeWabaFromApp.ts            # DELETE subscribed_apps (D11)
+  lib/channels/disconnectWhatsappChannel.ts         # decrypt → unsubscribe → wipe → audit
   lib/channels/registerCloudApiPhone.ts             # só caminho puro
   lib/channels/startCoexistenceDataSync.ts
   lib/channels/upsertWhatsappChannelCredentials.ts  # aceitar provisioning_mode embedded_signup
@@ -140,5 +159,6 @@ Elite de mercado: o mesmo padrão do OAuth Page (`oauth/start` + `callback`), co
 - Celular e SaaS convivem; handover por eco evita double-reply.
 - Carrinho automático **não** acompanha o que o lojista digita no app — só o que o **cliente** pede ao bot (ou o atendente edita no inbox).
 - Número já 100% Cloud API **não** volta para Coexistence (limitação Meta).
-- Ops: Configuration ID + App Live + webhook fields + domains no Login — sem isso o botão abre e falha para quem não tem role no App.
+- Ops: Configuration ID + App Live + webhook fields + domains no Login + **Login com o SDK do Javascript = Sim** — sem isso o popup abre e a Meta recusa o JSSDK.
+- Desconectar (D11) tira a Renthus do número; o WhatsApp Business no celular continua. Reconectar é Embedded Signup de novo.
 - Embedded Signup v2 deprecia em **2026-10-15**; implementação já em **v4** (`sessionInfoVersion: "3"`).

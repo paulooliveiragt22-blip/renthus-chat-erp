@@ -28,6 +28,7 @@ ao concluir cada item.
 | D8 | Register | Só Cloud API puro; Coexistence **skip** `/{phone}/register` |
 | D9 | Billing Meta | Cliente paga conversa na Meta (Tech Provider). Sem credit line neste épico |
 | D10 | Fora | NLP do texto do lojista → pedido; Vault; coexistência → Cloud API reverse (impossível na Meta) |
+| D11 | Desconectar | Wipe token + `DELETE subscribed_apps`. Sem deregister/apagar WABA. Some Desativar/Reativar. Código ainda não entregue |
 
 ---
 
@@ -43,6 +44,7 @@ ao concluir cada item.
 | **C6.5** | CSP Facebook SDK | [x] 2026-09-06 |
 | **C6.6** | UI Canais (botão; paste some) | [x] 2026-09-06 |
 | **C6.7** | Testes + docs + smoke | [x] 2026-09-06 |
+| **C6.8** | Desconectar (D11) — use case + DELETE + UI | [ ] |
 
 ---
 
@@ -58,8 +60,9 @@ Fazer **antes** ou em paralelo ao C6.1. Sem isto o botão só funciona para admi
   - Assets: WABA + phone numbers
   - Permissões: só `whatsapp_business_management` + `whatsapp_business_messaging`
   - Token: Business Integration System User, **never expire**
-- [ ] Login → Settings: Client OAuth, Web OAuth, JS SDK, Enforce HTTPS, Strict Mode
-- [ ] Allowed Domains = host do SaaS (prod + preview se for testar)
+- [ ] Login → Settings: Client OAuth, Web OAuth, Enforce HTTPS, Strict Mode
+- [ ] **Login com o SDK do Javascript = Sim** (sem isto o popup abre e a Meta mostra “A opção JSSDK não está ativada”)
+- [ ] Allowed Domains for the JavaScript SDK = host do SaaS **exato** (ex. `app.renthus.com.br`; sem `https://`)
 - [ ] Valid OAuth Redirect URIs = origem HTTPS exata (byte a byte)
 - [ ] Copiar Configuration ID → Vercel `META_EMBEDDED_SIGNUP_CONFIG_ID`
 - [ ] `NEXT_PUBLIC_META_APP_ID` = mesmo `META_APP_ID` do App Tech Provider
@@ -362,6 +365,7 @@ C6.0 ops Meta (dono)
           → C6.5 CSP
             → C6.6 UI (paste some)
               → C6.7 testes + smoke
+                → C6.8 disconnect (D11)
 ```
 
 **Definition of Done:** owner/admin clica Conectar → popup Meta → canal `embedded_signup` + health ok; Coexistence: eco do celular na inbox, bot pausa, **carrinho inalterado** pelo eco; inbound do cliente continua criando carrinho pelo bot; `npm test` verde; env documentado; migration remota se houver.
@@ -379,6 +383,19 @@ C6.0 ops Meta (dono)
 7. Member/driver → API 403.
 8. CSP: DevTools sem bloqueio de `connect.facebook.net` / dialog.
 9. Paste: formulário sumiu; `PUT` com token → 410.
+10. (C6.8) Desconectar → token some, badge Pendente; celular segue; Conectar de novo funciona.
+
+---
+
+## C6.8 — Desconectar (D11)
+
+Especificado em ADR-0010. Código **ainda não** entregue.
+
+- [ ] `lib/channels/unsubscribeWabaFromApp.ts` + `disconnectWhatsappChannel.ts`
+- [ ] `DELETE /api/admin/whatsapp-channel` (gate igual ao complete)
+- [ ] UI Canais: botão Desconectar + confirm; some Desativar/Reativar
+- [ ] Testes: auth + wipe + Graph DELETE
+- [ ] Inventário B15
 
 ---
 

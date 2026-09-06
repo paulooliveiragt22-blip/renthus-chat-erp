@@ -52,6 +52,14 @@ import {
     threadDisplayName,
     threadDisplaySubtitle,
 } from "@/src/domain/messaging/threadDisplay";
+import {
+    inboxChannelFilterQueryValue,
+    inboxFilterEmptyCopy,
+    parseInboxChannelFilter,
+    type InboxChannelFilter,
+} from "@/src/domain/messaging/inboxChannelFilter";
+import { usePlanFeatures } from "@/lib/billing/usePlanFeatures";
+import InboxChannelChips from "@/components/whatsapp/InboxChannelChips";
 import { extractMediaFromWaPayload } from "@/lib/whatsapp/extractMediaFromWaPayload";
 import { parseOptionalUuid } from "@/lib/whatsapp/urlSafety";
 import { META_MEDIA_ID_PATH_RE, sanitizeWhatsAppMediaPathId } from "@/lib/whatsapp/mediaIdPath";
@@ -160,6 +168,9 @@ function isNearBottom(el: HTMLElement): boolean {
 
 export default function WhatsAppInbox({ initialPhone }: { initialPhone?: string | null } = {}) {
     const router = useRouter();
+    const { has: hasPlanFeature, loading: planLoading } = usePlanFeatures();
+    const canUseMetaInbox = hasPlanFeature("omnichannel_ig_messenger");
+    const showMetaChip = canUseMetaInbox || planLoading || channelFilter === "meta";
 
     // ── state ─────────────────────────────────────────────────────────────────
     const [threads,          setThreads]          = useState<Thread[]>([]);
@@ -172,12 +183,15 @@ export default function WhatsAppInbox({ initialPhone }: { initialPhone?: string 
 
     useEffect(() => {
         if (typeof window === "undefined") return;
-        urlThreadCandidateRef.current = parseOptionalUuid(
-            new URLSearchParams(window.location.search).get("t")
-        );
+        const params = new URLSearchParams(window.location.search);
+        urlThreadCandidateRef.current = parseOptionalUuid(params.get("t"));
+        const fromUrl = parseInboxChannelFilter(params.get("ch"));
+        channelFilterRef.current = fromUrl;
+        setChannelFilter(fromUrl);
     }, []);
     const [messages,         setMessages]         = useState<Message[]>([]);
     const [q,                setQ]                = useState("");
+    const [channelFilter,    setChannelFilter]    = useState<InboxChannelFilter>("all");
     const [loadingThreads,   setLoadingThreads]   = useState(true);
     const [loadingMessages,  setLoadingMessages]  = useState(false);
     const [err,              setErr]              = useState<string | null>(null);
@@ -232,6 +246,9 @@ export default function WhatsAppInbox({ initialPhone }: { initialPhone?: string 
     /** Sempre em sincronia com `selectedThreadId` — lido dentro de `loadThreads` (que não pode
      * depender de `selectedThreadId` sem recriar a função a cada troca de conversa). */
     const selectedThreadIdRef = useRef<string | null>(null);
+    const channelFilterRef = useRef<InboxChannelFilter>("all");
+    const skipFilterReloadRef = useRef(true);
+    const deepLinkFilterFallbackRef = useRef(false);
 
     // Profile cache: threadId → {profile, ts}
     const profileCacheRef = useRef<Map<string, { profile: CustomerProfile; ts: number }>>(new Map());
@@ -254,6 +271,8 @@ export default function WhatsAppInbox({ initialPhone }: { initialPhone?: string 
             const url = new URL("/api/whatsapp/threads", window.location.origin);
             url.searchParams.set("limit", "60");
             if (q.trim()) url.searchParams.set("q", q.trim());
+            const channelQuery = inboxChannelFilterQueryValue(channelFilterRef.current);
+            if (channelQuery) url.searchParams.set("channel", channelQuery);
             const res  = await fetch(url.toString(), { cache: "no-store", credentials: "include", signal: ctrl.signal });
             const json = await res.json().catch(() => ({}));
             if (!res.ok) { setErr(json?.error ?? `Erro ${res.status}`); setThreads([]); return; }
@@ -294,6 +313,15 @@ export default function WhatsAppInbox({ initialPhone }: { initialPhone?: string 
                         if (row) {
                             urlThreadConsumedRef.current = true;
                             return row.id;
+                        }
+                        if (
+                            !opts?.silent &&
+                            channelFilterRef.current !== "all" &&
+                            !deepLinkFilterFallbackRef.current
+                        ) {
+                            deepLinkFilterFallbackRef.current = true;
+                            setChannelFilter("all");
+                            return prev;
                         }
                     }
                     urlThreadConsumedRef.current = true;
@@ -458,6 +486,22 @@ export default function WhatsAppInbox({ initialPhone }: { initialPhone?: string 
         selectedThreadIdRef.current = selectedThreadId;
     }, [selectedThreadId]);
 
+    useEffect(() => {
+        if (planLoading) return;
+        if (!canUseMetaInbox && channelFilter === "meta") {
+            setChannelFilter("all");
+        }
+    }, [planLoading, canUseMetaInbox, channelFilter]);
+
+    useEffect(() => {
+        channelFilterRef.current = channelFilter;
+        if (skipFilterReloadRef.current) {
+            skipFilterReloadRef.current = false;
+            return;
+        }
+        void loadThreads();
+    }, [channelFilter, loadThreads]);
+
     // Load messages when thread changes
     useEffect(() => {
         if (selectedThreadId) {
@@ -515,14 +559,16 @@ export default function WhatsAppInbox({ initialPhone }: { initialPhone?: string 
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [selectedThreadId]);
 
-    // Persist selectedThreadId in URL
+    // Persist selectedThreadId + chip in URL
     useEffect(() => {
         if (typeof window === "undefined") return;
         const url = new URL(window.location.href);
         if (selectedThreadId) url.searchParams.set("t", selectedThreadId);
         else url.searchParams.delete("t");
+        if (channelFilter === "all") url.searchParams.delete("ch");
+        else url.searchParams.set("ch", channelFilter);
         window.history.replaceState({}, "", url.toString());
-    }, [selectedThreadId]);
+    }, [selectedThreadId, channelFilter]);
 
     // Scroll para a última mensagem ANTES do paint (useLayoutEffect — evita flash no topo).
     // Ver React docs: useLayoutEffect roda antes do browser pintar.
@@ -845,13 +891,12 @@ export default function WhatsAppInbox({ initialPhone }: { initialPhone?: string 
             {/* ── SIDEBAR ESQUERDA: threads ─────────────────────────────── */}
             <aside
                 className={`
-                    flex shrink-0 flex-col overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-sm
+                    flex w-96 shrink-0 flex-col overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-sm
                     dark:border-zinc-800 dark:bg-zinc-900
                     transition-all duration-200
-                    w-[280px]
-                    md:flex md:relative md:translate-x-0
+                    md:relative md:flex md:translate-x-0
                     ${sidebarOpen
-                        ? "fixed inset-y-0 left-0 z-40 translate-x-0 rounded-none border-0 w-[280px]"
+                        ? "fixed inset-y-0 left-0 z-40 w-[min(24rem,90vw)] translate-x-0 rounded-none border-0"
                         : "hidden md:flex"
                     }
                 `}
@@ -860,7 +905,7 @@ export default function WhatsAppInbox({ initialPhone }: { initialPhone?: string 
                 {/* header */}
                 <div className="border-b border-zinc-100 p-3 dark:border-zinc-800">
                     <div className="mb-2 flex items-center justify-between">
-                        <span className="text-sm font-bold text-primary">WhatsApp</span>
+                        <span className="text-sm font-bold text-primary">Conversas</span>
                         <div className="flex items-center gap-1.5">
                             <button
                                 onClick={() => loadThreads()}
@@ -869,12 +914,14 @@ export default function WhatsAppInbox({ initialPhone }: { initialPhone?: string 
                             >
                                 <RefreshCcw className="h-3.5 w-3.5" />
                             </button>
-                            <button
-                                onClick={() => { setErr(null); setNewOpen(true); setNewPhoneBR(""); setNewName(""); }}
-                                className="flex items-center gap-1 rounded-lg bg-accent px-2.5 py-1.5 text-[11px] font-semibold text-primary hover:bg-orange-600 transition-colors focus:outline-none focus:ring-2 focus:ring-orange-400/50"
-                            >
-                                + Nova
-                            </button>
+                            {channelFilter !== "meta" && (
+                                <button
+                                    onClick={() => { setErr(null); setNewOpen(true); setNewPhoneBR(""); setNewName(""); }}
+                                    className="flex items-center gap-1 rounded-lg bg-accent px-2.5 py-1.5 text-[11px] font-semibold text-primary hover:bg-orange-600 transition-colors focus:outline-none focus:ring-2 focus:ring-orange-400/50"
+                                >
+                                    + Nova
+                                </button>
+                            )}
                             {/* Mobile close button */}
                             <button
                                 onClick={() => setSidebarOpen(false)}
@@ -885,6 +932,13 @@ export default function WhatsAppInbox({ initialPhone }: { initialPhone?: string 
                             </button>
                         </div>
                     </div>
+
+                    <InboxChannelChips
+                        value={channelFilter}
+                        onValueChange={setChannelFilter}
+                        showMeta={showMetaChip}
+                        className="mb-2"
+                    />
 
                     {threads.length > 0 && (
                         <p className="mb-2 text-[10px] text-zinc-400 dark:text-zinc-500">
@@ -899,7 +953,11 @@ export default function WhatsAppInbox({ initialPhone }: { initialPhone?: string 
                         id="wa-search"
                         value={q}
                         onChange={(e) => setQ(e.target.value)}
-                        placeholder="Buscar por nome ou telefone..."
+                        placeholder={
+                            channelFilter === "meta"
+                                ? "Buscar por nome..."
+                                : "Buscar por nome ou telefone..."
+                        }
                         aria-label="Buscar conversas"
                         className="w-full min-w-0 rounded-lg border border-zinc-200 bg-zinc-50 py-1.5 pl-3 pr-3 text-xs text-zinc-800 placeholder:text-zinc-400 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/20 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100"
                     />
@@ -923,7 +981,7 @@ export default function WhatsAppInbox({ initialPhone }: { initialPhone?: string 
                         </div>
                     ) : threads.length === 0 ? (
                         <p className="p-4 text-xs text-zinc-400">
-                            {q ? "Nenhum resultado." : "Nenhuma conversa."}
+                            {inboxFilterEmptyCopy(channelFilter, Boolean(q.trim()))}
                         </p>
                     ) : (
                         threads.map((t) => {

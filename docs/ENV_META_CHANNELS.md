@@ -58,6 +58,13 @@ Quando o App estiver Live + Configuration WhatsApp criada:
 | `NEXT_PUBLIC_META_APP_ID` | `FB.init` no browser — mesmo App Tech Provider |
 
 Webhook do App deve assinar também `account_update`, `history`, `smb_app_state_sync`, `smb_message_echoes`.
+
+**Facebook Login for Business → Settings** (mesmo App do `META_APP_ID`):
+
+- **Login com o SDK do Javascript** = Sim (bloqueante — sem isto `FB.login` no Canais falha)
+- Allowed Domains for the JavaScript SDK = host do SaaS sem esquema (ex. `app.renthus.com.br`)
+- Valid OAuth Redirect URIs = origem HTTPS exata (`https://app.renthus.com.br/`, `/configuracoes`)
+
 Checklist: [`CHECKLIST_WHATSAPP_EMBEDDED_SIGNUP.md`](./CHECKLIST_WHATSAPP_EMBEDDED_SIGNUP.md).
 
 ## Fora desta entrega (Canais C5)

@@ -3,6 +3,10 @@ import { requireCapability } from "@/lib/workspace/rbac/requireCapability";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { CHATBOT_SESSION_PRO_V2_STATE_KEY } from "@/src/pro/adapters/supabase/session.repository.supabase";
 import type { OrderDraft } from "@/src/types/contracts";
+import {
+    inboxChannelSql,
+    parseInboxChannelFilter,
+} from "@/src/domain/messaging/inboxChannelFilter";
 
 export const runtime = "nodejs";
 
@@ -75,6 +79,7 @@ export async function GET(req: Request) {
 
     const limit = Math.min(Number(searchParams.get("limit") ?? 50), 200);
     const q = (searchParams.get("q") ?? "").trim();
+    const channelFilter = parseInboxChannelFilter(searchParams.get("channel"));
 
     let query = admin
         .from("whatsapp_threads")
@@ -84,6 +89,13 @@ export async function GET(req: Request) {
         .eq("company_id", companyId)
         .order("last_message_at", { ascending: false })
         .limit(Number.isFinite(limit) ? limit : 50);
+
+    const channelSql = inboxChannelSql(channelFilter);
+    if (channelSql.kind === "or") {
+        query = query.or(channelSql.expr);
+    } else if (channelSql.kind === "in") {
+        query = query.in(channelSql.column, [...channelSql.values]);
+    }
 
     if (q) {
         // telefone, nome ou external_id (IGSID/PSID)
