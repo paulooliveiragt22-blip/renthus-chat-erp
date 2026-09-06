@@ -30,6 +30,19 @@ export async function POST(req: Request) {
         return NextResponse.json({ error: "subscription_invalid" }, { status: 400 });
     }
 
+    const { data: existing } = await admin
+        .from("admin_push_subscriptions")
+        .select("company_id, user_id")
+        .eq("endpoint", endpoint)
+        .maybeSingle();
+
+    if (
+        existing &&
+        (existing.company_id !== companyId || existing.user_id !== userId)
+    ) {
+        return NextResponse.json({ error: "endpoint_owned" }, { status: 409 });
+    }
+
     const { error } = await admin.from("admin_push_subscriptions").upsert(
         {
             company_id: companyId,

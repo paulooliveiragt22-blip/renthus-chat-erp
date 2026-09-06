@@ -30,6 +30,10 @@ export async function POST(req: Request) {
     const customerId = String(body.customer_id ?? "").trim();
     if (!customerId) return NextResponse.json({ error: "customer_id_required" }, { status: 400 });
 
+    const { assertCustomerInCompany } = await import("@/lib/security/assertTenantAssociation");
+    const cust = await assertCustomerInCompany(admin, companyId, customerId);
+    if (!cust.ok) return NextResponse.json({ error: cust.error }, { status: 403 });
+
     const logradouro = String(body.logradouro ?? "").trim();
     const numero = String(body.numero ?? "").trim();
     const bairro = String(body.bairro ?? "").trim();

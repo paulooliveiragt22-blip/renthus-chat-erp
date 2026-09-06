@@ -372,7 +372,20 @@ export async function PATCH(req: Request) {
     }
     if (body.paid !== undefined) patch.paid = !!body.paid;
     if (body.change_for !== undefined) patch.change_for = body.change_for;
-    if (body.customer_id !== undefined) patch.customer_id = String(body.customer_id);
+    if (body.customer_id !== undefined) {
+        const nextCustomerId = String(body.customer_id ?? "").trim();
+        if (!nextCustomerId) {
+            return NextResponse.json({ error: "customer_id_required" }, { status: 400 });
+        }
+        const { assertCustomerInCompany } = await import(
+            "@/lib/security/assertTenantAssociation"
+        );
+        const cust = await assertCustomerInCompany(admin, companyId, nextCustomerId);
+        if (!cust.ok) {
+            return NextResponse.json({ error: cust.error }, { status: 403 });
+        }
+        patch.customer_id = nextCustomerId;
+    }
     if (body.delivery_fee !== undefined) patch.delivery_fee = Number(body.delivery_fee ?? 0);
     if (body.total_amount !== undefined) patch.total_amount = Number(body.total_amount ?? 0);
 

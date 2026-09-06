@@ -12,6 +12,10 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     const customerId = String(id ?? "").trim();
     if (!customerId) return NextResponse.json({ error: "id_required" }, { status: 400 });
 
+    const { assertCustomerInCompany } = await import("@/lib/security/assertTenantAssociation");
+    const cust = await assertCustomerInCompany(admin, companyId, customerId);
+    if (!cust.ok) return NextResponse.json({ error: cust.error }, { status: 403 });
+
     const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
     const isPrincipal = Boolean(body.is_principal);
 

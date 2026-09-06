@@ -57,7 +57,8 @@ Use como guia de implementação e revisão periódica. Itens derivados da anál
 
 - [x] MFA de platform: `app/api/platform/auth/mfa/*`, gate no `proxy.ts`.
 - [x] `check-production-env.mjs` não exige mais `SUPERADMIN_SECRET`.
-- [ ] Allowlist de IP / host dedicado em produção (`PLATFORM_ADMIN_IP_ALLOWLIST`, `PLATFORM_ADMIN_HOST`) — aviso no `check:prod-env`, não falha o script.
+- [x] Allowlist de IP em produção (`PLATFORM_ADMIN_IP_ALLOWLIST`) — proxy + `requirePlatformAccess`; `check:prod-env --strict` **falha** se ausente (2026-09-06). Host dedicado (`PLATFORM_ADMIN_HOST`) continua recomendado / warn se ausente.
+- [x] IDOR association (customer/embalagem em admin orders) — ver `docs/SECURITY_IDOR_TENANT_AUDIT_2026-09-06.md`.
 
 ---
 

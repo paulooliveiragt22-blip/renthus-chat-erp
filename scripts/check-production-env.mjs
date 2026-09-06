@@ -46,10 +46,14 @@ if (process.env.PAGARME_WEBHOOK_SECRET?.trim()) {
 }
 
 if (!process.env.PLATFORM_ADMIN_IP_ALLOWLIST?.trim()) {
-    console.warn(
-        "[check-production-env] Aviso: PLATFORM_ADMIN_IP_ALLOWLIST ausente — /platform bloqueado em produção."
+    console.error(
+        "[check-production-env] PLATFORM_ADMIN_IP_ALLOWLIST obrigatório em produção (CSV IP/CIDR). Sem allowlist o proxy bloqueia /platform; sem env no deploy o fail-closed depende só do runtime."
     );
+    process.exit(1);
 }
+console.log(
+    "[check-production-env] PLATFORM_ADMIN_IP_ALLOWLIST set — /platform e /api/platform exigem IP na lista."
+);
 
 if (!process.env.PLATFORM_ADMIN_HOST?.trim()) {
     console.warn(

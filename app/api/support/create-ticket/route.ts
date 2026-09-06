@@ -43,12 +43,29 @@ export async function POST(request: NextRequest) {
 
   const phone = typeof customer_phone === "string" ? customer_phone.trim() || null : null;
   const threadId = typeof thread_id === "string" ? thread_id.trim() || null : null;
+  const customerIdRaw =
+    typeof customer_id === "string" ? customer_id.trim() || null : null;
 
   if (!phone && !threadId) {
     return NextResponse.json(
       { error: "customer_phone or thread_id required" },
       { status: 400 }
     );
+  }
+
+  if (threadId) {
+    const { assertThreadInCompany } = await import("@/lib/security/assertTenantAssociation");
+    const th = await assertThreadInCompany(admin, companyId, threadId);
+    if (!th.ok) {
+      return NextResponse.json({ error: th.error }, { status: 403 });
+    }
+  }
+  if (customerIdRaw) {
+    const { assertCustomerInCompany } = await import("@/lib/security/assertTenantAssociation");
+    const cust = await assertCustomerInCompany(admin, companyId, customerIdRaw);
+    if (!cust.ok) {
+      return NextResponse.json({ error: cust.error }, { status: 403 });
+    }
   }
 
   const { data: channelRow } = await admin
@@ -110,7 +127,7 @@ export async function POST(request: NextRequest) {
     .insert({
       company_id: companyId,
       customer_phone: phone,
-      customer_id: typeof customer_id === "string" ? customer_id : null,
+      customer_id: customerIdRaw,
       thread_id: threadId,
       channel: typeof channel === "string" ? channel : phone ? "whatsapp" : null,
       customer_name: typeof customer_name === "string" ? customer_name : null,
