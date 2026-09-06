@@ -921,6 +921,8 @@ export class AiServiceAdapter implements AiService {
                     messages,
                     tools,
                     toolChoice: "required",
+                    /** B13: teto de output por turno — evita flood de tokens / custo. */
+                    maxOutputTokens: 2_048,
                     /**
                      * Retry do SDK em cima do mesmo AbortSignal queima o orçamento do turno
                      * (ex.: tool-choice fail → sleep → "Delay was aborted" → AI_TIMEOUT).

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireCapability } from "@/lib/workspace/rbac/requireCapability";
+import { mapMessageRawPayloadForApi } from "@/lib/whatsapp/trimRawPayloadForApi";
 
 export const runtime = "nodejs";
 
@@ -38,6 +39,8 @@ export async function GET(
      * threads (que lê `last_message_at`/`last_message_preview` direto da própria thread)
      * já refletia a mensagem mais recente. Buscamos as últimas `limit` mensagens (desc) e
      * devolvemos em ordem cronológica (asc), que é o que a UI espera pra renderizar.
+     *
+     * B13: `raw_payload` é projetado (trim) — nunca o webhook Meta completo no JSON do painel.
      */
     const { data, error } = await admin
         .from("whatsapp_messages")
@@ -52,6 +55,6 @@ export async function GET(
         return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    const messages = (data ?? []).slice().reverse();
+    const messages = (data ?? []).slice().reverse().map(mapMessageRawPayloadForApi);
     return NextResponse.json({ messages });
 }

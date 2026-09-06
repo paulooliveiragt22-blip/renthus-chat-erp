@@ -27,6 +27,18 @@ export {
 
 export { estimateLlmCostBrlCents, resolveLlmRates } from "@/lib/billing/llmPricing";
 
+/**
+ * Teto por débito único (B13) — evita bug/flood de tokens esvaziar a carteira numa chamada.
+ * Turnos legítimos Haiku/Groq ficam bem abaixo; Sonnet caro também é limitado.
+ */
+export const AI_WALLET_MAX_SINGLE_DEBIT_CENTS = 500;
+
+/** Normaliza e aplica o teto de débito por chamada. */
+export function clampAiDebitCents(costCents: number): number {
+    if (!Number.isFinite(costCents) || costCents <= 0) return 0;
+    return Math.min(Math.floor(costCents), AI_WALLET_MAX_SINGLE_DEBIT_CENTS);
+}
+
 function yearMonthUtc(d = new Date()): string {
     const y = d.getUTCFullYear();
     const m = d.getUTCMonth() + 1;
@@ -158,11 +170,19 @@ export async function debitAiUsage(
     costCents: number,
     meta?: Record<string, unknown>
 ): Promise<boolean> {
-    if (costCents <= 0) return true;
+    const capped = clampAiDebitCents(costCents);
+    if (capped <= 0) return true;
+    if (capped < Math.floor(costCents)) {
+        console.warn("[aiWallet] débito limitado pelo teto B13", {
+            companyId,
+            requested: Math.floor(costCents),
+            capped,
+        });
+    }
     const snap = await ensureAiWallet(admin, companyId);
-    if (snap.remainingTotalCents < costCents) return false;
+    if (snap.remainingTotalCents < capped) return false;
 
-    let left = costCents;
+    let left = capped;
     let includedSpent = snap.includedSpentCents;
     let prepaid = snap.prepaidBalanceCents;
     const fromIncluded = Math.min(left, snap.remainingIncludedCents);
