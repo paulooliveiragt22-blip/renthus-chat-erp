@@ -128,25 +128,28 @@ const FAQ_ITEMS = [
     },
 ] as const;
 
-function AiSparklesIcon({ color }: { color: string }) {
+function AiSparklesIcon() {
     return (
         <svg
-            width="14"
-            height="14"
+            width="16"
+            height="16"
             viewBox="0 0 24 24"
-            fill="none"
-            stroke={color}
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
             style={{ flexShrink: 0 }}
             aria-hidden
         >
-            <path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z" />
-            <path d="M20 3v4" />
-            <path d="M22 5h-4" />
-            <path d="M4 17v2" />
-            <path d="M5 18H3" />
+            <defs>
+                <linearGradient id="zampell-ai-spark" x1="3" y1="21" x2="21" y2="3" gradientUnits="userSpaceOnUse">
+                    <stop offset="0%" stopColor="#7C3AED" />
+                    <stop offset="45%" stopColor="#22D3EE" />
+                    <stop offset="100%" stopColor="#57FF8F" />
+                </linearGradient>
+            </defs>
+            <path
+                fill="url(#zampell-ai-spark)"
+                d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"
+            />
+            <path fill="url(#zampell-ai-spark)" d="M19.2 2.2 20 5.1 22.9 5.9 20 6.7 19.2 9.6 18.4 6.7 15.5 5.9 18.4 5.1z" />
+            <path fill="url(#zampell-ai-spark)" d="M4.3 16.4 4.8 18.2 6.6 18.7 4.8 19.2 4.3 21 3.8 19.2 2 18.7 3.8 18.2z" />
         </svg>
     );
 }
@@ -611,7 +614,7 @@ export default function SignupPage() {
                                     return (
                                         <li key={`${f.label}-${idx}`} style={S.featureItem}>
                                             {f.ai ? (
-                                                <AiSparklesIcon color={BRAND.accent} />
+                                                <AiSparklesIcon />
                                             ) : (
                                                 <FeatureCheckIcon color={BRAND.planAccent} />
                                             )}
@@ -1204,12 +1207,12 @@ const S = {
         width:           28,
         height:          28,
         borderRadius:    999,
-        background:      "rgba(87, 255, 143, 0.18)",
-        color:           BRAND.accent,
+        background:      "rgba(26, 143, 74, 0.12)",
+        color:           BRAND.planAccent,
         fontSize:        20,
         fontWeight:      700,
         lineHeight:      1,
-        border:          `1.5px solid ${BRAND.accent}`,
+        border:          `1.5px solid ${BRAND.planAccent}`,
     },
     planBtn: {
         width:        "100%",
