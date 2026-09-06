@@ -20,10 +20,10 @@
 |----|------|------|--------|--------|
 | **B1** | `POST /api/chatbot/resolve` | `INTERNAL_CHATBOT_SECRET` + timing-safe; prod fail-closed; sessão via `requireCapability` | Grep limpo; testes em `tests/security/internalChatbotAuth.test.ts` | [x] 2026-09-05 |
 | **B2** | Tokens do cardápio | Removido fallback `SUPABASE_SERVICE_ROLE_KEY` em `sessionToken.ts` | Só `WEB_MENU_SESSION_SECRET` | [x] 2026-09-05 |
-| **B3** | Auth HIBP | Ligar *Leaked Password Protection* no Dashboard Auth | Advisor limpa | [ ] ops |
+| **B3** | Auth HIBP | Ligar *Leaked Password Protection* no Dashboard Auth | Advisor limpa | [x] 2026-09-05 — ops + advisor sem HIBP |
 | **B4** | Inventário service role como senha | `SECURITY_SERVICE_ROLE_FLOWS.md` seção B4 | Zero comparações de borda | [x] 2026-09-05 |
 
-**Ops obrigatório após deploy:** setar `INTERNAL_CHATBOT_SECRET` e `WEB_MENU_SESSION_SECRET` na Vercel Production (e Preview). Sem o segundo, cardápio quebra ao assinar/verificar token.
+**Ops:** `INTERNAL_CHATBOT_SECRET` + `WEB_MENU_SESSION_SECRET` na Vercel (feito 2026-09-05).
 
 ---
 
@@ -70,7 +70,7 @@
 ## Ordem restante
 
 ```
-B3 (ops) → B5 → B6 → B7 → B8 → B9 → B10 → B11 → B12 → B13 → B14
+B7 → B8 → B9 → B10 → B11 → B12 → B13 → B14
 ```
 
 ## Fora de escopo
