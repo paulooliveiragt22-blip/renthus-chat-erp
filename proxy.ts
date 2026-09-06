@@ -356,6 +356,9 @@ function isTechnicalApiPublic(pathname: string): boolean {
         pathname.startsWith("/api/print/") ||
         pathname.startsWith("/api/billing/webhook") ||
         pathname === "/api/billing/signup" ||
+        /** A7: vitrine /signup — sem cookie; rate limit nas próprias rotas. */
+        pathname === "/api/billing/public-plans" ||
+        pathname === "/api/billing/trial-policy" ||
         /** Webhook Meta Page/Instagram Messaging: assinatura própria (X-Hub-Signature-256), sem cookie. */
         pathname.startsWith("/api/meta/messaging/incoming") ||
         /** Print agent com api_key / pairing. keys|settings exigem cookie (S7). */

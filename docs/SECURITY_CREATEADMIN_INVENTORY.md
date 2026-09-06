@@ -11,9 +11,14 @@ Regra: identidade **antes** da query; `company_id` só de cookie/`requireCompany
 
 Admin operacional, billing self-service, workspace, uploads, WhatsApp painel, delivery, chatbot config, reports.
 
-Exemplos: `app/api/admin/**`, `app/api/billing/status`, `create-invoice-checkout`, `change-plan`, `self-reactivate`, `payment-methods`, `allow-overage`, `pending-plan-change`, `app/api/workspace/**`, `app/api/products/upload-image`, `app/api/whatsapp/send`, `upload`, `threads`, `app/api/orders/**` (exceto gone), `app/api/companies/update`, `app/api/support/create-ticket`, `app/api/delivery/**`, `app/api/chatbot/config`.
+Exemplos: `app/api/admin/**`, `app/api/billing/status`, `create-invoice-checkout`, `change-plan`, `self-reactivate`, `payment-methods`, `allow-overage`, `pending-plan-change`, `app/api/workspace/**`, `app/api/products/upload-image`, `app/api/whatsapp/send`, `upload`, `threads`, `app/api/orders/**` (exceto gone), `app/api/companies/update`, `app/api/support/create-ticket` (`requireCompanyAccess` + `mutating`; company_id só do cookie), `app/api/delivery/**`, `app/api/chatbot/config`.
 
 `GET /api/billing/status` — **sem** `?company_id=` (P0.3).
+`GET /api/orders/stats` e `/status` — `requireCapability("orders.read")` (A2).
+Mutações de cliente — `customers.write` + `mutating` (A4).
+Listagem leve — `customers.read` (limit ≤100, sem CPF/saldo/notes).
+Export PII — `GET /api/admin/customers?export=1` → `customers.export` + rate limit (B5).
+Impersonation — proxy `isTenantMutationPath` deny-by-default sob `/api/*` tenant; `mutating: true` no gate (A3).
 
 ## Cron (`validateCronAuthorization` / `CRON_SECRET`)
 
@@ -45,7 +50,9 @@ Exemplos: `app/api/admin/**`, `app/api/billing/status`, `create-invoice-checkout
 `app/api/agent/activate` — código de pareamento + rate limit (público no proxy).  
 `app/api/agent/keys`, `settings` — sessão no handler **e** no proxy (S7).
 
-`app/api/orders/[id]` — sessão **ou** API key do agent.
+`app/api/orders/[id]` — sessão com `orders.read` **ou** API key do agent (projeção mínima).
+
+`app/api/chatbot/resolve` — cookie/`settings.company` **ou** `X-Service-Key: INTERNAL_CHATBOT_SECRET` + `_companyId` (nunca service_role).
 
 ## Platform (`requirePlatformAccess`)
 
@@ -56,7 +63,7 @@ Exemplos: `app/api/admin/**`, `app/api/billing/status`, `create-invoice-checkout
 | Rota | Gate |
 |------|------|
 | `app/api/billing/signup`, `app/api/ativar`, `app/api/onboarding`, `app/api/companies/create` | fluxo signup (sem tenant prévio) |
-| `app/api/billing/public-plans`, `trial-policy` | catálogo público |
+| `app/api/billing/public-plans`, `trial-policy` | catálogo público — **proxy allowlist A7** + rate limit IP |
 | `app/api/public/menu/**` | slug + rate limit |
 | `app/api/health` | uptime |
 | `app/api/debug/whoami` | 404 em prod salvo flag |

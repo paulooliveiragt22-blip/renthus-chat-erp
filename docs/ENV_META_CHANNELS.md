@@ -22,7 +22,9 @@ O paste do lojista (Configurações → **Canais**) só funciona se o número/to
 | `META_LOGIN_CONFIG_ID` | Configuration ID do **Facebook Login for Business** (obrigatório em muitos apps Business; sem isso o dialog pode dar “URL bloqueada”) |
 | `META_MESSAGING_WEBHOOK_VERIFY_TOKEN` | Challenge webhook Page/IG `/api/meta/messaging/incoming` |
 | `WHATSAPP_BASE_URL` | Default `https://graph.facebook.com/v20.0` |
-| `CRON_SECRET` | Workers outbound / filas |
+| `CRON_SECRET` | Workers outbound / filas (único — decisão B10) |
+| `INTERNAL_CHATBOT_SECRET` | `X-Service-Key` em `POST /api/chatbot/resolve` (interno) |
+| `WEB_MENU_SESSION_SECRET` | HMAC tokens do cardápio público (obrigatório; sem fallback) |
 
 ## Callbacks a cadastrar no Meta Developer
 

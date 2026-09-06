@@ -49,10 +49,8 @@ export type WebMenuCheckoutSession = {
 };
 
 function secret(): string {
-    const s =
-        process.env.WEB_MENU_SESSION_SECRET?.trim() ||
-        process.env.SUPABASE_SERVICE_ROLE_KEY?.trim() ||
-        "";
+    // B2: never fall back to SUPABASE_SERVICE_ROLE_KEY (forging menu session = DB key).
+    const s = process.env.WEB_MENU_SESSION_SECRET?.trim() || "";
     if (!s) {
         throw new Error("WEB_MENU_SESSION_SECRET_missing");
     }

@@ -5,7 +5,7 @@ export const runtime = "nodejs";
 
 export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
     const { id } = await ctx.params;
-    const ctxAuth = await requireCapability("customers.read");
+    const ctxAuth = await requireCapability("customers.write", "any", { mutating: true });
     if (!ctxAuth.ok) return NextResponse.json({ error: ctxAuth.error }, { status: ctxAuth.status });
     const { admin, companyId } = ctxAuth;
 
@@ -34,7 +34,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
 
 export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
     const { id } = await ctx.params;
-    const ctxAuth = await requireCapability("customers.read");
+    const ctxAuth = await requireCapability("customers.write", "any", { mutating: true });
     if (!ctxAuth.ok) return NextResponse.json({ error: ctxAuth.error }, { status: ctxAuth.status });
     const { admin, companyId } = ctxAuth;
 
@@ -59,7 +59,7 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
 
 export async function DELETE(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
     const { id } = await ctx.params;
-    const ctxAuth = await requireCapability("customers.read");
+    const ctxAuth = await requireCapability("customers.write", "any", { mutating: true });
     if (!ctxAuth.ok) return NextResponse.json({ error: ctxAuth.error }, { status: ctxAuth.status });
     const { admin, companyId } = ctxAuth;
 

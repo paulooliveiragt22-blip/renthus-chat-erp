@@ -112,7 +112,13 @@ describe("platform impersonation helpers", () => {
         assert.strictEqual(isMutatingHttpMethod("POST"), true);
         assert.strictEqual(isMutatingHttpMethod("GET"), false);
         assert.strictEqual(isTenantMutationPath("/api/admin/orders"), true);
+        assert.strictEqual(isTenantMutationPath("/api/whatsapp/send"), true);
+        assert.strictEqual(isTenantMutationPath("/api/offline/sync"), true);
+        assert.strictEqual(isTenantMutationPath("/api/chatbot/resolve"), true);
+        assert.strictEqual(isTenantMutationPath("/api/support/create-ticket"), true);
         assert.strictEqual(isTenantMutationPath("/api/platform/companies"), false);
+        assert.strictEqual(isTenantMutationPath("/api/whatsapp/incoming"), false);
+        assert.strictEqual(isTenantMutationPath("/api/auth/signout"), false);
         assert.strictEqual(
             isImpersonationActive({
                 id: "1",

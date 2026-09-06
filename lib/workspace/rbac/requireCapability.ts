@@ -6,6 +6,7 @@ import {
     type CapabilityKey,
 } from "@/lib/workspace/rbac/capabilities";
 import { requireCompanyAccess } from "@/lib/workspace/requireCompanyAccess";
+import type { RequireCompanyAccessOptions } from "@/lib/workspace/requireCompanyAccess";
 import { normalizeCompanyRole, type CompanyRole } from "@/lib/workspace/staffRoles";
 
 export type CapabilityContext = {
@@ -38,12 +39,18 @@ async function loadMemberCapabilities(
 /**
  * Owner/admin: acesso total às capabilities operacionais.
  * Member: precisa do perfil ativo com a capability pedida.
+ * A3: passe `mutating: true` em POST/PATCH/DELETE para bloquear impersonation.
  */
 export async function requireCapability(
     required: CapabilityKey | CapabilityKey[],
-    mode: "any" | "all" = "any"
-): Promise<CapabilityContext | { ok: false; status: number; error: string }> {
-    const ctx = await requireCompanyAccess(["owner", "admin", "member"]);
+    mode: "any" | "all" = "any",
+    accessOpts?: Pick<RequireCompanyAccessOptions, "mutating" | "billing">
+): Promise<CapabilityContext | { ok: false; status: number; error: string; code?: string }> {
+    const ctx = await requireCompanyAccess({
+        allowedRoles: ["owner", "admin", "member"],
+        mutating: accessOpts?.mutating,
+        billing: accessOpts?.billing,
+    });
     if (!ctx.ok) return ctx;
 
     const role = normalizeCompanyRole(ctx.role);

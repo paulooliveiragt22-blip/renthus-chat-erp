@@ -29,6 +29,7 @@ const SENSITIVE: CapabilityKey[] = [
     "settings.company",
     "menu.manage",
     "pdv.access",
+    "customers.export",
 ];
 
 function walkTs(dir: string, acc: string[] = []): string[] {
@@ -50,6 +51,7 @@ describe("RBAC — isolamento dos templates padrão", () => {
             "financeiro.write",
             "estoque.write",
             "products.write",
+            "customers.export",
         ]);
         for (const seed of DEFAULT_PROFILE_SEEDS) {
             for (const cap of seed.capabilities) {

@@ -1,66 +1,77 @@
 /**
  * POST /api/support/create-ticket
  *
- * Cria ticket de suporte (handover humano) quando cliente clica em "Atendente".
- * Chamado pelo handler de botões do WhatsApp (server-side).
+ * Cria ticket de suporte (handover humano).
+ * A1: company_id só do workspace autenticado — nunca do body (OWASP multi-tenant).
+ * Handover do bot Pro usa applyHandover direto no worker (não esta rota).
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { createAdminClient } from "@/lib/supabase/admin";
 import { sendWhatsAppMessage, type WaConfig } from "@/lib/whatsapp/send";
 import { resolveChannelAccessToken } from "@/lib/whatsapp/channelCredentials";
+import { requireCompanyAccess } from "@/lib/workspace/requireCompanyAccess";
 
 export const runtime = "nodejs";
 
 export async function POST(request: NextRequest) {
-  let body: any;
+  const access = await requireCompanyAccess({
+    allowedRoles: ["owner", "admin", "member"],
+    mutating: true,
+  });
+  if (!access.ok) {
+    return NextResponse.json(
+      { error: access.error, code: access.code },
+      { status: access.status }
+    );
+  }
+  const { admin, companyId } = access;
+
+  let body: Record<string, unknown>;
   try {
-    body = await request.json();
+    body = (await request.json()) as Record<string, unknown>;
   } catch {
     return NextResponse.json({ error: "invalid_json" }, { status: 400 });
   }
 
-  const {
-    company_id,
-    customer_phone,
-    customer_name,
-    message,
-    priority,
-    thread_id,
-    customer_id,
-    channel,
-  } = body;
+  const customer_phone = body.customer_phone;
+  const customer_name = body.customer_name;
+  const message = body.message;
+  const priority = body.priority;
+  const thread_id = body.thread_id;
+  const customer_id = body.customer_id;
+  const channel = body.channel;
 
-  if (!company_id || (!customer_phone && !thread_id)) {
+  const phone = typeof customer_phone === "string" ? customer_phone.trim() || null : null;
+  const threadId = typeof thread_id === "string" ? thread_id.trim() || null : null;
+
+  if (!phone && !threadId) {
     return NextResponse.json(
-      { error: "company_id and (customer_phone or thread_id) required" },
+      { error: "customer_phone or thread_id required" },
       { status: 400 }
     );
   }
 
-  const admin = createAdminClient();
-  const phone = typeof customer_phone === "string" ? customer_phone.trim() || null : null;
-
-  // Carrega credenciais do canal da empresa (só se for notificar via WA)
   const { data: channelRow } = await admin
     .from("whatsapp_channels")
     .select("from_identifier, provider_metadata, encrypted_access_token, waba_id")
-    .eq("company_id", company_id)
+    .eq("company_id", companyId)
     .eq("provider", "meta")
     .eq("status", "active")
     .maybeSingle();
 
   const waConfig: WaConfig = {
     phoneNumberId: channelRow?.from_identifier ?? process.env.WHATSAPP_PHONE_NUMBER_ID ?? "",
-    accessToken:   channelRow ? resolveChannelAccessToken(channelRow) : (process.env.WHATSAPP_TOKEN ?? ""),
+    accessToken: channelRow
+      ? resolveChannelAccessToken(channelRow)
+      : (process.env.WHATSAPP_TOKEN ?? ""),
   };
 
-  if (thread_id) {
+  if (threadId) {
     const { data: existingThread } = await admin
       .from("support_tickets")
       .select("id")
-      .eq("company_id", company_id)
-      .eq("thread_id", thread_id)
+      .eq("company_id", companyId)
+      .eq("thread_id", threadId)
       .in("status", ["open", "in_progress"])
       .maybeSingle();
     if (existingThread?.id) {
@@ -75,12 +86,11 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  // Verifica se já existe ticket aberto para este cliente (evita duplicata)
   if (phone) {
     const { data: existing } = await admin
       .from("support_tickets")
       .select("id")
-      .eq("company_id", company_id)
+      .eq("company_id", companyId)
       .eq("customer_phone", phone)
       .in("status", ["open", "in_progress"])
       .maybeSingle();
@@ -95,19 +105,21 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  // Cria novo ticket
   const { data: ticket, error } = await admin
     .from("support_tickets")
     .insert({
-      company_id,
+      company_id: companyId,
       customer_phone: phone,
-      customer_id: customer_id ?? null,
-      thread_id: thread_id ?? null,
-      channel: channel ?? (phone ? "whatsapp" : null),
-      customer_name: customer_name ?? null,
-      message:       message ?? "Cliente solicitou atendimento humano via WhatsApp",
-      priority:      priority ?? "normal",
-      status:        "open",
+      customer_id: typeof customer_id === "string" ? customer_id : null,
+      thread_id: threadId,
+      channel: typeof channel === "string" ? channel : phone ? "whatsapp" : null,
+      customer_name: typeof customer_name === "string" ? customer_name : null,
+      message:
+        typeof message === "string"
+          ? message
+          : "Cliente solicitou atendimento humano via WhatsApp",
+      priority: typeof priority === "string" ? priority : "normal",
+      status: "open",
     })
     .select("id")
     .single();
@@ -116,13 +128,12 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  // Notifica o cliente (só WhatsApp com phone)
   if (phone) {
     await sendWhatsAppMessage(
       phone,
       `📞 *Transferindo para atendente...*\n\n` +
-      `Ticket #${ticket.id.slice(0, 8).toUpperCase()}\n\n` +
-      `Aguarde alguns instantes. Em breve alguém irá te atender! ⏳`,
+        `Ticket #${ticket.id.slice(0, 8).toUpperCase()}\n\n` +
+        `Aguarde alguns instantes. Em breve alguém irá te atender! ⏳`,
       waConfig
     );
   }

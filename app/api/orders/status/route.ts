@@ -1,20 +1,17 @@
 // app/api/orders/status/route.ts
 import { NextResponse } from "next/server";
-import { createAdminClient } from "@/lib/supabase/admin";
-import { getCurrentCompanyIdFromCookie } from "@/lib/workspace/getCurrentCompanyId";
+import { requireCapability } from "@/lib/workspace/rbac/requireCapability";
 
 export const runtime = "nodejs";
 
 export async function GET() {
     try {
-        const companyId = await getCurrentCompanyIdFromCookie();
-        if (!companyId) {
-            return NextResponse.json({ error: "No workspace selected" }, { status: 400 });
+        const ctx = await requireCapability("orders.read");
+        if (!ctx.ok) {
+            return NextResponse.json({ error: ctx.error }, { status: ctx.status });
         }
+        const { admin, companyId } = ctx;
 
-        const admin = createAdminClient();
-
-        // busca apenas status e total_amount para agregação
         const { data: orders, error } = await admin
             .from("orders")
             .select("status, total_amount")
@@ -33,7 +30,8 @@ export async function GET() {
         }
 
         return NextResponse.json({ summary });
-    } catch (e: any) {
-        return NextResponse.json({ error: e.message ?? "unexpected" }, { status: 500 });
+    } catch (e: unknown) {
+        const message = e instanceof Error ? e.message : "unexpected";
+        return NextResponse.json({ error: message }, { status: 500 });
     }
 }

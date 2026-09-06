@@ -4,13 +4,14 @@
 // Para chamadas automáticas (webhooks), processInboundMessage() é chamado diretamente.
 //
 // Autenticação:
-//   - Cookie de sessão (admin logado) → usa requireCompanyAccess
-//   - Header X-Service-Key (chamadas internas server-to-server, sem cookie)
+//   - Cookie de sessão (admin logado) → requireCapability
+//   - Header X-Service-Key = INTERNAL_CHATBOT_SECRET (server-to-server; nunca service_role)
 
 import { NextResponse } from "next/server";
 import { requireCapability } from "@/lib/workspace/rbac/requireCapability";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { processInboundMessage } from "@/lib/chatbot/processMessage";
+import { validateInternalChatbotSecret } from "@/lib/security/internalChatbotAuth";
 
 export const runtime = "nodejs";
 
@@ -32,20 +33,23 @@ export async function POST(req: Request) {
     }
 
     // ── Autenticação ──────────────────────────────────────────────────────────
-    // Modo 1: chamada interna com service key (webhooks, cron, etc.)
-    const serviceKey = req.headers.get("x-service-key");
-    const isInternal =
-        serviceKey &&
-        serviceKey === process.env.SUPABASE_SERVICE_ROLE_KEY &&
-        !!body._companyId;
+    const serviceKeyHeader = req.headers.get("x-service-key");
+    const wantsInternal = Boolean(serviceKeyHeader) || Boolean(body._companyId);
 
     let companyId: string;
     const admin = createAdminClient();
 
-    if (isInternal) {
-        companyId = body._companyId!;
+    if (wantsInternal) {
+        const auth = validateInternalChatbotSecret(serviceKeyHeader);
+        if (!auth.ok) {
+            return NextResponse.json({ error: auth.error }, { status: auth.status });
+        }
+        const internalCompanyId = String(body._companyId ?? "").trim();
+        if (!internalCompanyId) {
+            return NextResponse.json({ error: "company_id_required" }, { status: 400 });
+        }
+        companyId = internalCompanyId;
     } else {
-        // Modo 2: usuário logado via cookie de sessão
         const ctx = await requireCapability("settings.company");
         if (!ctx.ok) {
             return NextResponse.json({ error: ctx.error }, { status: ctx.status });

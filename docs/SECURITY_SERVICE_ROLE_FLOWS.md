@@ -2,16 +2,19 @@
 
 Objetivo: saber onde o Postgres vê `auth.role() = 'service_role'` (RLS contornado) e garantir que só há acesso após verificação na borda.
 
+**Atualizado:** 2026-09-05 — B1/B2/B4 (plano blindagem P3).
+
 ## Chamadas externas sem sessão Supabase do utilizador
 
 | Fluxo | Entrada de confiança |
 |--------|------------------------|
 | Webhook WhatsApp `POST /api/whatsapp/incoming` | Assinatura `X-Hub-Signature-256` + `WHATSAPP_APP_SECRET` |
+| Webhook Meta messaging `POST /api/meta/messaging/incoming` | HMAC Meta (`META_APP_SECRET` / `WHATSAPP_APP_SECRET`) |
 | Webhook Pagar.me `POST /api/billing/webhook` | Rate limit IP; **Basic Auth** (`PAGARME_WEBHOOK_BASIC_*`); HMAC legado se header; **confirmação paid via GET order API** |
-| Cron fila chatbot `GET /api/chatbot/process-queue` | `Authorization: Bearer CRON_SECRET` |
-| Cron sync catálogo marketplace `GET /api/marketplace/sync-catalog` | `Authorization: Bearer CRON_SECRET` |
-| Cron billing `POST /api/billing/charge` | `Authorization: Bearer CRON_SECRET` (+ opcional `x-vercel-cron: 1` do Vercel) |
+| Cron (billing, chatbot, marketplace, platform) | `Authorization: Bearer CRON_SECRET` — **um** secret por enquanto (decisão B10) |
 | Print agent (várias rotas `/api/agent/*`) | API key `rpa_*` validada em servidor |
+| Chatbot resolve interno `POST /api/chatbot/resolve` | `X-Service-Key: INTERNAL_CHATBOT_SECRET` + `_companyId` — **não** service_role |
+| Cardápio público (HMAC sessão/link) | `WEB_MENU_SESSION_SECRET` — **obrigatório**; sem fallback para service_role |
 
 ### Crons HTTP — auth (`lib/security/cronAuth.ts`)
 
@@ -26,6 +29,22 @@ Objetivo: saber onde o Postgres vê `auth.role() = 'service_role'` (RLS contorna
 Rotas em `vercel.json` (2026-08-28): `/api/billing/charge`, `/api/chatbot/detect-abandoned-carts`, `/api/marketplace/sync-catalog`, `/api/platform/alerts/check`, `/api/platform/audit/archive`.
 
 Ver ADR-0004: billing **não** usa Edge Functions.
+
+## Inventário B4 — `SUPABASE_SERVICE_ROLE_KEY` como credencial de borda
+
+**Proibido:** comparar header/query/body do cliente com `SUPABASE_SERVICE_ROLE_KEY` para autorizar um request HTTP.
+
+| Local | Uso | Status |
+|-------|-----|--------|
+| `app/api/chatbot/resolve` | Era `x-service-key === SERVICE_ROLE` | **Removido (B1)** → `INTERNAL_CHATBOT_SECRET` |
+| `lib/public-menu/sessionToken.ts` | Fallback HMAC = service_role | **Removido (B2)** → só `WEB_MENU_SESSION_SECRET` |
+| `lib/supabase/admin.ts` | Cliente PostgREST admin | Legítimo |
+| `proxy.ts` | `fetch` PostgREST (membership/billing) | Legítimo (server-only) |
+| `app/api/companies/create` | Bearer interno PostgREST | Legítimo (server-only) |
+| Platform routes que passam Bearer service key a RPC | Server-only | Legítimo |
+| Scripts (`scripts/replay-thread.ts`, workers) | Ops CLI / Lambda | Legítimo (não é borda pública) |
+
+Grep de regressão: `x-service-key === process.env.SUPABASE_SERVICE_ROLE` e `WEB_MENU_SESSION_SECRET.*SERVICE_ROLE` devem permanecer **zero**.
 
 ## Sessão utilizador (cookie) + membership
 

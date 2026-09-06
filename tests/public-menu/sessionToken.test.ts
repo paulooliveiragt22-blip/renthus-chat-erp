@@ -77,6 +77,30 @@ describe("web menu sessionToken v1/v2", () => {
         assert.equal(verifyWebMenuCheckoutSession(token), null);
     });
 
+    it("B2: sem WEB_MENU_SESSION_SECRET falha mesmo com SERVICE_ROLE presente", async () => {
+        const { signWebMenuLinkToken } = await import("@/lib/public-menu/sessionToken");
+        const prevMenu = process.env.WEB_MENU_SESSION_SECRET;
+        const prevSr = process.env.SUPABASE_SERVICE_ROLE_KEY;
+        delete process.env.WEB_MENU_SESSION_SECRET;
+        process.env.SUPABASE_SERVICE_ROLE_KEY = "service-role-must-not-be-fallback";
+        try {
+            assert.throws(
+                () =>
+                    signWebMenuLinkToken({
+                        companyId: "11111111-1111-1111-1111-111111111111",
+                        phoneE164: "+5511999999999",
+                        slug: "loja-demo",
+                    }),
+                /WEB_MENU_SESSION_SECRET_missing/
+            );
+        } finally {
+            if (prevMenu === undefined) delete process.env.WEB_MENU_SESSION_SECRET;
+            else process.env.WEB_MENU_SESSION_SECRET = prevMenu;
+            if (prevSr === undefined) delete process.env.SUPABASE_SERVICE_ROLE_KEY;
+            else process.env.SUPABASE_SERVICE_ROLE_KEY = prevSr;
+        }
+    });
+
     it("assina e verifica token hc (handoff v3)", async () => {
         const { signMenuHandoffToken, verifyMenuHandoffToken } = await import(
             "@/lib/public-menu/sessionToken"

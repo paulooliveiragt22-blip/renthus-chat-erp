@@ -124,7 +124,7 @@ No **código da aplicação**, a chave `SUPABASE_SERVICE_ROLE_KEY` é lida em:
 | `lib/supabase/admin.ts` | Cliente `service_role` (ignora RLS). |
 | `proxy.ts` | `Authorization: Bearer` em fetch PostgREST (rewrite de host do cardápio). |
 | `app/api/companies/create/route.ts` | `createAdminClient()` + fetch RPC. |
-| `app/api/chatbot/resolve/route.ts` | Header interno ou service key. |
+| `app/api/chatbot/resolve/route.ts` | `X-Service-Key: INTERNAL_CHATBOT_SECRET` (+ cookie/`settings.company`). |
 
 `lib/superadmin/actions.ts` **não existe mais** (removido P3 platform).
 

@@ -1,20 +1,17 @@
 // app/api/orders/stats/route.ts
 import { NextResponse } from "next/server";
-import { createAdminClient } from "@/lib/supabase/admin";
-import { getCurrentCompanyIdFromCookie } from "@/lib/workspace/getCurrentCompanyId";
+import { requireCapability } from "@/lib/workspace/rbac/requireCapability";
 
 export const runtime = "nodejs";
 
 export async function GET() {
     try {
-        const companyId = await getCurrentCompanyIdFromCookie();
-        if (!companyId) {
-            return NextResponse.json({ error: "No workspace selected" }, { status: 400 });
+        const ctx = await requireCapability("orders.read");
+        if (!ctx.ok) {
+            return NextResponse.json({ error: ctx.error }, { status: ctx.status });
         }
+        const { admin, companyId } = ctx;
 
-        const admin = createAdminClient();
-
-        // Seleciona pedidos da company (campos mínimos)
         const { data: orders, error } = await admin
             .from("orders")
             .select("id, status, total_amount, created_at")
@@ -25,7 +22,6 @@ export async function GET() {
             return NextResponse.json({ error: error.message }, { status: 500 });
         }
 
-        // Agregar counts por status e soma de receita total
         const counts: Record<string, number> = {};
         let totalRevenue = 0;
         for (const o of orders || []) {
@@ -34,7 +30,6 @@ export async function GET() {
             totalRevenue += Number(o.total_amount || 0);
         }
 
-        // Série diária (últimos 30 dias)
         const days = 30;
         const now = new Date();
         const dayBuckets: Record<string, { date: string; revenue: number; orders: number }> = {};
@@ -42,7 +37,7 @@ export async function GET() {
         for (let i = days - 1; i >= 0; i--) {
             const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
             d.setUTCDate(d.getUTCDate() - i);
-            const key = d.toISOString().slice(0, 10); // YYYY-MM-DD
+            const key = d.toISOString().slice(0, 10);
             dayBuckets[key] = { date: key, revenue: 0, orders: 0 };
         }
 
@@ -56,13 +51,12 @@ export async function GET() {
             }
         }
 
-        const daily = Object.values(dayBuckets);
-
         return NextResponse.json({
             stats: { counts, totalRevenue },
-            daily,
+            daily: Object.values(dayBuckets),
         });
-    } catch (e: any) {
-        return NextResponse.json({ error: e.message ?? "unexpected" }, { status: 500 });
+    } catch (e: unknown) {
+        const message = e instanceof Error ? e.message : "unexpected";
+        return NextResponse.json({ error: message }, { status: 500 });
     }
 }

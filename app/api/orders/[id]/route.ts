@@ -2,9 +2,20 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { verifyAgentByApiKey } from "@/lib/print/agents";
-import { requireCompanyAccess } from "@/lib/workspace/requireCompanyAccess";
+import { requireCapability } from "@/lib/workspace/rbac/requireCapability";
 
 export const runtime = "nodejs";
+
+/** Campos explícitos (sem orders.*) — colunas reais do schema. */
+const ORDER_SELECT =
+    "id, company_id, customer_id, customer_name, customer_phone, delivery_address, payment_method, change_for, notes, total, total_amount, status, confirmation_status, channel, source, created_at, printed_at, paid, delivery_fee, details, driver_id, fulfillment_type, service_fees_total, customers ( name, phone, address ), drivers ( id, name, vehicle, plate )";
+
+/** Agent de impressão: PII mínima para cupom. */
+const ORDER_SELECT_AGENT =
+    "id, company_id, customer_id, customer_name, customer_phone, delivery_address, payment_method, change_for, notes, total, total_amount, status, created_at, delivery_fee, details, driver_id, customers ( name, phone, address ), drivers ( id, name, vehicle, plate )";
+
+const ITEMS_SELECT =
+    "id, order_id, product_name, unit_type, quantity, unit_price, line_total, created_at, produto_embalagem_id, produto_embalagens ( descricao, fator_conversao, siglas_comerciais ( sigla, descricao ), product_volumes ( volume_quantidade, unit_types ( sigla ) ), products ( name ) )";
 
 export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
     try {
@@ -12,60 +23,50 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
         const orderId = String(rawOrderId || "").trim();
         if (!orderId) return NextResponse.json({ error: "order_id required" }, { status: 400 });
 
-        // 1) If Authorization header present try agent auth first
         const authHeader = (req.headers.get("authorization") || "").replaceAll(/^Bearer\s+/gi, "").trim();
         if (authHeader) {
             const agent = await verifyAgentByApiKey(authHeader);
             if (agent) {
-                // agent is valid — use admin client to fetch order + items
                 const admin = createAdminClient();
 
                 const { data: order, error: orderErr } = await admin
                     .from("orders")
-                    .select(
-                        "*, customers ( name, phone, address ), drivers ( id, name, vehicle, plate )"
-                    )
+                    .select(ORDER_SELECT_AGENT)
                     .eq("id", orderId)
                     .maybeSingle();
 
                 if (orderErr) return NextResponse.json({ error: orderErr.message }, { status: 500 });
                 if (!order) return NextResponse.json({ error: "not_found" }, { status: 404 });
 
-                // ensure same company
                 if (String(order.company_id) !== String(agent.company_id)) {
                     return NextResponse.json({ error: "forbidden" }, { status: 403 });
                 }
 
                 const { data: items, error: itemsErr } = await admin
                     .from("order_items")
-                    .select("id, order_id, product_name, unit_type, quantity, unit_price, line_total, created_at, produto_embalagem_id, produto_embalagens ( descricao, fator_conversao, siglas_comerciais ( sigla, descricao ), product_volumes ( volume_quantidade, unit_types ( sigla ) ), products ( name ) )")
+                    .select(ITEMS_SELECT)
                     .eq("order_id", orderId)
                     .order("created_at", { ascending: true });
 
-                // return order and items (if itemsErr we'll return empty items to be graceful)
                 return NextResponse.json({ order, items: itemsErr ? [] : items });
             }
-            // if Authorization exists but not a valid agent, fallthrough to normal auth (or reply 401)
-            // we'll let normal session flow handle it below (or we could return 401)
         }
 
-        // 2) Normal UI/backend request: require company access (cookie/session)
-        const access = await requireCompanyAccess();
-        if (!access || !access.ok) {
-            const status = access?.status || 403;
-            const msg = access?.error || "forbidden";
-            return NextResponse.json({ error: msg }, { status });
+        // Cookie/session: exige orders.read (não só membership)
+        const access = await requireCapability("orders.read");
+        if (!access.ok) {
+            return NextResponse.json(
+                { error: access.error },
+                { status: access.status }
+            );
         }
-        const admin = access.admin; // createAdminClient already available if requireCompanyAccess returned ok
+        const { admin, companyId } = access;
 
-        // Make sure the order belongs to the selected company
         const { data: order, error: orderErr } = await admin
             .from("orders")
-            .select(
-                "*, customers ( name, phone, address ), drivers ( id, name, vehicle, plate )"
-            )
+            .select(ORDER_SELECT)
             .eq("id", orderId)
-            .eq("company_id", access.companyId)
+            .eq("company_id", companyId)
             .maybeSingle();
 
         if (orderErr) return NextResponse.json({ error: orderErr.message }, { status: 500 });
@@ -73,12 +74,13 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
 
         const { data: items, error: itemsErr } = await admin
             .from("order_items")
-            .select("id, order_id, product_name, unit_type, quantity, unit_price, line_total, created_at, produto_embalagem_id, produto_embalagens ( descricao, fator_conversao, siglas_comerciais ( sigla, descricao ), product_volumes ( volume_quantidade, unit_types ( sigla ) ), products ( name ) )")
+            .select(ITEMS_SELECT)
             .eq("order_id", orderId)
             .order("created_at", { ascending: true });
 
         return NextResponse.json({ order, items: itemsErr ? [] : items });
-    } catch (e: any) {
-        return NextResponse.json({ error: e?.message || String(e) }, { status: 500 });
+    } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : String(e);
+        return NextResponse.json({ error: msg }, { status: 500 });
     }
 }

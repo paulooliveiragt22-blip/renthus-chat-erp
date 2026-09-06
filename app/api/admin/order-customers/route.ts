@@ -20,7 +20,7 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
-    const ctx = await requireCapability("customers.read");
+    const ctx = await requireCapability("customers.write", "any", { mutating: true });
     if (!ctx.ok) return NextResponse.json({ error: ctx.error }, { status: ctx.status });
     const { admin, companyId } = ctx;
 

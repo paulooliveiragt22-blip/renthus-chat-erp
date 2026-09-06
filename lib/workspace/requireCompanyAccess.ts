@@ -18,6 +18,11 @@ export type RequireCompanyAccessOptions = {
     allowedRoles?: string[];
     /** default "full"; billing routes usam "billing_self"; impersonation força "skip" */
     billing?: BillingGateMode;
+    /**
+     * A3: POST/PATCH/DELETE sob impersonation → 403.
+     * Preferir passar true em mutações; o proxy também bloqueia via isTenantMutationPath.
+     */
+    mutating?: boolean;
 };
 
 type AccessOk = {
@@ -89,6 +94,14 @@ export async function requireCompanyAccess(
                 .maybeSingle();
 
             if (platformUser) {
+                if (opts.mutating) {
+                    return {
+                        ok: false as const,
+                        status: 403,
+                        error: "Modo suporte é somente leitura. Mutações bloqueadas.",
+                        code: "impersonation_read_only",
+                    };
+                }
                 return {
                     ok: true as const,
                     companyId,

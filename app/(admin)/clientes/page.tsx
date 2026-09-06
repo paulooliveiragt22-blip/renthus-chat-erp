@@ -594,8 +594,23 @@ export default function ClientesPage() {
       return;
     }
     try {
-      const res = await fetch("/api/admin/customers", { credentials: "include", cache: "no-store" });
+      const res = await fetch("/api/admin/customers?export=1", {
+        credentials: "include",
+        cache: "no-store",
+      });
       const json = await res.json().catch(() => ({}));
+      if (res.status === 403) {
+        const light = await fetch("/api/admin/customers", {
+          credentials: "include",
+          cache: "no-store",
+        });
+        const lightJson = await light.json().catch(() => ({}));
+        if (light.ok) {
+          setCustomers((lightJson.customers as Customer[]) ?? []);
+          setLoading(false);
+          return;
+        }
+      }
       if (!res.ok) {
         const cached = await loadAdminListSnapshotEntries<Customer>(companyId, "customers");
         setCustomers(cached.length > 0 ? cached : ((json.customers as Customer[]) ?? []));

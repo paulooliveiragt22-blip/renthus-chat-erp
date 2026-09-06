@@ -129,6 +129,16 @@ describe("proxy auth routing", () => {
         assert.strictEqual(factory.mock.calls.length, 0);
     });
 
+    it("exempts signup catalog APIs without auth (A7)", async () => {
+        for (const path of ["/api/billing/public-plans", "/api/billing/trial-policy", "/api/billing/signup"]) {
+            const response = await proxy(createRequest(path), undefined, {
+                createClient: factory,
+            });
+            assert.strictEqual(response.headers.get("location"), null, path);
+        }
+        assert.strictEqual(factory.mock.calls.length, 0);
+    });
+
     it("exempts PWA assets without auth (manifest, SW, icons, offline)", async () => {
         const paths = [
             "/manifest.webmanifest",
@@ -471,6 +481,20 @@ describe("proxy auth routing", () => {
         assert.strictEqual(response.status, 403);
         const body = await response.json();
         assert.strictEqual(body.error.code, "impersonation_read_only");
+    });
+
+    it("blocks whatsapp/offline mutations under impersonation (A3)", async () => {
+        const { factory: protectedFactory } = createMockClient({ id: "user-123" });
+        for (const path of ["/api/whatsapp/send", "/api/offline/sync", "/api/chatbot/resolve"]) {
+            const response = await proxy(
+                createRequest(path, "platform_impersonation=sess-1", "POST"),
+                undefined,
+                { createClient: protectedFactory }
+            );
+            assert.strictEqual(response.status, 403, path);
+            const body = await response.json();
+            assert.strictEqual(body.error.code, "impersonation_read_only", path);
+        }
     });
 });
 

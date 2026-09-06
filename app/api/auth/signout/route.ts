@@ -2,28 +2,28 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
+import { PLATFORM_IMPERSONATION_COOKIE } from "@/lib/platform/impersonation";
 
 export const runtime = "nodejs";
 
 export async function POST() {
     try {
-        // Tenta remover sessão server-side (se existir)
         try {
             const supabase = await createClient();
-            // signOut via server helper — em muitos cenários isso limpa cookies
             await supabase.auth.signOut();
-        } catch (e) {
-            // não falhar a resposta por conta disso — só logamos
+        } catch (e: unknown) {
             console.warn("Server-side supabase.auth.signOut() failed:", e);
         }
 
-        // Limpa cookie de workspace
-        // OBS: cookies().delete aceita apenas o nome (ou um objeto com name: string).
-        (await cookies()).delete("renthus_company_id");
+        const jar = await cookies();
+        jar.delete("renthus_company_id");
+        // A6: não deixar contexto de suporte órfão após logout
+        jar.delete(PLATFORM_IMPERSONATION_COOKIE);
 
         return NextResponse.json({ ok: true });
-    } catch (err: any) {
+    } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : "Internal error";
         console.error("Error in auth/signout:", err);
-        return NextResponse.json({ error: err?.message ?? "Internal error" }, { status: 500 });
+        return NextResponse.json({ error: message }, { status: 500 });
     }
 }
