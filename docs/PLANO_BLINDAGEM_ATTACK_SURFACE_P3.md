@@ -54,7 +54,7 @@
 |----|------|------|--------|--------|
 | **B12** | Menu público | Rate limits IP+slug | 429 sob flood | [x] 2026-09-06 — `enforcePublicMenuRateLimit` em todas rotas `/api/public/menu/[slug]/**` |
 | **B13** | PRO / WhatsApp | Caps wallet; trim raw_payload | Tests básicos | [x] 2026-09-06 — teto débito `clampAiDebitCents`; `maxOutputTokens` turno; trim inbox `raw_payload` |
-| **B14** | Extensions schema | Mover pg_trgm/unaccent | Advisor limpo | [ ] |
+| **B14** | Extensions schema | Mover pg_trgm/unaccent | Advisor limpo | [x] 2026-09-06 — `ALTER EXTENSION … SET SCHEMA extensions`; advisor `extension_in_public` vazio |
 
 ---
 
@@ -70,7 +70,7 @@
 ## Ordem restante
 
 ```
-B14
+(nenhum item de entrega — só B15 processo contínuo)
 ```
 
 ## Fora de escopo
