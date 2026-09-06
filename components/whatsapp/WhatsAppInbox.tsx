@@ -171,16 +171,20 @@ export default function WhatsAppInbox({ initialPhone }: { initialPhone?: string 
     const router = useRouter();
     const { has: hasPlanFeature, loading: planLoading } = usePlanFeatures();
     const canUseMetaInbox = hasPlanFeature("omnichannel_ig_messenger");
-    const showMetaChip = canUseMetaInbox || planLoading || channelFilter === "meta";
 
     // ── state ─────────────────────────────────────────────────────────────────
     const [threads,          setThreads]          = useState<Thread[]>([]);
     /** Só IDs vindos da API / clique — `?t=` é aplicado em `loadThreads` após cruzar com a lista. */
     const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
+    const [channelFilter,    setChannelFilter]    = useState<InboxChannelFilter>("all");
+    const showMetaChip = canUseMetaInbox || planLoading || channelFilter === "meta";
 
     /** UUID opcional do query `t`, lido uma vez no cliente (fora do render de mídia). */
     const urlThreadCandidateRef = useRef<string | null>(null);
     const urlThreadConsumedRef  = useRef(false);
+    const channelFilterRef = useRef<InboxChannelFilter>("all");
+    const skipFilterReloadRef = useRef(true);
+    const deepLinkFilterFallbackRef = useRef(false);
 
     useEffect(() => {
         if (typeof window === "undefined") return;
@@ -192,7 +196,6 @@ export default function WhatsAppInbox({ initialPhone }: { initialPhone?: string 
     }, []);
     const [messages,         setMessages]         = useState<Message[]>([]);
     const [q,                setQ]                = useState("");
-    const [channelFilter,    setChannelFilter]    = useState<InboxChannelFilter>("all");
     const [loadingThreads,   setLoadingThreads]   = useState(true);
     const [loadingMessages,  setLoadingMessages]  = useState(false);
     const [err,              setErr]              = useState<string | null>(null);
@@ -247,9 +250,6 @@ export default function WhatsAppInbox({ initialPhone }: { initialPhone?: string 
     /** Sempre em sincronia com `selectedThreadId` — lido dentro de `loadThreads` (que não pode
      * depender de `selectedThreadId` sem recriar a função a cada troca de conversa). */
     const selectedThreadIdRef = useRef<string | null>(null);
-    const channelFilterRef = useRef<InboxChannelFilter>("all");
-    const skipFilterReloadRef = useRef(true);
-    const deepLinkFilterFallbackRef = useRef(false);
 
     // Profile cache: threadId → {profile, ts}
     const profileCacheRef = useRef<Map<string, { profile: CustomerProfile; ts: number }>>(new Map());
