@@ -436,6 +436,18 @@ export default function SignupPage() {
         <div style={S.page}>
             <div style={S.brandRow}>
                 <img
+                    src="/brand/icone-512-transparente.svg?v=z1"
+                    alt=""
+                    width={40}
+                    height={40}
+                    style={{
+                        height: 40,
+                        width: 40,
+                        display: "block",
+                        flexShrink: 0,
+                    }}
+                />
+                <img
                     src="/brand/zampell-wordmark.svg?v=z1"
                     alt="Zampell"
                     width={176}

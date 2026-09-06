@@ -220,7 +220,12 @@ export default function HeaderClient({
                         <Menu size={18} />
                     </button>
                 )}
-                <a href="/" aria-label="Zampell" className="inline-flex shrink-0 items-center no-underline">
+                <a href="/" aria-label="Zampell" className="inline-flex shrink-0 items-center gap-2 no-underline">
+                    <img
+                        src="/brand/icone-512-transparente.svg?v=z1"
+                        alt=""
+                        className="block h-7 w-7 object-contain"
+                    />
                     <img
                         src="/brand/zampell-wordmark.png?v=z1"
                         alt="Zampell"
