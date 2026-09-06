@@ -2,6 +2,7 @@ import "server-only";
 
 import { createHmac, timingSafeEqual } from "node:crypto";
 import type { MessagingChannel } from "@/src/domain/contracts/identity";
+import { normalizeBrPhone } from "@/lib/public-menu/phone";
 
 /** Link legado WhatsApp (só telefone). */
 export type WebMenuLinkPayloadV1 = {
@@ -75,7 +76,13 @@ function decodeToken<T extends { exp: number }>(token: string): T | null {
     const parts = token.split(".");
     if (parts.length !== 2) return null;
     const [payloadB64, sig] = parts as [string, string];
-    const expected = signRaw(payloadB64);
+    let expected: string;
+    try {
+        expected = signRaw(payloadB64);
+    } catch {
+        // Secret ausente / misconfig — não vira 500 no cardápio.
+        return null;
+    }
     try {
         const a = Buffer.from(sig);
         const b = Buffer.from(expected);
@@ -126,12 +133,18 @@ export function signWebMenuChannelLinkToken(input: {
     externalId: string;
     ttlSec?: number;
 }): string {
+    let externalId = input.externalId.trim();
+    // WhatsApp: sempre E.164 com + — evita phone_e164 NULL na RPC e mismatch de identidade.
+    if (input.channel === "whatsapp") {
+        const n = normalizeBrPhone(externalId);
+        if (n.ok) externalId = n.phoneE164;
+    }
     const payload: WebMenuLinkPayloadV2 = {
         v: 2,
         companyId: input.companyId,
         slug: input.slug,
         channel: input.channel,
-        externalId: input.externalId.trim(),
+        externalId,
         exp: Math.floor(Date.now() / 1000) + (input.ttlSec ?? LINK_TTL_SEC),
     };
     return encodeToken(payload);

@@ -3,7 +3,7 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { MessagingChannel } from "@/src/domain/contracts/identity";
 import type { PublicMenuSessionOk } from "@/src/types/contracts.public-menu";
-import { normalizeBrMobilePhone } from "./phone";
+import { normalizeBrMobilePhone, normalizeBrPhone } from "./phone";
 import {
     linkWebMenuCustomerPhone,
     resolveWebMenuCustomer,
@@ -80,6 +80,32 @@ export async function establishMenuSessionFromWmToken(
             { channel: link.channel, externalId: link.externalId },
             displayName ?? effectiveName
         );
+
+        // WhatsApp: externalId é o telefone — nunca pedir phone de novo no cardápio.
+        if (customer && link.channel === "whatsapp") {
+            const fromExt = normalizeBrPhone(link.externalId);
+            const fromCust = customer.phoneE164
+                ? normalizeBrPhone(customer.phoneE164)
+                : ({ ok: false } as const);
+            const phoneNorm = fromCust.ok ? fromCust : fromExt.ok ? fromExt : null;
+            if (phoneNorm) {
+                if (!customer.phoneE164 || customer.needsPhone) {
+                    await admin
+                        .from("customers")
+                        .update({
+                            phone: phoneNorm.nationalDisplay,
+                            phone_e164: phoneNorm.phoneE164,
+                        })
+                        .eq("id", customer.id)
+                        .eq("company_id", input.companyId);
+                }
+                customer = {
+                    ...customer,
+                    phoneE164: phoneNorm.phoneE164,
+                    needsPhone: false,
+                };
+            }
+        }
 
         if (customer?.needsPhone && phoneBody.trim()) {
             const phoneNorm = normalizeBrMobilePhone(phoneBody);

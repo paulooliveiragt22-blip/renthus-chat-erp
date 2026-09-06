@@ -44,6 +44,24 @@ describe("web menu sessionToken v1/v2", () => {
         }
     });
 
+    it("WhatsApp v2 normaliza externalId para E.164 com +", async () => {
+        const { signWebMenuChannelLinkToken, verifyWebMenuLinkToken } = await import(
+            "@/lib/public-menu/sessionToken"
+        );
+        const token = signWebMenuChannelLinkToken({
+            companyId: "11111111-1111-1111-1111-111111111111",
+            slug: "loja-demo",
+            channel: "whatsapp",
+            externalId: "5511999887766",
+        });
+        const parsed = verifyWebMenuLinkToken(token);
+        assert.ok(parsed);
+        assert.equal(parsed?.v, 2);
+        if (parsed?.v === 2) {
+            assert.equal(parsed.externalId, "+5511999887766");
+        }
+    });
+
     it("checkout session permite needsPhone sem phoneE164", async () => {
         const { signWebMenuCheckoutSession, verifyWebMenuCheckoutSession } = await import(
             "@/lib/public-menu/sessionToken"

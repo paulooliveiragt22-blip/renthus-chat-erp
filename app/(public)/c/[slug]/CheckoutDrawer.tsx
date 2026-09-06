@@ -220,7 +220,18 @@ export default function CheckoutDrawer({
                     if (json.ok) {
                         applySession(json);
                     } else {
-                        setError("Não foi possível identificar seu cadastro.");
+                        const code =
+                            "error" in json && typeof json.error === "string"
+                                ? json.error
+                                : "session_invalid";
+                        console.warn("[checkout] session bootstrap failed", code);
+                        setError(
+                            code === "token_invalid"
+                                ? "Link expirado ou inválido. Peça um novo link no WhatsApp da loja."
+                                : code === "rate_limit_exceeded"
+                                  ? "Muitas tentativas. Aguarde um minuto e tente de novo."
+                                  : "Não foi possível identificar seu cadastro. Peça um novo link no WhatsApp."
+                        );
                     }
                     setBusy(false);
                 }
