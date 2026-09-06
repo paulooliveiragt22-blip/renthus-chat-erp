@@ -60,6 +60,7 @@ import {
 } from "@/src/domain/messaging/inboxChannelFilter";
 import { usePlanFeatures } from "@/lib/billing/usePlanFeatures";
 import InboxChannelChips from "@/components/whatsapp/InboxChannelChips";
+import { cn } from "@/lib/utils";
 import { extractMediaFromWaPayload } from "@/lib/whatsapp/extractMediaFromWaPayload";
 import { parseOptionalUuid } from "@/lib/whatsapp/urlSafety";
 import { META_MEDIA_ID_PATH_RE, sanitizeWhatsAppMediaPathId } from "@/lib/whatsapp/mediaIdPath";
@@ -890,16 +891,13 @@ export default function WhatsAppInbox({ initialPhone }: { initialPhone?: string 
 
             {/* ── SIDEBAR ESQUERDA: threads ─────────────────────────────── */}
             <aside
-                className={`
-                    flex w-96 shrink-0 flex-col overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-sm
-                    dark:border-zinc-800 dark:bg-zinc-900
-                    transition-all duration-200
-                    md:relative md:flex md:translate-x-0
-                    ${sidebarOpen
-                        ? "fixed inset-y-0 left-0 z-40 w-[min(24rem,90vw)] translate-x-0 rounded-none border-0"
+                className={cn(
+                    "flex w-96 max-w-full shrink-0 flex-col overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-sm transition-all duration-200 dark:border-zinc-800 dark:bg-zinc-900",
+                    "md:relative md:translate-x-0",
+                    sidebarOpen
+                        ? "fixed inset-y-0 left-0 z-40 translate-x-0 rounded-none border-0"
                         : "hidden md:flex"
-                    }
-                `}
+                )}
                 aria-label="Lista de conversas"
             >
                 {/* header */}

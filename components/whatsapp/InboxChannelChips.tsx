@@ -1,59 +1,82 @@
 "use client";
 
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import * as React from "react";
+import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "@/lib/utils";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import {
     parseInboxChannelFilter,
     type InboxChannelFilter,
 } from "@/src/domain/messaging/inboxChannelFilter";
 
-type InboxChannelChipsProps = {
-    value: InboxChannelFilter;
-    onValueChange: (next: InboxChannelFilter) => void;
-    showMeta: boolean;
-    className?: string;
-};
+const inboxChannelGroupVariants = cva("grid w-full", {
+    variants: {
+        columns: {
+            two: "grid-cols-2",
+            three: "grid-cols-3",
+        },
+    },
+    defaultVariants: {
+        columns: "two",
+    },
+});
 
-export default function InboxChannelChips({
-    value,
-    onValueChange,
-    showMeta,
-    className,
-}: InboxChannelChipsProps) {
-    const cols = showMeta ? "grid-cols-3" : "grid-cols-2";
-    const safeValue = !showMeta && value === "meta" ? "all" : value;
+export type InboxChannelChipsProps = Omit<
+    React.ComponentPropsWithoutRef<typeof ToggleGroup>,
+    "type" | "value" | "defaultValue" | "onValueChange"
+> &
+    VariantProps<typeof inboxChannelGroupVariants> & {
+        value: InboxChannelFilter;
+        onValueChange: (next: InboxChannelFilter) => void;
+        showMeta?: boolean;
+    };
 
-    return (
-        <Tabs
-            value={safeValue}
-            onValueChange={(next) => onValueChange(parseInboxChannelFilter(next))}
-            className={className}
-        >
-            <TabsList
+const InboxChannelChips = React.forwardRef<
+    React.ElementRef<typeof ToggleGroup>,
+    InboxChannelChipsProps
+>(
+    (
+        { value, onValueChange, showMeta = false, columns, className, ...props },
+        ref
+    ) => {
+        const resolvedColumns = columns ?? (showMeta ? "three" : "two");
+        const safeValue = !showMeta && value === "meta" ? "all" : value;
+
+        return (
+            <ToggleGroup
+                ref={ref}
+                variant="outline"
+                size="sm"
+                spacing="sm"
+                className={cn(
+                    inboxChannelGroupVariants({ columns: resolvedColumns }),
+                    className
+                )}
                 aria-label="Filtrar conversas por canal"
-                className={cn("grid h-auto w-full gap-0.5 p-0.5", cols)}
+                {...props}
+                type="single"
+                value={safeValue}
+                onValueChange={(next) => {
+                    if (!next) return;
+                    onValueChange(parseInboxChannelFilter(next));
+                }}
             >
-                <TabsTrigger
-                    value="all"
-                    className="min-w-0 px-1.5 py-1 text-[11px] leading-tight"
-                >
+                <ToggleGroupItem value="all" className="min-w-0 truncate">
                     Todos
-                </TabsTrigger>
-                <TabsTrigger
-                    value="whatsapp"
-                    className="min-w-0 px-1.5 py-1 text-[11px] leading-tight"
-                >
+                </ToggleGroupItem>
+                <ToggleGroupItem value="whatsapp" className="min-w-0 truncate">
                     WhatsApp
-                </TabsTrigger>
+                </ToggleGroupItem>
                 {showMeta ? (
-                    <TabsTrigger
-                        value="meta"
-                        className="min-w-0 truncate px-1.5 py-1 text-[11px] leading-tight"
-                    >
+                    <ToggleGroupItem value="meta" className="min-w-0 truncate">
                         IG / Messenger
-                    </TabsTrigger>
+                    </ToggleGroupItem>
                 ) : null}
-            </TabsList>
-        </Tabs>
-    );
-}
+            </ToggleGroup>
+        );
+    }
+);
+InboxChannelChips.displayName = "InboxChannelChips";
+
+export { InboxChannelChips, inboxChannelGroupVariants };
+export default InboxChannelChips;
