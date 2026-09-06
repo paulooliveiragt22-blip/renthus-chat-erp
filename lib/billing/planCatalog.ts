@@ -41,7 +41,7 @@ export const PLAN_CATALOG: Record<
         name: "Essencial",
         monthlyPriceCents: 27900,
         yearlyPriceCents: defaultYearlyCentsFromMonthly(27900),
-        description: "WhatsApp + cardápio web + PDV básico",
+        description: "Agente no WhatsApp + cardápio + PDV básico",
         features: [
             "whatsapp_messages",
             "ai_parser",
@@ -58,7 +58,7 @@ export const PLAN_CATALOG: Record<
         name: "Pro",
         monthlyPriceCents: 34900,
         yearlyPriceCents: defaultYearlyCentsFromMonthly(34900),
-        description: "ERP completo + impressão (canal próprio)",
+        description: "Operação completa: PDV, estoque, financeiro e impressão",
         popular: true,
         features: [
             "whatsapp_messages",
@@ -80,7 +80,7 @@ export const PLAN_CATALOG: Record<
         name: "Market",
         monthlyPriceCents: 44900,
         yearlyPriceCents: defaultYearlyCentsFromMonthly(44900),
-        description: "Tudo do Pro + iFood/Aiqfome + IG/Messenger + mesa",
+        description: "Tudo do Pro + iFood, Aiqfome, IG/Messenger e mesa",
         features: [
             "whatsapp_messages",
             "ai_parser",

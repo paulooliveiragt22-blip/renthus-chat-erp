@@ -30,6 +30,10 @@ type TrialPolicy = { trial_days: number; payment_required: boolean };
 
 type BillingPeriod = "month" | "year";
 
+type PlanFeatureRow =
+    | { kind: "item"; label: string; ai?: boolean }
+    | { kind: "plus" };
+
 type SignupPlanCard = {
     key: CommercialPlanKey;
     name: string;
@@ -40,28 +44,81 @@ type SignupPlanCard = {
     listYearlyCents: number | null;
     yearlySavingsPercent: number;
     promoLabel: string | null;
-    features: string[];
+    features: PlanFeatureRow[];
 };
 
-const PLAN_FEATURE_BLURBS: Record<CommercialPlanKey, string[]> = {
+/** Copy de recursos da vitrine — texto do dono (sem crédito/packs IA). */
+const PLAN_FEATURE_BLURBS: Record<CommercialPlanKey, PlanFeatureRow[]> = {
     essencial: [
-        "Agente inteligente no WhatsApp (Flow + IA)",
-        "Cardápio web com capa e foto",
-        "PDV básico · 1 usuário",
+        { kind: "item", label: "Agente IA no WhatsApp", ai: true },
+        { kind: "item", label: "Cardápio web Inteligente" },
+        { kind: "item", label: "PDV básico para balcão" },
+        { kind: "item", label: "Cadastro de produtos" },
     ],
     pro: [
-        "Tudo do Essencial",
-        "PDV, estoque e financeiro",
-        "Impressão automática",
-        "Relatórios avançados · seat extra R$ 99",
+        { kind: "item", label: "Agente IA no WhatsApp", ai: true },
+        { kind: "item", label: "Tudo do Essencial" },
+        { kind: "plus" },
+        { kind: "item", label: "Agent de impressão automática de pedidos" },
+        { kind: "item", label: "PDV completo" },
+        { kind: "item", label: "Gestão de estoque" },
+        { kind: "item", label: "Controle financeiro" },
+        { kind: "item", label: "Templates e campanhas no WhatsApp" },
+        { kind: "item", label: "01 usuário" },
     ],
     market: [
-        "Tudo do Pro",
-        "iFood + Aiqfome",
-        "Instagram + Messenger",
-        "Atendimento de mesa / salão · 10 usuários",
+        { kind: "item", label: "Tudo do Essencial" },
+        { kind: "plus" },
+        { kind: "item", label: "Agent de impressão automática de pedidos" },
+        { kind: "item", label: "PDV completo" },
+        { kind: "item", label: "Gestão de estoque" },
+        { kind: "item", label: "Controle financeiro" },
+        { kind: "item", label: "Templates e campanhas no WhatsApp" },
+        { kind: "item", label: "10 usuários" },
     ],
 };
+
+function AiSparklesIcon({ color }: { color: string }) {
+    return (
+        <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke={color}
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            style={{ flexShrink: 0 }}
+            aria-hidden
+        >
+            <path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z" />
+            <path d="M20 3v4" />
+            <path d="M22 5h-4" />
+            <path d="M4 17v2" />
+            <path d="M5 18H3" />
+        </svg>
+    );
+}
+
+function FeatureCheckIcon({ color }: { color: string }) {
+    return (
+        <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke={color}
+            strokeWidth="2.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            style={{ flexShrink: 0 }}
+            aria-hidden
+        >
+            <polyline points="20 6 9 17 4 12" />
+        </svg>
+    );
+}
 
 function catalogFallbackPlans(): SignupPlanCard[] {
     return PLAN_ORDER.map((key) => {
@@ -329,22 +386,18 @@ export default function SignupPage() {
         <div style={S.page}>
             <div style={S.brandRow}>
                 <img
-                    src="/icons/icon-192.png?v=mark10"
-                    alt=""
-                    width={44}
-                    height={44}
+                    src="/brand/zampell-wordmark.svg?v=z1"
+                    alt="Zampell"
+                    width={176}
+                    height={48}
                     style={{
-                        height: 44,
-                        width: 44,
+                        height: 40,
+                        width: "auto",
                         display: "block",
                         flexShrink: 0,
-                        borderRadius: 12,
                     }}
                 />
-                <div style={S.brandTextCol}>
-                    <span style={S.brandName}>Zampell</span>
-                    <span style={S.brandProduct}>Delivery</span>
-                </div>
+                <span style={S.brandProduct}>Delivery</span>
             </div>
 
             <div style={S.hero}>
@@ -465,25 +518,29 @@ export default function SignupPage() {
                                     : "Após o teste · cancele quando quiser"}
                             </div>
                             <ul style={S.featureList}>
-                                {p.features.map((f) => (
-                                    <li key={f} style={S.featureItem}>
-                                        <svg
-                                            width="14"
-                                            height="14"
-                                            viewBox="0 0 24 24"
-                                            fill="none"
-                                            stroke={BRAND.planAccent}
-                                            strokeWidth="2.5"
-                                            strokeLinecap="round"
-                                            strokeLinejoin="round"
-                                            style={{ flexShrink: 0 }}
-                                            aria-hidden
-                                        >
-                                            <polyline points="20 6 9 17 4 12" />
-                                        </svg>
-                                        {f}
-                                    </li>
-                                ))}
+                                {p.features.map((f, idx) => {
+                                    if (f.kind === "plus") {
+                                        return (
+                                            <li
+                                                key={`plus-${idx}`}
+                                                style={S.featurePlus}
+                                                aria-hidden
+                                            >
+                                                <span style={S.featurePlusGlyph}>+</span>
+                                            </li>
+                                        );
+                                    }
+                                    return (
+                                        <li key={`${f.label}-${idx}`} style={S.featureItem}>
+                                            {f.ai ? (
+                                                <AiSparklesIcon color={BRAND.accent} />
+                                            ) : (
+                                                <FeatureCheckIcon color={BRAND.planAccent} />
+                                            )}
+                                            <span>{f.label}</span>
+                                        </li>
+                                    );
+                                })}
                             </ul>
                             <button
                                 type="button"
@@ -679,29 +736,20 @@ const S = {
         display:        "flex",
         alignItems:     "center",
         justifyContent: "center",
-        gap:            12,
+        gap:            14,
         marginBottom:   28,
         width:          "100%",
-    },
-    brandTextCol: {
-        display:       "flex",
-        flexDirection: "column" as const,
-        alignItems:    "flex-start",
-        gap:           2,
-        lineHeight:    1.1,
-    },
-    brandName: {
-        fontSize:      20,
-        fontWeight:    700,
-        color:         "#ffffff",
-        letterSpacing: "-0.02em",
+        flexWrap:       "wrap" as const,
     },
     brandProduct: {
-        fontSize:      12,
-        fontWeight:    600,
-        color:         BRAND.accent,
-        letterSpacing: "0.04em",
+        fontSize:      11,
+        fontWeight:    700,
+        color:         BRAND.primaryDeep,
+        letterSpacing: "0.06em",
         textTransform: "uppercase" as const,
+        background:    BRAND.accent,
+        borderRadius:  999,
+        padding:       "6px 12px",
     },
     hero: {
         textAlign:    "center" as const,
@@ -872,6 +920,28 @@ const S = {
         color:      "#374151",
         fontWeight: 500,
         lineHeight: 1.4,
+    },
+    featurePlus: {
+        display:        "flex",
+        alignItems:     "center",
+        justifyContent: "center",
+        listStyle:      "none",
+        margin:         "2px 0",
+        padding:        0,
+    },
+    featurePlusGlyph: {
+        display:         "inline-flex",
+        alignItems:      "center",
+        justifyContent:  "center",
+        width:           28,
+        height:          28,
+        borderRadius:    999,
+        background:      "rgba(87, 255, 143, 0.18)",
+        color:           BRAND.accent,
+        fontSize:        20,
+        fontWeight:      700,
+        lineHeight:      1,
+        border:          `1.5px solid ${BRAND.accent}`,
     },
     planBtn: {
         width:        "100%",
