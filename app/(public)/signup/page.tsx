@@ -73,6 +73,7 @@ const PLAN_FEATURE_BLURBS: Record<CommercialPlanKey, PlanFeatureRow[]> = {
         { kind: "item", label: "01 usuário" },
     ],
     market: [
+        { kind: "item", label: "Agente IA no WhatsApp", ai: true },
         { kind: "item", label: "Tudo do Essencial" },
         { kind: "plus" },
         { kind: "item", label: "Pedido sai sozinho na impressora" },
@@ -84,19 +85,11 @@ const PLAN_FEATURE_BLURBS: Record<CommercialPlanKey, PlanFeatureRow[]> = {
     ],
 };
 
-const PAIN_PILLARS = [
-    {
-        title: "Zap lotado, pedido errado",
-        body: "Cliente manda áudio, muda o item, esquece o endereço. O agente IA responde no WhatsApp, monta o pedido e deixa pronto pra você ver — sem você ficar copiando conversa.",
-    },
-    {
-        title: "Cardápio no Instagram, preço atrasado",
-        body: "O cliente abre o link, vê foto e preço certo, escolhe e pede. Você atualiza uma vez só. Acabou aquele “quanto tá a lata hoje?”.",
-    },
-    {
-        title: "Vendeu e não sabe se bateu",
-        body: "Balcão e WhatsApp no mesmo lugar. Estoque, caixa e impressão entram quando o plano sobe — pra fechar o dia sem adivinhar.",
-    },
+const HERO_BENEFITS = [
+    "Você controla pelo seu telefone ou computador.",
+    "Impressão do pedido automático, não precisa escrever à mão.",
+    "Cliente não precisa baixar aplicativo.",
+    "O canal é todo seu, sem taxas por vendas — sem comer seus lucros.",
 ] as const;
 
 const HOW_STEPS = [
@@ -468,11 +461,20 @@ export default function SignupPage() {
             <div style={S.hero}>
                 <p style={S.slogan}>Agentes inteligentes para o seu delivery.</p>
                 <h1 style={S.title}>
-                    O WhatsApp do seu delivery atende e anota o pedido. Você só confirma e manda sair.
+                    O WhatsApp do seu delivery atende e anota o pedido?
                 </h1>
+                <p style={S.heroAnswer}>O nosso sim!</p>
                 <p style={S.subtitle}>
-                    Atendimento e gestão de ponta: o cliente pede no Zap, o pedido cai no painel e segue pra operação.
+                    Conheça o nosso agente de IA que atende, anota e imprime o pedido na hora.
                 </p>
+                <ul style={S.heroBenefits}>
+                    {HERO_BENEFITS.map((line) => (
+                        <li key={line} style={S.heroBenefitItem}>
+                            <FeatureCheckIcon color={BRAND.accent} />
+                            <span>{line}</span>
+                        </li>
+                    ))}
+                </ul>
                 <div style={S.heroCtas}>
                     <a href="#planos" style={S.heroCtaPrimary}>
                         Escolher plano e começar
@@ -487,15 +489,6 @@ export default function SignupPage() {
                         ? ` · ${trialPolicy.trial_days} dias de teste`
                         : ""}
                 </p>
-            </div>
-
-            <div style={S.pillars}>
-                {PAIN_PILLARS.map((p) => (
-                    <article key={p.title} style={S.pillarCard}>
-                        <h2 style={S.pillarTitle}>{p.title}</h2>
-                        <p style={S.pillarBody}>{p.body}</p>
-                    </article>
-                ))}
             </div>
 
             <div style={S.periodToggleWrap} id="planos">
@@ -893,11 +886,39 @@ const S = {
         letterSpacing: "-0.6px",
         lineHeight:    1.15,
     },
+    heroAnswer: {
+        margin:        "0 0 12px",
+        fontSize:      "clamp(28px, 5vw, 40px)",
+        fontWeight:    800,
+        color:         BRAND.accent,
+        letterSpacing: "-0.6px",
+        lineHeight:    1.15,
+    },
     subtitle: {
-        margin:     "0 0 14px",
+        margin:     "0 0 22px",
         fontSize:   16,
         lineHeight: 1.5,
         color:      "rgba(255,255,255,0.78)",
+    },
+    heroBenefits: {
+        listStyle:     "none",
+        margin:        "0 auto 24px",
+        padding:       0,
+        display:       "flex",
+        flexDirection: "column" as const,
+        gap:           12,
+        textAlign:     "left" as const,
+        maxWidth:      520,
+        width:         "100%",
+    },
+    heroBenefitItem: {
+        display:    "flex",
+        alignItems: "flex-start",
+        gap:        10,
+        fontSize:   15,
+        lineHeight: 1.45,
+        color:      "rgba(255,255,255,0.86)",
+        fontWeight: 500,
     },
     policyLine: {
         margin:     0,
