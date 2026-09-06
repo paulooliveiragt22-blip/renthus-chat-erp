@@ -461,7 +461,7 @@ export default function SignupPage() {
                     />
                     <span style={S.brandProduct}>Delivery</span>
                 </div>
-                <p style={S.slogan}>Agentes inteligentes para o seu delivery.</p>
+                <p style={S.slogan}>Agentes de IA + gestão completa</p>
             </header>
 
             <div style={S.hero}>
@@ -475,7 +475,7 @@ export default function SignupPage() {
                 <ul style={S.heroBenefits}>
                     {HERO_BENEFITS.map((line) => (
                         <li key={line} style={S.heroBenefitItem}>
-                            <FeatureCheckIcon color={BRAND.accent} />
+                            <FeatureCheckIcon color={BRAND.planAccent} />
                             <span>{line}</span>
                         </li>
                     ))}
@@ -872,16 +872,16 @@ const S = {
         color:         "#16364d",
         letterSpacing: "0.06em",
         textTransform: "uppercase" as const,
-        background:    BRAND.accent,
-        borderRadius:  999,
-        padding:       "6px 12px",
+        background:    "#d1d5db",
+        borderRadius:  6,
+        padding:       "4px 8px",
     },
     slogan: {
         margin:        "2px 0 0",
         fontSize:      13,
-        fontWeight:    600,
-        color:         BRAND.accent,
-        letterSpacing: "0.02em",
+        fontWeight:    500,
+        color:         "#ffffff",
+        letterSpacing: "0.01em",
         textAlign:     "center" as const,
     },
     hero: {
@@ -902,7 +902,7 @@ const S = {
         margin:        "0 0 12px",
         fontSize:      "clamp(28px, 5vw, 40px)",
         fontWeight:    800,
-        color:         BRAND.accent,
+        color:         BRAND.planAccent,
         letterSpacing: "-0.6px",
         lineHeight:    1.15,
     },
@@ -949,8 +949,8 @@ const S = {
         display:        "inline-flex",
         alignItems:     "center",
         justifyContent: "center",
-        background:     BRAND.accent,
-        color:          BRAND.accentFg,
+        background:     BRAND.planAccent,
+        color:          BRAND.planAccentFg,
         fontWeight:     800,
         fontSize:       15,
         textDecoration: "none",
@@ -1030,8 +1030,8 @@ const S = {
         width:       28,
         height:      28,
         borderRadius: 999,
-        background:  BRAND.accent,
-        color:       BRAND.accentFg,
+        background:  BRAND.planAccent,
+        color:       BRAND.planAccentFg,
         fontWeight:  800,
         fontSize:    14,
         display:     "inline-flex",
@@ -1305,7 +1305,7 @@ const S = {
     },
     resumoBox: {
         background:   "#ecfdf5",
-        border:       `1px solid ${BRAND.accent}`,
+        border:       `1px solid ${BRAND.planAccent}`,
         borderRadius: 12,
         padding:      "14px 16px",
         marginBottom: 20,
@@ -1345,8 +1345,8 @@ const S = {
     submitBtn: {
         width:        "100%",
         padding:      "15px 20px",
-        background:   BRAND.accent,
-        color:        BRAND.accentFg,
+        background:   BRAND.planAccent,
+        color:        BRAND.planAccentFg,
         border:       "none",
         borderRadius: 12,
         fontSize:     16,
