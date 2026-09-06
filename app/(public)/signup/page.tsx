@@ -150,11 +150,11 @@ function AiSparklesIcon() {
     );
 }
 
-function FeatureCheckIcon({ color }: { color: string }) {
+function FeatureCheckIcon({ color, size = 14 }: { color: string; size?: number }) {
     return (
         <svg
-            width="14"
-            height="14"
+            width={size}
+            height={size}
             viewBox="0 0 24 24"
             fill="none"
             stroke={color}
@@ -475,7 +475,7 @@ export default function SignupPage() {
                 <ul style={S.heroBenefits}>
                     {HERO_BENEFITS.map((line) => (
                         <li key={line} style={S.heroBenefitItem}>
-                            <FeatureCheckIcon color={BRAND.planAccent} />
+                            <FeatureCheckIcon color={BRAND.planAccent} size={18} />
                             <span>{line}</span>
                         </li>
                     ))}
@@ -908,9 +908,10 @@ const S = {
     },
     subtitle: {
         margin:     "0 0 22px",
-        fontSize:   16,
-        lineHeight: 1.5,
-        color:      "#374151",
+        fontSize:   18,
+        fontWeight: 700,
+        lineHeight: 1.45,
+        color:      "#16364d",
     },
     heroBenefits: {
         listStyle:     "none",
@@ -918,19 +919,19 @@ const S = {
         padding:       0,
         display:       "flex",
         flexDirection: "column" as const,
-        gap:           12,
+        gap:           14,
         textAlign:     "left" as const,
-        maxWidth:      520,
+        maxWidth:      560,
         width:         "100%",
     },
     heroBenefitItem: {
         display:    "flex",
         alignItems: "flex-start",
-        gap:        10,
-        fontSize:   15,
-        lineHeight: 1.45,
-        color:      "#1f2937",
-        fontWeight: 500,
+        gap:        12,
+        fontSize:   17,
+        lineHeight: 1.4,
+        color:      "#16364d",
+        fontWeight: 700,
     },
     policyLine: {
         margin:     0,
