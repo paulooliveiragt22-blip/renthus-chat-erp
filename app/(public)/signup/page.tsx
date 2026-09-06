@@ -835,7 +835,7 @@ const BRAND = {
 const S = {
     page: {
         minHeight:     "100vh",
-        background:    "#CCCCCC",
+        background:    "#E6E6E6",
         display:       "flex",
         flexDirection: "column" as const,
         alignItems:    "center",
