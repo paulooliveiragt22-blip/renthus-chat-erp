@@ -77,7 +77,7 @@ function yearlyDiscountPct(monthlyBrl: number, yearlyBrl: number) {
 const BLURBS: Record<CommercialPlanKey, string> = {
     essencial: "Agente WhatsApp + cardápio + PDV",
     pro: "PDV + estoque + financeiro + impressão",
-    market: "Pro + iFood/Aiqfome + omni + mesa",
+    market: "Pro + mais usuários no painel",
 };
 
 export function PlanChangeCatalog({

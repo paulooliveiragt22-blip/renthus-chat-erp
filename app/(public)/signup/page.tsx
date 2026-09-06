@@ -47,19 +47,25 @@ type SignupPlanCard = {
     features: PlanFeatureRow[];
 };
 
-/** Copy de recursos da vitrine — texto do dono (sem crédito/packs IA). */
+/** Copy de recursos da vitrine — só WhatsApp (sem IG/Messenger). */
+const PLAN_CARD_PITCH: Record<CommercialPlanKey, string> = {
+    essencial: "Pra quem precisa parar de anotar pedido no Zap e ter um cardápio decente.",
+    pro: "Pra quem já vende todo dia e precisa que o pedido vire comanda, estoque e caixa — sem retrabalho.",
+    market: "Pra operação com mais gente no painel no mesmo horário.",
+};
+
 const PLAN_FEATURE_BLURBS: Record<CommercialPlanKey, PlanFeatureRow[]> = {
     essencial: [
         { kind: "item", label: "Agente IA no WhatsApp", ai: true },
-        { kind: "item", label: "Cardápio web Inteligente" },
-        { kind: "item", label: "PDV básico para balcão" },
+        { kind: "item", label: "Cardápio web inteligente" },
+        { kind: "item", label: "PDV básico pra vender no balcão" },
         { kind: "item", label: "Cadastro de produtos" },
     ],
     pro: [
         { kind: "item", label: "Agente IA no WhatsApp", ai: true },
         { kind: "item", label: "Tudo do Essencial" },
         { kind: "plus" },
-        { kind: "item", label: "Agent de impressão automática de pedidos" },
+        { kind: "item", label: "Pedido sai sozinho na impressora" },
         { kind: "item", label: "PDV completo" },
         { kind: "item", label: "Gestão de estoque" },
         { kind: "item", label: "Controle financeiro" },
@@ -69,7 +75,7 @@ const PLAN_FEATURE_BLURBS: Record<CommercialPlanKey, PlanFeatureRow[]> = {
     market: [
         { kind: "item", label: "Tudo do Essencial" },
         { kind: "plus" },
-        { kind: "item", label: "Agent de impressão automática de pedidos" },
+        { kind: "item", label: "Pedido sai sozinho na impressora" },
         { kind: "item", label: "PDV completo" },
         { kind: "item", label: "Gestão de estoque" },
         { kind: "item", label: "Controle financeiro" },
@@ -77,6 +83,50 @@ const PLAN_FEATURE_BLURBS: Record<CommercialPlanKey, PlanFeatureRow[]> = {
         { kind: "item", label: "10 usuários" },
     ],
 };
+
+const PAIN_PILLARS = [
+    {
+        title: "Zap lotado, pedido errado",
+        body: "Cliente manda áudio, muda o item, esquece o endereço. O agente IA responde no WhatsApp, monta o pedido e deixa pronto pra você ver — sem você ficar copiando conversa.",
+    },
+    {
+        title: "Cardápio no Instagram, preço atrasado",
+        body: "O cliente abre o link, vê foto e preço certo, escolhe e pede. Você atualiza uma vez só. Acabou aquele “quanto tá a lata hoje?”.",
+    },
+    {
+        title: "Vendeu e não sabe se bateu",
+        body: "Balcão e WhatsApp no mesmo lugar. Estoque, caixa e impressão entram quando o plano sobe — pra fechar o dia sem adivinhar.",
+    },
+] as const;
+
+const HOW_STEPS = [
+    "Cadastra o que você vende e publica o cardápio.",
+    "O cliente pede no WhatsApp — o agente monta o pedido.",
+    "Você confirma e manda sair. No Pro e no Market a comanda imprime, o estoque baixa e o valor entra no financeiro.",
+] as const;
+
+const FAQ_ITEMS = [
+    {
+        q: "Preciso falar com vendedor pra começar?",
+        a: "Não. Escolhe o plano, cria a conta e paga.",
+    },
+    {
+        q: "Funciona no celular?",
+        a: "Sim. Celular ou computador.",
+    },
+    {
+        q: "Imprime comanda?",
+        a: "No Pro e no Market o pedido vai direto pra impressora.",
+    },
+    {
+        q: "O cliente precisa baixar app?",
+        a: "Não. Abre o cardápio no navegador ou pede no WhatsApp.",
+    },
+    {
+        q: "Dá pra mais de uma pessoa usar?",
+        a: "Essencial e Pro: 1 usuário. Market: 10. No Pro e no Market dá pra adicionar gente extra (R$ 99/mês).",
+    },
+] as const;
 
 function AiSparklesIcon({ color }: { color: string }) {
     return (
@@ -127,7 +177,7 @@ function catalogFallbackPlans(): SignupPlanCard[] {
             key,
             name: c.name,
             popular: Boolean(c.popular),
-            description: c.description,
+            description: PLAN_CARD_PITCH[key],
             listMonthlyCents: c.monthlyPriceCents,
             offerMonthlyCents: c.monthlyPriceCents,
             listYearlyCents: c.yearlyPriceCents ?? null,
@@ -247,7 +297,7 @@ export default function SignupPage() {
                             name: row.name || c.name,
                             popular: Boolean(row.popular ?? c.popular),
                             /** Copy comercial canônico no código (não ecoar texto legado do DB). */
-                            description: c.description,
+                            description: PLAN_CARD_PITCH[key],
                             listMonthlyCents: row.list_monthly_cents,
                             offerMonthlyCents: row.offer_monthly_cents,
                             listYearlyCents:
@@ -403,21 +453,37 @@ export default function SignupPage() {
             <div style={S.hero}>
                 <p style={S.slogan}>Agentes inteligentes para o seu delivery.</p>
                 <h1 style={S.title}>
-                    Seu delivery com agente inteligente no WhatsApp.
+                    O WhatsApp do seu delivery atende e anota o pedido. Você só confirma e manda sair.
                 </h1>
                 <p style={S.subtitle}>
-                    Atendimento e gestão de ponta, monta o pedido e joga na operação.
+                    Atendimento e gestão de ponta: o cliente pede no Zap, o pedido cai no painel e segue pra operação.
                 </p>
+                <div style={S.heroCtas}>
+                    <a href="#planos" style={S.heroCtaPrimary}>
+                        Escolher plano e começar
+                    </a>
+                    <a href="/login" style={S.heroCtaSecondary}>
+                        Já tenho conta · Entrar
+                    </a>
+                </div>
                 <p style={S.policyLine}>
-                    {policyLoaded && trialPolicy.payment_required
-                        ? "Escolha o plano e pague na primeira mensalidade para acessar."
-                        : policyLoaded
-                          ? `${trialPolicy.trial_days} dias de teste · depois, pague a mensalidade para continuar`
-                          : "Carregando…"}
+                    Sem taxa pra começar · Paga e usa · Cancela quando quiser
+                    {policyLoaded && !trialPolicy.payment_required
+                        ? ` · ${trialPolicy.trial_days} dias de teste`
+                        : ""}
                 </p>
             </div>
 
-            <div style={S.periodToggleWrap}>
+            <div style={S.pillars}>
+                {PAIN_PILLARS.map((p) => (
+                    <article key={p.title} style={S.pillarCard}>
+                        <h2 style={S.pillarTitle}>{p.title}</h2>
+                        <p style={S.pillarBody}>{p.body}</p>
+                    </article>
+                ))}
+            </div>
+
+            <div style={S.periodToggleWrap} id="planos">
                 <BillingPeriodToggle
                     appearance="onDark"
                     value={billingPeriod}
@@ -691,6 +757,46 @@ export default function SignupPage() {
                 </form>
             )}
 
+            <section style={S.howSection} aria-labelledby="como-funciona">
+                <h2 id="como-funciona" style={S.sectionHeading}>
+                    Como funciona
+                </h2>
+                <ol style={S.howList}>
+                    {HOW_STEPS.map((step, i) => (
+                        <li key={step} style={S.howItem}>
+                            <span style={S.howNum}>{i + 1}</span>
+                            <span>{step}</span>
+                        </li>
+                    ))}
+                </ol>
+            </section>
+
+            <section style={S.faqSection} aria-labelledby="faq">
+                <h2 id="faq" style={S.sectionHeading}>
+                    Perguntas frequentes
+                </h2>
+                <div style={S.faqList}>
+                    {FAQ_ITEMS.map((item) => (
+                        <details key={item.q} style={S.faqItem}>
+                            <summary style={S.faqSummary}>{item.q}</summary>
+                            <p style={S.faqAnswer}>{item.a}</p>
+                        </details>
+                    ))}
+                </div>
+            </section>
+
+            <section style={S.finalCta} aria-labelledby="cta-final">
+                <h2 id="cta-final" style={S.finalTitle}>
+                    Cansou de anotar pedido no Zap e conferir depois se saiu certo?
+                </h2>
+                <p style={S.finalSub}>
+                    Escolhe o plano, ativa o agente e deixa o pedido cair no painel.
+                </p>
+                <a href="#planos" style={S.heroCtaPrimary}>
+                    Começar com Zampell Delivery
+                </a>
+            </section>
+
             <div style={S.otherProducts}>
                 <div style={S.otherProductsLabel}>Outros produtos Zampell</div>
                 <div style={S.otherProductsRow}>
@@ -754,7 +860,7 @@ const S = {
     hero: {
         textAlign:    "center" as const,
         marginBottom: 40,
-        maxWidth:     640,
+        maxWidth:     720,
         padding:      "0 8px",
     },
     slogan: {
@@ -783,6 +889,156 @@ const S = {
         fontSize:   13,
         lineHeight: 1.45,
         color:      "rgba(255,255,255,0.48)",
+    },
+    heroCtas: {
+        display:        "flex",
+        flexWrap:       "wrap" as const,
+        gap:            12,
+        justifyContent: "center",
+        marginBottom:   16,
+    },
+    heroCtaPrimary: {
+        display:        "inline-flex",
+        alignItems:     "center",
+        justifyContent: "center",
+        background:     BRAND.accent,
+        color:          BRAND.accentFg,
+        fontWeight:     800,
+        fontSize:       15,
+        textDecoration: "none",
+        borderRadius:   999,
+        padding:        "12px 22px",
+    },
+    heroCtaSecondary: {
+        display:        "inline-flex",
+        alignItems:     "center",
+        justifyContent: "center",
+        color:          "rgba(255,255,255,0.82)",
+        fontWeight:     600,
+        fontSize:       14,
+        textDecoration: "none",
+        borderRadius:   999,
+        padding:        "12px 18px",
+        border:         "1px solid rgba(255,255,255,0.22)",
+    },
+    pillars: {
+        display:        "grid",
+        gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 240px), 1fr))",
+        gap:            16,
+        width:          "100%",
+        maxWidth:       1120,
+        marginBottom:   40,
+    },
+    pillarCard: {
+        background:   "rgba(255,255,255,0.05)",
+        border:       "1px solid rgba(255,255,255,0.10)",
+        borderRadius: 18,
+        padding:      "20px 18px",
+    },
+    pillarTitle: {
+        margin:     "0 0 8px",
+        fontSize:   16,
+        fontWeight: 700,
+        color:      "#ffffff",
+        lineHeight: 1.3,
+    },
+    pillarBody: {
+        margin:     0,
+        fontSize:   14,
+        lineHeight: 1.5,
+        color:      "rgba(255,255,255,0.68)",
+    },
+    sectionHeading: {
+        margin:        "0 0 20px",
+        fontSize:      22,
+        fontWeight:    800,
+        color:         "#ffffff",
+        textAlign:     "center" as const,
+    },
+    howSection: {
+        width:     "100%",
+        maxWidth:  720,
+        marginTop: 8,
+        marginBottom: 40,
+    },
+    howList: {
+        listStyle: "none",
+        margin:    0,
+        padding:   0,
+        display:   "flex",
+        flexDirection: "column" as const,
+        gap:       14,
+    },
+    howItem: {
+        display:    "flex",
+        alignItems: "flex-start",
+        gap:        12,
+        color:      "rgba(255,255,255,0.78)",
+        fontSize:   15,
+        lineHeight: 1.5,
+    },
+    howNum: {
+        flexShrink:  0,
+        width:       28,
+        height:      28,
+        borderRadius: 999,
+        background:  BRAND.accent,
+        color:       BRAND.accentFg,
+        fontWeight:  800,
+        fontSize:    14,
+        display:     "inline-flex",
+        alignItems:  "center",
+        justifyContent: "center",
+    },
+    faqSection: {
+        width:        "100%",
+        maxWidth:     720,
+        marginBottom: 40,
+    },
+    faqList: {
+        display:       "flex",
+        flexDirection: "column" as const,
+        gap:           10,
+    },
+    faqItem: {
+        background:   "rgba(255,255,255,0.05)",
+        border:       "1px solid rgba(255,255,255,0.10)",
+        borderRadius: 14,
+        padding:      "4px 16px 4px",
+    },
+    faqSummary: {
+        cursor:     "pointer",
+        fontWeight: 700,
+        fontSize:   15,
+        color:      "#ffffff",
+        padding:    "12px 0",
+        listStyle:  "none",
+    },
+    faqAnswer: {
+        margin:     "0 0 14px",
+        fontSize:   14,
+        lineHeight: 1.5,
+        color:      "rgba(255,255,255,0.68)",
+    },
+    finalCta: {
+        width:        "100%",
+        maxWidth:     640,
+        textAlign:    "center" as const,
+        marginBottom: 48,
+        padding:      "8px",
+    },
+    finalTitle: {
+        margin:     "0 0 12px",
+        fontSize:   "clamp(20px, 4vw, 26px)",
+        fontWeight: 800,
+        color:      "#ffffff",
+        lineHeight: 1.25,
+    },
+    finalSub: {
+        margin:     "0 0 20px",
+        fontSize:   15,
+        lineHeight: 1.5,
+        color:      "rgba(255,255,255,0.68)",
     },
     periodToggleWrap: {
         display:        "flex",

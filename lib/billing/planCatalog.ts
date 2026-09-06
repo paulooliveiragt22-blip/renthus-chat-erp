@@ -80,7 +80,7 @@ export const PLAN_CATALOG: Record<
         name: "Market",
         monthlyPriceCents: 44900,
         yearlyPriceCents: defaultYearlyCentsFromMonthly(44900),
-        description: "Tudo do Pro + iFood, Aiqfome, IG/Messenger e mesa",
+        description: "Operação com mais gente no painel",
         features: [
             "whatsapp_messages",
             "ai_parser",
