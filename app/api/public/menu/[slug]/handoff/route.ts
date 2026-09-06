@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { loadPublicMenuBySlug } from "@/lib/public-menu/loadPublicMenu";
 import { parseMenuSlug } from "@/lib/public-menu/slug";
-import { publicMenuRateLimit } from "@/lib/public-menu/publicApiHelpers";
+import { enforcePublicMenuRateLimit } from "@/lib/public-menu/publicApiHelpers";
 import { verifyMenuHandoffToken } from "@/lib/public-menu/sessionToken";
 import type { PublicMenuCartLine } from "@/src/types/contracts.public-menu";
 
@@ -24,24 +24,25 @@ function isCartLine(v: unknown): v is PublicMenuCartLine {
  * GET /api/public/menu/[slug]/handoff?hc=
  * Hidrata o carrinho do cardápio a partir do snapshot persistido pelo bot.
  * Leitura idempotente até expires_at (reload do WebView do WhatsApp).
+ * Rate limit IP+slug (B12).
  */
 export async function GET(
     req: NextRequest,
     ctx: { params: Promise<{ slug: string }> }
 ) {
-    const rl = await publicMenuRateLimit(req, "public_menu_handoff", 40);
-    if (!rl.allowed) {
-        return NextResponse.json(
-            { ok: false, error: "rate_limit_exceeded" },
-            { status: 429, headers: { "Retry-After": String(rl.retryAfterSeconds) } }
-        );
-    }
-
     const { slug: slugParam } = await ctx.params;
     const slugParsed = parseMenuSlug(slugParam);
     if (!slugParsed.ok) {
         return NextResponse.json({ ok: false, error: "menu_not_found" }, { status: 404 });
     }
+
+    const limited = await enforcePublicMenuRateLimit(
+        req,
+        "public_menu_handoff",
+        slugParsed.slug,
+        40
+    );
+    if (limited) return limited;
 
     const hc = req.nextUrl.searchParams.get("hc")?.trim() ?? "";
     if (!hc) {

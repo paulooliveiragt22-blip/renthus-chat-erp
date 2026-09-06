@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { parseMenuSlug } from "@/lib/public-menu/slug";
-import { publicMenuRateLimit } from "@/lib/public-menu/publicApiHelpers";
+import { enforcePublicMenuRateLimit } from "@/lib/public-menu/publicApiHelpers";
 import type { PublicMenuEventType } from "@/src/types/contracts.public-menu";
 
 export const runtime = "nodejs";
@@ -17,25 +17,25 @@ function asOptionalUuid(v: unknown): string | null {
 
 /**
  * POST /api/public/menu/[slug]/events
- * Analytics leve (visitor_id anônimo). Sem PII.
+ * Analytics leve (visitor_id anônimo). Sem PII. Rate limit IP+slug (B12).
  */
 export async function POST(
     req: NextRequest,
     ctx: { params: Promise<{ slug: string }> }
 ) {
-    const rl = await publicMenuRateLimit(req, "public_menu_events", RL_LIMIT);
-    if (!rl.allowed) {
-        return NextResponse.json(
-            { ok: false, error: "rate_limit_exceeded" },
-            { status: 429, headers: { "Retry-After": String(rl.retryAfterSeconds) } }
-        );
-    }
-
     const { slug: slugParam } = await ctx.params;
     const slugParsed = parseMenuSlug(slugParam);
     if (!slugParsed.ok) {
         return NextResponse.json({ ok: false, error: "menu_not_found" }, { status: 404 });
     }
+
+    const limited = await enforcePublicMenuRateLimit(
+        req,
+        "public_menu_events",
+        slugParsed.slug,
+        RL_LIMIT
+    );
+    if (limited) return limited;
 
     const body = (await req.json().catch(() => null)) as Record<string, unknown> | null;
     if (!body) {

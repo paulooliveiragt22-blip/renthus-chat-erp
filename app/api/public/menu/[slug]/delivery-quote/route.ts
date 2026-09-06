@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { loadPublicMenuBySlug } from "@/lib/public-menu/loadPublicMenu";
 import { parseMenuSlug } from "@/lib/public-menu/slug";
-import { publicMenuRateLimit } from "@/lib/public-menu/publicApiHelpers";
+import { enforcePublicMenuRateLimit } from "@/lib/public-menu/publicApiHelpers";
 import { resolveDeliveryForNeighborhood } from "@/lib/delivery/policy";
 import { lookupCep, sanitizeCep } from "@/lib/address/cepLookup";
 import { verifyWebMenuCheckoutSession } from "@/lib/public-menu/sessionToken";
@@ -14,24 +14,25 @@ export const runtime = "nodejs";
 /**
  * POST /api/public/menu/[slug]/delivery-quote
  * Body: `{ sessionToken, neighborhood? , savedAddressId?, cep? }`
+ * Rate limit IP+slug (B12).
  */
 export async function POST(
     req: NextRequest,
     ctx: { params: Promise<{ slug: string }> }
 ) {
-    const rl = await publicMenuRateLimit(req, "public_menu_quote", 60);
-    if (!rl.allowed) {
-        return NextResponse.json(
-            { ok: false, error: "rate_limit_exceeded" },
-            { status: 429, headers: { "Retry-After": String(rl.retryAfterSeconds) } }
-        );
-    }
-
     const { slug: slugParam } = await ctx.params;
     const slugParsed = parseMenuSlug(slugParam);
     if (!slugParsed.ok) {
         return NextResponse.json({ ok: false, error: "menu_not_found" }, { status: 404 });
     }
+
+    const limited = await enforcePublicMenuRateLimit(
+        req,
+        "public_menu_quote",
+        slugParsed.slug,
+        60
+    );
+    if (limited) return limited;
 
     const body = (await req.json().catch(() => ({}))) as {
         sessionToken?: string;

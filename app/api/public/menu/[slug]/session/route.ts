@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { loadPublicMenuBySlug } from "@/lib/public-menu/loadPublicMenu";
 import { parseMenuSlug } from "@/lib/public-menu/slug";
-import { publicMenuRateLimit } from "@/lib/public-menu/publicApiHelpers";
+import { enforcePublicMenuRateLimit } from "@/lib/public-menu/publicApiHelpers";
 import {
     establishMenuSessionFromWmToken,
     readMenuSessionFromToken,
@@ -32,12 +32,26 @@ async function loadMenuOr404(slugParam: string) {
 /**
  * GET /api/public/menu/[slug]/session
  * Lê sessão do cookie HttpOnly (sem expor token ao JS).
+ * Rate limit IP+slug (B12).
  */
 export async function GET(
-    _req: NextRequest,
+    req: NextRequest,
     ctx: { params: Promise<{ slug: string }> }
 ) {
     const { slug: slugParam } = await ctx.params;
+    const slugParsed = parseMenuSlug(slugParam);
+    if (!slugParsed.ok) {
+        return NextResponse.json({ ok: false, error: "menu_not_found" }, { status: 404 });
+    }
+
+    const limited = await enforcePublicMenuRateLimit(
+        req,
+        "public_menu_session_get",
+        slugParsed.slug,
+        60
+    );
+    if (limited) return limited;
+
     const loaded = await loadMenuOr404(slugParam);
     if ("error" in loaded && loaded.error) return loaded.error;
     const { admin, menu, slug } = loaded as Exclude<typeof loaded, { error: NextResponse }>;
@@ -66,20 +80,26 @@ export async function GET(
  * Body:
  * - `{ wmToken }` — link assinado v1 (phone) ou v2 (channel+externalId)
  * - `{ wmToken, phone, name? }` — completa phone quando `needsPhone` (IG/Messenger)
+ * Rate limit IP+slug (B12).
  */
 export async function POST(
     req: NextRequest,
     ctx: { params: Promise<{ slug: string }> }
 ) {
-    const rl = await publicMenuRateLimit(req, "public_menu_session", 30);
-    if (!rl.allowed) {
-        return NextResponse.json(
-            { ok: false, error: "rate_limit_exceeded" },
-            { status: 429, headers: { "Retry-After": String(rl.retryAfterSeconds) } }
-        );
+    const { slug: slugParam } = await ctx.params;
+    const slugParsed = parseMenuSlug(slugParam);
+    if (!slugParsed.ok) {
+        return NextResponse.json({ ok: false, error: "menu_not_found" }, { status: 404 });
     }
 
-    const { slug: slugParam } = await ctx.params;
+    const limited = await enforcePublicMenuRateLimit(
+        req,
+        "public_menu_session",
+        slugParsed.slug,
+        30
+    );
+    if (limited) return limited;
+
     const loaded = await loadMenuOr404(slugParam);
     if ("error" in loaded && loaded.error) return loaded.error;
     const { admin, menu, slug } = loaded as Exclude<typeof loaded, { error: NextResponse }>;

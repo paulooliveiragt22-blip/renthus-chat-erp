@@ -65,7 +65,8 @@ const PLAN_FEATURE_BLURBS: Record<CommercialPlanKey, PlanFeatureRow[]> = {
         { kind: "item", label: "Agente IA no WhatsApp", ai: true },
         { kind: "item", label: "Tudo do Essencial" },
         { kind: "plus" },
-        { kind: "item", label: "Pedido sai sozinho na impressora" },
+        { kind: "item", label: "Cardápio web inteligente, integrado" },
+        { kind: "item", label: "Agent de impressão automática" },
         { kind: "item", label: "PDV completo" },
         { kind: "item", label: "Gestão de estoque" },
         { kind: "item", label: "Controle financeiro" },
@@ -76,7 +77,8 @@ const PLAN_FEATURE_BLURBS: Record<CommercialPlanKey, PlanFeatureRow[]> = {
         { kind: "item", label: "Agente IA no WhatsApp", ai: true },
         { kind: "item", label: "Tudo do Essencial" },
         { kind: "plus" },
-        { kind: "item", label: "Pedido sai sozinho na impressora" },
+        { kind: "item", label: "Cardápio web inteligente, integrado" },
+        { kind: "item", label: "Agent de impressão automática" },
         { kind: "item", label: "PDV completo" },
         { kind: "item", label: "Gestão de estoque" },
         { kind: "item", label: "Controle financeiro" },
@@ -88,8 +90,9 @@ const PLAN_FEATURE_BLURBS: Record<CommercialPlanKey, PlanFeatureRow[]> = {
 const HERO_BENEFITS = [
     "Você controla pelo seu telefone ou computador.",
     "Impressão do pedido automático, não precisa escrever à mão.",
+    "Cardápio web inteligente, integrado.",
     "Cliente não precisa baixar aplicativo.",
-    "O canal é todo seu, sem taxas por vendas — sem comer seus lucros.",
+    "O canal é todo seu, sem taxas por vendas sem comer seus lucros.",
 ] as const;
 
 const HOW_STEPS = [
@@ -430,36 +433,38 @@ export default function SignupPage() {
 
     return (
         <div style={S.page}>
-            <div style={S.brandRow}>
-                <img
-                    src="/brand/icone-512-transparente.svg?v=z1"
-                    alt=""
-                    width={40}
-                    height={40}
-                    style={{
-                        height: 40,
-                        width: 40,
-                        display: "block",
-                        flexShrink: 0,
-                    }}
-                />
-                <img
-                    src="/brand/zampell-wordmark.svg?v=z1"
-                    alt="Zampell"
-                    width={176}
-                    height={48}
-                    style={{
-                        height: 40,
-                        width: "auto",
-                        display: "block",
-                        flexShrink: 0,
-                    }}
-                />
-                <span style={S.brandProduct}>Delivery</span>
-            </div>
+            <header style={S.header}>
+                <div style={S.brandRow}>
+                    <img
+                        src="/brand/icone-512-transparente.svg?v=z1"
+                        alt=""
+                        width={40}
+                        height={40}
+                        style={{
+                            height: 40,
+                            width: 40,
+                            display: "block",
+                            flexShrink: 0,
+                        }}
+                    />
+                    <img
+                        src="/brand/zampell-wordmark.svg?v=z1"
+                        alt="Zampell"
+                        width={176}
+                        height={48}
+                        style={{
+                            height: 40,
+                            width: "auto",
+                            display: "block",
+                            flexShrink: 0,
+                        }}
+                    />
+                    <span style={S.brandProduct}>Delivery</span>
+                </div>
+                <p style={S.slogan}>Agentes inteligentes para o seu delivery.</p>
+            </header>
 
             <div style={S.hero}>
-                <p style={S.slogan}>Agentes inteligentes para o seu delivery.</p>
                 <h1 style={S.title}>
                     O WhatsApp do seu delivery atende e anota o pedido?
                 </h1>
@@ -493,7 +498,7 @@ export default function SignupPage() {
 
             <div style={S.periodToggleWrap} id="planos">
                 <BillingPeriodToggle
-                    appearance="onDark"
+                    appearance="light"
                     value={billingPeriod}
                     onValueChange={setBillingPeriod}
                     yearlyHint={
@@ -805,14 +810,6 @@ export default function SignupPage() {
                 </a>
             </section>
 
-            <div style={S.otherProducts}>
-                <div style={S.otherProductsLabel}>Outros produtos Zampell</div>
-                <div style={S.otherProductsRow}>
-                    <span style={S.otherProductChip}>Clínicas · em breve</span>
-                    <span style={S.otherProductChip}>Estética · em breve</span>
-                </div>
-            </div>
-
             <p style={S.loginLine}>
                 Já tem conta?{" "}
                 <a href="/login" style={S.loginLink}>
@@ -838,32 +835,54 @@ const BRAND = {
 const S = {
     page: {
         minHeight:     "100vh",
-        background:    BRAND.primaryDeep,
+        background:    "#CCCCCC",
         display:       "flex",
         flexDirection: "column" as const,
         alignItems:    "center",
-        padding:       "40px 24px 64px",
+        padding:       "108px 24px 64px",
         fontFamily:    "'Inter', 'Segoe UI', system-ui, sans-serif",
         boxSizing:     "border-box" as const,
+    },
+    header: {
+        position:      "fixed" as const,
+        top:           0,
+        left:          0,
+        right:         0,
+        zIndex:        40,
+        background:    "#16364d",
+        display:       "flex",
+        flexDirection: "column" as const,
+        alignItems:    "center",
+        justifyContent: "center",
+        padding:       "10px 20px 8px",
+        boxShadow:     "0 2px 12px rgba(0,0,0,0.18)",
     },
     brandRow: {
         display:        "flex",
         alignItems:     "center",
         justifyContent: "center",
-        gap:            14,
-        marginBottom:   28,
+        gap:            10,
+        marginBottom:   0,
         width:          "100%",
         flexWrap:       "wrap" as const,
     },
     brandProduct: {
         fontSize:      11,
         fontWeight:    700,
-        color:         BRAND.primaryDeep,
+        color:         "#16364d",
         letterSpacing: "0.06em",
         textTransform: "uppercase" as const,
         background:    BRAND.accent,
         borderRadius:  999,
         padding:       "6px 12px",
+    },
+    slogan: {
+        margin:        "2px 0 0",
+        fontSize:      13,
+        fontWeight:    600,
+        color:         BRAND.accent,
+        letterSpacing: "0.02em",
+        textAlign:     "center" as const,
     },
     hero: {
         textAlign:    "center" as const,
@@ -871,18 +890,11 @@ const S = {
         maxWidth:     720,
         padding:      "0 8px",
     },
-    slogan: {
-        margin:        "0 0 14px",
-        fontSize:      13,
-        fontWeight:    600,
-        color:         BRAND.accent,
-        letterSpacing: "0.02em",
-    },
     title: {
         margin:        "0 0 12px",
         fontSize:      "clamp(26px, 5vw, 36px)",
         fontWeight:    800,
-        color:         "#ffffff",
+        color:         "#16364d",
         letterSpacing: "-0.6px",
         lineHeight:    1.15,
     },
@@ -898,7 +910,7 @@ const S = {
         margin:     "0 0 22px",
         fontSize:   16,
         lineHeight: 1.5,
-        color:      "rgba(255,255,255,0.78)",
+        color:      "#374151",
     },
     heroBenefits: {
         listStyle:     "none",
@@ -917,14 +929,14 @@ const S = {
         gap:        10,
         fontSize:   15,
         lineHeight: 1.45,
-        color:      "rgba(255,255,255,0.86)",
+        color:      "#1f2937",
         fontWeight: 500,
     },
     policyLine: {
         margin:     0,
         fontSize:   13,
         lineHeight: 1.45,
-        color:      "rgba(255,255,255,0.48)",
+        color:      "#4b5563",
     },
     heroCtas: {
         display:        "flex",
@@ -949,13 +961,13 @@ const S = {
         display:        "inline-flex",
         alignItems:     "center",
         justifyContent: "center",
-        color:          "rgba(255,255,255,0.82)",
+        color:          "#16364d",
         fontWeight:     600,
         fontSize:       14,
         textDecoration: "none",
         borderRadius:   999,
         padding:        "12px 18px",
-        border:         "1px solid rgba(255,255,255,0.22)",
+        border:         "1px solid #16364d",
     },
     pillars: {
         display:        "grid",
@@ -988,7 +1000,7 @@ const S = {
         margin:        "0 0 20px",
         fontSize:      22,
         fontWeight:    800,
-        color:         "#ffffff",
+        color:         "#16364d",
         textAlign:     "center" as const,
     },
     howSection: {
@@ -1009,7 +1021,7 @@ const S = {
         display:    "flex",
         alignItems: "flex-start",
         gap:        12,
-        color:      "rgba(255,255,255,0.78)",
+        color:      "#1f2937",
         fontSize:   15,
         lineHeight: 1.5,
     },
@@ -1037,8 +1049,8 @@ const S = {
         gap:           10,
     },
     faqItem: {
-        background:   "rgba(255,255,255,0.05)",
-        border:       "1px solid rgba(255,255,255,0.10)",
+        background:   "#ffffff",
+        border:       "1px solid #d1d5db",
         borderRadius: 14,
         padding:      "4px 16px 4px",
     },
@@ -1046,7 +1058,7 @@ const S = {
         cursor:     "pointer",
         fontWeight: 700,
         fontSize:   15,
-        color:      "#ffffff",
+        color:      "#16364d",
         padding:    "12px 0",
         listStyle:  "none",
     },
@@ -1054,7 +1066,7 @@ const S = {
         margin:     "0 0 14px",
         fontSize:   14,
         lineHeight: 1.5,
-        color:      "rgba(255,255,255,0.68)",
+        color:      "#4b5563",
     },
     finalCta: {
         width:        "100%",
@@ -1067,14 +1079,14 @@ const S = {
         margin:     "0 0 12px",
         fontSize:   "clamp(20px, 4vw, 26px)",
         fontWeight: 800,
-        color:      "#ffffff",
+        color:      "#16364d",
         lineHeight: 1.25,
     },
     finalSub: {
         margin:     "0 0 20px",
         fontSize:   15,
         lineHeight: 1.5,
-        color:      "rgba(255,255,255,0.68)",
+        color:      "#374151",
     },
     periodToggleWrap: {
         display:        "flex",
@@ -1349,48 +1361,19 @@ const S = {
         fontSize:  12,
         color:     "#9ca3af",
     },
-    otherProducts: {
-        marginTop:  48,
-        textAlign:  "center" as const,
-        maxWidth:   480,
-        width:      "100%",
-    },
-    otherProductsLabel: {
-        fontSize:      11,
-        fontWeight:    600,
-        letterSpacing: "0.06em",
-        textTransform: "uppercase" as const,
-        color:         "rgba(255,255,255,0.40)",
-        marginBottom:  12,
-    },
-    otherProductsRow: {
-        display:        "flex",
-        flexWrap:       "wrap" as const,
-        gap:            8,
-        justifyContent: "center",
-    },
-    otherProductChip: {
-        fontSize:     12,
-        fontWeight:   500,
-        color:        "rgba(255,255,255,0.55)",
-        border:       "1px solid rgba(255,255,255,0.14)",
-        borderRadius: 999,
-        padding:      "6px 12px",
-        background:   "rgba(255,255,255,0.04)",
-    },
     loginLine: {
-        marginTop:  28,
+        marginTop:  48,
         fontSize:   14,
-        color:      "rgba(255,255,255,0.55)",
+        color:      "#4b5563",
     },
     loginLink: {
-        color:          BRAND.accent,
+        color:          "#16364d",
         fontWeight:     700,
-        textDecoration: "none",
+        textDecoration: "underline",
     },
     footer: {
         marginTop: 16,
         fontSize:  12,
-        color:     "rgba(255,255,255,0.30)",
+        color:     "#6b7280",
     },
 };

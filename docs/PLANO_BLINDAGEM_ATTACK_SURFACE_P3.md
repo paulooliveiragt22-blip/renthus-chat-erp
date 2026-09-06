@@ -52,7 +52,7 @@
 
 | ID | Item | Ação | Aceite | Status |
 |----|------|------|--------|--------|
-| **B12** | Menu público | Rate limits IP+slug | 429 sob flood | [ ] |
+| **B12** | Menu público | Rate limits IP+slug | 429 sob flood | [x] 2026-09-06 — `enforcePublicMenuRateLimit` em todas rotas `/api/public/menu/[slug]/**` |
 | **B13** | PRO / WhatsApp | Caps wallet; trim raw_payload | Tests básicos | [ ] |
 | **B14** | Extensions schema | Mover pg_trgm/unaccent | Advisor limpo | [ ] |
 
@@ -70,7 +70,7 @@
 ## Ordem restante
 
 ```
-B12 → B13 → B14
+B13 → B14
 ```
 
 ## Fora de escopo
