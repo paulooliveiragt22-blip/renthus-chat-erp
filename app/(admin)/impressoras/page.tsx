@@ -282,9 +282,42 @@ export default function ImpressorasPage() {
     }
 
     async function revokeAgent(id: string) {
-        if (!confirm("Desativar este agente?")) return;
-        await fetch("/api/agent/keys", { method: "DELETE", headers: { "Content-Type": "application/json" }, credentials: "include", body: JSON.stringify({ agent_id: id }) });
+        if (!confirm("Revogar este agente? A chave atual deixa de funcionar imediatamente.")) return;
+        await fetch("/api/agent/keys", {
+            method: "DELETE",
+            headers: { "Content-Type": "application/json" },
+            credentials: "include",
+            body: JSON.stringify({ agent_id: id }),
+        });
         loadAgents();
+    }
+
+    async function rotateAgent(id: string) {
+        if (
+            !confirm(
+                "Rotacionar a chave? O agente precisará da chave nova; a antiga deixa de funcionar."
+            )
+        ) {
+            return;
+        }
+        setGenerating(true);
+        setAgentErr(null);
+        setNewApiKey(null);
+        setPairingCode(null);
+        const res = await fetch("/api/agent/keys", {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            credentials: "include",
+            body: JSON.stringify({ agent_id: id }),
+        });
+        const json = await res.json().catch(() => ({}));
+        if (!res.ok) {
+            setAgentErr(json?.error ?? "Erro ao rotacionar chave");
+        } else {
+            setNewApiKey(json.api_key);
+            loadAgents();
+        }
+        setGenerating(false);
     }
 
     function copyKey(key: string) {
@@ -587,12 +620,23 @@ export default function ImpressorasPage() {
                                         </div>
                                     </div>
                                     {a.is_active && (
-                                        <button
-                                            onClick={() => revokeAgent(a.id)}
-                                            className="rounded-md border border-red-200 px-2.5 py-1 text-xs font-semibold text-red-600 hover:bg-red-50 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-900/20"
-                                        >
-                                            Revogar
-                                        </button>
+                                        <div className="flex items-center gap-2">
+                                            <button
+                                                type="button"
+                                                onClick={() => rotateAgent(a.id)}
+                                                disabled={generating}
+                                                className="rounded-md border border-zinc-200 px-2.5 py-1 text-xs font-semibold text-zinc-700 hover:bg-zinc-50 disabled:opacity-60 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                                            >
+                                                Rotacionar
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => revokeAgent(a.id)}
+                                                className="rounded-md border border-red-200 px-2.5 py-1 text-xs font-semibold text-red-600 hover:bg-red-50 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-900/20"
+                                            >
+                                                Revogar
+                                            </button>
+                                        </div>
                                     )}
                                 </div>
                             ))}

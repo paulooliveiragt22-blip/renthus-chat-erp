@@ -33,7 +33,7 @@
 |----|------|------|--------|--------|
 | **B5** | Export PII clientes | Paginação + lista leve; export completo com `customers.export` + rate limit. Capability já no catálogo. | Staff sem export não baixa dump PII | [x] 2026-09-05 — `?export=1` + list leve; UI clientes usa export |
 | **B6** | `GET /api/orders/[id]` | Cookie: `requireCapability("orders.read")`. Agent: projecção mínima. | Sem capability → 403 | [x] 2026-09-05 |
-| **B7** | Print Agent keys | Rotação / invalidação | Key antiga 401 | [ ] |
+| **B7** | Print Agent keys | Rotação / invalidação + scramble no revoke; `verifyAgentByApiKey` exige ativo | Key antiga 401 | [x] 2026-09-05 — PATCH rotate + UI |
 | **B8** | Impersonation platform | TTL curto + audit | Sessão expira | [ ] |
 
 ---

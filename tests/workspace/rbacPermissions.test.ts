@@ -388,7 +388,7 @@ describe("RBAC — auditoria estática de rotas (vazamento)", () => {
             },
             {
                 rel: "app/api/agent/keys/route.ts",
-                must: /requireCompanyAccess\(\[\s*["']owner["']\s*,\s*["']admin["']\s*\]\)/,
+                must: /requireCompanyAccess\(\s*\{\s*allowedRoles:\s*\[\s*["']owner["']\s*,\s*["']admin["']\s*\]/,
             },
         ];
         for (const c of checks) {
