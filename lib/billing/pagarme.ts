@@ -16,7 +16,10 @@ import {
 } from "@/lib/billing/planCatalog";
 import { isPixEmvPayload, isMundipaggPixStubUrl } from "@/lib/billing/pixEmv";
 import { verifyPagarmeWebhookHmacSignature } from "@/lib/billing/pagarmeWebhookAuth";
-import { classifyFiscalDocument } from "@/lib/billing/brazilianFiscalDocument";
+import {
+    classifyFiscalDocument,
+    normalizeFiscalDocument,
+} from "@/lib/billing/brazilianFiscalDocument";
 
 export { isPixEmvPayload, isMundipaggPixStubUrl };
 
@@ -318,7 +321,7 @@ export async function updatePagarmeCustomer(params: {
     phone?:         string;
 }): Promise<PagarmeCustomer> {
     const body: Record<string, unknown> = {
-        document:      params.document.replaceAll(/\D/g, ""),
+        document:      normalizeFiscalDocument(params.document),
         document_type: params.document_type,
         type:          params.type,
     };
@@ -817,7 +820,10 @@ export async function createCustomerCard(params: {
         state: string;
         country?: string;
     };
-    /** Zero Dollar Auth no Pagar.me ao salvar na carteira. */
+    /**
+     * Zero Dollar Auth. Default **false** — em sandbox PSP a verificação
+     * costuma falhar (`The card verification failed`) sem bloquear a cobrança real.
+     */
     verifyCard?: boolean;
 }): Promise<PagarmeCardSummary> {
     const customerId = params.customerId.trim();
@@ -825,7 +831,11 @@ export async function createCustomerCard(params: {
     if (!customerId || !token) {
         throw new Error("customerId e cardToken são obrigatórios");
     }
-    const body: Record<string, unknown> = { token };
+    const body: Record<string, unknown> = {
+        token,
+        // Explícito: API pode defaultar verify_card=true se options omitido.
+        options: { verify_card: params.verifyCard === true },
+    };
     if (params.billingAddress) {
         body.billing_address = {
             line_1: params.billingAddress.line_1,
@@ -834,9 +844,6 @@ export async function createCustomerCard(params: {
             state: params.billingAddress.state,
             country: params.billingAddress.country ?? "BR",
         };
-    }
-    if (params.verifyCard !== false) {
-        body.options = { verify_card: true };
     }
     return pagarmeRequest<PagarmeCardSummary>(
         `/customers/${encodeURIComponent(customerId)}/cards`,

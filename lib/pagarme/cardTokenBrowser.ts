@@ -3,6 +3,8 @@
  * Não importar em rotas de servidor.
  */
 
+import { normalizeFiscalDocument } from "@/lib/billing/brazilianFiscalDocument";
+
 export function parseCardExpiry(raw: string): { month: string; year: string } | null {
     const s = raw.replaceAll(/\s/g, "");
     const m = s.match(/^(\d{2})\/(\d{2,4})$/);
@@ -41,7 +43,7 @@ export async function pagarmeCreateCardToken(
     };
 
     if (p.holder_document) {
-        card.holder_document = p.holder_document.replaceAll(/\D/g, "");
+        card.holder_document = normalizeFiscalDocument(p.holder_document);
     }
 
     if (p.billing_address) {

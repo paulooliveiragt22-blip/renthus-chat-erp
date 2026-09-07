@@ -146,7 +146,8 @@ export async function POST(req: Request) {
                     customerId,
                     cardToken,
                     billingAddress,
-                    verifyCard: true,
+                    // Sandbox PSP: ZDA costuma falhar; cobrança real valida o cartão.
+                    verifyCard: false,
                 });
             } catch (e: unknown) {
                 const msg = e instanceof Error ? e.message : "Falha ao salvar cartão.";

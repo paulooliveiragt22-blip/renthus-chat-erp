@@ -13,7 +13,7 @@ import { signupCompany } from "@/lib/billing/signupCompany";
 import { getDefaultTrialDays } from "@/lib/billing/getDefaultTrialDays";
 import { sendBillingNotification } from "@/lib/billing/sendBillingNotification";
 import { parseCommercialPlanInput, getPlanLabel } from "@/lib/billing/planCatalog";
-import { isValidCnpj } from "@/lib/billing/brazilianFiscalDocument";
+import { isValidCnpj, normalizeFiscalDocument } from "@/lib/billing/brazilianFiscalDocument";
 import {
     BILLING_SIGNUP_IP_LIMIT,
     BILLING_SIGNUP_WINDOW_MS,
@@ -81,7 +81,7 @@ export async function POST(req: Request) {
             );
         }
 
-        const cnpjDigits = cnpj.replaceAll(/\D/g, "");
+        const cnpjDigits = normalizeFiscalDocument(cnpj);
         if (!isValidCnpj(cnpjDigits)) {
             return NextResponse.json({ error: "CNPJ inválido" }, { status: 400 });
         }

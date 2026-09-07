@@ -4,6 +4,7 @@ import {
     classifyFiscalDocument,
     isValidCnpj,
     isValidCpf,
+    normalizeFiscalDocument,
 } from "../../lib/billing/brazilianFiscalDocument";
 
 describe("brazilianFiscalDocument", () => {
@@ -28,5 +29,18 @@ describe("brazilianFiscalDocument", () => {
         assert.equal(isValidCpf("39053344705"), true);
         assert.equal(classifyFiscalDocument("390.533.447-05").kind, "CPF");
         assert.equal(classifyFiscalDocument("390.533.447-05").valid, true);
+    });
+
+    it("accepts official alphanumeric CNPJ example (RFB)", () => {
+        assert.equal(isValidCnpj("12ABC34501DE35"), true);
+        assert.equal(isValidCnpj("12.ABC.345/01DE-35"), true);
+        const c = classifyFiscalDocument("12.ABC.345/01DE-35");
+        assert.equal(c.valid, true);
+        assert.equal(c.kind, "CNPJ");
+        if (c.valid) assert.equal(c.digits, "12ABC34501DE35");
+    });
+
+    it("normalizeFiscalDocument uppercases and strips punctuation", () => {
+        assert.equal(normalizeFiscalDocument("12.abc.345/01de-35"), "12ABC34501DE35");
     });
 });

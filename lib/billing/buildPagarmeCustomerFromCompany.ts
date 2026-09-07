@@ -5,7 +5,10 @@
 
 import "server-only";
 
-import { classifyFiscalDocument, onlyFiscalDigits } from "@/lib/billing/brazilianFiscalDocument";
+import {
+    classifyFiscalDocument,
+    normalizeFiscalDocument,
+} from "@/lib/billing/brazilianFiscalDocument";
 
 export type CompanyRowForPagarme = {
     id: string;
@@ -18,10 +21,10 @@ export type CompanyRowForPagarme = {
 };
 
 export function extractCompanyCnpjDigits(company: CompanyRowForPagarme): string {
-    const fromCol = onlyFiscalDigits(company.cnpj);
+    const fromCol = normalizeFiscalDocument(company.cnpj);
     if (fromCol) return fromCol;
     const meta = company.meta as { cnpj?: string } | null | undefined;
-    return onlyFiscalDigits(meta?.cnpj);
+    return normalizeFiscalDocument(meta?.cnpj);
 }
 
 export function buildPagarmeCustomerPayload(company: CompanyRowForPagarme): {
