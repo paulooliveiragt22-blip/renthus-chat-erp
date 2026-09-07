@@ -7,7 +7,10 @@
  * - `LLM_PROVIDER=ollama` → Modelo local (Llama 3.1, Qwen2.5-Coder, etc.) via Ollama + @ai-sdk/openai-compatible
  * - `LLM_PROVIDER=groq` → Groq Cloud (openai/gpt-oss-120b) via **@ai-sdk/groq**
  *   (não usar openai-compatible genérico: replay de `reasoning_content` quebra tool loops)
- * - `LLM_MODEL` (opcional) sobrepõe o modelo default do provider escolhido.
+ * - `LLM_MODEL` (opcional) sobrepõe o default **somente** quando o provider resolvido
+ *   é o mesmo de `LLM_PROVIDER` no env. Company override (ex.: empresa em Anthropic com
+ *   Lambda ainda em Groq) usa o `DEFAULT_*` daquele motor — nunca herda `openai/gpt-oss-*`
+ *   no Claude.
  *
  * Mesmos nomes de env var que `createLlmPort.ts` já usava — não introduzir nomes novos.
  *
@@ -62,6 +65,28 @@ export function getConfiguredLlmProviderName(): LlmProviderName {
     throw new LlmProviderConfigError(`LLM_PROVIDER desconhecido: ${raw}`);
 }
 
+/**
+ * `LLM_MODEL` do env só se aplica ao provider do `LLM_PROVIDER` global.
+ * Evita que override de empresa (Anthropic) herde modelo Groq do Lambda.
+ */
+export function envModelForProvider(provider: LlmProviderName): string | undefined {
+    const fromEnv = process.env.LLM_MODEL?.trim();
+    if (!fromEnv) return undefined;
+    try {
+        if (getConfiguredLlmProviderName() !== provider) return undefined;
+    } catch {
+        return undefined;
+    }
+    return fromEnv;
+}
+
+export function defaultModelForProvider(provider: LlmProviderName): string {
+    if (provider === "openai") return DEFAULT_OPENAI_MODEL;
+    if (provider === "ollama") return DEFAULT_OLLAMA_MODEL;
+    if (provider === "groq") return DEFAULT_GROQ_MODEL;
+    return DEFAULT_ANTHROPIC_MODEL;
+}
+
 export type ResolveLanguageModelOpts = {
     /** Provider explícito (por empresa) — se ausente, cai em `getConfiguredLlmProviderName()` (env global). */
     provider?: LlmProviderName;
@@ -80,19 +105,19 @@ export function resolveLanguageModel(modelOverrideOrOpts?: string | ResolveLangu
     const opts: ResolveLanguageModelOpts =
         typeof modelOverrideOrOpts === "string" ? { model: modelOverrideOrOpts } : modelOverrideOrOpts ?? {};
     const provider = opts.provider ?? getConfiguredLlmProviderName();
+    const resolvedModel =
+        opts.model?.trim() || envModelForProvider(provider) || defaultModelForProvider(provider);
 
     if (provider === "anthropic") {
         const apiKey = process.env.ANTHROPIC_API_KEY;
         if (!apiKey) throw new LlmProviderConfigError("ANTHROPIC_API_KEY missing");
-        const model = opts.model?.trim() || process.env.LLM_MODEL?.trim() || DEFAULT_ANTHROPIC_MODEL;
-        return createAnthropic({ apiKey })(model);
+        return createAnthropic({ apiKey })(resolvedModel);
     }
 
     if (provider === "openai") {
         const apiKey = process.env.OPENAI_API_KEY?.trim();
         if (!apiKey) throw new LlmProviderConfigError("OPENAI_API_KEY missing");
-        const model = opts.model?.trim() || process.env.LLM_MODEL?.trim() || DEFAULT_OPENAI_MODEL;
-        return createOpenAI({ apiKey })(model);
+        return createOpenAI({ apiKey })(resolvedModel);
     }
 
     if (provider === "groq") {
@@ -101,19 +126,17 @@ export function resolveLanguageModel(modelOverrideOrOpts?: string | ResolveLangu
         // Docs AI SDK + issues: vercel/ai#8056, cherry-studio#13735.
         const apiKey = process.env.GROQ_API_KEY?.trim();
         if (!apiKey) throw new LlmProviderConfigError("GROQ_API_KEY missing");
-        const model = opts.model?.trim() || process.env.LLM_MODEL?.trim() || DEFAULT_GROQ_MODEL;
-        return createGroq({ apiKey })(model);
+        return createGroq({ apiKey })(resolvedModel);
     }
 
     // provider === "ollama" — local via Ollama (Llama 3.1, Qwen2.5-Coder, etc.)
     // Ollama expõe uma API compatível com OpenAI em http://localhost:11434/v1
     // Não exige API key; o `OLLAMA_BASE_URL` é opcional (default: http://localhost:11434/v1).
     const baseURL = (process.env.OLLAMA_BASE_URL ?? "http://localhost:11434/v1").trim();
-    const model = opts.model?.trim() || process.env.LLM_MODEL?.trim() || DEFAULT_OLLAMA_MODEL;
     return createOpenAICompatible({
         name: "ollama",
         baseURL,
         // Ollama não exige api key real; o provider do AI SDK exige uma string não vazia.
         apiKey: process.env.OLLAMA_API_KEY?.trim() || "ollama-no-key-required",
-    })(model);
+    })(resolvedModel);
 }

@@ -12,7 +12,9 @@ import { normalizePrintCopyTypes } from "@/lib/print/copyTypes";
 
 export const runtime = "nodejs";
 
-const VALID_LLM_PROVIDERS = new Set(["anthropic", "openai", "ollama", "groq"]);
+const VALID_LLM_PROVIDERS = new Set(["anthropic"]);
+// Temporário (piloto Claude): UI e PATCH só aceitam Anthropic. Reabrir openai/ollama/groq
+// quando o multi-provider voltar na tela de Configurações.
 
 const SETTINGS_SELECT =
     "require_order_approval, auto_print_orders, llm_provider, open_time, close_time, opening_periods, timezone, delivery_description, print_auto_copies";
@@ -39,9 +41,7 @@ type LlmProviderPatchResult =
 /**
  * Gate de permissão específico: motor de IA é decisão de custo/qualidade — só owner/admin, mesmo
  * que a rota em geral permita staff nos outros campos. Extraída pra manter `PATCH` simples.
- * Sem allowlist de piloto: qualquer empresa pode escolher `anthropic`, `openai` ou `ollama`
- * (local via Ollama — ver `modelProvider.ts`). Ollama só funciona se a máquina que serve a
- * rota tiver Ollama rodando; em produção (Vercel) normalmente não vai estar disponível.
+ * Piloto atual: só `anthropic` (Claude). Outros providers ficam no backend/código, mas fora da UI.
  */
 function validateLlmProviderPatch(rawValue: string | null, role: string): LlmProviderPatchResult {
     if (role !== "owner" && role !== "admin") {

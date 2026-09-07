@@ -122,13 +122,21 @@ describe("PATCH /api/admin/company-settings — llm_provider", () => {
         assert.equal(upsertCalls[0]?.llm_provider, "anthropic");
     });
 
-    it("admin consegue setar llm_provider=openai (sem allowlist de piloto)", async () => {
+    it("admin consegue setar llm_provider=anthropic (piloto Claude)", async () => {
         currentRole = "admin";
-        const res = await PATCH({ json: async () => ({ llm_provider: "openai" }) });
+        const res = await PATCH({ json: async () => ({ llm_provider: "anthropic" }) });
         assert.equal(res.status, 200);
-        assert.equal(upsertCalls[0]?.llm_provider, "openai");
+        assert.equal(upsertCalls[0]?.llm_provider, "anthropic");
     });
 
+    it("openai/groq/ollama rejeitados enquanto UI só expõe Claude", async () => {
+        currentRole = "admin";
+        for (const provider of ["openai", "groq", "ollama"]) {
+            const res = await PATCH({ json: async () => ({ llm_provider: provider }) });
+            assert.equal(res.status, 400, provider);
+        }
+        assert.equal(upsertCalls.length, 0);
+    });
     it("valor inválido de llm_provider é rejeitado (400)", async () => {
         currentRole = "owner";
         const res = await PATCH({ json: async () => ({ llm_provider: "gemini" }) });

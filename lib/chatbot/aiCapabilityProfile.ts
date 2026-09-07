@@ -10,7 +10,7 @@ import { getActiveSubscription } from "@/lib/billing/entitlements";
 import { canUseAi, isAiEnabledInBotConfig } from "@/lib/billing/aiWallet";
 import { normalizePlanKey, type CommercialPlanKey } from "@/lib/billing/planCatalog";
 import type { OutboundMessage } from "@/src/types/contracts";
-import { DEFAULT_ANTHROPIC_MODEL, DEFAULT_OPENAI_MODEL, DEFAULT_OLLAMA_MODEL, DEFAULT_GROQ_MODEL } from "@/src/pro/adapters/ai/modelProvider";
+import { envModelForProvider, defaultModelForProvider } from "@/src/pro/adapters/ai/modelProvider";
 
 export type AiCapabilityTier = "degradado" | "basico" | "avancado";
 
@@ -74,12 +74,7 @@ export function configuredProvider(companyOverride?: string | null): "anthropic"
 
 /** Exportada só para teste unitário direto (mesma razão de `configuredProvider`). */
 export function configuredModel(provider: "anthropic" | "openai" | "ollama" | "groq"): string {
-    const fromEnv = process.env.LLM_MODEL?.trim();
-    if (fromEnv) return fromEnv;
-    if (provider === "openai") return DEFAULT_OPENAI_MODEL;
-    if (provider === "ollama") return DEFAULT_OLLAMA_MODEL;
-    if (provider === "groq") return DEFAULT_GROQ_MODEL;
-    return DEFAULT_ANTHROPIC_MODEL;
+    return envModelForProvider(provider) || defaultModelForProvider(provider);
 }
 
 function profileForPlan(

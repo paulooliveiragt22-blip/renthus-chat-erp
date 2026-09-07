@@ -92,8 +92,11 @@ export async function runWithDistributedLlmCap<T>(params: {
 
     const runCompany = () => {
         if (!companyId || companyCap <= 0) return params.fn();
+        // Provider no final da chave: cota Redis da empresa não é compartilhada entre
+        // Anthropic/Groq/OpenAI (circuit/in-flight local já são por provider).
+        const provider = (params.provider || "unknown").trim().toLowerCase() || "unknown";
         return withRedisCounter(
-            `renthus:llm:company:${companyId}`,
+            `renthus:llm:company:${companyId}:${provider}`,
             companyCap,
             120,
             params.fn

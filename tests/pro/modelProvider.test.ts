@@ -105,4 +105,13 @@ describe("modelProvider", () => {
         const model = resolveLanguageModel({ provider: "openai", model: "gpt-5-mini-custom" });
         assert.ok(model);
     });
+
+    it("LLM_MODEL do env não vaza para provider override diferente", () => {
+        process.env.LLM_PROVIDER = "groq";
+        process.env.LLM_MODEL = "openai/gpt-oss-120b";
+        process.env.ANTHROPIC_API_KEY = "sk-ant-test-fake-key";
+        // Sem model explícito: Anthropic deve usar DEFAULT, não o modelo Groq do env.
+        const model = resolveLanguageModel({ provider: "anthropic" });
+        assert.ok(model);
+    });
 });

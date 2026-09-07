@@ -45,9 +45,11 @@ describe("aiCapabilityProfile — provider/model por empresa (Fase 3 do plano mu
         assert.equal(configuredModel("openai"), DEFAULT_OPENAI_MODEL);
     });
 
-    it("LLM_MODEL no env sobrepõe o default de qualquer provider", () => {
-        process.env.LLM_MODEL = "modelo-customizado";
-        assert.equal(configuredModel("anthropic"), "modelo-customizado");
-        assert.equal(configuredModel("openai"), "modelo-customizado");
+    it("LLM_MODEL no env só sobrepõe o provider do LLM_PROVIDER", () => {
+        process.env.LLM_PROVIDER = "groq";
+        process.env.LLM_MODEL = "openai/gpt-oss-120b";
+        assert.equal(configuredModel("groq"), "openai/gpt-oss-120b");
+        assert.equal(configuredModel("anthropic"), DEFAULT_ANTHROPIC_MODEL);
+        assert.equal(configuredModel("openai"), DEFAULT_OPENAI_MODEL);
     });
 });
