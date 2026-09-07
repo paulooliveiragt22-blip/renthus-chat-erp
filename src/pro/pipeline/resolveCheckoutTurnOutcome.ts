@@ -7,6 +7,8 @@ import type { ProSessionState } from "@/src/types/contracts";
 import { isAddressStructurallyComplete } from "./orderSlotStep";
 import { isDraftStructurallyCompleteForFinalize } from "./orderDraftGate";
 import { isPickupDraft, needsFulfillmentChoice, type FulfillmentPolicy } from "@/lib/delivery/fulfillment";
+import { worklistCheckoutGate } from "./orderWorklist/worklistCheckoutGate";
+import { listLinesByStatus } from "@/src/pro/domain/orderWorklist/orderWorklist";
 
 export type CheckoutTurnOutcomeKind =
     | "clarify_pending_picks"
@@ -48,7 +50,8 @@ export function resolveCheckoutTurnOutcome(params: {
      * IA — nunca card de botões em paralelo (ver `pendingPickGroups.ts`).
      */
     if (
-        (state.pendingPickGroups?.length ?? 0) > 0 &&
+        ((state.pendingPickGroups?.length ?? 0) > 0 ||
+            listLinesByStatus(state.orderWorklist, "ambiguous").length > 0) &&
         (mode === "ai" || state.checkoutEditHold === true) &&
         state.step !== "pro_awaiting_confirmation"
     ) {
@@ -56,7 +59,25 @@ export function resolveCheckoutTurnOutcome(params: {
     }
 
     if (
+        listLinesByStatus(state.orderWorklist, "awaiting_qty").length > 0 &&
+        (mode === "ai" || state.checkoutEditHold === true) &&
+        state.step !== "pro_awaiting_confirmation"
+    ) {
+        return { kind: "collecting", reason: "worklist_awaiting_qty" };
+    }
+
+    const wlGate = worklistCheckoutGate({ state });
+    if (wlGate.blocked && listLinesByStatus(state.orderWorklist, "pending_search").length > 0) {
+        return { kind: "collecting", reason: wlGate.reason ?? "worklist_blocks_checkout" };
+    }
+
+    /**
+     * Picks legados só clarificam se ainda NÃO há itens no draft. Com rascunho parcial
+     * (prepare já montou), residual lastSearchPicks não pode engolir Entrega/Retirada.
+     */
+    if (
         (state.lastSearchPicks?.length ?? 0) >= 2 &&
+        !(draft?.items?.length) &&
         (mode === "ai" || state.checkoutEditHold === true) &&
         state.step !== "pro_awaiting_confirmation"
     ) {

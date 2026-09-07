@@ -11,9 +11,12 @@
  * IA redigir/interpretar a ambiguidade em prosa livre.
  */
 import { resolveSegmentPick } from "./resolveSegmentPick";
-import { parsePtQuantity } from "@/src/pro/tools/parseQtyPt";
+import {
+    extractExplicitOrderQuantityFromText,
+} from "@/src/pro/tools/parseQtyPt";
 import { formatCatalogVolumeLabel } from "@/src/pro/tools/catalogPublicDto";
 import { formatPackSiglaLabel } from "@/lib/products/packDisplayName";
+import { explicitCommercialSiglaFromText } from "@/src/pro/tools/tagAliasMatch";
 import type { CompanySigla, CustomerSiglaHabit } from "./customerPackagingHabit";
 import type { PendingPickGroup, PendingPickOption } from "@/src/types/contracts";
 
@@ -69,12 +72,21 @@ type SourceRow = {
 export function buildPendingPickGroup(
     productKey: string,
     productLabel: string,
-    rows: SourceRow[]
+    rows: SourceRow[],
+    opts?: { requestedQuantity?: number | null; lineId?: string | null }
 ): PendingPickGroup {
+    const qty = opts?.requestedQuantity;
+    const lineId = String(opts?.lineId ?? "").trim();
+    if (!lineId) {
+        throw new Error("buildPendingPickGroup requires opts.lineId (ADR 0011)");
+    }
     return {
+        lineId,
         productKey,
         productLabel,
         unresolvedTurns: 0,
+        requestedQuantity:
+            qty != null && Number.isFinite(qty) && qty >= 1 ? Math.floor(qty) : null,
         options: rows.slice(0, MAX_OPTIONS_PER_GROUP).map((r) => {
             const volumeLabel =
                 String(r.volume_label ?? "").trim() ||
@@ -160,6 +172,23 @@ function optionDisplayLabel(option: PendingPickOption): string {
 
 function optionClarifyLabel(group: PendingPickGroup, option: PendingPickOption): string {
     return isMixedProductGroup(group) ? optionDisplayLabel(option) : siglaLabelPt(option);
+}
+
+/** Texto canônico do que acabou de ser anotado (nunca prosa da IA). */
+export function buildResolvedPendingPicksAck(
+    resolved: readonly ResolvedPendingPick[],
+    sourceGroups: readonly PendingPickGroup[]
+): string | null {
+    if (!resolved.length) return null;
+    const lines: string[] = [];
+    for (const r of resolved) {
+        const group = sourceGroups.find((g) => g.productKey === r.productKey);
+        const opt = group?.options.find((o) => o.embalagemId === r.embalagemId);
+        const label = opt && group ? optionClarifyLabel(group, opt) : "item";
+        const productBit = group?.productLabel?.trim() ? `${group.productLabel.trim()} — ` : "";
+        lines.push(`• ${r.quantity}× ${productBit}${label}`);
+    }
+    return `Anotei:\n${lines.join("\n")}`;
 }
 
 type FlatPendingPick = {
@@ -273,16 +302,12 @@ function optionToHitRow(o: PendingPickOption) {
 }
 
 function extractQuantityFromText(text: string): number | null {
-    const digitMatch = String(text ?? "").match(/\b(\d{1,3})\b/u);
-    if (digitMatch) {
-        const n = Number(digitMatch[1]);
-        if (Number.isFinite(n) && n >= 1) return n;
-    }
-    for (const tok of normalize(text).split(" ").filter(Boolean)) {
-        const v = parsePtQuantity(tok);
-        if (v != null) return v;
-    }
-    return null;
+    return extractExplicitOrderQuantityFromText(text);
+}
+
+function groupRequestedQty(group: PendingPickGroup): number {
+    const q = Number(group.requestedQuantity);
+    return Number.isFinite(q) && q >= 1 ? Math.floor(q) : 1;
 }
 
 /** Divide a resposta do cliente em segmentos por produto (", "/" e "/"também"/"mais"). */
@@ -387,8 +412,9 @@ function resolveOne(
      * (ex.: "vc tem skol?" → 1× SKOL LATA + botões de entrega).
      */
     const explicitQty = extractQuantityFromText(segment);
+    const fallbackQty = groupRequestedQty(group);
     const byName = matchMixedGroupOptionByName(group, segment);
-    if (byName) return { embalagemId: byName.embalagemId, quantity: explicitQty ?? 1 };
+    if (byName) return { embalagemId: byName.embalagemId, quantity: explicitQty ?? fallbackQty };
     const hitRows = group.options.map(optionToHitRow);
     const result = resolveSegmentPick(segment, hitRows, {
         quantity: explicitQty,
@@ -397,7 +423,80 @@ function resolveOne(
         companySiglas: opts?.companySiglas ?? null,
     });
     if (result.kind !== "unique") return null;
-    return { embalagemId: result.pick.embalagemId, quantity: explicitQty ?? 1 };
+    return { embalagemId: result.pick.embalagemId, quantity: explicitQty ?? fallbackQty };
+}
+
+function optionSigla(o: PendingPickOption): string {
+    return String(o.siglaComercial ?? "")
+        .trim()
+        .toUpperCase();
+}
+
+function groupHasSigla(group: PendingPickGroup, sigla: string): boolean {
+    const want = sigla.trim().toUpperCase();
+    return group.options.some((o) => optionSigla(o) === want);
+}
+
+function uniqueOptionForSigla(
+    group: PendingPickGroup,
+    sigla: string
+): PendingPickOption | null {
+    const want = sigla.trim().toUpperCase();
+    const hits = group.options.filter((o) => optionSigla(o) === want);
+    return hits.length === 1 ? hits[0]! : null;
+}
+
+/** Rótulo curto PT para sigla pedida e inexistente nas opções. */
+export function labelForUnknownPackagingSigla(sigla: string): string {
+    const s = sigla.trim().toUpperCase();
+    if (s === "FARD") return "fardo";
+    if (s === "PAC") return "pacote";
+    if (s === "CX") return "caixa";
+    if (s === "UN") return "unidade";
+    return s.toLowerCase();
+}
+
+/**
+ * Sigla falada que nenhuma opção dos grupos oferece (ex.: "fardo" com só UN/CX).
+ */
+export function detectUnknownPackagingAgainstGroups(
+    groups: readonly PendingPickGroup[],
+    userText: string
+): string | null {
+    const spoken = explicitCommercialSiglaFromText(userText);
+    if (!spoken || !groups.length) return null;
+    const anyHas = groups.some((g) => groupHasSigla(g, spoken));
+    return anyHas ? null : spoken;
+}
+
+/**
+ * Resposta só de embalagem ("caixa", "as duas em unidade") com 2+ grupos:
+ * aplica a mesma sigla em todos se cada um tiver exatamente 1 opção com essa sigla.
+ */
+function tryBroadcastSharedPackaging(
+    groups: readonly PendingPickGroup[],
+    userText: string
+): { resolved: ResolvedPendingPick[]; remaining: PendingPickGroup[] } | null {
+    if (groups.length < 2) return null;
+    const spoken = explicitCommercialSiglaFromText(userText);
+    if (!spoken) return null;
+
+    const segments = splitIntoProductSegments(userText);
+    const mentionsProduct = groups.some((g) => pickSegmentForGroup(g, segments) != null);
+    if (mentionsProduct) return null;
+
+    const qty = extractQuantityFromText(userText);
+    const resolved: ResolvedPendingPick[] = [];
+    for (const group of groups) {
+        const opt = uniqueOptionForSigla(group, spoken);
+        if (!opt) return null;
+        resolved.push({
+            productKey: group.productKey,
+            embalagemId: opt.embalagemId,
+            quantity: qty ?? groupRequestedQty(group),
+        });
+    }
+    return { resolved, remaining: [] };
 }
 
 /**
@@ -413,8 +512,25 @@ export function resolvePendingPickGroupsFromFreeText(
         habitSigla?: CustomerSiglaHabit | null;
         companySiglas?: CompanySigla[] | null;
     }
-): { resolved: ResolvedPendingPick[]; remaining: PendingPickGroup[] } {
+): {
+    resolved: ResolvedPendingPick[];
+    remaining: PendingPickGroup[];
+    /** Sigla pedida que não existe em nenhuma opção — caller deve avisar e escalar. */
+    unknownPackagingSigla?: string | null;
+} {
     if (!groups.length) return { resolved: [], remaining: [] };
+
+    const unknownPack = detectUnknownPackagingAgainstGroups(groups, userText);
+    if (unknownPack) {
+        return {
+            resolved: [],
+            remaining: groups.map((g) => ({
+                ...g,
+                unresolvedTurns: PENDING_PICK_SAFETY_NET_TURNS,
+            })),
+            unknownPackagingSigla: unknownPack,
+        };
+    }
 
     const flat = flattenPendingPickOptions(groups);
     const pickIdx = parsePendingPickIndex(userText, flat.length);
@@ -426,7 +542,7 @@ export function resolvePendingPickGroupsFromFreeText(
                     {
                         productKey: row.group.productKey,
                         embalagemId: row.option.embalagemId,
-                        quantity: 1,
+                        quantity: groupRequestedQty(row.group),
                     },
                 ],
                 remaining: groups
@@ -447,6 +563,9 @@ export function resolvePendingPickGroupsFromFreeText(
         }
         return { resolved: [], remaining: [{ ...group, unresolvedTurns: group.unresolvedTurns + 1 }] };
     }
+
+    const broadcast = tryBroadcastSharedPackaging(groups, userText);
+    if (broadcast) return broadcast;
 
     const segments = splitIntoProductSegments(userText);
     const usedSegments = new Set<string>();

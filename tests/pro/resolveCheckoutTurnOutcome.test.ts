@@ -54,6 +54,7 @@ describe("resolveCheckoutTurnOutcome", () => {
                 ],
                 pendingPickGroups: [
                     {
+                        lineId: "line_skol",
                         productKey: "skol",
                         productLabel: "Skol",
                         unresolvedTurns: 0,
@@ -103,6 +104,7 @@ describe("resolveCheckoutTurnOutcome", () => {
                 step: "pro_awaiting_confirmation",
                 pendingPickGroups: [
                     {
+                        lineId: "line_skol",
                         productKey: "skol",
                         productLabel: "Skol",
                         unresolvedTurns: 0,

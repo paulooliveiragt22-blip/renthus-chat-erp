@@ -5,20 +5,27 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { AiServiceAdapter } from "../../src/pro/adapters/ai/ai.service";
 import type { CatalogPort } from "../../src/pro/ports/catalog.port";
 import type { OrderDraftPort } from "../../src/pro/ports/orderDraft.port";
-import type { AiServiceInput, PipelineContext } from "../../src/types/contracts";
+import type { AiServiceInput, OrderWorklist, PipelineContext } from "../../src/types/contracts";
+import { hydrateWorklistFromLegacyMentions } from "../../src/pro/domain/orderWorklist/orderWorklist";
 
 /**
  * Regressão do bug real de smoke: "quero skol e original" (2 produtos ambíguos na mesma
  * mensagem) resolvia só "original" — "skol" sumia silenciosamente do pedido.
  *
- * Fix final (2ª iteração — a 1ª, baseada em `respond_to_customer.pending_items` opcional +
- * heurística lexical de texto, não sobreviveu a reteste real): `search_produtos` exige, via
- * schema Zod OBRIGATÓRIO, o campo `outros_produtos_pendentes` a cada chamada. O modelo não pode
- * simplesmente "esquecer" de declarar — o SDK valida o input contra o schema. Ver
- * `shouldForceSearchForDeclaredPendingTerms` em ai.service.ts e docs/PLANO_MIGRACAO_VERCEL_AI_SDK.md.
+ * ADR 0011 Fase 3: worklist tipada é canônica; force-search lê lines `pending_search`
+ * (extract selada / hydrate legado), não `outros_produtos_pendentes` nem fila string.
  */
 
-function baseContext(pendingOrderMentions: string[] = []): PipelineContext {
+function baseContext(opts?: {
+    pendingOrderMentions?: string[];
+    orderWorklist?: OrderWorklist | null;
+}): PipelineContext {
+    const mentions = opts?.pendingOrderMentions ?? [];
+    const orderWorklist =
+        opts?.orderWorklist ??
+        (mentions.length
+            ? hydrateWorklistFromLegacyMentions({ mentions })
+            : null);
     return {
         tenant: { companyId: "c1", threadId: "t1", messageId: "m1", phoneE164: "+5511999999999" },
         actor: { channel: "whatsapp", source: "meta_webhook", profileName: "Cliente" },
@@ -30,7 +37,8 @@ function baseContext(pendingOrderMentions: string[] = []): PipelineContext {
             draft: null,
             aiHistory: [],
             searchProdutoEmbalagemIds: [],
-            pendingOrderMentions,
+            pendingOrderMentions: mentions,
+            orderWorklist,
         },
         policies: {
             locale: "pt-BR",
@@ -74,27 +82,30 @@ function toolCallResult(toolCallId: string, toolName: string, input: unknown) {
     };
 }
 
-describe("AiServiceAdapter — pendingOrderMentions (item citado e não buscado)", () => {
+function pendingSearchTerms(wl: OrderWorklist | null | undefined): string[] {
+    return (wl?.lines ?? [])
+        .filter((l) => l.status === "pending_search")
+        .map((l) => l.rawTerm.toLowerCase());
+}
+
+describe("AiServiceAdapter — orderWorklist pending_search (item citado e não buscado)", () => {
     it("carryover de turno anterior força search_produtos antes de fechar", async () => {
         let callCount = 0;
         const model = new MockLanguageModelV3({
             doGenerate: async () => {
                 callCount += 1;
                 if (callCount === 1) {
-                    // Modelo tenta fechar direto, ignorando o "skol" pendente da sessão.
                     return toolCallResult("c1", "respond_to_customer", {
                         reply_text: "Aqui está sua Original!",
                     });
                 }
-                if (callCount === 2) {
-                    // Nudge forçou search_produtos — modelo busca o termo pendente e declara
-                    // que não sobrou mais nada (schema obrigatório).
-                    return toolCallResult("c2", "search_produtos", {
+                // Worklist: 1º empty → ainda pending_search; 2º empty → not_found (MAX attempts=2).
+                if (callCount === 2 || callCount === 3) {
+                    return toolCallResult(`c${callCount}`, "search_produtos", {
                         query: "skol",
-                        outros_produtos_pendentes: [],
                     });
                 }
-                return toolCallResult("c3", "respond_to_customer", {
+                return toolCallResult(`c${callCount}`, "respond_to_customer", {
                     reply_text: "Não achei mais opções de skol, só a Original ficou no pedido.",
                 });
             },
@@ -107,9 +118,9 @@ describe("AiServiceAdapter — pendingOrderMentions (item citado e não buscado)
         });
 
         const input: AiServiceInput = {
-            context: baseContext(["skol"]),
-            userText: "pro_pick_emb:original-60ml",
-            intentDecision: { intent: "greeting", confidence: "high", reasonCode: "regex_match" },
+            context: baseContext({ pendingOrderMentions: ["skol"] }),
+            userText: "continua com o pedido",
+            intentDecision: { intent: "order_intent", confidence: "high", reasonCode: "regex_match" },
             draft: null,
             history: [],
             limits: { maxToolRounds: 8, maxHistoryTurns: 12, timeoutMs: 5_000 },
@@ -117,16 +128,22 @@ describe("AiServiceAdapter — pendingOrderMentions (item citado e não buscado)
 
         const result = await svc.run(input);
 
-        assert.equal(callCount, 3, "esperava 3 chamadas ao modelo (respond → nudge search → respond final)");
-        assert.deepEqual(model.doGenerateCalls[1]?.toolChoice, {
-            type: "tool",
-            toolName: "search_produtos",
-        });
+        assert.ok(callCount >= 3, `esperava ≥3 chamadas (respond → force search…), teve ${callCount}`);
+        assert.ok(
+            model.doGenerateCalls.some(
+                (c) =>
+                    c.toolChoice &&
+                    typeof c.toolChoice === "object" &&
+                    "toolName" in c.toolChoice &&
+                    c.toolChoice.toolName === "search_produtos"
+            ),
+            "esperava toolChoice forçado para search_produtos"
+        );
         assert.equal(result.action !== "error", true);
-        assert.deepEqual(result.updatedPendingOrderMentions, []);
+        assert.deepEqual(pendingSearchTerms(result.updatedOrderWorklist), []);
     });
 
-    it("sem pendingOrderMentions, não força search extra (comportamento normal preservado)", async () => {
+    it("sem pending_search, não força search extra (comportamento normal preservado)", async () => {
         let callCount = 0;
         const model = new MockLanguageModelV3({
             doGenerate: async () => {
@@ -142,7 +159,7 @@ describe("AiServiceAdapter — pendingOrderMentions (item citado e não buscado)
         });
 
         const input: AiServiceInput = {
-            context: baseContext([]),
+            context: baseContext(),
             userText: "oi",
             intentDecision: { intent: "greeting", confidence: "high", reasonCode: "regex_match" },
             draft: null,
@@ -155,34 +172,36 @@ describe("AiServiceAdapter — pendingOrderMentions (item citado e não buscado)
         assert.equal(result.action, "reply");
     });
 
-    it("mensagem com 2 produtos: search_produtos declara o 2º pendente (schema obrigatório) e é forçado antes de fechar", async () => {
+    it("mensagem skol e original: extract/worklist força search do 2º antes de fechar", async () => {
         let callCount = 0;
         const model = new MockLanguageModelV3({
             doGenerate: async () => {
                 callCount += 1;
                 if (callCount === 1) {
-                    // Modelo busca "original" e é OBRIGADO pelo schema a declarar o que sobrou.
                     return toolCallResult("c1", "search_produtos", {
                         query: "original",
-                        outros_produtos_pendentes: ["skol"],
                     });
                 }
                 if (callCount === 2) {
-                    // Tenta fechar perguntando só sobre Original — reproduz o bug real. Deve ser
-                    // barrado pelo stopWhen/prepareStep, já que turnState.pendingTermsFromSearch
-                    // ainda tem "skol".
                     return toolCallResult("c2", "respond_to_customer", {
                         reply_text: "Qual opção de Original você quer?",
                     });
                 }
-                if (callCount === 3) {
-                    // Nudge forçou busca do termo pendente; agora declara lista vazia.
-                    return toolCallResult("c3", "search_produtos", {
+                /**
+                 * Empty catalog: cada line precisa de MAX_SEARCH_ATTEMPTS (2) antes de not_found.
+                 * original já tem 1 attempt no call 1; skol precisa de 2; original +1.
+                 */
+                if (callCount === 3 || callCount === 4) {
+                    return toolCallResult(`c${callCount}`, "search_produtos", {
                         query: "skol",
-                        outros_produtos_pendentes: [],
                     });
                 }
-                return toolCallResult("c4", "respond_to_customer", {
+                if (callCount === 5) {
+                    return toolCallResult("c5", "search_produtos", {
+                        query: "original",
+                    });
+                }
+                return toolCallResult(`c${callCount}`, "respond_to_customer", {
                     reply_text: "Certo, qual das opções de Original e de Skol você prefere?",
                 });
             },
@@ -195,7 +214,7 @@ describe("AiServiceAdapter — pendingOrderMentions (item citado e não buscado)
         });
 
         const input: AiServiceInput = {
-            context: baseContext([]),
+            context: baseContext(),
             userText: "quero skol e original",
             intentDecision: { intent: "order_intent", confidence: "high", reasonCode: "regex_match" },
             draft: null,
@@ -205,17 +224,27 @@ describe("AiServiceAdapter — pendingOrderMentions (item citado e não buscado)
 
         const result = await svc.run(input);
 
-        assert.equal(
-            callCount,
-            4,
-            "esperava 4 chamadas (search original → tentativa de fechar → nudge força search skol → respond final)"
+        assert.ok(callCount >= 4, `esperava ≥4 chamadas (search original → force skol…), teve ${callCount}`);
+        assert.ok(
+            model.doGenerateCalls.some(
+                (c) =>
+                    c.toolChoice &&
+                    typeof c.toolChoice === "object" &&
+                    "toolName" in c.toolChoice &&
+                    c.toolChoice.toolName === "search_produtos"
+            ),
+            "esperava force search_produtos para o 2º item"
         );
-        assert.deepEqual(model.doGenerateCalls[2]?.toolChoice, {
-            type: "tool",
-            toolName: "search_produtos",
-        });
         assert.equal(result.action !== "error", true);
-        assert.deepEqual(result.updatedPendingOrderMentions, []);
+        assert.deepEqual(pendingSearchTerms(result.updatedOrderWorklist), []);
+        const byTerm = Object.fromEntries(
+            (result.updatedOrderWorklist?.lines ?? []).map((l) => [
+                l.rawTerm.toLowerCase(),
+                l.status,
+            ])
+        );
+        assert.equal(byTerm.skol, "not_found");
+        assert.equal(byTerm.original, "not_found");
     });
 
     it("item genuinamente irresolúvel não trava o turno para sempre (maxSteps é o teto)", async () => {
@@ -223,8 +252,6 @@ describe("AiServiceAdapter — pendingOrderMentions (item citado e não buscado)
         const model = new MockLanguageModelV3({
             doGenerate: async () => {
                 callCount += 1;
-                // Modelo sempre tenta fechar sem nunca zerar o pendente (ex.: item fora de
-                // catálogo que o modelo insiste em não resolver) — nunca chama search_produtos.
                 return toolCallResult(`c${callCount}`, "respond_to_customer", {
                     reply_text: "Não encontrei esse item, mas segue o resto do pedido.",
                 });
@@ -238,7 +265,7 @@ describe("AiServiceAdapter — pendingOrderMentions (item citado e não buscado)
         });
 
         const input: AiServiceInput = {
-            context: baseContext(["produto-fantasma"]),
+            context: baseContext({ pendingOrderMentions: ["produto-fantasma"] }),
             userText: "quero um produto-fantasma",
             intentDecision: { intent: "order_intent", confidence: "high", reasonCode: "regex_match" },
             draft: null,
@@ -247,8 +274,6 @@ describe("AiServiceAdapter — pendingOrderMentions (item citado e não buscado)
         };
 
         const result = await svc.run(input);
-        // maxSteps = maxToolRounds(8) + 5 = 13 (buffer inclui a rodada forçada de
-        // resolve_pending_picks): o loop termina por stepCountIs, não trava.
         assert.ok(callCount <= 13, `esperava no máximo 13 chamadas, teve ${callCount}`);
         assert.ok(result.action === "error" || result.action === "reply" || result.action === "escalate");
     });

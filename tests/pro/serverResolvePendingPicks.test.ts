@@ -7,6 +7,7 @@ import { PENDING_PICK_SAFETY_NET_TURNS } from "../../src/pro/pipeline/pendingPic
 
 function skolGroup(unresolvedTurns = 0): PendingPickGroup {
     return {
+        lineId: "line_skol",
         productKey: "skol lata",
         productLabel: "SKOL LATA",
         unresolvedTurns,
@@ -77,6 +78,7 @@ describe("serverResolvePendingPicksFromFreeText", () => {
             userText: "oi",
         });
         assert.equal(res.handled, false);
+        assert.equal(res.continueToCheckoutWithoutAi, false);
         assert.equal(res.outbound.length, 0);
     });
 
@@ -89,13 +91,14 @@ describe("serverResolvePendingPicksFromFreeText", () => {
             userText: "quero 20",
         });
         assert.equal(res.handled, true);
+        assert.equal(res.continueToCheckoutWithoutAi, false);
         assert.equal(res.outbound.length, 1);
         assert.equal(res.outbound[0]!.kind, "text");
         assert.equal(res.state.pendingPickGroups?.length, 1);
         assert.equal(res.state.pendingPickGroups?.[0]!.unresolvedTurns, 1);
     });
 
-    it("resolve o único grupo pendente por texto: handled=false, pendingPickGroups limpo", async () => {
+    it("resolve o único grupo pendente por texto: checkout sem IA + ack canônico", async () => {
         const res = await serverResolvePendingPicksFromFreeText({
             admin: fakeAdminAlwaysEmpty(),
             companyId: "company-1",
@@ -104,8 +107,52 @@ describe("serverResolvePendingPicksFromFreeText", () => {
             userText: "caixa",
         });
         assert.equal(res.handled, false);
-        assert.equal(res.outbound.length, 0);
+        assert.equal(res.continueToCheckoutWithoutAi, true);
         assert.deepEqual(res.state.pendingPickGroups, []);
+        assert.ok(res.outbound.some((m) => m.kind === "text" && /Anotei/u.test(String(m.text))));
+        assert.ok(res.outbound.some((m) => /CX|caixa/i.test(String(m.text))));
+    });
+
+    it("resolve 1 de 2: ack do item + clarifica o restante (sem IA)", async () => {
+        const original: PendingPickGroup = {
+            lineId: "line_original",
+            productKey: "original 600ml",
+            productLabel: "ORIGINAL 600ML",
+            unresolvedTurns: 0,
+            options: [
+                {
+                    embalagemId: "orig-un",
+                    displayName: "ORIGINAL 600ML",
+                    productName: "ORIGINAL 600ML",
+                    siglaComercial: "UN",
+                    precoVenda: 15,
+                    fatorConversao: 1,
+                },
+                {
+                    embalagemId: "orig-cx",
+                    displayName: "ORIGINAL 600ML (CX c/24)",
+                    productName: "ORIGINAL 600ML",
+                    siglaComercial: "CX",
+                    precoVenda: 360,
+                    fatorConversao: 24,
+                },
+            ],
+        };
+        const res = await serverResolvePendingPicksFromFreeText({
+            admin: fakeAdminAlwaysEmpty(),
+            companyId: "company-1",
+            customerId: "c1",
+            state: baseState({ pendingPickGroups: [skolGroup(0), original] }),
+            userText: "quero caixa de skol",
+        });
+        assert.equal(res.handled, true);
+        assert.equal(res.continueToCheckoutWithoutAi, false);
+        assert.equal(res.state.pendingPickGroups?.length, 1);
+        assert.equal(res.state.pendingPickGroups?.[0]!.productKey, "original 600ml");
+        const texts = res.outbound.filter((m) => m.kind === "text").map((m) => String(m.text));
+        assert.ok(texts.some((t) => /Anotei/u.test(t) && /skol/i.test(t)));
+        assert.ok(texts.some((t) => /ORIGINAL|opção|Selecione/i.test(t)));
+        assert.ok(!texts.some((t) => /whisky|whiskey/i.test(t)));
     });
 
     it("grupo passou do teto de tentativas: escala para botão determinístico", async () => {
@@ -120,6 +167,8 @@ describe("serverResolvePendingPicksFromFreeText", () => {
         });
         assert.equal(res.handled, true);
         assert.ok(res.outbound.some((m) => m.kind === "buttons"));
-        assert.equal(res.state.pendingPickGroups?.length, 0);
+        /** Escalados permanecem no pending até o cliente escolher (não órfão com draft parcial). */
+        assert.equal(res.state.pendingPickGroups?.length, 1);
+        assert.ok((res.state.lastSearchPicks?.length ?? 0) >= 2);
     });
 });

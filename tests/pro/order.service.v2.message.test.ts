@@ -53,26 +53,34 @@ function sampleDraft(): OrderDraft {
 }
 
 describe("OrderServiceV2Adapter message snapshot", () => {
-    it("mensagem confirmada inclui itens, total, taxa e pagamento", () => {
+    it("mensagem confirmada usa o template do cardápio web", () => {
         const text = buildOrderCustomerMessage({
             orderCode: "#ABC123",
             requireApproval: false,
             draft: sampleDraft(),
         });
-        assert.ok(text.includes("Pedido #ABC123 confirmado."));
-        assert.ok(text.includes("Itens: 2× Heineken 600ml (UN:1); 1× Skol Lata (UN:1)."));
-        assert.ok(text.includes("Total R$ 45,00 via PIX."));
-        assert.ok(text.includes("Taxa R$ 5,00."));
+        assert.match(text, /✅ \*Pedido Confirmado!\*/);
+        assert.match(text, /Pedido #ABC123/);
+        assert.match(text, /• 2x Heineken 600ml \(UN\) — R\$\s*32,00/);
+        assert.match(text, /• 1x Skol Lata \(UN\) — R\$\s*8,00/);
+        assert.match(text, /🛵 Taxa de entrega: R\$\s*5,00/);
+        assert.match(text, /📍 /);
+        assert.match(text, /💳 PIX/);
+        assert.match(text, /🚚 \*Previsão de entrega:\* 30 minutos/);
+        assert.match(text, /Obrigado pela preferência! 🍺/);
+        assert.ok(!text.includes("Total R$ 45,00 via PIX"));
     });
 
-    it("mensagem pendente de aprovacao preserva resumo canônico", () => {
+    it("mensagem pendente de aprovacao usa template Recebido do cardápio web", () => {
         const text = buildOrderCustomerMessage({
             orderCode: "#ABC123",
             requireApproval: true,
             draft: sampleDraft(),
         });
-        assert.ok(text.includes("Pedido #ABC123 recebido."));
-        assert.ok(text.includes("Estamos confirmando e já voltamos."));
+        assert.match(text, /✅ \*Pedido Recebido!\*/);
+        assert.match(text, /Pedido #ABC123/);
+        assert.match(text, /Total: R\$\s*45,00/);
+        assert.match(text, /Estamos confirmando seu pedido/);
     });
 
     it("quando grandTotal vier inconsistente, mensagem usa total recomputado", () => {
@@ -80,10 +88,11 @@ describe("OrderServiceV2Adapter message snapshot", () => {
         draft.grandTotal = 999;
         const text = buildOrderCustomerMessage({
             orderCode: "#ABC123",
-            requireApproval: false,
+            requireApproval: true,
             draft,
         });
-        assert.ok(text.includes("Total R$ 45,00 via PIX."));
+        assert.match(text, /Total: R\$\s*45,00/);
+        assert.ok(!text.includes("999"));
     });
 });
 

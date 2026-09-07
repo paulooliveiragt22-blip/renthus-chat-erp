@@ -2,9 +2,9 @@
 
 Documento de decisão e checklist para o time executar. Alinhado ao código atual (`processInboundMessage`, `chatbot_queue`, motor em `lib/chatbot/`).
 
-**Ordem de leitura:** princípios → **arquitetura por horizonte (Hobby / médio prazo / escala)** → **pedido PRO / cérebro IA** → fases 0–3 → evidências / riscos → [`REFACTOR_STRATEGY_PRO_ORDER_AND_IA.md`](./REFACTOR_STRATEGY_PRO_ORDER_AND_IA.md) (histórico de refatoração) → [`ADR/0005-pro-agent-calibration-pillars.md`](./ADR/0005-pro-agent-calibration-pillars.md) + [`PLANO_CALIBRACAO_AGENTE_PRO.md`](./PLANO_CALIBRACAO_AGENTE_PRO.md) (**calibração / fortalecimento vigente**).
+**Ordem de leitura:** princípios → **arquitetura por horizonte (Hobby / médio prazo / escala)** → **pedido PRO / cérebro IA** → fases 0–3 → evidências / riscos → [`REFACTOR_STRATEGY_PRO_ORDER_AND_IA.md`](./REFACTOR_STRATEGY_PRO_ORDER_AND_IA.md) (histórico de refatoração) → [`ADR/0005-pro-agent-calibration-pillars.md`](./ADR/0005-pro-agent-calibration-pillars.md) + [`PLANO_CALIBRACAO_AGENTE_PRO.md`](./PLANO_CALIBRACAO_AGENTE_PRO.md) (**calibração / fortalecimento vigente**) → [`ADR/0011-pro-order-worklist-typed-lines.md`](./ADR/0011-pro-order-worklist-typed-lines.md) (**coleta multi-item / OrderWorklist**).
 
-> **Calibração do agente (vigente 2026-09-03):** quatro pilares (gates → matching → prompts → avaliação) e cronologia C0–C5 em [`PLANO_CALIBRACAO_AGENTE_PRO.md`](./PLANO_CALIBRACAO_AGENTE_PRO.md). Decisão: [`ADR-0005`](./ADR/0005-pro-agent-calibration-pillars.md). Transporte: [`ADR-0003`](./ADR/0003-sqs-outbox-lambda.md).
+> **Calibração do agente (vigente 2026-09-03):** quatro pilares (gates → matching → prompts → avaliação) e cronologia C0–C5 em [`PLANO_CALIBRACAO_AGENTE_PRO.md`](./PLANO_CALIBRACAO_AGENTE_PRO.md). Decisão: [`ADR-0005`](./ADR/0005-pro-agent-calibration-pillars.md). Coleta multi-item: [`ADR-0011`](./ADR/0011-pro-order-worklist-typed-lines.md) (`OrderWorklist` + `awaiting_qty`). Transporte: [`ADR-0003`](./ADR/0003-sqs-outbox-lambda.md).
 >
 > **Plano de limpeza (histórico):** [`PLANO_LIMPEZA_AGENTE_IA.md`](./PLANO_LIMPEZA_AGENTE_IA.md) — Starter removido, replay/harness e handover (`applyProHandover`) em grande parte **feitos**; não usar o P0 de handover desse doc como bug ainda aberto.
 

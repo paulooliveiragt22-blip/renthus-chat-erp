@@ -7,11 +7,17 @@ import {
 import { mergePreparedDraftIntoCurrent, unionAllowlistWithDraftIds } from "./mergeOrderDraft";
 import {
     buildPickClarificationFreeText,
+    buildResolvedPendingPicksAck,
     groupsPastSafetyNet,
+    labelForUnknownPackagingSigla,
     resolvePendingPickGroupsFromFreeText,
 } from "./pendingPickGroups";
 import { loadCompanySiglas } from "./customerPackagingHabit";
 import { buildClarificationButtons } from "./stages/checkoutPostProcess";
+import {
+    createEmptyOrderWorklist,
+    markLineInDraft,
+} from "@/src/pro/domain/orderWorklist/orderWorklist";
 
 function groupToLegacyPicks(group: PendingPickGroup) {
     return group.options.map((o) => ({
@@ -22,28 +28,81 @@ function groupToLegacyPicks(group: PendingPickGroup) {
     }));
 }
 
+function availablePackagingLabels(groups: readonly PendingPickGroup[]): string {
+    const siglas = new Set<string>();
+    for (const g of groups) {
+        for (const o of g.options) {
+            const s = String(o.siglaComercial ?? "")
+                .trim()
+                .toUpperCase();
+            if (s) siglas.add(s);
+        }
+    }
+    const order = ["UN", "CX", "FARD", "PAC", "COMBO"];
+    const sorted = [...siglas].sort((a, b) => {
+        const ia = order.indexOf(a);
+        const ib = order.indexOf(b);
+        return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib) || a.localeCompare(b);
+    });
+    return sorted
+        .map((s) => {
+            if (s === "UN") return "unidade";
+            if (s === "CX") return "caixa";
+            if (s === "FARD") return "fardo";
+            if (s === "PAC") return "pacote";
+            return s;
+        })
+        .join(", ");
+}
+
+/** ADR 0011 — todo PendingPickGroup precisa de lineId antes do resolve. */
+function ensureGroupLineIds(groups: readonly PendingPickGroup[]): PendingPickGroup[] {
+    return groups.map((g, i) =>
+        g.lineId
+            ? g
+            : {
+                  ...g,
+                  lineId: `legacy_pick_${i}_${g.productKey}`,
+              }
+    );
+}
+
+function applyResolvedToWorklist(params: {
+    worklist: NonNullable<ProSessionState["orderWorklist"]>;
+    groups: readonly PendingPickGroup[];
+    resolved: readonly { productKey: string; embalagemId: string; quantity: number }[];
+}): NonNullable<ProSessionState["orderWorklist"]> {
+    let wl = params.worklist;
+    for (const r of params.resolved) {
+        const group = params.groups.find((g) => g.productKey === r.productKey);
+        const lineId = group?.lineId;
+        if (!lineId) continue;
+        // Free-text resolve + prepare sempre têm quantity ≥ 1 → in_draft.
+        // (awaiting_qty: resolve_pending_picks tool quando qty vem null.)
+        wl = markLineInDraft({
+            worklist: wl,
+            lineId,
+            produtoEmbalagemId: r.embalagemId,
+            quantity: r.quantity,
+        });
+    }
+    return wl;
+}
+
 export type ServerResolvePendingPicksResult = {
     state: ProSessionState;
-    /** Não-vazio ⇒ turno resolvido no servidor (chamador deve encerrar sem chamar a IA). */
     outbound: OutboundMessage[];
     handled: boolean;
-    /** C2.4 — grupos que passaram do teto e viraram botão (abandono do free-text). */
     escalatedToButtons: boolean;
+    /**
+     * Resolveu tudo via free-text: pipeline deve ir ao checkoutPostProcess
+     * **sem** chamar a IA (evita “adicionei whisky” com draft de outro SKU).
+     */
+    continueToCheckoutWithoutAi: boolean;
 };
 
 /**
- * Tenta resolver `pendingPickGroups` (embalagem UN/CX/Fardo ambígua de 1+ produtos citados no
- * mesmo turno) a partir do texto livre do cliente, ANTES de chamar a IA — motor determinístico
- * de `resolvePendingPickGroupsFromFreeText` (mesma lógica de `search_produtos`/sigla comercial).
- *
- * Três desfechos possíveis:
- * - Nenhum grupo pendente: no-op (`handled: false`), pipeline segue normal.
- * - Resolveu tudo: aplica no draft e libera o turno pra IA continuar (endereço/pagamento/etc.),
- *   sem short-circuit — texto de resposta ainda vem do fluxo normal.
- * - Sobrou algo pendente: turno é encerrado aqui (`handled: true`) com uma pergunta consolidada
- *   em texto livre (ou, para grupos que já passaram do teto de tentativas, botão determinístico
- *   de fallback) — nunca chama a IA para essa parte, eliminando o risco de alucinação/duplicidade
- *   com o card de botões (ver docs/PLANO_MIGRACAO_VERCEL_AI_SDK.md, bug de coerência do S2).
+ * Tenta resolver `pendingPickGroups` a partir do texto livre do cliente, ANTES da IA.
  */
 export async function serverResolvePendingPicksFromFreeText(params: {
     admin: SupabaseClient;
@@ -53,9 +112,15 @@ export async function serverResolvePendingPicksFromFreeText(params: {
     userText: string;
 }): Promise<ServerResolvePendingPicksResult> {
     const { admin, companyId, customerId, userText } = params;
-    const groups = params.state.pendingPickGroups ?? [];
+    const groups = ensureGroupLineIds(params.state.pendingPickGroups ?? []);
     if (!groups.length) {
-        return { state: params.state, outbound: [], handled: false, escalatedToButtons: false };
+        return {
+            state: params.state,
+            outbound: [],
+            handled: false,
+            escalatedToButtons: false,
+            continueToCheckoutWithoutAi: false,
+        };
     }
 
     let companySiglas: Awaited<ReturnType<typeof loadCompanySiglas>> = [];
@@ -65,11 +130,15 @@ export async function serverResolvePendingPicksFromFreeText(params: {
         companySiglas = [];
     }
 
-    const { resolved, remaining } = resolvePendingPickGroupsFromFreeText(groups, userText, {
-        companySiglas,
-    });
+    const { resolved, remaining, unknownPackagingSigla } = resolvePendingPickGroupsFromFreeText(
+        groups,
+        userText,
+        { companySiglas }
+    );
 
     let state = params.state;
+    let orderWorklist = state.orderWorklist ?? createEmptyOrderWorklist();
+
     if (resolved.length) {
         const allowedEmbalagemIds = unionAllowlistWithDraftIds(
             [...(state.searchProdutoEmbalagemIds ?? []), ...resolved.map((r) => r.embalagemId)],
@@ -93,14 +162,44 @@ export async function serverResolvePendingPicksFromFreeText(params: {
             catalogPolicy
         );
         state = { ...state, draft: mergePreparedDraftIntoCurrent(state.draft, prepared.draft) };
+        orderWorklist = applyResolvedToWorklist({
+            worklist: orderWorklist,
+            groups,
+            resolved,
+        });
     }
 
+    const ackText = buildResolvedPendingPicksAck(resolved, groups);
+
     if (!remaining.length) {
+        if (!resolved.length) {
+            return {
+                state: {
+                    ...state,
+                    pendingPickGroups: [],
+                    lastSearchPicks: [],
+                    orderWorklist,
+                    pendingOrderMentions: [],
+                },
+                outbound: [],
+                handled: false,
+                escalatedToButtons: false,
+                continueToCheckoutWithoutAi: false,
+            };
+        }
+        /** Tudo resolvido: ack canônico + checkout sem IA. */
         return {
-            state: { ...state, pendingPickGroups: [], lastSearchPicks: [] },
-            outbound: [],
+            state: {
+                ...state,
+                pendingPickGroups: [],
+                lastSearchPicks: [],
+                orderWorklist,
+                pendingOrderMentions: [],
+            },
+            outbound: ackText ? [{ kind: "text", text: ackText }] : [],
             handled: false,
             escalatedToButtons: false,
+            continueToCheckoutWithoutAi: true,
         };
     }
 
@@ -108,28 +207,59 @@ export async function serverResolvePendingPicksFromFreeText(params: {
     const stillFreeText = remaining.filter((g) => !escalate.includes(g));
 
     const outbound: OutboundMessage[] = [];
+    if (ackText) {
+        outbound.push({ kind: "text", text: ackText });
+    }
+    if (unknownPackagingSigla) {
+        const packLabel = labelForUnknownPackagingSigla(unknownPackagingSigla);
+        const avail = availablePackagingLabels(remaining);
+        outbound.push({
+            kind: "text",
+            text: avail
+                ? `Não trabalhamos com ${packLabel} nesses itens. Opções: ${avail}.`
+                : `Não trabalhamos com ${packLabel} nesses itens. Escolha uma das opções abaixo.`,
+        });
+    }
     for (const g of escalate) {
         const card = buildClarificationButtons(groupToLegacyPicks(g));
         if (card) outbound.push(card);
+        else {
+            outbound.push({
+                kind: "text",
+                text: buildPickClarificationFreeText([g]),
+            });
+        }
     }
     if (stillFreeText.length) {
         outbound.push({
             kind: "text",
             text: buildPickClarificationFreeText(stillFreeText),
         });
+    } else if (!escalate.length && remaining.length) {
+        outbound.push({
+            kind: "text",
+            text: buildPickClarificationFreeText(remaining),
+        });
+    }
+
+    if (!outbound.length && remaining.length) {
+        outbound.push({
+            kind: "text",
+            text: buildPickClarificationFreeText(remaining),
+        });
     }
 
     return {
         state: {
             ...state,
-            /** Grupos escalados saem do pending (UI de botão usa outbound); free-text permanece. */
-            pendingPickGroups: stillFreeText,
-            lastSearchPicks: escalate.length
-                ? escalate.flatMap((g) => groupToLegacyPicks(g))
-                : [],
+            pendingPickGroups: remaining,
+            lastSearchPicks: escalate.length ? escalate.flatMap((g) => groupToLegacyPicks(g)) : [],
+            orderWorklist,
+            pendingOrderMentions: [],
         },
         outbound,
         handled: true,
         escalatedToButtons: escalate.length > 0,
+        continueToCheckoutWithoutAi: false,
     };
 }

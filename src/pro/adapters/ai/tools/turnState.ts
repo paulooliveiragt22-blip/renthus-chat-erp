@@ -1,4 +1,8 @@
-import type { OrderDraft, PendingPickGroup } from "@/src/types/contracts";
+import type { OrderDraft, OrderWorklist, PendingPickGroup } from "@/src/types/contracts";
+import {
+    createEmptyOrderWorklist,
+    hydrateWorklistFromLegacyMentions,
+} from "@/src/pro/domain/orderWorklist/orderWorklist";
 
 /**
  * Estado do turno compartilhado entre as tools de um mesmo `generateText()` (Fase 3 da
@@ -22,6 +26,10 @@ export type TurnState = {
     currentDraft: OrderDraft | null;
     /** Escrito só por search_produtos; lido por prepare_order_draft (allowlist). */
     allowlistIds: string[];
+    /**
+     * Cache efêmero de opções UI (botões). Ambíguo multi-embalagem usa `pendingPickGroups`
+     * / worklist `ambiguous` (ADR 0011 Fase 3).
+     */
     lastSearchPicks: SearchPickSummary[];
     emptySearchStreak: number;
     /** Escrito só por prepare_order_draft. */
@@ -33,22 +41,16 @@ export type TurnState = {
     lastPrepareOutcome: { ok: boolean; errors: string[] } | null;
     /** Escrito só por `ai.service.ts` (entre steps, via `prepareStep`) — evita repetir o nudge de prepare_order_draft. */
     forcePrepareNudgeInjected: boolean;
-    /** Escrito só por `ai.service.ts` — evita repetir o nudge de search_produtos p/ item pendente (carryover de turno anterior). */
+    /** Escrito só por `ai.service.ts` — evita repetir o nudge de search_produtos p/ item pendente. */
     forceSearchPendingNudgeInjected: boolean;
+    /** Fonte canônica de coleta (ADR 0011). */
+    orderWorklist: OrderWorklist;
     /**
-     * Termos de produto que o cliente citou e ainda não foram buscados — fonte de verdade é o
-     * campo obrigatório `outros_produtos_pendentes` que o próprio `search_produtos` exige do
-     * modelo a cada chamada (schema-enforced, não depende do modelo "lembrar" depois). Semeado
-     * com o carryover do turno anterior (`ProSessionState.pendingOrderMentions`) e sobrescrito
-     * (não acumulado) a cada nova chamada de search_produtos, que reflete o conhecimento mais
-     * atual do modelo. Ver `shouldForceSearchForDeclaredPendingTerms` em `ai.service.ts`.
+     * Queries já passadas a `search_produtos` neste turno.
      */
-    pendingTermsFromSearch: string[];
+    searchedProductQueriesThisTurn: string[];
     /**
-     * Grupos de embalagem (UN/CX/Fardo) ainda ambíguos para produtos distintos citados no
-     * mesmo turno — ver `pendingPickGroups.ts`. Escrito por `search_produtos` (upsert por
-     * produto) e por `resolve_pending_picks` (remove grupo resolvido). Semeado com o
-     * carryover do turno anterior (`ProSessionState.pendingPickGroups`).
+     * Grupos de embalagem (UN/CX/Fardo) — projection de lines `ambiguous` com `lineId`.
      */
     pendingPickGroups: PendingPickGroup[];
     /** Escrito só por `ai.service.ts` — evita repetir o nudge de resolve_pending_picks no mesmo turno. */
@@ -58,6 +60,8 @@ export type TurnState = {
         prepareBlockedAllowlist: number;
         searchHitsZero: number;
     };
+    /** Turno em que serverResolvePendingPicks já tratou pick — sem force-search (ADR 0011 D5). */
+    pickResolveTurn: boolean;
 };
 
 export function createInitialTurnState(seed: {
@@ -65,9 +69,19 @@ export function createInitialTurnState(seed: {
     lastSearchPicks: readonly SearchPickSummary[];
     emptySearchStreak: number;
     currentDraft: OrderDraft | null;
+    /** @deprecated Hydrate one-shot → worklist; não usar como fila ativa. */
     pendingOrderMentions?: readonly string[];
+    orderWorklist?: OrderWorklist | null;
     pendingPickGroups?: readonly PendingPickGroup[];
+    pickResolveTurn?: boolean;
 }): TurnState {
+    const orderWorklist =
+        seed.orderWorklist && seed.orderWorklist.lines.length > 0
+            ? seed.orderWorklist
+            : hydrateWorklistFromLegacyMentions({
+                  mentions: seed.pendingOrderMentions ?? [],
+                  existing: seed.orderWorklist,
+              });
     return {
         currentDraft: seed.currentDraft,
         allowlistIds: [...seed.allowlistIds],
@@ -79,9 +93,20 @@ export function createInitialTurnState(seed: {
         lastPrepareOutcome: null,
         forcePrepareNudgeInjected: false,
         forceSearchPendingNudgeInjected: false,
-        pendingTermsFromSearch: [...(seed.pendingOrderMentions ?? [])],
-        pendingPickGroups: [...(seed.pendingPickGroups ?? [])],
+        orderWorklist: orderWorklist.lines.length
+            ? orderWorklist
+            : createEmptyOrderWorklist(),
+        searchedProductQueriesThisTurn: [],
+        pendingPickGroups: [...(seed.pendingPickGroups ?? [])].map((g, i) =>
+            g.lineId
+                ? g
+                : {
+                      ...g,
+                      lineId: `legacy_pick_${i}_${g.productKey}`,
+                  }
+        ),
         forceResolvePendingPicksNudgeInjected: false,
         matchingMetrics: { prepareBlockedAllowlist: 0, searchHitsZero: 0 },
+        pickResolveTurn: seed.pickResolveTurn === true,
     };
 }

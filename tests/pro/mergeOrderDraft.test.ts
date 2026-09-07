@@ -4,6 +4,7 @@ import type { OrderDraft } from "../../src/types/contracts";
 import {
     mergePreparedDraftIntoCurrent,
     removeDraftItemsMatchingNameExcept,
+    unionAllowlistIds,
     unionAllowlistWithDraftIds,
 } from "../../src/pro/pipeline/mergeOrderDraft";
 
@@ -91,6 +92,14 @@ describe("unionAllowlistWithDraftIds", () => {
         const d = draft([item("draft-1", "D1"), item("draft-2", "D2")]);
         const ids = unionAllowlistWithDraftIds(["search-1"], d);
         assert.deepEqual(ids, ["search-1", "draft-1", "draft-2"]);
+    });
+});
+
+describe("unionAllowlistIds", () => {
+    it("acumula buscas do turno sem duplicar (Original + Heineken)", () => {
+        const afterOriginal = unionAllowlistIds([], ["orig-cx", "orig-un"]);
+        const afterHeineken = unionAllowlistIds(afterOriginal, ["hein-cx"]);
+        assert.deepEqual(afterHeineken, ["orig-cx", "orig-un", "hein-cx"]);
     });
 });
 

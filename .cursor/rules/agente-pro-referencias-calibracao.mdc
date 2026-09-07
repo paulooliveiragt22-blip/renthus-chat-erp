@@ -1,0 +1,52 @@
+---
+description: Parâmetros sugestionais de calibração do Agente PRO — comunidades, evals e docs de referência (não substituem ADR/código canónico).
+globs: src/pro/**/*,app/api/chatbot/**/*,app/api/whatsapp/**/*,lib/chatbot/**/*,docs/PLANO_CALIBRACAO_AGENTE_PRO.md,docs/ADR/0005-pro-agent-calibration-pillars.md,docs/ADR/0011-pro-order-worklist-typed-lines.md,docs/SMOKE_AGENT_LOOP_WHATSAPP.md,tests/pro/**/*
+alwaysApply: false
+---
+
+# Agente PRO — referências sugestionais (treino / config / eval)
+
+Usar como **bússola externa** ao calibrar prompts, tool schemas, cassetes e pirâmide A→E.
+**Canónico do repo vence sempre:** `docs/ADR/0005-pro-agent-calibration-pillars.md`, `docs/ADR/0011-pro-order-worklist-typed-lines.md` (worklist multi-item, proposto), `docs/PLANO_CALIBRACAO_AGENTE_PRO.md`, `agente-pro-hexagonal.mdc`.
+
+Princípio (ADR): *LLM interpreta; servidor decide; avaliação prova.* Calibração ≠ fine-tune do modelo.
+
+## O que NÃO é referência de produto
+- `github.io` — só hosting (Pages), não comunidade.
+- Hugging Face / AI Tinkerers — úteis, mas **não** são “escola de atendimento CX”.
+
+## Shortlist (prioridade)
+
+| P | Fonte | Usar para | Não usar para |
+|---|--------|-----------|----------------|
+| P0 | [Vercel AI SDK — tools](https://sdk.vercel.ai/docs/ai-sdk-core/tools-and-tool-calling) | schemas, `tool_choice`/`prepareStep`, force search/prepare, tool final `respond_to_customer` | arquitetura de pedido/ERP |
+| P0 | [AgentEvals / trajectory](https://docs.langchain.com/langsmith/trajectory-evals) | asserts de sequência tool (nível C/D); subset/superset match | copiar LangChain para o hot path |
+| P1 | [Braintrust](https://www.braintrust.dev/) ou [Langfuse](https://langfuse.com/) | dataset de regressão + gate pré-release; traces → fixtures | substituir `pipeline_turn_traces` / cassetes locais sem motivo |
+| P1 | [AI Tinkerers](https://aitinkerers.org/) | demos, falhas reais, peer review do fluxo PRO | currículo formal / checklist de PR |
+| P2 | [OpenAI Agents](https://platform.openai.com/docs/guides/agents) + [Anthropic tool use](https://docs.anthropic.com/en/docs/agents-and-tools/tool-use/overview) | padrões de schema/stop/eval; swap via `modelProvider.ts` | acoplar motor ao framework do provider |
+| P2 | [Hugging Face](https://huggingface.co/) | corpus/métricas offline (nível B) se exportarem fixtures | fine-tune / RLHF (fora de escopo ADR) |
+| P2 | Botpress / Voiceflow / Intercom Fin (casos públicos) | UX HITL botão-only, handoff humano | arquitetura hexagonal / tools do PRO |
+
+## Mapa → pilares internos
+
+1. **Gates/políticas** — slots, allowlist, confirm só botão → ideias CX (P2), decidir no servidor. Worklist: checkout bloqueado com line `pending_search` | `ambiguous` | `awaiting_qty` (ADR 0011; qty = A).
+2. **Matching/dados** — UN/CX + multi-item via `OrderWorklist` (ADR 0011); pending picks = payload de line `ambiguous`; HF só se ajudar fixtures B.
+3. **Prompts + tool schemas** — AI SDK (P0) + docs provider (P2). Extract 1× selado; IA não sobrescreve worklist. Search/pick unívoco sem qty → `awaiting_qty` (decisão A fechada).
+4. **Avaliação A→E** — AgentEvals/trajectory (P0) + Braintrust/Langfuse (P1); smoke WA = E. Ver Fase 4 do ADR 0011.
+
+## Trajetória canónica de tools (pós-ADR 0011)
+
+Ordem esperada em asserts A/C (subset/superset; não copiar LangChain para o hot path):
+
+1. `extract_order_lines` — só quando worklist precisa (re)selo; **não** a cada step do mesmo hash.
+2. Force `search_produtos` — próxima line `pending_search` (caps D6 do ADR 0011).
+3. `resolve_pending_picks` / `serverResolvePendingPicks` — lines `ambiguous`; **sem** force-search no mesmo turno do pick.
+4. Ask qty / prepare — line `awaiting_qty` até quantity; depois `prepare_order_draft` (allowlist; bloqueado se ainda há `pending_search` | `ambiguous` | `awaiting_qty`).
+5. `respond_to_customer` — quando o turno não exige mais search (cap de steps).
+
+Legado string (`pendingOrderMentions`, `outros_produtos_pendentes` como fonte, `pendingSearchTerms`, `pendingClarifyQuantity` paralelo) → **não** sugerir; cutover radical no ADR 0011.
+
+## Ao sugerir mudanças
+- Preferir: assert da trajetória acima, cassette multi-item (“A e B e C”), métrica (`prepare_blocked_allowlist`, `pending_pick_abandon`, searches/turno, extract incompleto), gate `worklist_blocks_checkout` (inclui `awaiting_qty`).
+- Evitar: “treinar modelo”, dual-path mentions+worklist, texto livre como confirmação financeira, framework de agent no hot path só porque a referência usa, reintroduzir fila string, ask qty legado fora da worklist.
+- Antes de propor integração SaaS de eval: confirmar se cassetes + `PRO_PIPELINE_TURN_TRACE` já cobrem o gap (ADR 0011 Fase 4).

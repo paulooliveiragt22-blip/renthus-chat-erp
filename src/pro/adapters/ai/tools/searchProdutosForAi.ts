@@ -11,9 +11,79 @@ import {
     productKeyFromQuery,
     type PendingPickGroup,
 } from "@/src/pro/pipeline/pendingPickGroups";
-import { hasExplicitOrderQuantityInText } from "@/src/pro/tools/parseQtyPt";
-import { preferRowsMatchingTagAliases } from "@/src/pro/tools/tagAliasMatch";
+import {
+    extractQuantityNearQuery,
+    hasExplicitOrderQuantityInText,
+} from "@/src/pro/tools/parseQtyPt";
+import {
+    explicitCommercialSiglaNearQuery,
+    preferRowsMatchingTagAliases,
+    queryAliasTokens,
+    type TagAliasRow,
+} from "@/src/pro/tools/tagAliasMatch";
+import { loadEmbalagensByVolumeIds, type ChatProdutoRow } from "@/src/pro/tools/searchProdutos";
 
+/**
+ * Tag bateu numa sigla e o cliente pediu outra (ex.: buchudinha só na UN + "caixa"):
+ * carrega irmãos do mesmo `product_volume_id` para o promote UN↔CX.
+ */
+async function expandPoolWithTagVolumeSiblings(
+    deps: SearchProdutosForAiDeps,
+    rows: ChatProdutoRow[],
+    query: string
+): Promise<ChatProdutoRow[]> {
+    const wantSigla = explicitCommercialSiglaNearQuery(query, deps.userText);
+    if (!wantSigla || !rows.length) return rows;
+
+    const tokens = queryAliasTokens(`${query} ${deps.userText}`);
+    if (!tokens.length) return rows;
+
+    const tagHits = rows.filter((row) => {
+        const tags = normalizeTagsHay(row.tags);
+        if (!tags) return false;
+        return tokens.some((t) => tags.includes(t));
+    });
+    if (!tagHits.length) return rows;
+
+    const alreadyHasWanted = tagHits.some(
+        (r) => String(r.sigla_comercial ?? "").trim().toUpperCase() === wantSigla
+    );
+    if (alreadyHasWanted) return rows;
+
+    const volumeIds = [
+        ...new Set(
+            tagHits
+                .map((r) => String(r.product_volume_id ?? "").trim())
+                .filter(Boolean)
+        ),
+    ];
+    if (!volumeIds.length) return rows;
+
+    try {
+        const siblings = await loadEmbalagensByVolumeIds(
+            deps.admin,
+            deps.companyId,
+            volumeIds
+        );
+        if (!siblings.length) return rows;
+        const byId = new Map(rows.map((r) => [String(r.id), r]));
+        for (const s of siblings) byId.set(String(s.id), s);
+        return [...byId.values()];
+    } catch (err: unknown) {
+        console.warn(
+            "[searchProdutosForAi] expand tag volume siblings failed",
+            err instanceof Error ? err.message : err
+        );
+        return rows;
+    }
+}
+
+function normalizeTagsHay(tags?: string | null): string {
+    return String(tags ?? "")
+        .toLowerCase()
+        .normalize("NFD")
+        .replaceAll(/\p{Diacritic}/gu, "");
+}
 /**
  * Orquestração de `search_produtos` extraída de `ai.service.full.ts` (agora reusável por
  * qualquer implementação de `AiService`, incl. o loop Vercel AI SDK da Fase 3 — ver
@@ -35,6 +105,8 @@ export type SearchProdutosForAiDeps = {
     customerId: string | null;
     /** Texto do turno atual — usado para desambiguar embalagem por menção explícita/quantidade. */
     userText: string;
+    /** ADR 0011 — amarra PendingPickGroup à line da worklist. */
+    worklistLineId?: string | null;
 };
 
 export type SearchProdutosPickSummary = {
@@ -86,7 +158,12 @@ export async function runSearchProdutosForAi(
     const categoryHint = input.categoryHint ?? null;
     const detailed = await deps.catalog.searchDetailed(deps.companyId, query, { categoryHint, limit: 8 });
 
-    let rows = preferRowsMatchingTagAliases(detailed.items, query, deps.userText);
+    const pool = await expandPoolWithTagVolumeSiblings(
+        deps,
+        detailed.items as ChatProdutoRow[],
+        query
+    );
+    let rows = preferRowsMatchingTagAliases(pool as TagAliasRow[], query, deps.userText) as ChatProdutoRow[];
     if (rows.length >= 2) {
         let companySiglas: Awaited<ReturnType<typeof loadCompanySiglas>> = [];
         let habitSigla: string | null = null;
@@ -146,6 +223,7 @@ export async function runSearchProdutosForAi(
               ];
 
     const sameFamily = isSamePackagingFamily(rows);
+    const requestedQuantity = extractQuantityNearQuery(query, deps.userText);
     const pendingPickGroup =
         rows.length >= 2
             ? buildPendingPickGroup(
@@ -162,7 +240,11 @@ export async function runSearchProdutosForAi(
                       fator_conversao?: number | string | null;
                       product_volume_id?: string | null;
                       produto_id?: string | null;
-                  }>
+                  }>,
+                  {
+                      requestedQuantity,
+                      lineId: deps.worklistLineId ?? `search_${productKeyFromQuery(query)}`,
+                  }
               )
             : null;
 

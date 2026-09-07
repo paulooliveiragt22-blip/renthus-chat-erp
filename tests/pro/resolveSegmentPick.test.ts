@@ -183,6 +183,36 @@ describe("resolveSegmentPick", () => {
         if (r.kind === "unique") assert.equal(r.pick.embalagemId, "un");
     });
 
+    it("qty 2 + 'caixas' no formatHintText → CX (não cai em UN por qty < fator)", () => {
+        const r = resolveSegmentPick(
+            "buchudinha",
+            [
+                {
+                    id: "un",
+                    display_name: "ORIGINAL TREZENTINHA",
+                    product_name: "ORIGINAL",
+                    sigla_comercial: "UN",
+                    fator_conversao: 1,
+                    preco_venda: 5,
+                },
+                {
+                    id: "cx",
+                    display_name: "ORIGINAL TREZENTINHA (CX c/23)",
+                    product_name: "ORIGINAL",
+                    sigla_comercial: "CX",
+                    fator_conversao: 23,
+                    preco_venda: 90,
+                },
+            ],
+            {
+                quantity: 2,
+                formatHintText: "Quero duas caixas de buchudinha",
+            }
+        );
+        assert.equal(r.kind, "unique");
+        if (r.kind === "unique") assert.equal(r.pick.embalagemId, "cx");
+    });
+
     it("caixa explícita com hábito UN → segue caixa (sem confirmar)", () => {
         const r = resolveSegmentPick(
             "brahma 600 caixa",

@@ -6,6 +6,10 @@ import {
     unionAllowlistWithDraftIds,
 } from "@/src/pro/pipeline/mergeOrderDraft";
 import { removePendingPickGroupsByKeys } from "@/src/pro/pipeline/pendingPickGroups";
+import {
+    markLineAwaitingQty,
+    markLineInDraft,
+} from "@/src/pro/domain/orderWorklist/orderWorklist";
 import type { PrepareOrderDraftCatalogPolicy } from "@/src/pro/tools/prepareOrderDraft";
 import type { TurnState } from "./turnState";
 
@@ -80,14 +84,20 @@ export function createResolvePendingPicksTool(deps: {
                     continue;
                 }
                 const qtyNum = Number(p?.quantity);
-                if (!Number.isFinite(qtyNum) || qtyNum < 1) {
+                const groupQty = Number(group.requestedQuantity);
+                const qty =
+                    Number.isFinite(qtyNum) && qtyNum >= 1
+                        ? Math.floor(qtyNum)
+                        : Number.isFinite(groupQty) && groupQty >= 1
+                          ? Math.floor(groupQty)
+                          : null;
+                if (qty == null) {
                     rejected.push({
                         product_key: key,
                         reason: "quantity inválida — informe a quantidade que o cliente disse (inteiro ≥ 1)",
                     });
                     continue;
                 }
-                const qty = Math.floor(qtyNum);
                 validItems.push({ produtoEmbalagemId: embId, quantity: qty });
                 appliedKeys.push(key);
             }
@@ -113,6 +123,35 @@ export function createResolvePendingPicksTool(deps: {
                 );
                 deps.turnState.prepareInvokedThisTurn = true;
                 deps.turnState.lastPrepareOutcome = { ok: prepared.ok, errors: [...prepared.errors] };
+            }
+
+            for (const key of appliedKeys) {
+                const group = groups.find((g) => g.productKey === key);
+                if (!group?.lineId) continue;
+                const pick = (picks ?? []).find((p) => String(p?.product_key ?? "").trim() === key);
+                const qtyNum = Number(pick?.quantity);
+                const qty =
+                    Number.isFinite(qtyNum) && qtyNum >= 1
+                        ? Math.floor(qtyNum)
+                        : Number(group.requestedQuantity) >= 1
+                          ? Math.floor(Number(group.requestedQuantity))
+                          : null;
+                const embId = String(pick?.produto_embalagem_id ?? "").trim();
+                if (!embId) continue;
+                if (qty == null) {
+                    deps.turnState.orderWorklist = markLineAwaitingQty({
+                        worklist: deps.turnState.orderWorklist,
+                        lineId: group.lineId,
+                        produtoEmbalagemId: embId,
+                    });
+                } else {
+                    deps.turnState.orderWorklist = markLineInDraft({
+                        worklist: deps.turnState.orderWorklist,
+                        lineId: group.lineId,
+                        produtoEmbalagemId: embId,
+                        quantity: qty,
+                    });
+                }
             }
 
             deps.turnState.pendingPickGroups = removePendingPickGroupsByKeys(

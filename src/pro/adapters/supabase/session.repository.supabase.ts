@@ -3,6 +3,7 @@ import type { ProSessionState } from "@/src/types/contracts";
 import type { SessionRepository } from "../../ports/session.repository";
 import { getOrCreateSession, saveSession } from "@/lib/chatbot/session";
 import { stripLegacyProSessionFields } from "@/src/pro/pipeline/sessionLegacyStrip";
+import { hydrateWorklistFromLegacyMentions } from "@/src/pro/domain/orderWorklist/orderWorklist";
 
 /** Chave em `chatbot_sessions.context` onde persiste `ProSessionState` do motor PRO V2. */
 export const CHATBOT_SESSION_PRO_V2_STATE_KEY = "__pro_v2_state" as const;
@@ -43,6 +44,25 @@ function emptyProState(
 }
 
 function normalizeProV2State(raw: ProSessionState): ProSessionState {
+    const legacyMentions = raw.pendingOrderMentions ?? [];
+    const orderWorklist =
+        raw.orderWorklist && raw.orderWorklist.lines.length > 0
+            ? raw.orderWorklist
+            : hydrateWorklistFromLegacyMentions({
+                  mentions: legacyMentions,
+                  existing: raw.orderWorklist,
+              });
+    const pendingPickGroups = (raw.pendingPickGroups ?? []).map((g, i) =>
+        g.lineId
+            ? g
+            : {
+                  ...g,
+                  lineId:
+                      orderWorklist.lines.find(
+                          (l) => l.status === "ambiguous" && l.productKey === g.productKey
+                      )?.id ?? `legacy_pick_${i}_${g.productKey}`,
+              }
+    );
     const base: ProSessionState = {
         ...raw,
         searchProdutoEmbalagemIds: raw.searchProdutoEmbalagemIds ?? [],
@@ -56,8 +76,10 @@ function normalizeProV2State(raw: ProSessionState): ProSessionState {
         pendingAskRepeatTerms: raw.pendingAskRepeatTerms ?? [],
         pendingClarifyQuantity: raw.pendingClarifyQuantity ?? null,
         pendingClarifySegment: raw.pendingClarifySegment ?? null,
-        pendingOrderMentions: raw.pendingOrderMentions ?? [],
-        pendingPickGroups: raw.pendingPickGroups ?? [],
+        /** Após hydrate, não regravar mentions como fonte — espelho vazio. */
+        pendingOrderMentions: [],
+        orderWorklist,
+        pendingPickGroups,
         pendingAddressPickOptions: raw.pendingAddressPickOptions ?? [],
         proposedAddressId: raw.proposedAddressId ?? null,
         aiHistorySummary: raw.aiHistorySummary ?? null,

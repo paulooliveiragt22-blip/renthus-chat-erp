@@ -13,7 +13,7 @@
 import { enrichSearchTermPackagingFromUserText } from "./packagingHint";
 import { resolveSegmentPick } from "./resolveSegmentPick";
 import type { CompanySigla, CustomerSiglaHabit } from "./customerPackagingHabit";
-import { parsePtQuantity } from "@/src/pro/tools/parseQtyPt";
+import { extractQuantityNearQuery } from "@/src/pro/tools/parseQtyPt";
 
 type PackagingRow = {
     id: string;
@@ -59,30 +59,50 @@ export function isSamePackagingFamily(rows: PackagingRow[]): boolean {
     return names.size === 1;
 }
 
-/**
- * Extrai uma quantidade mencionada no texto do cliente (dígito ou número por extenso),
- * pra alimentar a heurística "quantidade menor que o fator da caixa → assume UN" em
- * `resolveSegmentPick`. Sem isso, essa heurística só disparava no caso especial de
- * "long neck" — não de forma genérica pra qualquer produto (ex.: "2 skol lata").
- */
-function extractQuantityHintFromUserText(userText: string): number | null {
-    const digitMatch = String(userText ?? "").match(/\b(\d{1,3})\b/u);
-    if (digitMatch) {
-        const n = Number(digitMatch[1]);
-        if (Number.isFinite(n) && n >= 1) return n;
-    }
-    for (const tok of normalizePt(userText).split(" ").filter(Boolean)) {
-        const v = parsePtQuantity(tok);
-        if (v != null) return v;
-    }
-    return null;
-}
-
 function rowLabelTokens(row: PackagingRow): string[] {
     const label = normalizePt(
         [row.display_name, row.product_name, row.descricao].filter(Boolean).join(" ")
     );
     return label.split(" ").filter((t) => t.length >= 1);
+}
+
+/** Tokens presentes em TODAS as linhas (marca compartilhada) — não contam como distintivos. */
+function commonLabelTokens(rows: readonly PackagingRow[]): Set<string> {
+    if (!rows.length) return new Set();
+    let common = new Set(rowLabelTokens(rows[0]!));
+    for (const r of rows.slice(1)) {
+        const toks = new Set(rowLabelTokens(r));
+        common = new Set([...common].filter((t) => toks.has(t)));
+    }
+    return common;
+}
+
+/**
+ * Estreita o pool quando o texto casa melhor com um subconjunto (ex.: "original lata"
+ * → só LATA UN/CX, sem 600ML/TREZENTINHA). Empate no topo = devolve o subconjunto
+ * (para depois resolver CX/UN), não `null` que mantinha o pool inteiro.
+ */
+export function filterRowsByBestLabelMatch<T extends PackagingRow>(
+    rows: readonly T[],
+    query: string,
+    userText: string
+): T[] {
+    if (rows.length < 2) return [...rows];
+    const text = normalizePt(`${query} ${userText}`);
+    if (!text) return [...rows];
+    const textTokens = new Set(text.split(" ").filter((t) => t.length >= 1));
+    const common = commonLabelTokens(rows);
+    const scored = rows.map((r) => {
+        const nameTokens = rowLabelTokens(r);
+        const distinctiveHits = nameTokens.filter(
+            (t) => textTokens.has(t) && !common.has(t) && t.length >= 3
+        ).length;
+        return { row: r, distinctiveHits };
+    });
+    const max = Math.max(...scored.map((s) => s.distinctiveHits));
+    if (max <= 0) return [...rows];
+    const top = scored.filter((s) => s.distinctiveHits === max).map((s) => s.row);
+    return top.length >= 1 && top.length < rows.length ? top : [...rows];
 }
 
 /**
@@ -143,20 +163,16 @@ export function matchUniqueVariantByLabel<T extends PackagingRow>(
     if (descHits.length === 1) return descHits[0]!;
 
     /**
-     * 3) Só fecha com token DISTINTIVO além do product_name compartilhado
-     * (ex.: "p" em MARMITA P). Hit só no nome genérico → ambiguidade.
+     * 3) Só fecha com token DISTINTIVO além dos tokens comuns a todas as linhas
+     * (ex.: "lata" em ORIGINAL LATA vs ORIGINAL 600ML; "p" em MARMITA P).
      */
     const textTokens = new Set(text.split(" ").filter((t) => t.length >= 1));
-    const productTokens = new Set(
-        normalizePt(rows[0]?.product_name ?? "")
-            .split(" ")
-            .filter((t) => t.length >= 1)
-    );
+    const common = commonLabelTokens(rows);
     const scored = rows
         .map((r) => {
             const nameTokens = rowLabelTokens(r);
             const distinctiveHits = nameTokens.filter(
-                (t) => textTokens.has(t) && !productTokens.has(t)
+                (t) => textTokens.has(t) && !common.has(t)
             ).length;
             return { row: r, distinctiveHits, nameTokens };
         })
@@ -192,20 +208,30 @@ export function disambiguatePackagingForSearchRows<T extends PackagingRow>(
 ): T[] {
     if (rows.length < 2) return rows;
 
-    if (isSamePackagingFamily(rows)) {
+    let working = rows;
+    if (!isSamePackagingFamily(working)) {
+        const filtered = filterRowsByBestLabelMatch(working, query, userText);
+        if (filtered.length < working.length && filtered.length >= 1) {
+            working = filtered;
+        }
+    }
+
+    const qtyHint = extractQuantityNearQuery(query, userText);
+
+    if (isSamePackagingFamily(working)) {
         const segment = enrichSearchTermPackagingFromUserText(query, userText);
-        const resolved = resolveSegmentPick(segment, rows, {
-            quantity: extractQuantityHintFromUserText(userText),
+        const resolved = resolveSegmentPick(segment, working, {
+            quantity: qtyHint,
             formatHintText: userText,
             habitSigla: opts?.habitSigla ?? null,
             companySiglas: opts?.companySiglas ?? null,
         });
         if (resolved.kind === "unique") {
-            const match = rows.find((r) => r.id === resolved.pick.embalagemId);
+            const match = working.find((r) => r.id === resolved.pick.embalagemId);
             if (match) return [match];
         }
     }
 
-    const byLabel = matchUniqueVariantByLabel(rows, query, userText);
-    return byLabel ? [byLabel] : rows;
+    const byLabel = matchUniqueVariantByLabel(working, query, userText);
+    return byLabel ? [byLabel] : working;
 }

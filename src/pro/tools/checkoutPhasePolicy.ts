@@ -66,6 +66,9 @@ export function buildPhasePlaybookForModel(params: {
             lines.push(
                 "Já há itens no rascunho: em troca/edição, busque pelo NOME do produto (ex.: salgadinho caixa), não só embalagem; não apague outros itens."
             );
+            lines.push(
+                "Com itens no rascunho e sem pagamento: NÃO peça endereço nem pagamento na prosa — o servidor envia botões Entrega/Retirar (se ambos ligados) e depois pagamento. No máximo 1 frase curta listando o que anotou."
+            );
         }
     }
 
@@ -134,13 +137,60 @@ export function scrubOutboundForAddressHold(
     return kept;
 }
 
+/** Detecta prosa da IA pedindo endereço antes da escolha Entrega/Retirada. */
+export function looksLikePrematureAddressAsk(text: string): boolean {
+    const flat = normalizePt(text);
+    const hints = [
+        "preciso do seu endereco",
+        "preciso do endereco",
+        "me passa o endereco",
+        "me envie o endereco",
+        "qual o endereco",
+        "qual seu endereco",
+        "endereco de entrega",
+        "rua, numero",
+        "rua numero bairro",
+        "cadastrar o endereco",
+        "onde entregar",
+        "para onde entregamos",
+        "para onde entregar",
+    ];
+    return hints.some((h) => flat.includes(h));
+}
+
+/**
+ * Com itens no draft e modalidade ainda em aberto: remove pedido precoce de endereço
+ * (o servidor manda Entrega/Retirar). Mantém prosa útil (resumo de itens).
+ */
+export function scrubOutboundForFulfillmentChoice(outbound: OutboundMessage[]): OutboundMessage[] {
+    const kept: OutboundMessage[] = [];
+    for (const m of outbound) {
+        if (m.kind !== "text") {
+            kept.push(m);
+            continue;
+        }
+        const t = String(m.text ?? "").trim();
+        if (!t) continue;
+        if (looksLikePrematureAddressAsk(t)) {
+            // Mantém só a parte antes do pedido de endereço, se houver conteúdo útil.
+            const cut = t.split(/(?:Agora\s+preciso|Preciso\s+do\s+(?:seu\s+)?endere|Me\s+(?:passa|envie)\s+o\s+endere)/i)[0]?.trim();
+            if (cut && cut.length >= 12 && !looksLikePrematureAddressAsk(cut)) {
+                kept.push({ kind: "text", text: cut });
+            }
+            continue;
+        }
+        kept.push(m);
+    }
+    return kept;
+}
+
 export function buildDeliverySpecialistSystemPreamble(): string {
     return `Você é especialista em atendimento de delivery pelo WhatsApp (planos PRO/Market).
 - Tom: cordial, objetivo, PT-BR do Brasil; frases curtas; sem jargão técnico.
 - Contexto: o cliente pode digitar errado (hamburgueres→hambúrguer). Use search_produtos; se vier did_you_mean, ofereça essas opções em uma frase curta (sem dump de preço).
 - Nunca invente produto, preço, estoque, taxa ou ETA — só tools.
 - Upsell leve só se fizer sentido (ex.: caixa quando pediu unidade), sem pressão.
-- Checkout é faseado pelo servidor: endereço → pagamento → confirmação final. Respeite o bloco "Fase atual".
+- Checkout é faseado pelo servidor: modalidade (Entrega/Retirada) → endereço se entrega → pagamento → confirmação final. Respeite o bloco "Fase atual".
 - Quando search_produtos tiver várias embalagens: NÃO liste preços/opções na prosa — o servidor envia a pergunta/botões de escolha.`;
 }
 

@@ -144,6 +144,13 @@ export function createPrepareOrderDraftTool(deps: {
             deps.turnState.currentDraft = nextDraft;
             deps.turnState.prepareInvokedThisTurn = true;
             deps.turnState.lastPrepareOutcome = { ok: prepared.ok, errors: [...prepared.errors] };
+            /**
+             * Itens já no rascunho: picks residuais do search não podem bloquear
+             * Entrega/Retirada no checkoutPostProcess (`lastSearchPicks >= 2`).
+             */
+            if ((nextDraft?.items?.length ?? 0) > 0) {
+                deps.turnState.lastSearchPicks = [];
+            }
 
             const allowlistRejectedCount = countAllowlistRejectionErrors(prepared.errors);
             if (allowlistRejectedCount > 0) {

@@ -16,6 +16,7 @@ import {
 
 function skolGroup(unresolvedTurns = 0): PendingPickGroup {
     return {
+        lineId: "line_skol",
         productKey: "skol lata",
         productLabel: "SKOL LATA",
         unresolvedTurns,
@@ -42,6 +43,7 @@ function skolGroup(unresolvedTurns = 0): PendingPickGroup {
 
 function originalGroup(unresolvedTurns = 0): PendingPickGroup {
     return {
+        lineId: "line_original",
         productKey: "original 600ml",
         productLabel: "ORIGINAL 600ML",
         unresolvedTurns,
@@ -69,6 +71,7 @@ function originalGroup(unresolvedTurns = 0): PendingPickGroup {
 /** Produtos/variantes com NOMES DISTINTOS batendo no mesmo termo (não é a mesma família de embalagem). */
 function mixedOriginalGroup(unresolvedTurns = 0): PendingPickGroup {
     return {
+        lineId: "line_mixed_original",
         productKey: "original",
         productLabel: "original",
         unresolvedTurns,
@@ -120,7 +123,7 @@ describe("pendingPickGroups: build/upsert/remove", () => {
             { id: "3", sigla_comercial: "FARD", preco_venda: 100, fator_conversao: 24 },
             { id: "4", sigla_comercial: "PAC", preco_venda: 40, fator_conversao: 6 },
             { id: "5", sigla_comercial: "COMBO", preco_venda: 200, fator_conversao: 48 },
-        ]);
+        ], { lineId: "line_test_skol" });
         assert.equal(group.options.length, 4);
         assert.equal(group.unresolvedTurns, 0);
         assert.equal(group.options[0]!.embalagemId, "1");
@@ -197,6 +200,7 @@ describe("pendingPickGroups: buildPickClarificationFreeText", () => {
 
     it("variantes do mesmo produto (MARMITA P/M/G): lista display_name, não 'unidade' repetida", () => {
         const marmita: PendingPickGroup = {
+            lineId: "line_marmita",
             productKey: "marmita",
             productLabel: "MARMITA",
             unresolvedTurns: 0,
@@ -265,14 +269,18 @@ describe("pendingPickGroups: resolvePendingPickGroupsFromFreeText", () => {
         assert.equal(resolved[0]!.embalagemId, "skol-cx");
     });
 
-    it("1 grupo, resposta só com número da lista: resolve opção N", () => {
-        const { resolved, remaining } = resolvePendingPickGroupsFromFreeText(
-            [skolGroup()],
-            "2"
-        );
+    it("1 grupo, resposta só com número da lista: resolve opção N com requestedQuantity", () => {
+        const group = { ...skolGroup(), requestedQuantity: 2 };
+        const { resolved, remaining } = resolvePendingPickGroupsFromFreeText([group], "2");
         assert.equal(remaining.length, 0);
         assert.equal(resolved.length, 1);
         assert.equal(resolved[0]!.embalagemId, "skol-cx");
+        assert.equal(resolved[0]!.quantity, 2);
+    });
+
+    it("índice '1' sem requestedQuantity → qty 1 (legado)", () => {
+        const { resolved } = resolvePendingPickGroupsFromFreeText([skolGroup()], "1");
+        assert.equal(resolved[0]!.embalagemId, "skol-un");
         assert.equal(resolved[0]!.quantity, 1);
     });
 
@@ -287,6 +295,7 @@ describe("pendingPickGroups: resolvePendingPickGroupsFromFreeText", () => {
 
     it("MARMITA P/M/G: '2 MARMITA P' casa pelo tamanho P (token curto)", () => {
         const marmita: PendingPickGroup = {
+            lineId: "line_marmita",
             productKey: "marmita",
             productLabel: "MARMITA",
             unresolvedTurns: 0,
@@ -373,6 +382,39 @@ describe("pendingPickGroups: resolvePendingPickGroupsFromFreeText", () => {
         assert.equal(remaining.length, 1);
         assert.equal(remaining[0]!.productKey, "original 600ml");
         assert.equal(remaining[0]!.unresolvedTurns, 1);
+    });
+
+    it("2 grupos + só 'caixa': resolve ambos (broadcast de embalagem)", () => {
+        const { resolved, remaining } = resolvePendingPickGroupsFromFreeText(
+            [skolGroup(), originalGroup()],
+            "caixa"
+        );
+        assert.equal(remaining.length, 0);
+        assert.equal(resolved.length, 2);
+        const byKey = new Map(resolved.map((r) => [r.productKey, r]));
+        assert.equal(byKey.get("skol lata")?.embalagemId, "skol-cx");
+        assert.equal(byKey.get("original 600ml")?.embalagemId, "orig-cx");
+    });
+
+    it("2 grupos + 'as duas em unidade': broadcast UN", () => {
+        const { resolved, remaining } = resolvePendingPickGroupsFromFreeText(
+            [skolGroup(), originalGroup()],
+            "as duas em unidade"
+        );
+        assert.equal(remaining.length, 0);
+        assert.equal(resolved.length, 2);
+        assert.ok(resolved.every((r) => r.embalagemId.endsWith("-un")));
+    });
+
+    it("2 grupos + 'fardo' (sigla inexistente nas opções): unknown + escala safety net", () => {
+        const { resolved, remaining, unknownPackagingSigla } = resolvePendingPickGroupsFromFreeText(
+            [skolGroup(), originalGroup()],
+            "quero fardo"
+        );
+        assert.equal(resolved.length, 0);
+        assert.equal(unknownPackagingSigla, "FARD");
+        assert.equal(remaining.length, 2);
+        assert.ok(remaining.every((g) => g.unresolvedTurns >= PENDING_PICK_SAFETY_NET_TURNS));
     });
 
     it("grupo com nomes distintos: 'quero a lata' resolve pra ORIGINAL LATA (não confunde com 600ml UN)", () => {

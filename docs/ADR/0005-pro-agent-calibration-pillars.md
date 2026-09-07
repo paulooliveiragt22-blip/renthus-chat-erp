@@ -19,6 +19,7 @@ Este ADR **fixixa decisões**; cronologia e checkboxes: [`PLANO_CALIBRACAO_AGENT
 |-----------|--------|------------|
 | [`CHATBOT_PROD.md`](../CHATBOT_PROD.md) | Decisões canónicas de produto + cérebro PRO + env | **Mais atual** p/ motor IA + cutover SQS |
 | [`ADR/0003-sqs-outbox-lambda.md`](./0003-sqs-outbox-lambda.md) | Transporte outbox → SQS → Lambda | **Canónico** fila |
+| [`ADR/0011-pro-order-worklist-typed-lines.md`](./0011-pro-order-worklist-typed-lines.md) | OrderWorklist tipada multi-item + awaiting_qty | **Canónico** coleta de linhas (aceito 2026-09-07) |
 | [`PRO_ORDER_SLOT_MACHINE.md`](../PRO_ORDER_SLOT_MACHINE.md) | Slots draft ↔ `ProStep` | Atual p/ gates checkout |
 | [`REFACTOR_STRATEGY_PRO_ORDER_AND_IA.md`](../REFACTOR_STRATEGY_PRO_ORDER_AND_IA.md) | Histórico R0–R4 | **Não** é plano de calibração |
 | [`PLANO_LIMPEZA_AGENTE_IA.md`](../PLANO_LIMPEZA_AGENTE_IA.md) | Corte Starter / replay / handover | Em grande parte feito |
@@ -59,7 +60,7 @@ Bug em E desce para A/B/C.
 
 | ID | Tema | Nota |
 |----|------|------|
-| P0.1 | Multi-item + embalagem ambígua | Fechado em C2 (corpus + pending→prepare) |
+| P0.1 | Multi-item + embalagem ambígua | C2 mitigou never-wipe; **reaberto estruturalmente** em [`ADR/0011`](./0011-pro-order-worklist-typed-lines.md) (OrderWorklist) |
 | P0.2 | Matching catálogo | Fechado em C2 eng (fixtures B); C2.1 ops loja permanece |
 | P0.3 | HITL regex → **só botão** | Decisão tomada; código pendente C1.2 |
 | P0.4 | Slots vs mensagens curtas | |

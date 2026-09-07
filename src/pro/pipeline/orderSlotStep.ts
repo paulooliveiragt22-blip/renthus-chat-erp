@@ -5,6 +5,7 @@ import {
     isDraftBelowMinimumOrder,
     isDraftStructurallyCompleteForFinalize,
 } from "./orderDraftGate";
+import { listLinesByStatus } from "@/src/pro/domain/orderWorklist/orderWorklist";
 
 /** Re-export — canónico em `orderDraftGate` (C1.5 finalize + slots). */
 export { isAddressStructurallyComplete } from "./orderDraftGate";
@@ -144,9 +145,11 @@ export function withResolvedSlotStep(state: ProSessionState): ProSessionState {
         };
     }
     const hasPendingProductClarify =
+        (state.pendingPickGroups?.length ?? 0) > 0 ||
+        listLinesByStatus(state.orderWorklist, "ambiguous").length > 0 ||
         (state.lastSearchPicks?.length ?? 0) >= 2 ||
         (state.bootstrapPendingClarifications?.length ?? 0) > 0 ||
-        (state.pendingAskRepeatTerms?.length ?? 0) > 0;
+        listLinesByStatus(state.orderWorklist, "not_found").length > 0;
     return {
         ...state,
         deliveryAddressUiConfirmed,

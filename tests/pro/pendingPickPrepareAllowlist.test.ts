@@ -12,6 +12,7 @@ const FAKE_ID = "33333333-3333-4333-8333-333333333333";
 
 function skolGroup(): PendingPickGroup {
     return {
+        lineId: "line_skol",
         productKey: "skol lata",
         productLabel: "SKOL LATA",
         unresolvedTurns: 0,
@@ -161,7 +162,7 @@ describe("C2.3 pending pick → prepare allowlist-safe", () => {
             { kind: "search_allowlist", allowedEmbalagemIds: allow }
         );
         assert.equal(bad.ok, false);
-        assert.ok(bad.errors.some((e) => /não consta na última busca/i.test(e)));
+        assert.ok(bad.errors.some((e) => /não consta na allowlist|não consta na última busca/i.test(e)));
     });
 
     it("opção 2 / pro_pick_emb aponta para CX na lista", () => {

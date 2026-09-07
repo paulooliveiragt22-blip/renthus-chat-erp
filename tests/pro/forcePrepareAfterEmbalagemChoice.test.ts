@@ -101,24 +101,62 @@ describe("shouldForcePrepareAfterUnambiguousSearch", () => {
         prepareInvokedThisTurn: false,
         searchInvokedThisTurn: true,
         allowlistNowCount: 1,
+        pendingAllowlistNotInDraftCount: 1,
         userText: "quero 2 heineken",
+        pendingPickGroupsCount: 0,
+        lastSearchPicksCount: 0,
+        pendingSearchTermsCount: 0,
     };
 
     it("força prepare após search unívoco sem prepare (com qty)", () => {
         assert.equal(shouldForcePrepareAfterUnambiguousSearch(base), true);
     });
 
-    it("não força com múltiplos hits (cliente precisa escolher)", () => {
+    it("não força com picks ambíguos (cliente precisa escolher)", () => {
         assert.equal(
-            shouldForcePrepareAfterUnambiguousSearch({ ...base, allowlistNowCount: 3 }),
+            shouldForcePrepareAfterUnambiguousSearch({
+                ...base,
+                allowlistNowCount: 3,
+                pendingAllowlistNotInDraftCount: 3,
+                lastSearchPicksCount: 3,
+            }),
             false
         );
     });
 
-    it("não força se prepare já rodou", () => {
+    it("não força se prepare já rodou e não há SKU novo", () => {
         assert.equal(
-            shouldForcePrepareAfterUnambiguousSearch({ ...base, prepareInvokedThisTurn: true }),
+            shouldForcePrepareAfterUnambiguousSearch({
+                ...base,
+                prepareInvokedThisTurn: true,
+                pendingAllowlistNotInDraftCount: 0,
+            }),
             false
+        );
+    });
+
+    it("força prepare aditivo: 1 SKU novo após prepare anterior (multi-produto)", () => {
+        assert.equal(
+            shouldForcePrepareAfterUnambiguousSearch({
+                ...base,
+                prepareInvokedThisTurn: true,
+                allowlistNowCount: 2,
+                pendingAllowlistNotInDraftCount: 1,
+            }),
+            true
+        );
+    });
+
+    it("força prepare multi-produto unívoco: 2 SKUs novos na allowlist", () => {
+        assert.equal(
+            shouldForcePrepareAfterUnambiguousSearch({
+                ...base,
+                allowlistNowCount: 2,
+                pendingAllowlistNotInDraftCount: 2,
+                userText: "quero 2 caixas de original e 3 de heineken",
+                lastSearchPicksCount: 1,
+            }),
+            true
         );
     });
 

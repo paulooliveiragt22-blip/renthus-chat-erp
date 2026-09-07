@@ -4,12 +4,18 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { CatalogPort } from "@/src/pro/ports/catalog.port";
 import { runSearchProdutosForAi } from "@/src/pro/adapters/ai/tools/searchProdutosForAi";
 import { upsertPendingPickGroup } from "@/src/pro/pipeline/pendingPickGroups";
+import { advanceWorklistAfterSearch } from "@/src/pro/pipeline/orderWorklist/advanceWorklistAfterSearch";
+import { matchWorklistLineForSearch } from "@/src/pro/domain/orderWorklist/matchWorklistLine";
+import { pendingSearchTermsFromWorklist } from "@/src/pro/domain/orderWorklist/orderWorklist";
+import { unionAllowlistIds } from "@/src/pro/pipeline/mergeOrderDraft";
 import type { TurnState } from "./turnState";
 
 /**
  * Wrapper Vercel AI SDK de `search_produtos` (Fase 3 — adiado da Fase 2, ver
  * docs/PLANO_MIGRACAO_VERCEL_AI_SDK.md). Orquestração real em `runSearchProdutosForAi`;
  * aqui só o contrato de tool + escrita no `TurnState` do turno.
+ *
+ * ADR 0011: avança `orderWorklist`; `outros_produtos_pendentes` é opcional/ignorado no write path.
  */
 export function createSearchProdutosTool(deps: {
     admin: SupabaseClient;
@@ -21,25 +27,31 @@ export function createSearchProdutosTool(deps: {
 }) {
     return tool({
         description:
-            "Busca catálogo real da empresa. Em `query` mantenha o termo do cliente completo (ex.: 'Heineken long neck caixa'), não só a marca. A resposta inclui guidance_for_model_pt.",
+            "Busca catálogo real da empresa. Em `query` mantenha o termo do cliente completo (ex.: 'Heineken long neck caixa'), não só a marca. A resposta inclui guidance_for_model_pt. Prefira buscar o próximo item pending_search da worklist.",
         inputSchema: z.object({
             query: z.string().describe("Termo de busca completo, como o cliente escreveu."),
-            // `.nullish()`: modelo pode omitir OU mandar null (Groq strict + omit frequente).
             category_hint: z
                 .string()
                 .nullish()
                 .describe("Categoria sugerida, se o cliente citou; null se não citou."),
+            worklist_line_id: z
+                .string()
+                .nullish()
+                .describe("Opcional: id da line pending_search na worklist do servidor."),
             outros_produtos_pendentes: z
                 .array(z.string())
                 .nullish()
                 .describe(
-                    "OBRIGATÓRIO a cada chamada: releia a mensagem do cliente e liste TODO OUTRO produto que ele citou " +
-                        "e que você ainda NÃO buscou nesta busca nem em busca anterior deste atendimento (ex.: cliente disse " +
-                        "'quero skol e original', você está buscando 'original' agora -> outros_produtos_pendentes=['skol']). " +
-                        "Array vazio [] (ou null) quando não sobrar nenhum. NÃO omita este campo."
+                    "Sinal opcional (não apaga a worklist): outros produtos citados ainda não buscados. " +
+                        "O servidor já mantém a fila; preferir omitir ou listar o que ainda falta."
                 ),
         }),
-        execute: async ({ query, category_hint, outros_produtos_pendentes }) => {
+        execute: async ({ query, category_hint, worklist_line_id }) => {
+            const matched = matchWorklistLineForSearch({
+                worklist: deps.turnState.orderWorklist,
+                query,
+                lineId: worklist_line_id,
+            });
             const result = await runSearchProdutosForAi(
                 { query, categoryHint: category_hint ?? null },
                 {
@@ -48,9 +60,14 @@ export function createSearchProdutosTool(deps: {
                     companyId: deps.companyId,
                     customerId: deps.customerId,
                     userText: deps.userText,
+                    worklistLineId: matched?.id ?? worklist_line_id ?? null,
                 }
             );
-            deps.turnState.allowlistIds = result.allowlistIds;
+
+            deps.turnState.allowlistIds = unionAllowlistIds(
+                deps.turnState.allowlistIds,
+                result.allowlistIds
+            );
             deps.turnState.emptySearchStreak = result.wasEmpty
                 ? deps.turnState.emptySearchStreak + 1
                 : 0;
@@ -59,27 +76,52 @@ export function createSearchProdutosTool(deps: {
             }
             deps.turnState.searchInvokedThisTurn = true;
             deps.turnState.searchCallCount += 1;
-            deps.turnState.pendingTermsFromSearch = (
-                Array.isArray(outros_produtos_pendentes) ? outros_produtos_pendentes : []
-            )
-                .filter((v): v is string => typeof v === "string" && v.trim().length > 0)
-                .map((v) => v.trim())
-                .slice(0, 5);
+            deps.turnState.searchedProductQueriesThisTurn = [
+                ...deps.turnState.searchedProductQueriesThisTurn,
+                query,
+            ];
+
+            const hitCount = result.wasEmpty ? 0 : result.allowlistIds.length;
+            const productKey = result.pendingPickGroup?.productKey ?? null;
+            const uniqueId =
+                hitCount === 1 ? result.allowlistIds[0] ?? null : null;
+
+            deps.turnState.orderWorklist = advanceWorklistAfterSearch({
+                worklist: deps.turnState.orderWorklist,
+                query,
+                hitCount: result.pendingPickGroup
+                    ? Math.max(hitCount, 2)
+                    : hitCount,
+                productKey,
+                produtoEmbalagemId: uniqueId,
+                lineId: matched?.id ?? null,
+            });
+
             if (result.pendingPickGroup) {
-                /**
-                 * `pendingPickGroups` substitui totalmente `lastSearchPicks` para este achado —
-                 * deixar os dois populados junto faz o card de botão legado (`clarify_product_picks`)
-                 * disparar de novo mais tarde, quando o grupo já tiver sido resolvido (bug real do
-                 * smoke S2: "Perfeito, já anotado" + botão pedindo a mesma escolha de novo).
-                 */
+                const lineId =
+                    matched?.id ??
+                    result.pendingPickGroup.lineId ??
+                    deps.turnState.orderWorklist.lines.find(
+                        (l) => l.status === "ambiguous" && l.productKey === productKey
+                    )?.id ??
+                    result.pendingPickGroup.lineId;
                 deps.turnState.pendingPickGroups = upsertPendingPickGroup(
                     deps.turnState.pendingPickGroups,
-                    result.pendingPickGroup
+                    { ...result.pendingPickGroup, lineId }
                 );
+                /** Ambíguo → só via worklist/groups; lastSearchPicks não compete. */
+                deps.turnState.lastSearchPicks = [];
+            } else if (deps.turnState.pendingPickGroups.length > 0) {
+                deps.turnState.lastSearchPicks = [];
             } else {
                 deps.turnState.lastSearchPicks = result.lastSearchPicks;
             }
-            return result.body;
+            return {
+                ...result.body,
+                worklist_pending_search: pendingSearchTermsFromWorklist(
+                    deps.turnState.orderWorklist
+                ),
+            };
         },
     });
 }

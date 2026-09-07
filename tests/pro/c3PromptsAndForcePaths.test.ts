@@ -36,6 +36,7 @@ describe("C3.2 force-prepare exige qty", () => {
         prepareInvokedThisTurn: false,
         searchInvokedThisTurn: true,
         allowlistNowCount: 1,
+        pendingAllowlistNotInDraftCount: 1,
         userText: "quero 2 heineken",
     };
 
@@ -84,6 +85,7 @@ describe("C3.2 force-prepare exige qty", () => {
                 infoOnly: false,
                 pendingPickGroups: [
                     {
+                        lineId: "line_skol",
                         productKey: "skol",
                         productLabel: "SKOL",
                         unresolvedTurns: 1,
@@ -98,6 +100,7 @@ describe("C3.2 force-prepare exige qty", () => {
                 infoOnly: true,
                 pendingPickGroups: [
                     {
+                        lineId: "line_skol",
                         productKey: "skol",
                         productLabel: "SKOL",
                         unresolvedTurns: 1,

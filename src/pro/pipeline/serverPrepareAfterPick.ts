@@ -22,6 +22,7 @@ import {
     dequeueBootstrapClarification,
     hasPendingBootstrapClarifications,
 } from "./bootstrapClarifyQueue";
+import { listLinesByStatus } from "@/src/pro/domain/orderWorklist/orderWorklist";
 
 /**
  * Prepare determinístico após pick de embalagem (botão / "opção N").
@@ -199,7 +200,9 @@ export async function serverPrepareAfterProductPick(params: {
         };
     }
 
-    const pendingRepeat = [...(nextState.pendingAskRepeatTerms ?? [])];
+    const pendingRepeat = listLinesByStatus(nextState.orderWorklist, "not_found").map(
+        (l) => l.rawTerm
+    );
     if (pendingRepeat.length) {
         const hintParts = (nextDraft?.items ?? []).slice(0, 4).map((it) => {
             const name = String(it.productName ?? "Item").trim() || "Item";

@@ -6,6 +6,7 @@ import { checkoutPostProcess } from "../../src/pro/pipeline/stages/checkoutPostP
 function pendingGroups(): PendingPickGroup[] {
     return [
         {
+            lineId: "line_skol",
             productKey: "skol lata",
             productLabel: "SKOL LATA",
             unresolvedTurns: 0,
@@ -29,6 +30,7 @@ function pendingGroups(): PendingPickGroup[] {
             ],
         },
         {
+            lineId: "line_original",
             productKey: "original 600ml",
             productLabel: "ORIGINAL 600ML",
             unresolvedTurns: 0,

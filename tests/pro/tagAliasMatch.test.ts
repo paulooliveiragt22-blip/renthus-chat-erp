@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
+    explicitCommercialSiglaFromText,
+    explicitCommercialSiglaNearQuery,
     preferRowsMatchingTagAliases,
+    promoteTagHitsToRequestedSiglaSiblings,
     queryAliasTokens,
     rowTagTokens,
 } from "../../src/pro/tools/tagAliasMatch";
@@ -14,6 +17,30 @@ describe("tagAliasMatch", () => {
         assert.ok(!toks.includes("quero"));
     });
 
+    it("explicitCommercialSiglaFromText: caixa/unidade, não caixinha", () => {
+        assert.equal(explicitCommercialSiglaFromText("quero uma caixa de buchudinha"), "CX");
+        assert.equal(explicitCommercialSiglaFromText("duas unidades de buchudinha"), "UN");
+        assert.equal(explicitCommercialSiglaFromText("me manda uma caixinha"), null);
+        assert.equal(explicitCommercialSiglaFromText("quero fardinho"), null);
+    });
+
+    it("explicitCommercialSiglaNearQuery: multi-item não herda caixa do outro produto", () => {
+        assert.equal(
+            explicitCommercialSiglaNearQuery(
+                "heineken",
+                "quero duas caixas de buchudinha e 3 heineken"
+            ),
+            null
+        );
+        assert.equal(
+            explicitCommercialSiglaNearQuery(
+                "buchudinha",
+                "quero duas caixas de buchudinha e 3 heineken"
+            ),
+            "CX"
+        );
+    });
+
     it("rowTagTokens split vírgula", () => {
         assert.deepEqual(rowTagTokens("caixinha, fardinho", null).sort(), [
             "caixinha",
@@ -21,37 +48,27 @@ describe("tagAliasMatch", () => {
         ]);
     });
 
-    it("caixinha + original → só ORIGINAL LATA CX com tag", () => {
+    it("caixinha + original → só ORIGINAL LATA CX com tag (não skol)", () => {
         const rows = [
             {
-                id: "cx600",
+                id: "lata-cx",
                 product_name: "ORIGINAL",
-                display_name: "ORIGINAL 600ML (CX c/24)",
-                tags: null,
+                display_name: "ORIGINAL LATA (CX c/15)",
+                tags: "caixinha, fardinho",
+                sigla_comercial: "CX",
             },
             {
-                id: "un600",
-                product_name: "ORIGINAL",
-                display_name: "ORIGINAL 600ML",
-                tags: null,
+                id: "skol-cx",
+                product_name: "SKOL",
+                display_name: "SKOL LATA (CX c/12)",
+                tags: "caixinha",
+                sigla_comercial: "CX",
             },
             {
                 id: "lata-un",
                 product_name: "ORIGINAL",
-                display_name: "ORIGINAL LATA",
                 tags: null,
-            },
-            {
-                id: "lata-cx",
-                product_name: "ORIGINAL",
-                display_name: "ORIGINAL LATA (CX c/15)",
-                tags: "caixinha, fardinho",
-            },
-            {
-                id: "heineken-cx",
-                product_name: "HEINEKEN",
-                display_name: "HEINEKEN LATA (CX c/8)",
-                tags: "caixinha de heineken",
+                sigla_comercial: "UN",
             },
         ];
         const out = preferRowsMatchingTagAliases(
@@ -65,59 +82,118 @@ describe("tagAliasMatch", () => {
         );
     });
 
-    it("só caixinha sem marca → todas com tag caixinha", () => {
+    it("só caixinha sem marca → todas com tag caixinha (clarificar upstream)", () => {
         const rows = [
             {
                 id: "lata-cx",
                 product_name: "ORIGINAL",
                 tags: "caixinha, fardinho",
+                sigla_comercial: "CX",
             },
             {
-                id: "heineken-cx",
-                product_name: "HEINEKEN",
-                tags: "caixinha de heineken",
+                id: "skol-cx",
+                product_name: "SKOL",
+                tags: "caixinha",
+                sigla_comercial: "CX",
             },
-            { id: "other", product_name: "SKOL", tags: null },
+            { id: "other", product_name: "HEINEKEN", tags: null, sigla_comercial: "CX" },
         ];
         const out = preferRowsMatchingTagAliases(rows, "caixinha", "me manda uma caixinha");
         assert.deepEqual(
             out.map((r) => r.id).sort(),
-            ["heineken-cx", "lata-cx"]
+            ["lata-cx", "skol-cx"]
         );
     });
 
-    it("tags_auto com nome do produto não anula brandHit (só tags manuais)", () => {
+    it("buchudinha só na UN + caixa falada → promove CX irmã (mesmo volume)", () => {
+        const volume = "vol-trezentinha";
         const rows = [
             {
-                id: "lata-cx",
+                id: "buch-un",
                 product_name: "ORIGINAL",
-                display_name: "ORIGINAL LATA (CX c/15)",
-                tags: "caixinha, fardinho",
-                tags_auto: "ORIGINAL LATA 269 ml caixinha, fardinho",
+                descricao: "TREZENTINHA",
+                tags: "buchudinha, trezentinha",
+                sigla_comercial: "UN",
+                product_volume_id: volume,
+                produto_id: "p-orig",
+                preco_venda: 5,
             },
             {
-                id: "un600",
+                id: "buch-cx",
                 product_name: "ORIGINAL",
-                display_name: "ORIGINAL 600ML",
+                descricao: "TREZENTINHA",
                 tags: null,
-                tags_auto: "ORIGINAL 600ML 600 ml",
+                sigla_comercial: "CX",
+                product_volume_id: volume,
+                produto_id: "p-orig",
+                preco_venda: 90,
             },
             {
-                id: "heineken-cx",
-                product_name: "HEINEKEN",
-                display_name: "HEINEKEN LATA (CX c/8)",
-                tags: "caixinha de heineken",
-                tags_auto: "HEINEKEN LATA 269 ml caixinha de heineken",
+                id: "other-cx",
+                product_name: "ORIGINAL",
+                descricao: "LATA",
+                tags: null,
+                sigla_comercial: "CX",
+                product_volume_id: "vol-lata",
+                produto_id: "p-orig",
+                preco_venda: 60,
             },
         ];
         const out = preferRowsMatchingTagAliases(
             rows,
-            "original",
-            "quero 5 caixinha de original"
+            "buchudinha",
+            "Quero duas caixas de buchudinha"
         );
         assert.deepEqual(
             out.map((r) => r.id),
-            ["lata-cx"]
+            ["buch-cx"]
+        );
+    });
+
+    it("promoteTagHitsToRequestedSiglaSiblings: tag UN → CX do mesmo volume", () => {
+        const volume = "v1";
+        const pool = [
+            {
+                id: "un",
+                tags: "buchudinha",
+                sigla_comercial: "UN",
+                product_volume_id: volume,
+                produto_id: "p1",
+            },
+            {
+                id: "cx",
+                tags: null,
+                sigla_comercial: "CX",
+                product_volume_id: volume,
+                produto_id: "p1",
+            },
+        ];
+        const out = promoteTagHitsToRequestedSiglaSiblings(pool, [pool[0]!], "CX");
+        assert.deepEqual(
+            out.map((r) => r.id),
+            ["cx"]
+        );
+    });
+
+    it("buchudinha sem sigla → UN e CX se ambos tiverem tag; senão só tag hits", () => {
+        const rows = [
+            {
+                id: "buch-un",
+                product_name: "ORIGINAL",
+                tags: "buchudinha",
+                sigla_comercial: "UN",
+            },
+            {
+                id: "buch-cx",
+                product_name: "ORIGINAL",
+                tags: "buchudinha",
+                sigla_comercial: "CX",
+            },
+        ];
+        const out = preferRowsMatchingTagAliases(rows, "buchudinha", "quero buchudinha");
+        assert.deepEqual(
+            out.map((r) => r.id).sort(),
+            ["buch-cx", "buch-un"]
         );
     });
 });

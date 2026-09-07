@@ -142,12 +142,52 @@ export type PendingPickOption = {
 };
 
 export type PendingPickGroup = {
+    /**
+     * FK lógica para `OrderWorklistLine.id` com status `ambiguous` (ADR 0011).
+     * Obrigatório em writes novos; hydrate legado pode preencher via sync.
+     */
+    lineId: string;
     /** Chave estável (nome do produto normalizado) — dedup ao reprocessar a mesma busca. */
     productKey: string;
     productLabel: string;
     options: PendingPickOption[];
     /** Turnos consecutivos sem resolução total deste grupo (rede de segurança → botão). */
     unresolvedTurns: number;
+    /**
+     * Qty pedida no turno que criou o grupo (ex.: "duas caixas de original").
+     * Usada quando o cliente responde só com índice ("1") — sem isso virava sempre 1.
+     */
+    requestedQuantity?: number | null;
+};
+
+/** ADR 0011 — lifecycle de uma menção de produto em coleta (servidor decide). */
+export type OrderWorklistLineStatus =
+    | "pending_search"
+    | "searching"
+    | "ambiguous"
+    | "awaiting_qty"
+    | "in_draft"
+    | "not_found"
+    | "abandoned";
+
+export type OrderWorklistLine = {
+    id: string;
+    rawTerm: string;
+    quantity: number | null;
+    status: OrderWorklistLineStatus;
+    productKey?: string | null;
+    produtoEmbalagemId?: string | null;
+    searchAttempts: number;
+    lastQuery?: string | null;
+    /** Quando ambiguous — espelho de PendingPickGroup.productKey / vínculo. */
+    pendingPickGroupKey?: string | null;
+};
+
+export type OrderWorklist = {
+    lines: OrderWorklistLine[];
+    /** Hash do userText (ou inbound normalizado) que selou a extract. */
+    sealedFromUserTextHash?: string | null;
+    updatedAtIso?: string | null;
 };
 
 export interface ProSessionState {
@@ -219,30 +259,34 @@ export interface ProSessionState {
         price?: number | null;
         productName?: string | null;
     }>;
-    /** Quantidade da clarificação atual (`lastSearchPicks`) vinda do extrator LLM. */
+    /**
+     * Quantidade da clarificação atual — só drain de bootstrap legado (ADR 0011 Fase 3).
+     * Preferir `line.quantity` / `awaiting_qty` na worklist.
+     */
     pendingClarifyQuantity?: number | null;
-    /** Segmento de busca da clarificação atual (para telemetria / qty). */
+    /**
+     * Segmento de busca da clarificação bootstrap — só drain legado.
+     */
     pendingClarifySegment?: string | null;
     /**
-     * Termos que a busca não achou (sem near-miss) — pedir repetir depois da clarificação atual.
+     * @deprecated ADR 0011 — preferir lines `not_found` na worklist. Não gravar no hot path.
      */
     pendingAskRepeatTerms?: string[];
     /** Buscas vazias consecutivas — escala para cardápio web. */
     emptySearchStreak?: number;
     /**
-     * Produtos que o cliente mencionou (ex.: "quero skol e original") e que o próprio modelo
-     * declarou (campo obrigatório `search_produtos.outros_produtos_pendentes`) ainda não ter
-     * buscado/resolvido neste turno. `ai.service.ts` força `search_produtos` para estes no
-     * próximo turno antes de fechar via `respond_to_customer` — evita item citado pelo cliente
-     * sumir silenciosamente do rascunho.
+     * @deprecated ADR 0011 — substituído por `orderWorklist` (lines `pending_search`).
+     * Hydrate one-shot → worklist; não gravar no hot path (Fase 3).
      */
     pendingOrderMentions?: string[];
     /**
-     * Grupos de escolha de embalagem (UN/CX/Fardo) ainda pendentes quando 2+ produtos
-     * distintos ficam ambíguos no mesmo turno (ex.: "quero skol e original", ambos com
-     * mais de uma embalagem). Resolvidos por texto livre consolidado — ver
-     * `src/pro/pipeline/pendingPickGroups.ts`. Cada grupo carrega as opções válidas
-     * (allowlist) para não depender de a IA reescrever preço/opções na prosa.
+     * Fonte canônica de linhas de pedido em coleta (ADR 0011).
+     * Lifecycle só no servidor; IA no máximo extract selada.
+     */
+    orderWorklist?: OrderWorklist | null;
+    /**
+     * Grupos de escolha de embalagem (UN/CX/Fardo) — projection de lines `ambiguous`
+     * (`lineId` obrigatório). Ver `src/pro/pipeline/pendingPickGroups.ts`.
      */
     pendingPickGroups?: PendingPickGroup[];
     /**
@@ -419,6 +463,11 @@ export interface PipelineContext {
      * quando há `order_intent` e `session.customerId` — endereços/favoritos não dependem só da tool.
      */
     prefetchedOrderHints?: Record<string, unknown> | null;
+    /**
+     * ADR 0011 D5 — turno em que pick já foi resolvido (botão/texto) neste inbound:
+     * não force-search pending_search no mesmo generateText.
+     */
+    pickResolveTurn?: boolean;
 }
 
 /** Telemetria por invocação da tool `prepare_order_draft` (adapter PRO IA). */
@@ -481,8 +530,13 @@ export interface AiServiceResult {
         productName?: string | null;
     }>;
     emptySearchStreak?: number;
-    /** Ver `ProSessionState.pendingOrderMentions`. */
+    /**
+     * @deprecated ADR 0011 — preferir `updatedOrderWorklist`.
+     * Não setar no hot path (Fase 3 cutover).
+     */
     updatedPendingOrderMentions?: string[];
+    /** Ver `ProSessionState.orderWorklist`. */
+    updatedOrderWorklist?: OrderWorklist | null;
     /** Ver `ProSessionState.pendingPickGroups`. */
     updatedPendingPickGroups?: PendingPickGroup[];
     signals: {

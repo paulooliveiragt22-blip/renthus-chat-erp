@@ -91,7 +91,7 @@ export async function aiStage(params: {
         updatedDraft: raw?.updatedDraft ?? context.session.draft,
         updatedHistory: raw?.updatedHistory ?? context.session.aiHistory,
         updatedSearchProdutoEmbalagemIds: raw?.updatedSearchProdutoEmbalagemIds,
-        updatedPendingOrderMentions: raw?.updatedPendingOrderMentions,
+        updatedOrderWorklist: raw?.updatedOrderWorklist,
         updatedPendingPickGroups: raw?.updatedPendingPickGroups,
         signals: {
             toolRoundsUsed: Number(raw?.signals?.toolRoundsUsed ?? 0),
@@ -112,6 +112,9 @@ export async function aiStage(params: {
         ? true
         : context.session.deliveryAddressUiConfirmed === true && prevFp === nextFp && nextFp !== "";
 
+    const nextOrderWorklist =
+        raw?.updatedOrderWorklist ?? context.session.orderWorklist ?? null;
+
     const nextStateBase = {
         ...context.session,
         draft: nextDraft,
@@ -130,8 +133,9 @@ export async function aiStage(params: {
         lastSearchPicks: raw?.lastSearchPicks ?? context.session.lastSearchPicks,
         emptySearchStreak:
             raw?.emptySearchStreak ?? context.session.emptySearchStreak ?? 0,
-        pendingOrderMentions:
-            raw?.updatedPendingOrderMentions ?? context.session.pendingOrderMentions ?? [],
+        orderWorklist: nextOrderWorklist,
+        /** ADR 0011 Fase 3: nunca regravar fila string de mentions. */
+        pendingOrderMentions: [],
         pendingPickGroups:
             raw?.updatedPendingPickGroups ?? context.session.pendingPickGroups ?? [],
     };

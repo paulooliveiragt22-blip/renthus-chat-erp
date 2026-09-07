@@ -35,6 +35,9 @@ import {
     parseFulfillmentType,
     type FulfillmentPolicy,
 } from "@/lib/delivery/fulfillment";
+import { scrubOutboundForFulfillmentChoice } from "@/src/pro/tools/checkoutPhasePolicy";
+import { worklistCheckoutGate } from "@/src/pro/pipeline/orderWorklist/worklistCheckoutGate";
+import { listLinesByStatus } from "@/src/pro/domain/orderWorklist/orderWorklist";
 import {
     CUSTOMER_PAYMENT_LABELS,
     DEFAULT_ACCEPTED_CUSTOMER_PAYMENTS,
@@ -235,22 +238,30 @@ function checkoutButtonsForState(
     accepted: AcceptedCustomerPayments = DEFAULT_ACCEPTED_CUSTOMER_PAYMENTS
 ): OutboundMessage[] {
     if (!state.draft) return [];
-    if ((state.pendingAskRepeatTerms?.length ?? 0) > 0) return [];
-    if ((state.lastSearchPicks?.length ?? 0) >= 2) return [];
-    if ((state.pendingPickGroups?.length ?? 0) > 0) return [];
+    if (worklistCheckoutGate({ state }).blocked) return [];
+    if (listLinesByStatus(state.orderWorklist, "not_found").length > 0) return [];
+    /**
+     * Picks residuais só bloqueiam checkout quando ainda falta clarificar embalagem.
+     * Com itens no draft e sem pendingPickGroups, não segurar Entrega/Retirada.
+     */
+    const hasDraftItems = state.draft.items.length > 0;
+    const ambiguousPicksOpen =
+        (state.pendingPickGroups?.length ?? 0) > 0 ||
+        ((state.lastSearchPicks?.length ?? 0) >= 2 && !hasDraftItems);
+    if (ambiguousPicksOpen) return [];
     if ((state.bootstrapPendingClarifications?.length ?? 0) > 0) return [];
-    if (isFulfillmentUnavailable(policy) && state.draft.items.length > 0) {
+    if (isFulfillmentUnavailable(policy) && hasDraftItems) {
         return [];
     }
     if (!state.draft.paymentMethod) {
-        if (needsFulfillmentChoice(policy, state.draft.fulfillmentType) && state.draft.items.length > 0) {
+        if (needsFulfillmentChoice(policy, state.draft.fulfillmentType) && hasDraftItems) {
             return [buildFulfillmentButtons()];
         }
-        if (state.draft.items.length > 0 && !checkoutAddressReady(state.draft)) {
+        if (hasDraftItems && !checkoutAddressReady(state.draft)) {
             return [];
         }
         if (
-            state.draft.items.length > 0 &&
+            hasDraftItems &&
             checkoutAddressReady(state.draft) &&
             state.deliveryAddressUiConfirmed === true &&
             !isDraftBelowMinimumOrder(state.draft)
@@ -368,7 +379,7 @@ export function strictCheckoutStructuredGate(
     const d = state.draft;
 
     /** Aguardando o cliente repetir o nome do produto — não barrar como pagamento. */
-    if ((state.pendingAskRepeatTerms?.length ?? 0) > 0) return null;
+    if (listLinesByStatus(state.orderWorklist, "not_found").length > 0) return null;
 
     if (state.step === "pro_awaiting_payment_method" && d) {
         if (!action) return null;
@@ -501,6 +512,9 @@ export function applyQuickAction(
             bootstrapPendingClarifications: [],
             lastSearchPicks: [],
             pendingOrderMentions: [],
+            pendingAskRepeatTerms: [],
+            pendingPickGroups: [],
+            orderWorklist: null,
             deliveryAddressUiConfirmed: false,
             checkoutEditHold: false,
         };
@@ -524,6 +538,9 @@ export function applyQuickAction(
             bootstrapPendingClarifications: [],
             lastSearchPicks: [],
             pendingOrderMentions: [],
+            pendingAskRepeatTerms: [],
+            pendingPickGroups: [],
+            orderWorklist: null,
             deliveryAddressUiConfirmed: false,
             checkoutEditHold: false,
         };
@@ -874,6 +891,12 @@ export function checkoutPostProcess(params: {
             outbound.length = 0;
             outbound.push(...stripped, clarify);
         }
+    }
+
+    if (turnOutcome.reason === "needs_fulfillment") {
+        const scrubbed = scrubOutboundForFulfillmentChoice(outbound);
+        outbound.length = 0;
+        outbound.push(...scrubbed);
     }
 
     // Escalação suave: muitas buscas vazias → cardápio

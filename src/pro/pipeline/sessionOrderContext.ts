@@ -1,4 +1,9 @@
 import type { ProSessionState, ProStep } from "@/src/types/contracts";
+import {
+    abandonWorklist,
+    listLinesByStatus,
+    worklistBlocksCheckout,
+} from "@/src/pro/domain/orderWorklist/orderWorklist";
 
 /**
  * Passos em que uma resposta curta ("uma caixa", "2", "sim") deve continuar no fluxo de pedido,
@@ -20,6 +25,8 @@ const STEPS_IMPLYING_ORDER_SESSION: ReadonlySet<ProStep> = new Set([
 export function isOrderSessionContinuityNeeded(session: ProSessionState): boolean {
     if (session.step === "handover" || session.step === "pro_escalation_choice") return false;
     if (session.draft?.items?.length) return true;
+    if ((session.pendingPickGroups?.length ?? 0) > 0) return true;
+    if (worklistBlocksCheckout(session.orderWorklist)) return true;
     if ((session.lastSearchPicks?.length ?? 0) >= 2) return true;
     return STEPS_IMPLYING_ORDER_SESSION.has(session.step);
 }
@@ -34,6 +41,10 @@ export function clearStaleClarifyUiIfNoDraft(session: ProSessionState): ProSessi
         (session.lastSearchPicks?.length ?? 0) > 0 ||
         (session.bootstrapPendingClarifications?.length ?? 0) > 0 ||
         (session.searchProdutoEmbalagemIds?.length ?? 0) > 0 ||
+        (session.pendingPickGroups?.length ?? 0) > 0 ||
+        listLinesByStatus(session.orderWorklist, "pending_search").length > 0 ||
+        listLinesByStatus(session.orderWorklist, "ambiguous").length > 0 ||
+        listLinesByStatus(session.orderWorklist, "awaiting_qty").length > 0 ||
         session.pendingClarifyQuantity != null ||
         session.pendingClarifySegment != null ||
         (session.pendingAskRepeatTerms?.length ?? 0) > 0 ||
@@ -45,6 +56,8 @@ export function clearStaleClarifyUiIfNoDraft(session: ProSessionState): ProSessi
         searchProdutoEmbalagemIds: [],
         bootstrapPendingClarifications: [],
         bootstrapResolvedEmbalagemIds: [],
+        pendingPickGroups: [],
+        orderWorklist: abandonWorklist(session.orderWorklist),
         pendingClarifyQuantity: null,
         pendingClarifySegment: null,
         pendingAskRepeatTerms: [],

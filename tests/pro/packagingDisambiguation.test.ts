@@ -96,6 +96,72 @@ describe("isSamePackagingFamily", () => {
     });
 });
 
+describe("disambiguatePackagingForSearchRows — original lata multi-volume", () => {
+    const originalPool = [
+        {
+            id: "lata-cx",
+            display_name: "ORIGINAL LATA (CX c/15)",
+            product_name: "ORIGINAL LATA (CX c/15)",
+            descricao: "LATA",
+            sigla_comercial: "CX",
+            fator_conversao: 15,
+            produto_id: "prod-1",
+            product_volume_id: "vol-lata",
+        },
+        {
+            id: "lata-un",
+            display_name: "ORIGINAL LATA",
+            product_name: "ORIGINAL LATA",
+            descricao: "LATA",
+            sigla_comercial: "UN",
+            fator_conversao: 1,
+            produto_id: "prod-1",
+            product_volume_id: "vol-lata",
+        },
+        {
+            id: "un600",
+            display_name: "ORIGINAL 600ML",
+            product_name: "ORIGINAL 600ML",
+            descricao: "600ML",
+            sigla_comercial: "UN",
+            fator_conversao: 1,
+            produto_id: "prod-1",
+            product_volume_id: "vol-600",
+        },
+        {
+            id: "cx600",
+            display_name: "ORIGINAL 600ML (CX c/24)",
+            product_name: "ORIGINAL 600ML (CX c/24)",
+            descricao: "600ML",
+            sigla_comercial: "CX",
+            fator_conversao: 24,
+            produto_id: "prod-1",
+            product_volume_id: "vol-600",
+        },
+        {
+            id: "trez-cx",
+            display_name: "ORIGINAL TREZENTINHA (CX c/23)",
+            product_name: "ORIGINAL TREZENTINHA (CX c/23)",
+            descricao: "TREZENTINHA",
+            sigla_comercial: "CX",
+            fator_conversao: 23,
+            produto_id: "prod-1",
+            product_volume_id: "vol-trez",
+        },
+    ];
+
+    it("'duas caixas de original lata e 3 heineken' → só ORIGINAL LATA CX", () => {
+        const out = disambiguatePackagingForSearchRows(
+            originalPool,
+            "original lata",
+            "Quero duas caixas de original lata e 3 caixa de Heineken longneck",
+            { companySiglas: [{ id: "cx", sigla: "CX", descricao: "Caixa" }, { id: "un", sigla: "UN", descricao: "Unidade" }] }
+        );
+        assert.equal(out.length, 1);
+        assert.equal(out[0]!.id, "lata-cx");
+    });
+});
+
 describe("disambiguatePackagingForSearchRows", () => {
     it("'quero 2 heineken long neck' sem caixa citada → assume UN (regressão S2)", () => {
         const out = disambiguatePackagingForSearchRows(

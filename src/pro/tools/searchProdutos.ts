@@ -141,6 +141,27 @@ async function finalizeRows(
     return enrichAndFilter(rows);
 }
 
+/**
+ * Embalagens irmãs do mesmo volume (UN↔CX) — quando a tag está só numa sigla
+ * e o cliente pediu a outra.
+ */
+export async function loadEmbalagensByVolumeIds(
+    admin: SupabaseClient,
+    companyId: string,
+    volumeIds: readonly string[]
+): Promise<ChatProdutoRow[]> {
+    const ids = [...new Set(volumeIds.map((v) => String(v ?? "").trim()).filter(Boolean))];
+    if (!ids.length) return [];
+    const { data, error } = await admin
+        .from("view_chat_produtos")
+        .select(SELECT_FULL)
+        .eq("company_id", companyId)
+        .in("product_volume_id", ids)
+        .limit(24);
+    if (error || !data?.length) return [];
+    return finalizeRows(admin, data as ChatProdutoRow[]);
+}
+
 function buildDidYouMean(query: string, rows: ChatProdutoRow[]) {
     return rows
         .map((r) => ({

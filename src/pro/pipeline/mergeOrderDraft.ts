@@ -197,19 +197,22 @@ export function unionAllowlistWithDraftIds(
     allowlistIds: readonly string[],
     draft: OrderDraft | null
 ): string[] {
+    return unionAllowlistIds(allowlistIds, (draft?.items ?? []).map((i) => i.produtoEmbalagemId));
+}
+
+/** Une IDs de embalagem (ordem estável, sem duplicata). */
+export function unionAllowlistIds(
+    ...lists: Array<readonly (string | null | undefined)[]>
+): string[] {
     const out: string[] = [];
     const seen = new Set<string>();
-    for (const id of allowlistIds) {
-        const s = String(id ?? "").trim();
-        if (!s || seen.has(s)) continue;
-        seen.add(s);
-        out.push(s);
-    }
-    for (const item of draft?.items ?? []) {
-        const s = String(item.produtoEmbalagemId ?? "").trim();
-        if (!s || seen.has(s)) continue;
-        seen.add(s);
-        out.push(s);
+    for (const list of lists) {
+        for (const id of list) {
+            const s = String(id ?? "").trim();
+            if (!s || seen.has(s)) continue;
+            seen.add(s);
+            out.push(s);
+        }
     }
     return out;
 }

@@ -14,6 +14,7 @@ import type {
     AiServiceResult,
     AiTurn,
     OrderDraft,
+    OrderWorklist,
     PendingPickGroup,
 } from "@/src/types/contracts";
 import type { AiService } from "../../services/ai/ai.types";
@@ -21,9 +22,22 @@ import type { CatalogPort } from "@/src/pro/ports/catalog.port";
 import type { OrderDraftPort } from "@/src/pro/ports/orderDraft.port";
 import type { SessionMemoryPort } from "@/src/pro/ports/sessionMemory.port";
 import type { MetricsPort } from "@/src/pro/ports/metrics.port";
+import type { OrderLinesExtractPort } from "@/src/pro/ports/orderLinesExtract.port";
 import { SupabaseCatalogAdapter } from "@/src/pro/adapters/supabase/catalog.supabase";
 import { SupabaseOrderDraftAdapter } from "@/src/pro/adapters/supabase/orderDraft.supabase";
 import { NoopSessionMemoryAdapter } from "@/src/pro/adapters/ai/sessionMemory.llm";
+import { LlmOrderLinesExtractAdapter, FakeOrderLinesExtractAdapter } from "@/src/pro/adapters/ai/orderLinesExtract.llm";
+import {
+    listLinesByStatus,
+    pendingSearchTermsFromWorklist,
+} from "@/src/pro/domain/orderWorklist/orderWorklist";
+import { seedWorklistFromExtract } from "@/src/pro/pipeline/orderWorklist/seedWorklistFromExtract";
+import { extractCandidatePendingTermsFromUserText } from "@/src/pro/domain/orderWorklist/extractCandidateTerms";
+import {
+    advanceWorklistAfterSearch,
+    shouldForceSearchWorklist,
+} from "@/src/pro/pipeline/orderWorklist/advanceWorklistAfterSearch";
+import { matchWorklistLineForSearch } from "@/src/pro/domain/orderWorklist/matchWorklistLine";
 import { hasLlmApiKey } from "@/src/pro/adapters/llm/llmText";
 import {
     LlmProviderConfigError,
@@ -41,7 +55,7 @@ import {
     extractExplicitOrderQuantityFromText,
     hasExplicitOrderQuantityInText,
 } from "@/src/pro/tools/parseQtyPt";
-import { mergePreparedDraftIntoCurrent, unionAllowlistWithDraftIds } from "@/src/pro/pipeline/mergeOrderDraft";
+import { mergePreparedDraftIntoCurrent, unionAllowlistIds, unionAllowlistWithDraftIds } from "@/src/pro/pipeline/mergeOrderDraft";
 import {
     formatPrepareErrorsForClientReply,
     shouldPreferPrepareErrorsOverModelText,
@@ -75,6 +89,8 @@ export type AiServiceOptions = {
     catalog?: CatalogPort;
     orderDraft?: OrderDraftPort;
     sessionMemory?: SessionMemoryPort;
+    /** Extract estruturado 1× por selo de mensagem (ADR 0011). */
+    orderLinesExtract?: OrderLinesExtractPort;
     /**
      * Seam de teste/replay — injeta `MockLanguageModelV3`/`createReplayModel`
      * (`src/pro/adapters/ai/replayRecorder.ts`) em vez de `resolveLanguageModel()`/rede.
@@ -132,8 +148,10 @@ export function shouldForcePrepareAfterEmbalagemChoice(params: {
 }
 
 /**
- * Search neste turno com exatamente 1 SKU e sem prepare → força `prepare_order_draft`
- * **só** se o cliente já disse a quantidade (C3.2 — alinhado ao system prompt).
+ * Search neste turno com SKU(s) ainda fora do draft → força `prepare_order_draft`
+ * **só** se o cliente já disse a quantidade (C3.2) e não há clarificação de embalagem.
+ * Multi-produto unívoco (ex.: Original + Heineken, 2 IDs na allowlist): força prepare
+ * dos N SKUs novos (até 5). Ambíguo (lastSearchPicks≥2 / pendingPickGroups) → não força.
  */
 export function shouldForcePrepareAfterUnambiguousSearch(params: {
     intent: string;
@@ -141,31 +159,59 @@ export function shouldForcePrepareAfterUnambiguousSearch(params: {
     prepareInvokedThisTurn: boolean;
     searchInvokedThisTurn: boolean;
     allowlistNowCount: number;
+    /** Embalagens na allowlist que ainda não estão no draft. */
+    pendingAllowlistNotInDraftCount: number;
     /** Texto do cliente neste turno — precisa de qty explícita. */
     userText: string;
+    /** Clarificação UN/CX ainda aberta — não montar rascunho. */
+    pendingPickGroupsCount?: number;
+    lastSearchPicksCount?: number;
+    pendingSearchTermsCount?: number;
 }): boolean {
     if (params.intent !== "order_intent") return false;
     if (params.step !== "pro_collecting_order" && params.step !== "pro_idle") return false;
-    if (params.prepareInvokedThisTurn) return false;
     if (!params.searchInvokedThisTurn) return false;
-    if (params.allowlistNowCount !== 1) return false;
-    return hasExplicitOrderQuantityInText(params.userText);
+    if (!hasExplicitOrderQuantityInText(params.userText)) return false;
+    if ((params.pendingPickGroupsCount ?? 0) > 0) return false;
+    if ((params.lastSearchPicksCount ?? 0) >= 2) return false;
+    if ((params.pendingSearchTermsCount ?? 0) > 0) return false;
+    const pending = params.pendingAllowlistNotInDraftCount;
+    if (pending < 1 || pending > 5) return false;
+    return true;
+}
+
+/** Quantos IDs da allowlist ainda não estão no rascunho. */
+export function countAllowlistIdsNotInDraft(
+    allowlistIds: readonly string[],
+    draft: OrderDraft | null
+): number {
+    const inDraft = new Set(
+        (draft?.items ?? [])
+            .map((i) => String(i.produtoEmbalagemId ?? "").trim())
+            .filter(Boolean)
+    );
+    let n = 0;
+    const seen = new Set<string>();
+    for (const id of allowlistIds) {
+        const s = String(id ?? "").trim();
+        if (!s || seen.has(s)) continue;
+        seen.add(s);
+        if (!inDraft.has(s)) n += 1;
+    }
+    return n;
 }
 
 /**
- * `search_produtos` exige (schema, não prosa) que o modelo declare `outros_produtos_pendentes`
- * a cada chamada — termos do cliente ainda não buscados. Enquanto essa lista não estiver vazia
- * (seja do carryover do turno anterior, seja de uma declaração desta própria chamada), o turno
- * não pode fechar via respond_to_customer sem tentar resolvê-los. Substitui a antiga heurística
- * lexical (contagem de conectores em texto livre): aquela gerava falso positivo em qualquer
- * frase com vírgula/"e" e falso negativo acima do cap — esta usa o próprio entendimento do
- * modelo sobre a mensagem, forçado por schema obrigatório em vez de instrução opcional.
+ * Enquanto há lines `pending_search` na worklist, o turno não pode fechar via
+ * `respond_to_customer` sem forçar `search_produtos`. Lifecycle só no servidor (ADR 0011).
  */
 export function shouldForceSearchForDeclaredPendingTerms(params: {
     infoOnly: boolean;
     pendingTerms: readonly string[];
+    /** Turno só a resolver pick já listado — não force-search (ADR 0011 D5). */
+    pickResolveTurn?: boolean;
 }): boolean {
-    if (params.infoOnly) return false;
+    if (params.infoOnly || params.pickResolveTurn) return false;
     return params.pendingTerms.length > 0;
 }
 
@@ -173,14 +219,13 @@ const FORCE_PREPARE_NUDGE =
     "[Instrução interna] Contrato exige prepare_order_draft agora: há SKU permitido (allowlist) e intenção de pedido. Chame prepare_order_draft com items (produto_embalagem_id permitido + quantidade). Se faltar endereço ou pagamento, prepare mesmo assim com o que souber — leia guidance_for_model_pt.";
 
 /**
- * Há produto(s) do cliente ainda não buscado(s) — seja porque `search_produtos` acabou de
- * declarar `outros_produtos_pendentes`, seja por carryover do turno anterior. Força
- * search_produtos agora: sem isso o item pode sumir silenciosamente do pedido (bug real
- * observado em smoke: "quero skol e original" resolveu só "original").
+ * Há produto(s) do cliente ainda não buscado(s) na worklist (`pending_search`).
+ * Força search_produtos agora: sem isso o item pode sumir silenciosamente do pedido
+ * (bug real: "quero skol e original" resolvia só "original").
  */
 function buildForceSearchPendingNudge(pendingTerms: readonly string[]): string {
     const list = pendingTerms.map((m) => `"${m}"`).join(", ");
-    return `[Instrução interna] Contrato exige search_produtos agora para item(ns) que o cliente pediu e ainda não foi(ram) buscado(s) neste atendimento: ${list}. Chame search_produtos para o próximo destes antes de responder (preencha outros_produtos_pendentes de novo, com o que ainda sobrar).`;
+    return `[Instrução interna] Contrato exige search_produtos agora para item(ns) que o cliente pediu e ainda não foi(ram) buscado(s) neste atendimento: ${list}. Chame search_produtos para o próximo destes antes de responder (a worklist do servidor já guarda o restante).`;
 }
 
 /**
@@ -220,12 +265,12 @@ const SYSTEM_PROMPT = `${buildDeliverySpecialistSystemPreamble()}
 - Depois que search_produtos listou mais de uma embalagem e o cliente escolheu uma, chame prepare_order_draft na mesma sequência.
 - Regra dura: em prepare_order_draft use somente produto_embalagem_id do JSON items do último search_produtos (ou allowed_produto_embalagem_ids).
 - Nunca use slug textual: só UUID (campo id / produto_embalagem_id).
-- Após prepare_order_draft ok: NÃO diga "pedido montado" nem "aguarde o resumo" — o servidor envia botões de pagamento/confirmação. Só confirme o que falta se a tool indicar.
+- Após prepare_order_draft com itens: NÃO diga "pedido montado" nem peça endereço/pagamento na prosa — o servidor envia botões Entrega/Retirar (se ambos ligados), depois endereço e pagamento. Só confirme o que a tool/fase indicar.
 - NUNCA invente payment_method nem change_for: só se o cliente disse pix/dinheiro/cartão ou troco. Sem pagamento no draft: o servidor manda botões — não invente na prosa.
 - Se o cliente quer TROCAR/SUBSTITUIR um item: search_produtos do produto NOVO, depois prepare_order_draft com o UUID permitido. Não use bootstrap/extract paralelo — só tools.
 - Se o cliente quiser acrescentar itens, chame prepare_order_draft com a quantidade. Não afirme "pedido confirmado" — só o botão Confirmar + RPC fecham.
 - Se o cliente pedir observação no pedido (ex.: "sem alface", "tocar campainha", "sem gelo"): passe order_notes no prepare_order_draft com o texto do pedido inteiro. Não invente item nem observação. Não use observação por produto.
-- Se o cliente citar MAIS DE UM produto na mesma mensagem (ex.: "quero skol e original"): toda chamada de search_produtos exige o campo outros_produtos_pendentes com os demais produtos citados e ainda não buscados (array vazio se não sobrar nenhum). Não avance para endereço/pagamento com produto citado e ainda não buscado.
+- Se o cliente citar MAIS DE UM produto na mesma mensagem (ex.: "quero skol e original"): o servidor mantém a worklist (pending_search). Chame search_produtos para cada item ainda não buscado antes de endereço/pagamento. Não invente produtos nem apague pendentes.
 - Se o cliente citar um produto SEM dizer a quantidade (ex.: "quero original", sem número): não assuma quantity=1 — pergunte quantas unidades ele quer antes de chamar prepare_order_draft para esse item (exceção: contexto deixa claro que é 1, ex.: "me manda uma coca").
 - Se search_produtos retornar items vazio ou did_you_mean, use isso — não invente produto.
 - Só peça confirmação final do pedido quando a fase do servidor for confirm_order (endereço UI já confirmado).
@@ -268,10 +313,30 @@ function buildPendingMentionsBlock(pendingMentions: readonly string[]): string {
     return (
         "\n\n--- Itens ainda não resolvidos do(s) turno(s) anterior(es) ---\n" +
         `O cliente também pediu, mas ainda não foi buscado/adicionado ao rascunho:\n${list}\n` +
-        "Chame search_produtos para cada um destes antes de avançar para endereço/pagamento (a menos que o cliente peça para não incluir); " +
-        "repita-os em outros_produtos_pendentes se ainda não resolver agora.\n" +
+        "Chame search_produtos para cada um destes antes de avançar para endereço/pagamento (a menos que o cliente peça para não incluir).\n" +
+        "A worklist do servidor é a fonte de verdade — não apague pendentes.\n" +
         "--- Fim itens não resolvidos ---\n"
     );
+}
+
+function buildWorklistBlock(params: {
+    pendingSearch: readonly string[];
+    awaitingQty: readonly string[];
+}): string {
+    const parts: string[] = [];
+    if (params.pendingSearch.length) {
+        parts.push(buildPendingMentionsBlock(params.pendingSearch));
+    }
+    if (params.awaitingQty.length) {
+        const list = params.awaitingQty.map((m) => `- ${m}`).join("\n");
+        parts.push(
+            "\n\n--- Quantidade pendente (awaiting_qty) ---\n" +
+                `Peça a quantidade destes itens já localizados:\n${list}\n` +
+                "Não chame prepare_order_draft sem quantity ≥ 1.\n" +
+                "--- Fim quantidade pendente ---\n"
+        );
+    }
+    return parts.join("");
 }
 
 function buildPendingPickGroupsBlock(groups: readonly PendingPickGroup[]): string {
@@ -312,7 +377,14 @@ function buildEffectiveSystemPrompt(input: AiServiceInput): string {
     const draftBlock = isInfoOnlyAi(input) ? "" : buildDraftSnapshotForModel(draft);
     const pendingMentionsBlock = isInfoOnlyAi(input)
         ? ""
-        : buildPendingMentionsBlock(session.pendingOrderMentions ?? []);
+        : buildWorklistBlock({
+              pendingSearch: listLinesByStatus(session.orderWorklist, "pending_search").map(
+                  (l) => l.rawTerm
+              ),
+              awaitingQty: listLinesByStatus(session.orderWorklist, "awaiting_qty").map(
+                  (l) => l.rawTerm
+              ),
+          });
     const pendingPickGroupsBlock = isInfoOnlyAi(input)
         ? ""
         : buildPendingPickGroupsBlock(session.pendingPickGroups ?? []);
@@ -626,16 +698,44 @@ export async function applyDeterministicSearchThenPrepareFallback(params: {
                 userText: params.userText,
             }
         );
-        turnState.allowlistIds = result.allowlistIds;
+        turnState.allowlistIds = unionAllowlistIds(turnState.allowlistIds, result.allowlistIds);
         turnState.emptySearchStreak = result.wasEmpty ? turnState.emptySearchStreak + 1 : 0;
         if (result.wasEmpty) turnState.matchingMetrics.searchHitsZero += 1;
         turnState.searchInvokedThisTurn = true;
         turnState.searchCallCount += 1;
+        turnState.searchedProductQueriesThisTurn = [
+            ...turnState.searchedProductQueriesThisTurn,
+            params.userText,
+        ];
+        const matched = matchWorklistLineForSearch({
+            worklist: turnState.orderWorklist,
+            query: params.userText,
+        });
+        const hitCount = result.wasEmpty ? 0 : result.allowlistIds.length;
+        const productKey = result.pendingPickGroup?.productKey ?? null;
+        const uniqueId = hitCount === 1 ? result.allowlistIds[0] ?? null : null;
+        turnState.orderWorklist = advanceWorklistAfterSearch({
+            worklist: turnState.orderWorklist,
+            query: params.userText,
+            hitCount: result.pendingPickGroup ? Math.max(hitCount, 2) : hitCount,
+            productKey,
+            produtoEmbalagemId: uniqueId,
+            lineId: matched?.id ?? null,
+        });
         if (result.pendingPickGroup) {
             turnState.pendingPickGroups = upsertPendingPickGroup(
                 turnState.pendingPickGroups,
-                result.pendingPickGroup
+                {
+                    ...result.pendingPickGroup,
+                    lineId:
+                        matched?.id ??
+                        result.pendingPickGroup.lineId ??
+                        `fb_${result.pendingPickGroup.productKey}`,
+                }
             );
+            turnState.lastSearchPicks = [];
+        } else if (turnState.pendingPickGroups.length > 0) {
+            turnState.lastSearchPicks = [];
         } else {
             turnState.lastSearchPicks = result.lastSearchPicks;
         }
@@ -658,6 +758,7 @@ export class AiServiceAdapter implements AiService {
     private readonly catalog: CatalogPort;
     private readonly orderDraft: OrderDraftPort;
     private readonly sessionMemory: SessionMemoryPort;
+    private readonly orderLinesExtract: OrderLinesExtractPort;
     private readonly modelOverride?: LanguageModel;
     private readonly providerOverride?: LlmProviderName;
     private readonly modelNameOverride?: string;
@@ -668,6 +769,11 @@ export class AiServiceAdapter implements AiService {
         this.catalog = opts?.catalog ?? new SupabaseCatalogAdapter(admin);
         this.orderDraft = opts?.orderDraft ?? new SupabaseOrderDraftAdapter(admin);
         this.sessionMemory = opts?.sessionMemory ?? new NoopSessionMemoryAdapter();
+        this.orderLinesExtract =
+            opts?.orderLinesExtract ??
+            (opts?.model
+                ? new FakeOrderLinesExtractAdapter()
+                : new LlmOrderLinesExtractAdapter());
         this.modelOverride = opts?.model;
         this.providerOverride = opts?.providerOverride;
         this.modelNameOverride = opts?.modelNameOverride;
@@ -698,7 +804,7 @@ export class AiServiceAdapter implements AiService {
             lastSearchPicks: SearchPickSummary[];
             emptySearchStreak: number;
             addressFreeText: boolean;
-            pendingOrderMentions: string[];
+            orderWorklist: OrderWorklist;
             pendingPickGroups: PendingPickGroup[];
             matchingMetrics?: { prepareBlockedAllowlist: number; searchHitsZero: number };
         }
@@ -730,7 +836,7 @@ export class AiServiceAdapter implements AiService {
                 updatedSearchProdutoEmbalagemIds: turn.allowlistIds,
                 lastSearchPicks: turn.lastSearchPicks,
                 emptySearchStreak: turn.emptySearchStreak,
-                updatedPendingOrderMentions: turn.pendingOrderMentions,
+                updatedOrderWorklist: turn.orderWorklist,
                 updatedPendingPickGroups: turn.pendingPickGroups,
                 signals: {
                     toolRoundsUsed,
@@ -756,7 +862,7 @@ export class AiServiceAdapter implements AiService {
             updatedSearchProdutoEmbalagemIds: turn.allowlistIds,
             lastSearchPicks: turn.lastSearchPicks,
             emptySearchStreak: turn.emptySearchStreak,
-            updatedPendingOrderMentions: turn.pendingOrderMentions,
+            updatedOrderWorklist: turn.orderWorklist,
             updatedPendingPickGroups: turn.pendingPickGroups,
             signals: {
                 toolRoundsUsed,
@@ -768,13 +874,20 @@ export class AiServiceAdapter implements AiService {
     }
 
     async run(input: AiServiceInput): Promise<AiServiceResult> {
+        const session = input.context.session;
+        const pickResolveTurn =
+            typeof (input.context as { pickResolveTurn?: unknown }).pickResolveTurn === "boolean"
+                ? Boolean((input.context as { pickResolveTurn?: boolean }).pickResolveTurn)
+                : undefined;
         const turnState: TurnState = createInitialTurnState({
-            allowlistIds: input.context.session.searchProdutoEmbalagemIds ?? [],
-            lastSearchPicks: input.context.session.lastSearchPicks ?? [],
-            emptySearchStreak: input.context.session.emptySearchStreak ?? 0,
+            allowlistIds: session.searchProdutoEmbalagemIds ?? [],
+            lastSearchPicks: session.lastSearchPicks ?? [],
+            emptySearchStreak: session.emptySearchStreak ?? 0,
             currentDraft: input.draft,
-            pendingOrderMentions: input.context.session.pendingOrderMentions ?? [],
-            pendingPickGroups: input.context.session.pendingPickGroups ?? [],
+            pendingOrderMentions: session.pendingOrderMentions ?? [],
+            orderWorklist: session.orderWorklist,
+            pendingPickGroups: session.pendingPickGroups ?? [],
+            ...(pickResolveTurn !== undefined ? { pickResolveTurn } : {}),
         });
         const allowlistAtStart = [...turnState.allowlistIds];
         /**
@@ -786,8 +899,24 @@ export class AiServiceAdapter implements AiService {
          * uma embalagem sem o cliente ter respondido nada (bug real do smoke S2).
          */
         const carryoverPendingPickKeys = new Set(
-            (input.context.session.pendingPickGroups ?? []).map((g) => g.productKey)
+            (session.pendingPickGroups ?? []).map((g) => g.productKey)
         );
+
+        const infoOnly = isInfoOnlyAi(input);
+        const hasActiveWorklistLines =
+            listLinesByStatus(turnState.orderWorklist, "pending_search").length > 0 ||
+            listLinesByStatus(turnState.orderWorklist, "ambiguous").length > 0 ||
+            listLinesByStatus(turnState.orderWorklist, "awaiting_qty").length > 0;
+        if (!infoOnly && !hasActiveWorklistLines && input.intentDecision.intent === "order_intent") {
+            turnState.orderWorklist = await seedWorklistFromExtract({
+                previous: turnState.orderWorklist,
+                userText: input.userText,
+                extractPort: this.orderLinesExtract,
+                fallbackExtracted: extractCandidatePendingTermsFromUserText(input.userText).map(
+                    (rawTerm) => ({ rawTerm })
+                ),
+            });
+        }
 
         if (!this.modelOverride && !hasLlmApiKey(this.providerOverride)) {
             return {
@@ -798,12 +927,12 @@ export class AiServiceAdapter implements AiService {
                 updatedSearchProdutoEmbalagemIds: turnState.allowlistIds,
                 lastSearchPicks: turnState.lastSearchPicks,
                 emptySearchStreak: turnState.emptySearchStreak,
+                updatedOrderWorklist: turnState.orderWorklist,
                 signals: { toolRoundsUsed: 0, intentMarker: "unknown" },
                 errorCode: "AI_PROVIDER_ERROR",
             };
         }
 
-        const infoOnly = isInfoOnlyAi(input);
         const companyId = input.context.tenant.companyId;
 
         try {
@@ -878,24 +1007,31 @@ export class AiServiceAdapter implements AiService {
                         prepareInvokedThisTurn: turnState.prepareInvokedThisTurn,
                         searchInvokedThisTurn: turnState.searchInvokedThisTurn,
                         allowlistNowCount: turnState.allowlistIds.length,
+                        pendingAllowlistNotInDraftCount: countAllowlistIdsNotInDraft(
+                            turnState.allowlistIds,
+                            turnState.currentDraft
+                        ),
                         userText: input.userText,
+                        pendingPickGroupsCount: turnState.pendingPickGroups.length,
+                        lastSearchPicksCount: turnState.lastSearchPicks.length,
+                        pendingSearchTermsCount: pendingSearchTermsFromWorklist(
+                            turnState.orderWorklist
+                        ).length,
                     })
                 );
             };
 
             /**
-             * Produto(s) do cliente ainda não buscado(s) — carryover do turno anterior
-             * (`pendingTermsFromSearch` semeado de `session.pendingOrderMentions`) e/ou
-             * declarado agora mesmo por `search_produtos.outros_produtos_pendentes`. Uma única
-             * fonte de verdade (ver `TurnState.pendingTermsFromSearch`): força search_produtos
-             * até a lista esvaziar (o próprio contador de steps do generateText, `maxSteps`, é o
-             * teto de segurança contra item irresolúvel).
+             * Produto(s) do cliente ainda não buscado(s) — lines `pending_search` na worklist
+             * (ADR 0011). Não force-search no turno de pick já listado (`pickResolveTurn`).
              */
-            const shouldForcePendingSearch = (): boolean =>
-                shouldForceSearchForDeclaredPendingTerms({
-                    infoOnly,
-                    pendingTerms: turnState.pendingTermsFromSearch,
+            const shouldForcePendingSearch = (): boolean => {
+                if (infoOnly) return false;
+                return shouldForceSearchWorklist({
+                    worklist: turnState.orderWorklist,
+                    pickResolveTurn: turnState.pickResolveTurn,
                 });
+            };
 
             const carryoverPendingPickGroups = (): PendingPickGroup[] =>
                 turnState.pendingPickGroups.filter((g) => carryoverPendingPickKeys.has(g.productKey));
@@ -931,9 +1067,8 @@ export class AiServiceAdapter implements AiService {
                     maxRetries: 0,
                     abortSignal: AbortSignal.timeout(input.limits.timeoutMs),
                     /**
-                     * Groq/OpenAI às vezes mandam `null` em arrays obrigatórios (ex.:
-                     * outros_produtos_pendentes). Sem repair o generateText aborta o turno
-                     * depois do search já ter rodado — UX: "Tive uma falha…".
+                     * Groq/OpenAI às vezes mandam `null` em arrays (ex.: items, picks,
+                     * outros_produtos_pendentes legado). Sem repair o generateText aborta.
                      * Docs AI SDK: experimental_repairToolCall + InvalidToolInputError.
                      */
                     experimental_repairToolCall: async ({ toolCall, error }) => {
@@ -1026,7 +1161,9 @@ export class AiServiceAdapter implements AiService {
                                           {
                                               role: "user" as const,
                                               content: buildForceSearchPendingNudge(
-                                                  turnState.pendingTermsFromSearch
+                                                  pendingSearchTermsFromWorklist(
+                                                      turnState.orderWorklist
+                                                  )
                                               ),
                                           },
                                       ]
@@ -1140,13 +1277,6 @@ export class AiServiceAdapter implements AiService {
             const addressFreeText = Boolean(respondArgs.address_free_text);
             const marker: IntentMarker = respondArgs.understood === false ? "unknown" : "ok";
             const updatedDraft = turnState.currentDraft;
-            /**
-             * Fonte de verdade do próximo turno é `outros_produtos_pendentes` (schema obrigatório
-             * de search_produtos) — não mais um campo opcional que o modelo podia esquecer de
-             * repetir no respond_to_customer final. Se search_produtos não rodou neste turno, o
-             * carryover semeado no início do turno (`pendingOrderMentions` da sessão) permanece.
-             */
-            const updatedPendingOrderMentions = turnState.pendingTermsFromSearch;
 
             let visibleSafe = stripInternalCatalogIdsFromCustomerText(
                 stripHallucinatedOrderPersistenceClaims(
@@ -1177,7 +1307,7 @@ export class AiServiceAdapter implements AiService {
                 lastSearchPicks: turnState.lastSearchPicks,
                 emptySearchStreak: turnState.emptySearchStreak,
                 addressFreeText,
-                pendingOrderMentions: updatedPendingOrderMentions,
+                orderWorklist: turnState.orderWorklist,
                 pendingPickGroups: turnState.pendingPickGroups,
                 matchingMetrics: { ...turnState.matchingMetrics },
             });
@@ -1230,7 +1360,7 @@ export class AiServiceAdapter implements AiService {
                         lastSearchPicks: turnState.lastSearchPicks,
                         emptySearchStreak: turnState.emptySearchStreak,
                         addressFreeText: false,
-                        pendingOrderMentions: turnState.pendingTermsFromSearch,
+                        orderWorklist: turnState.orderWorklist,
                         pendingPickGroups: turnState.pendingPickGroups,
                     });
                 }
@@ -1283,7 +1413,7 @@ export class AiServiceAdapter implements AiService {
                         lastSearchPicks: turnState.lastSearchPicks,
                         emptySearchStreak: turnState.emptySearchStreak,
                         addressFreeText: false,
-                        pendingOrderMentions: turnState.pendingTermsFromSearch,
+                        orderWorklist: turnState.orderWorklist,
                         pendingPickGroups: turnState.pendingPickGroups,
                     }
                 );
@@ -1324,7 +1454,7 @@ export class AiServiceAdapter implements AiService {
                             lastSearchPicks: turnState.lastSearchPicks,
                             emptySearchStreak: turnState.emptySearchStreak,
                             addressFreeText: false,
-                            pendingOrderMentions: turnState.pendingTermsFromSearch,
+                            orderWorklist: turnState.orderWorklist,
                             pendingPickGroups: turnState.pendingPickGroups,
                         }
                     );
@@ -1358,13 +1488,12 @@ export class AiServiceAdapter implements AiService {
                     turnState.pendingPickGroups,
                     input.userText
                 );
-                const updatedPendingOrderMentions = turnState.pendingTermsFromSearch;
                 return await this.buildSuccess(input, fallbackText, "ok", 1, turnState.currentDraft ?? input.draft, {
                     allowlistIds: turnState.allowlistIds,
                     lastSearchPicks: turnState.lastSearchPicks,
                     emptySearchStreak: turnState.emptySearchStreak,
                     addressFreeText: false,
-                    pendingOrderMentions: updatedPendingOrderMentions,
+                    orderWorklist: turnState.orderWorklist,
                     pendingPickGroups: turnState.pendingPickGroups,
                 });
             }

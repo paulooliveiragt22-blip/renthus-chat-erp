@@ -18,8 +18,8 @@ export function presentBlockedReasonForModel(reason: PrepareOrderDraftBlockedRea
         case "ADDRESS_INCOMPLETE":
             return [
                 "Há rascunho parcial com itens no servidor.",
-                "Não diga erro técnico. Peça ou confirme o endereço (rua, número, bairro, cidade, UF) ou use saved_address_id.",
-                "Depois chame prepare_order_draft de novo.",
+                "Se a loja oferece Entrega e Retirada, NÃO peça endereço ainda — o servidor envia botões Entrega / Retirar no local. Só peça rua/número/bairro/cidade/UF depois que o cliente escolher Entrega.",
+                "Se a tool/fase já indicar só entrega (ou cliente já escolheu), peça ou confirme o endereço ou use saved_address_id e chame prepare_order_draft de novo.",
             ];
 
         case "OUT_OF_DELIVERY_ZONE":
@@ -37,8 +37,8 @@ export function presentBlockedReasonForModel(reason: PrepareOrderDraftBlockedRea
 
         case "PAYMENT_MISSING":
             return [
-                "Há rascunho parcial com itens (e talvez endereço) no servidor.",
-                "Pergunte PIX, cartão ou dinheiro e chame prepare_order_draft com payment_method.",
+                "Há rascunho parcial com itens no servidor.",
+                "NÃO invente payment_method na prosa. Se ainda falta modalidade (Entrega/Retirada), o servidor envia esses botões primeiro; senão envia PIX/Cartão/Dinheiro.",
                 "NÃO peça confirmação final do pedido ainda.",
             ];
 

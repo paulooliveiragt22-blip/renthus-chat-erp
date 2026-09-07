@@ -301,7 +301,7 @@ export async function prepareOrderDraftFromTool(
         allowSet.size === 0
     ) {
         errors.push(
-            "Faça search_produtos nesta conversa antes de prepare_order_draft; só é permitido produto_embalagem_id devolvido na lista da última busca."
+            "Faça search_produtos nesta conversa antes de prepare_order_draft; só é permitido produto_embalagem_id devolvido nas buscas deste turno (allowlist acumulada)."
         );
     }
 
@@ -340,7 +340,7 @@ export async function prepareOrderDraftFromTool(
             }
             if (!allowSet.has(pid)) {
                 errors.push(
-                    `produto_embalagem_id não consta na última busca do catálogo: ${pid}. Rode search_produtos e use só ids retornados na lista.`
+                    `produto_embalagem_id não consta na allowlist das buscas deste turno: ${pid}. Rode search_produtos e use só ids retornados.`
                 );
                 continue;
             }
@@ -556,9 +556,9 @@ export function buildPrepareDraftGuidanceForModel(
     if (blob.includes("cliente") && blob.includes("identificado")) {
         lines.push("Próximo passo: siga com get_order_hints; o telefone costuma criar o cadastro automaticamente na primeira interação.");
     }
-    if (errs.some((e) => /última busca|ultima busca|na lista da última|na lista da ultima/i.test(e))) {
+    if (errs.some((e) => /última busca|ultima busca|allowlist|nas buscas deste turno/i.test(e))) {
         lines.push(
-            "Próximo passo: chame search_produtos e copie produto_embalagem_id apenas do array items retornado na resposta."
+            "Próximo passo: chame search_produtos e copie produto_embalagem_id apenas do array items retornado na resposta (todas as buscas deste turno contam)."
         );
     }
     if (blob.includes("slug") || blob.includes("rótulo") || blob.includes("rotulo")) {

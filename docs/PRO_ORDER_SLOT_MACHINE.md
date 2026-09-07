@@ -2,7 +2,7 @@
 
 Este documento descreve **como o servidor mantém o passo (`ProStep`) alinhado ao rascunho (`OrderDraft`)**, para reduzir ambiguidade da IA e manter UX previsível (endereço salvo → confirmação → pagamento → troco → confirmação final).
 
-**Relacionado:** [`CHATBOT_PROD.md`](./CHATBOT_PROD.md) (orquestrador e flags), [`REFACTOR_STRATEGY_PRO_ORDER_AND_IA.md`](./REFACTOR_STRATEGY_PRO_ORDER_AND_IA.md) (fases R0–R3), código em `src/pro/pipeline/orderSlotStep.ts` e `src/pro/pipeline/stages/checkoutPostProcess.ts`.
+**Relacionado:** [`CHATBOT_PROD.md`](./CHATBOT_PROD.md) (orquestrador e flags), [`REFACTOR_STRATEGY_PRO_ORDER_AND_IA.md`](./REFACTOR_STRATEGY_PRO_ORDER_AND_IA.md) (fases R0–R3), [`ADR/0011-pro-order-worklist-typed-lines.md`](./ADR/0011-pro-order-worklist-typed-lines.md) (coleta multi-item / `OrderWorklist` — bloqueia checkout com `pending_search` \| `ambiguous` \| `awaiting_qty`), código em `src/pro/pipeline/orderSlotStep.ts` e `src/pro/pipeline/stages/checkoutPostProcess.ts`.
 
 ---
 

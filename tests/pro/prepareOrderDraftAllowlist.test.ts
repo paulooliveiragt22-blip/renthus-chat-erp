@@ -89,7 +89,14 @@ describe("prepareOrderDraftFromTool / search_allowlist", () => {
             }
         );
         assert.equal(res.ok, false);
-        assert.ok(res.errors.some((e) => e.includes("última busca") || e.includes("ultima busca")));
+        assert.ok(
+            res.errors.some(
+                (e) =>
+                    e.includes("allowlist") ||
+                    e.includes("última busca") ||
+                    e.includes("ultima busca")
+            )
+        );
     });
 
     it("rejeita slug textual (não UUID) com mensagem específica em search_allowlist", async () => {

@@ -5,6 +5,7 @@
 
 import type { CompanySigla, CustomerSiglaHabit } from "./customerPackagingHabit";
 import { matchExplicitSiglaFromText } from "./siglaMatch";
+import { explicitCommercialSiglaNearQuery } from "@/src/pro/tools/tagAliasMatch";
 
 export type SegmentPickRow = {
     embalagemId: string;
@@ -141,13 +142,12 @@ export function resolvePreferredSigla(
 
     const formatText = opts?.formatHintText ?? segment;
     /**
-     * Apelidos de caixa (tags do catálogo / fala do cliente): "caixinha", "fardinho".
-     * Tem prioridade sobre a heurística qty < fator → UN (ex.: "5 caixinhas de original").
+     * Apelidos de catálogo ("caixinha", "buchudinha") NÃO são sinônimo de sigla.
+     * "caixa/unidade/fardo" no segmento ligado ao termo (não o texto inteiro multi-item)
+     * vencem a heurística qty < fator → UN.
      */
-    if (/\b(caixinha|caixinhas|fardinho|fardinhos)\b/u.test(norm(formatText))) {
-        if (hitSiglaList(items).includes("CX")) return "CX";
-        if (hitSiglaList(items).includes("FARD")) return "FARD";
-    }
+    const spokenNear = explicitCommercialSiglaNearQuery(segment, formatText);
+    if (spokenNear && hitSiglaList(items).includes(spokenNear)) return spokenNear;
 
     const habit = String(opts?.habitSigla ?? "")
         .trim()
@@ -179,8 +179,8 @@ export function resolvePreferredSigla(
     }
 
     // Palavra de formato "unidade única" (lata/garrafa/pet/long neck) sem caixa citada nem
-    // quantidade decisiva: mesma regra pra qualquer produto (não é caso específico de 1 marca).
-    // "caixinha" já foi tratada acima — não cair em UN por causa de "lata" no mesmo texto.
+    // quantidade decisiva. Se o texto ainda traz apelido típico de tag de CX (caixinha),
+    // não forçar UN — o match de tag / clarificação resolve o SKU.
     if (
         SINGLE_UNIT_FORMAT_RE.test(norm(formatText)) &&
         !/\b(caixinha|caixinhas|fardinho|fardinhos|caixa|caixas|\bcx\b)\b/u.test(norm(formatText))

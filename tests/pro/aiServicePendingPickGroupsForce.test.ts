@@ -161,6 +161,7 @@ describe("AiServiceAdapter — não força resolve_pending_picks no mesmo turno 
 
     it("pendingPickGroups de carryover (turno anterior): força resolve_pending_picks na resposta atual", async () => {
         const carryoverGroup: PendingPickGroup = {
+            lineId: "line_marmita",
             productKey: "marmita",
             productLabel: "marmita",
             options: [

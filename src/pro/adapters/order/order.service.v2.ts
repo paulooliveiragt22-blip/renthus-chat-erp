@@ -1,13 +1,12 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { OrderService } from "../../services/order/order.types";
-import type { DraftAddress, OrderDraft, OrderServiceResult, PaymentMethod } from "@/src/types/contracts";
-import { isPickupDraft } from "@/lib/delivery/fulfillment";
+import type { DraftAddress, OrderDraft, OrderServiceResult } from "@/src/types/contracts";
 import { getOrCreateCustomer } from "@/lib/chatbot/db/orders";
 import { resolveOrCreateCustomerByIdentity } from "@/lib/chatbot/db/channelIdentity";
 import { loadPackRowForValidation } from "@/src/pro/tools/prepareOrderDraft";
 import { canFulfillQty } from "@/lib/products/stockPolicy";
 import { sanitizeOrderNotes } from "@/lib/orders/sanitizeOrderNotes";
-import { formatPackSiglaLabel } from "@/lib/products/packDisplayName";
+import { buildWebMenuOrderNotifyMessage } from "@/lib/orders/buildOrderNotifyMessage";
 import { trackOrderCreatedServer } from "@/lib/analytics/mixpanelServer";
 import type { OrderChannel } from "@/lib/analytics/types";
 
@@ -65,55 +64,56 @@ function buildAddressText(address: DraftAddress): string {
     ].filter(Boolean).join(", ");
 }
 
-function paymentLabel(method: PaymentMethod): string {
-    if (method === "pix") return "PIX";
-    if (method === "card") return "Cartão";
-    if (method === "debit") return "Débito";
-    return "Dinheiro";
-}
-
-function moneyBr(value: number): string {
-    return value.toFixed(2).replace(".", ",");
-}
-
 function asCurrency(value: number): number {
     return Number(value.toFixed(2));
 }
 
-function buildItemsSummary(items: OrderDraft["items"]): string {
-    return items
-        .slice(0, 3)
-        .map((item) => {
-            const pack = formatPackSiglaLabel(item.siglaComercial, item.fatorConversao);
-            return `${item.quantity}× ${item.productName} (${pack})`;
-        })
-        .join("; ");
+/** Nome de linha no estilo cardápio web: `HEINEKEN (CX)`. */
+function webMenuItemProductName(item: OrderDraft["items"][number]): string {
+    const name = String(item.productName ?? "Item").trim() || "Item";
+    const sigla = String(item.siglaComercial ?? "UN").trim().toUpperCase() || "UN";
+    const alreadyTagged = new RegExp(`\\(${sigla}\\)\\s*$`, "iu").test(name);
+    return alreadyTagged ? name : `${name} (${sigla})`;
 }
 
+/**
+ * Confirmação ao cliente = mesmo template do cardápio web
+ * (`buildWebMenuOrderNotifyMessage`) — uma fonte canônica.
+ */
 export function buildOrderCustomerMessage(params: {
     orderCode: string;
     requireApproval: boolean;
     draft: OrderDraft;
 }): string {
     const { orderCode, requireApproval, draft } = params;
-    const payment = paymentLabel(draft.paymentMethod ?? "cash");
-    const items = buildItemsSummary(draft.items);
     const recomputedItemsTotal = asCurrency(
         draft.items.reduce((acc, item) => acc + item.quantity * item.unitPrice, 0)
     );
     const recomputedGrandTotal = asCurrency(recomputedItemsTotal + draft.deliveryFee);
     const inconsistentGrandTotal = Math.abs(recomputedGrandTotal - draft.grandTotal) >= 0.02;
     const safeGrandTotal = inconsistentGrandTotal ? recomputedGrandTotal : draft.grandTotal;
-    const deliveryFeeText = isPickupDraft(draft)
-        ? " Retirada no local."
-        : draft.deliveryFee > 0
-          ? ` Taxa R$ ${moneyBr(draft.deliveryFee)}.`
-          : " Taxa R$ 0,00.";
 
-    if (requireApproval) {
-        return `Pedido ${orderCode} recebido. Itens: ${items}. Total R$ ${moneyBr(safeGrandTotal)} via ${payment}.${deliveryFeeText} Estamos confirmando e já voltamos.`;
-    }
-    return `Pedido ${orderCode} confirmado. Itens: ${items}. Total R$ ${moneyBr(safeGrandTotal)} via ${payment}.${deliveryFeeText}`;
+    const deliveryAddress =
+        String(draft.deliveryAddressText ?? "").trim() ||
+        (draft.address ? buildAddressText(draft.address) : "—");
+
+    return buildWebMenuOrderNotifyMessage({
+        orderCode,
+        requireApproval,
+        items: draft.items.map((item) => ({
+            product_name: webMenuItemProductName(item),
+            quantity: item.quantity,
+            unit_price: item.unitPrice,
+        })),
+        deliveryFee: Number(draft.deliveryFee) || 0,
+        grandTotal: safeGrandTotal,
+        deliveryAddress,
+        paymentMethod: draft.paymentMethod ?? "cash",
+        changeFor: draft.changeFor,
+        etaMin: draft.deliveryEtaMin,
+        fulfillmentType: draft.fulfillmentType === "pickup" ? "pickup" : "delivery",
+        notes: draft.orderNotes,
+    });
 }
 
 export function validateDraftConsistency(draft: OrderDraft): { ok: true } | { ok: false; message: string } {

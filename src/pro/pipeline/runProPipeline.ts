@@ -67,7 +67,10 @@ import {
     serverPrepareAfterProductPick,
 } from "./serverPrepareAfterPick";
 import { serverResolvePendingPicksFromFreeText } from "./serverResolvePendingPicks";
-import { removePendingPickGroupContaining } from "./pendingPickGroups";
+import {
+    buildPickClarificationFreeText,
+    removePendingPickGroupContaining,
+} from "./pendingPickGroups";
 import {
     parseAddressPickButtonId,
     serverPrepareAfterAddressPick,
@@ -488,6 +491,8 @@ export async function runProPipeline(
     const pickApplied = applyProductPickFromButton(input.inboundText, stateBeforePick);
     let stateAfterPick = pickApplied.state;
     const productPickApplied = Boolean(pickApplied.syntheticUserText);
+    /** ADR 0011 — não force-search no mesmo turno após pick (botão ou free-text). */
+    let pickResolveTurnForAi = productPickApplied;
     const inboundTextForPipeline = pickApplied.syntheticUserText ?? input.inboundText;
 
     /** Pick determinístico: prepare no servidor antes da IA (corta 1–2 RTTs de modelo). */
@@ -557,21 +562,33 @@ export async function runProPipeline(
                         ...stateAfterPick,
                         checkoutEditHold: false,
                     });
-                    const finalOutbound = checkoutPostProcessForQuickAction({
-                        state: finalState,
-                        outbound: [],
-                        fulfillmentPolicy,
-            acceptedPayments,
-                    });
+                    const stillPending = finalState.pendingPickGroups ?? [];
+                    /**
+                     * Ainda há produto(s) ambíguo(s): NÃO ir ao checkout vazio.
+                     * `checkoutButtonsForState` bloqueia com pendingPickGroups → outbound []
+                     * = silêncio no WhatsApp (bug após clarificar 1 de N).
+                     */
+                    const finalOutbound: OutboundMessage[] =
+                        stillPending.length > 0
+                            ? [{ kind: "text", text: buildPickClarificationFreeText(stillPending) }]
+                            : checkoutPostProcessForQuickAction({
+                                  state: finalState,
+                                  outbound: [],
+                                  fulfillmentPolicy,
+                                  acceptedPayments,
+                              });
                     await emitTurn({
-                state: finalState,
-                outbound: finalOutbound,
-            });
+                        state: finalState,
+                        outbound: finalOutbound,
+                    });
                     const metrics: PipelineMetric[] = [
                         {
                             name: "pro_pipeline.server_prepare_pick",
                             value: 1,
-                            tags: { skipped_ai: "1" },
+                            tags: {
+                                skipped_ai: "1",
+                                ...(stillPending.length ? { pending_clarify: "1" } : {}),
+                            },
                         },
                         { name: "pro_pipeline.outbound_count", value: finalOutbound.length },
                     ];
@@ -757,20 +774,30 @@ export async function runProPipeline(
                 userText: inboundTextForPipeline,
             });
             stateAfterPick = pendingResolve.state;
-            if (pendingResolve.handled) {
-                const synced = withResolvedSlotStep(stateAfterPick);
-                await emitTurn({ state: synced, outbound: pendingResolve.outbound });
+            if (pendingResolve.continueToCheckoutWithoutAi) {
+                const synced = withResolvedSlotStep({
+                    ...stateAfterPick,
+                    checkoutEditHold: false,
+                });
+                const finalOutbound = checkoutPostProcess({
+                    state: synced,
+                    outbound: pendingResolve.outbound,
+                    mode: "ai",
+                    fulfillmentPolicy,
+                    acceptedPayments,
+                    checkoutHandoffUrl: await resolveCheckoutHandoffUrl(
+                        deps,
+                        input,
+                        synced,
+                        { intentNewAddress: false, orderHints: null }
+                    ),
+                });
+                await emitTurn({ state: finalOutbound.state, outbound: finalOutbound.outbound });
                 const metrics: PipelineMetric[] = [
                     { name: "pro_pipeline.pending_pick_free_text", value: 1 },
-                    { name: "pro_pipeline.outbound_count", value: pendingResolve.outbound.length },
+                    { name: "pro_pipeline.pending_pick_checkout_no_ai", value: 1 },
+                    { name: "pro_pipeline.outbound_count", value: finalOutbound.outbound.length },
                 ];
-                if (pendingResolve.escalatedToButtons) {
-                    metrics.push({
-                        name: "pro_pipeline.pending_pick_abandon",
-                        value: 1,
-                        tags: { reason: "safety_net" },
-                    });
-                }
                 flushPipelineRunMetrics(
                     deps.metrics,
                     input.tenant,
@@ -778,11 +805,58 @@ export async function runProPipeline(
                     new Set(["pro_pipeline.outbound_count"])
                 );
                 return {
-                    nextState: synced,
-                    outbound: pendingResolve.outbound,
+                    nextState: finalOutbound.state,
+                    outbound: finalOutbound.outbound,
                     sideEffects: [],
                     metrics,
                 };
+            }
+            if (pendingResolve.handled) {
+                pickResolveTurnForAi = true;
+                let outbound = pendingResolve.outbound;
+                /** Rede de segurança: nunca short-circuit com silêncio. */
+                if (
+                    outbound.length === 0 &&
+                    (pendingResolve.state.pendingPickGroups?.length ?? 0) > 0
+                ) {
+                    outbound = [
+                        {
+                            kind: "text",
+                            text: buildPickClarificationFreeText(
+                                pendingResolve.state.pendingPickGroups ?? []
+                            ),
+                        },
+                    ];
+                }
+                if (outbound.length === 0) {
+                    // Sem mensagem e sem pending — deixa checkout/IA seguirem.
+                } else {
+                    const synced = withResolvedSlotStep(stateAfterPick);
+                    await emitTurn({ state: synced, outbound });
+                    const metrics: PipelineMetric[] = [
+                        { name: "pro_pipeline.pending_pick_free_text", value: 1 },
+                        { name: "pro_pipeline.outbound_count", value: outbound.length },
+                    ];
+                    if (pendingResolve.escalatedToButtons) {
+                        metrics.push({
+                            name: "pro_pipeline.pending_pick_abandon",
+                            value: 1,
+                            tags: { reason: "safety_net" },
+                        });
+                    }
+                    flushPipelineRunMetrics(
+                        deps.metrics,
+                        input.tenant,
+                        metrics,
+                        new Set(["pro_pipeline.outbound_count"])
+                    );
+                    return {
+                        nextState: synced,
+                        outbound,
+                        sideEffects: [],
+                        metrics,
+                    };
+                }
             }
         } catch (err) {
             deps.logger?.warn("pro_pipeline.pending_pick_resolve_failed", {
@@ -1097,7 +1171,11 @@ export async function runProPipeline(
                             : nextState.step,
                 };
             }
-            let aiContext: PipelineContext = { ...context, session: nextState };
+            let aiContext: PipelineContext = {
+                ...context,
+                session: nextState,
+                pickResolveTurn: pickResolveTurnForAi,
+            };
             let prefetchedOrderHints: Record<string, unknown> | null = null;
             const shouldPrefetchHints =
                 !infoOnly &&

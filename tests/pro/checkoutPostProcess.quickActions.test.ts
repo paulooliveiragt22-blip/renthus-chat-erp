@@ -360,6 +360,36 @@ describe("applyQuickAction — entrega vs retirada", () => {
         assert.equal(g, null);
     });
 
+    it("checkoutPostProcess oferece Entrega / Retirar mesmo com lastSearchPicks residual se já há itens", () => {
+        const out = checkoutPostProcess({
+            state: state({
+                step: "pro_collecting_order",
+                draft: minimalDraft({ paymentMethod: null, fulfillmentType: null }),
+                lastSearchPicks: [
+                    { embalagemId: "a", label: "A", price: 10 },
+                    { embalagemId: "b", label: "B", price: 12 },
+                ],
+            }),
+            outbound: [
+                {
+                    kind: "text",
+                    text: "Perfeito! Anotei os itens. Agora preciso do seu endereço de entrega para seguir.",
+                },
+            ],
+            mode: "ai",
+            fulfillmentPolicy: { deliveriesEnabled: true, pickupEnabled: true },
+        });
+        const buttons = out.outbound.find((m) => m.kind === "buttons");
+        assert.ok(buttons);
+        assert.ok(buttons!.buttons?.some((b) => b.id === "pro_fulfillment_delivery"));
+        assert.ok(buttons!.buttons?.some((b) => b.id === "pro_fulfillment_pickup"));
+        assert.ok(
+            !out.outbound.some(
+                (m) => m.kind === "text" && /preciso do seu endere/i.test(String(m.text ?? ""))
+            )
+        );
+    });
+
     it("checkoutPostProcess oferece Entrega / Retirar mesmo com endereço salvo (não infere entrega)", () => {
         const out = checkoutPostProcess({
             state: state({
