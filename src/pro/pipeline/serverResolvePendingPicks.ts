@@ -17,6 +17,8 @@ import { buildClarificationButtons } from "./stages/checkoutPostProcess";
 import {
     createEmptyOrderWorklist,
     markLineInDraft,
+    pendingSearchTermsFromWorklist,
+    worklistBlocksCheckout,
 } from "@/src/pro/domain/orderWorklist/orderWorklist";
 
 function groupToLegacyPicks(group: PendingPickGroup) {
@@ -95,8 +97,10 @@ export type ServerResolvePendingPicksResult = {
     handled: boolean;
     escalatedToButtons: boolean;
     /**
-     * Resolveu tudo via free-text: pipeline deve ir ao checkoutPostProcess
-     * **sem** chamar a IA (evita “adicionei whisky” com draft de outro SKU).
+     * Resolveu todos os pendingPickGroups via free-text **e** a worklist não
+     * bloqueia (sem pending_search/ambiguous/awaiting_qty). Pipeline vai ao
+     * checkoutPostProcess sem IA. Se a worklist ainda bloqueia, fica false —
+     * a IA deve force-search os irmãos (ADR 0011).
      */
     continueToCheckoutWithoutAi: boolean;
 };
@@ -187,15 +191,34 @@ export async function serverResolvePendingPicksFromFreeText(params: {
                 continueToCheckoutWithoutAi: false,
             };
         }
-        /** Tudo resolvido: ack canônico + checkout sem IA. */
+        const nextState: ProSessionState = {
+            ...state,
+            pendingPickGroups: [],
+            lastSearchPicks: [],
+            orderWorklist,
+            pendingOrderMentions: [],
+        };
+        /** Embalagens resolvidas, mas ainda há linhas a buscar/qty — não checkout. */
+        if (worklistBlocksCheckout(orderWorklist)) {
+            const pendingTerms = pendingSearchTermsFromWorklist(orderWorklist);
+            const stillMsg =
+                pendingTerms.length > 0
+                    ? `Ainda vou localizar: ${pendingTerms.join(", ")}.`
+                    : "Ainda tenho itens do seu pedido para localizar.";
+            const outbound: OutboundMessage[] = [];
+            if (ackText) outbound.push({ kind: "text", text: ackText });
+            outbound.push({ kind: "text", text: stillMsg });
+            return {
+                state: nextState,
+                outbound,
+                handled: false,
+                escalatedToButtons: false,
+                continueToCheckoutWithoutAi: false,
+            };
+        }
+        /** Tudo resolvido na worklist: ack canônico + checkout sem IA. */
         return {
-            state: {
-                ...state,
-                pendingPickGroups: [],
-                lastSearchPicks: [],
-                orderWorklist,
-                pendingOrderMentions: [],
-            },
+            state: nextState,
             outbound: ackText ? [{ kind: "text", text: ackText }] : [],
             handled: false,
             escalatedToButtons: false,

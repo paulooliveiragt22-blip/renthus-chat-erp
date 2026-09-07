@@ -113,6 +113,55 @@ describe("serverResolvePendingPicksFromFreeText", () => {
         assert.ok(res.outbound.some((m) => /CX|caixa/i.test(String(m.text))));
     });
 
+    it("resolve pick mas worklist ainda tem pending_search: NÃO checkout sem IA", async () => {
+        const res = await serverResolvePendingPicksFromFreeText({
+            admin: fakeAdminAlwaysEmpty(),
+            companyId: "company-1",
+            customerId: "c1",
+            state: baseState({
+                pendingPickGroups: [skolGroup(0)],
+                orderWorklist: {
+                    lines: [
+                        {
+                            id: "line_skol",
+                            rawTerm: "skol",
+                            quantity: 2,
+                            status: "ambiguous",
+                            searchAttempts: 1,
+                            productKey: "skol lata",
+                            produtoEmbalagemId: null,
+                            lastQuery: "skol",
+                            pendingPickGroupKey: "skol lata",
+                        },
+                        {
+                            id: "line_jamel",
+                            rawTerm: "jamel",
+                            quantity: 3,
+                            status: "pending_search",
+                            searchAttempts: 0,
+                            productKey: null,
+                            produtoEmbalagemId: null,
+                            lastQuery: null,
+                            pendingPickGroupKey: null,
+                        },
+                    ],
+                    sealedFromUserTextHash: "h1",
+                    updatedAtIso: new Date().toISOString(),
+                },
+            }),
+            userText: "1",
+        });
+        assert.equal(res.continueToCheckoutWithoutAi, false);
+        assert.equal(res.handled, false);
+        assert.deepEqual(res.state.pendingPickGroups, []);
+        assert.ok(
+            res.state.orderWorklist?.lines.some(
+                (l) => l.rawTerm === "jamel" && l.status === "pending_search"
+            )
+        );
+        assert.ok(res.outbound.some((m) => /localizar|jamel/i.test(String(m.text))));
+    });
+
     it("resolve 1 de 2: ack do item + clarifica o restante (sem IA)", async () => {
         const original: PendingPickGroup = {
             lineId: "line_original",

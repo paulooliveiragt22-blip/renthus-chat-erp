@@ -375,8 +375,7 @@ extract_order_lines (selo, 0–1× / hash)
 - [x] Fixture trajetória multi-item (nível A statuses/force) — `tests/pro/orderWorklist.trajectory.test.ts`.
 - [x] Assert negativo: turno de resolve pick **não** force-search.
 - [x] Assert: extract não reseeds no mesmo `sealedFromUserTextHash`.
-- [ ] Métricas / reason codes no trace (flag `PRO_PIPELINE_TURN_TRACE`): searches/turno, extract incompleto, `pending_pick_abandon`, `worklist_blocks_checkout`.
-- [x] **Não** propor Braintrust/Langfuse/SaaS de eval até cassetes locais + traces cobrirem N≥2 ambiguous (rule P1) — política registada.
+- [x] Métricas / reason codes no trace (flag `PRO_PIPELINE_TURN_TRACE`): coluna `worklist_summary` (`byStatus`, `blocksCheckout`, `reasons`, terms); `searchAttemptsTotal` como proxy.- [x] **Não** propor Braintrust/Langfuse/SaaS de eval até cassetes locais + traces cobrirem N≥2 ambiguous (rule P1) — política registada.
 
 **E2E / docs**
 

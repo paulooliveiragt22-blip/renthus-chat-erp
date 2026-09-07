@@ -72,7 +72,22 @@ describe("pipeline turn trace", () => {
                     phoneE164: "+5511999999999",
                 },
                 stateBefore: idleState(),
-                stateAfter: { ...idleState(), step: "pro_collecting_order" },
+                stateAfter: {
+                    ...idleState(),
+                    step: "pro_collecting_order",
+                    orderWorklist: {
+                        sealedFromUserTextHash: "fnv1a_test",
+                        lines: [
+                            {
+                                id: "l1",
+                                rawTerm: "skol",
+                                quantity: 1,
+                                status: "pending_search",
+                                searchAttempts: 0,
+                            },
+                        ],
+                    },
+                },
                 outbound: [{ kind: "text", text: "Oi" }],
                 aiProfile: "avancado",
                 telemetryReason: null,
@@ -81,6 +96,15 @@ describe("pipeline turn trace", () => {
             assert.equal(upserted.length, 1);
             assert.equal(upserted[0]!.row.inbound_message_id, "wamid.c4-trace");
             assert.equal(upserted[0]!.row.v, 1);
+            const summary = upserted[0]!.row.worklist_summary as {
+                blocksCheckout?: boolean;
+                reasons?: string[];
+                pendingSearchTerms?: string[];
+            } | null;
+            assert.ok(summary);
+            assert.equal(summary.blocksCheckout, true);
+            assert.ok(summary.reasons?.includes("pending_search"));
+            assert.deepEqual(summary.pendingSearchTerms, ["skol"]);
             assert.deepEqual(upserted[0]!.opts, {
                 onConflict: "company_id,inbound_message_id",
             });

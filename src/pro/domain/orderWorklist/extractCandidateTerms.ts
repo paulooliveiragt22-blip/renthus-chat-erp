@@ -1,6 +1,7 @@
 /**
  * Fallback lexical multi-item (ADR 0011 D4) — NÃO é fonte canônica da worklist.
- * Usado só quando extract LLM falha/vazio e a mensagem parece multi-item.
+ * Usado quando extract LLM falha/vazio **ou** devolve menos itens que o lexical
+ * (merge no seed — evita selar só o último termo ambíguo).
  */
 
 const MAX_PENDING_TERMS = 5;
@@ -45,6 +46,9 @@ const PACK_ONLY_RE =
 
 const FULFILLMENT_OR_PAYMENT_RE =
     /^(entrega|entregar|retirada|retirar|buscar|pix|dinheiro|cartao|cartão|credito|crédito|debito|débito|especie|espécie)$/i;
+
+/** Qty word/digit that starts a new product chunk mid-phrase (sem "e"/vírgula). */
+const QTY_START_RE = /(?:\d+|um|uma|uns|umas|dois|duas|tres|três)/i;
 
 export function normalizePendingTerm(text: string): string {
     return String(text ?? "")
@@ -92,20 +96,39 @@ function isNoiseSegment(normalized: string): boolean {
 }
 
 /**
- * Seed conservador: só quando a mensagem tem 2+ segmentos separados por
- * " e " / vírgula / " mais " / " também ". Evita semear em "quero skol" sozinho.
+ * "duas skol tres caixa de jamel" → ["duas skol", "tres caixa de jamel"]
+ * Parte em qty words/dígitos no meio (smoke Ferrester sem "e" entre itens).
+ */
+export function splitOnJuxtaposedQuantities(segment: string): string[] {
+    const raw = String(segment ?? "").trim();
+    if (!raw) return [];
+    const parts = raw.split(
+        new RegExp(`(?<=\\S)\\s+(?=${QTY_START_RE.source}\\s+\\S)`, "i")
+    );
+    return parts.map((p) => p.trim()).filter(Boolean);
+}
+
+function normalizeProductSegment(segment: string): string {
+    let s = stripFillerPrefix(segment);
+    s = s.replace(/^(?:\d+|um|uma|dois|duas|tres|três)\s+/i, "").trim();
+    return s;
+}
+
+/**
+ * Seed conservador: 2+ segmentos via " e " / vírgula / " mais " **ou**
+ * qty justapostas ("duas X tres Y"). Evita semear em "quero skol" sozinho.
  */
 export function extractCandidatePendingTermsFromUserText(userText: string): string[] {
     const raw = String(userText ?? "").trim();
     if (!raw) return [];
-    const parts = raw
+    const conjunctionParts = raw
         .split(/\s*(?:,|;|\be\b|\bmais\b|\btamb[eé]m\b|\btb\b)\s+/i)
-        .map((p) => stripFillerPrefix(p))
-        .map((p) => p.replace(/^(?:\d+|um|uma|dois|duas|tres|três)\s+/i, "").trim())
+        .flatMap((p) => splitOnJuxtaposedQuantities(p))
+        .map((p) => normalizeProductSegment(p))
         .filter((p) => {
             const n = normalizePendingTerm(p);
             return !isNoiseSegment(n);
         });
-    if (parts.length < 2) return [];
-    return uniquePendingTerms(parts);
+    if (conjunctionParts.length < 2) return [];
+    return uniquePendingTerms(conjunctionParts);
 }

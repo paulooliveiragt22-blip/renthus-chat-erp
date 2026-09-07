@@ -3,6 +3,7 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { OutboundMessage, ProSessionState, TenantRef } from "@/src/types/contracts";
 import type { EnvLike } from "@/lib/env/EnvLike";
+import { buildWorklistTraceSummary } from "@/lib/pro/worklistTraceSummary";
 
 export function isPipelineTurnTraceEnabled(
     env: EnvLike = process.env
@@ -42,6 +43,8 @@ export async function recordPipelineTurnTrace(params: {
     const channel =
         raw === "instagram" || raw === "messenger" || raw === "web" ? raw : "whatsapp";
 
+    const worklistSummary = buildWorklistTraceSummary(params.stateAfter);
+
     const row = {
         v: 1,
         company_id: params.tenant.companyId,
@@ -54,6 +57,7 @@ export async function recordPipelineTurnTrace(params: {
         draft_snapshot: (params.stateAfter.draft ?? null) as unknown,
         telemetry_reason: params.telemetryReason ?? null,
         ai_profile: params.aiProfile ?? null,
+        worklist_summary: worklistSummary,
     };
 
     try {

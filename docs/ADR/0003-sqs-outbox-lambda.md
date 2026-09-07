@@ -757,11 +757,14 @@ Fila SQS por **tier comercial** (`essencial`, `pro`), não por tenant. Justifica
 | `lib/chatbot/llmDistributedCap.ts` | Reduzir default `companyLlmMaxInFlight` de 4 → **2** (evitar contenção cross-instance em prod) |
 | Lambda env | `LLM_GLOBAL_MAX_IN_FLIGHT=20`, `COMPANY_LLM_MAX_IN_FLIGHT=2` |
 
-### 9.3 Anthropic prompt caching (5min TTL) — REVALIDAR COM ANTHROPIC, NÃO GROQ
+### 9.3 Anthropic prompt caching (5min TTL) — IMPLEMENTADO (2026-09-07)
 
 | Path | Mudança |
 |---|---|
-| `src/pro/adapters/ai/ai.service.ts` | Adicionar `cache_control: { type: "ephemeral", ttl: "5m" }` no **último** bloco do system prompt (Fase 9 da Anthropic docs) e na lista de tools. Reduz input tokens 90% no 2º turno em diante. Latência 2º turno: **8s → 2s** (medido). Groq **não suporta** cache_control — flag `LLM_CACHE_CONTROL_ENABLED=0` quando provider=groq |
+| `src/pro/adapters/ai/promptCache.ts` | Flag `LLM_CACHE_CONTROL_ENABLED` (default on p/ Anthropic; off p/ Groq/OpenAI; `0` desliga) |
+| `src/pro/adapters/ai/ai.service.ts` | Split estável/dinâmico: `system` = regras; draft/worklist/hints no **user**; `cacheControl: { type: "ephemeral", ttl: "5m" }` na última tool (`respond_to_customer`) — prefixo system+tools ≥4096 (Haiku 4.5). Log/métricas `cacheReadTokens`/`cacheWriteTokens`. |
+
+**Conflito resolvido na ponta de maior valor:** cache no system monolítico com worklist/draft causava miss todo turno. Dinâmico fora do prefixo; breakpoint nas tools. Groq **não** recebe `cache_control`.
 
 ### 9.4 `stopWhen: stepCountIs()` por tier
 

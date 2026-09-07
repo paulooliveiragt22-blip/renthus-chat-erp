@@ -67,6 +67,7 @@ import {
     serverPrepareAfterProductPick,
 } from "./serverPrepareAfterPick";
 import { serverResolvePendingPicksFromFreeText } from "./serverResolvePendingPicks";
+import { worklistBlocksCheckout } from "@/src/pro/domain/orderWorklist/orderWorklist";
 import {
     buildPickClarificationFreeText,
     removePendingPickGroupContaining,
@@ -564,14 +565,47 @@ export async function runProPipeline(
                     });
                     const stillPending = finalState.pendingPickGroups ?? [];
                     /**
-                     * Ainda há produto(s) ambíguo(s): NÃO ir ao checkout vazio.
-                     * `checkoutButtonsForState` bloqueia com pendingPickGroups → outbound []
-                     * = silêncio no WhatsApp (bug após clarificar 1 de N).
+                     * Ainda há produto(s) ambíguo(s) OU worklist bloqueando: NÃO ir ao
+                     * checkout. Worklist → deixa a IA force-search no mesmo turno.
                      */
-                    const finalOutbound: OutboundMessage[] =
-                        stillPending.length > 0
-                            ? [{ kind: "text", text: buildPickClarificationFreeText(stillPending) }]
-                            : checkoutPostProcessForQuickAction({
+                    if (worklistBlocksCheckout(finalState.orderWorklist)) {
+                        // fall through to AI (não return)
+                    } else if (stillPending.length > 0) {
+                    const finalOutbound: OutboundMessage[] = [
+                        { kind: "text", text: buildPickClarificationFreeText(stillPending) },
+                    ];
+                    await emitTurn({
+                        state: finalState,
+                        outbound: finalOutbound,
+                    });
+                    const metrics: PipelineMetric[] = [
+                        {
+                            name: "pro_pipeline.server_prepare_pick",
+                            value: 1,
+                            tags: {
+                                skipped_ai: "1",
+                                pending_clarify: "1",
+                            },
+                        },
+                        {
+                            name: "pro_pipeline.outbound_count",
+                            value: finalOutbound.length,
+                        },
+                    ];
+                    flushPipelineRunMetrics(
+                        deps.metrics,
+                        input.tenant,
+                        metrics,
+                        new Set(["pro_pipeline.outbound_count"])
+                    );
+                    return {
+                        nextState: finalState,
+                        outbound: finalOutbound,
+                        sideEffects: [],
+                        metrics,
+                    };
+                    } else {
+                    const finalOutbound: OutboundMessage[] = checkoutPostProcessForQuickAction({
                                   state: finalState,
                                   outbound: [],
                                   fulfillmentPolicy,
@@ -587,10 +621,12 @@ export async function runProPipeline(
                             value: 1,
                             tags: {
                                 skipped_ai: "1",
-                                ...(stillPending.length ? { pending_clarify: "1" } : {}),
                             },
                         },
-                        { name: "pro_pipeline.outbound_count", value: finalOutbound.length },
+                        {
+                            name: "pro_pipeline.outbound_count",
+                            value: finalOutbound.length,
+                        },
                     ];
                     flushPipelineRunMetrics(
                         deps.metrics,
@@ -604,6 +640,7 @@ export async function runProPipeline(
                         sideEffects: [],
                         metrics,
                     };
+                    }
                 }
             } catch (err) {
                 deps.logger?.warn("pro_pipeline.server_prepare_pick_failed", {
@@ -775,6 +812,18 @@ export async function runProPipeline(
             });
             stateAfterPick = pendingResolve.state;
             if (pendingResolve.continueToCheckoutWithoutAi) {
+                if (worklistBlocksCheckout(stateAfterPick.orderWorklist)) {
+                    /**
+                     * Defesa: resolveu embalagens mas worklist ainda bloqueia.
+                     * Emite ack (se houver) e segue à IA p/ force-search — sem checkout.
+                     */
+                    if (pendingResolve.outbound.length > 0) {
+                        await emitTurn({
+                            state: withResolvedSlotStep(stateAfterPick),
+                            outbound: pendingResolve.outbound,
+                        });
+                    }
+                } else {
                 const synced = withResolvedSlotStep({
                     ...stateAfterPick,
                     checkoutEditHold: false,
@@ -810,6 +859,17 @@ export async function runProPipeline(
                     sideEffects: [],
                     metrics,
                 };
+                }
+            } else if (
+                !pendingResolve.handled &&
+                pendingResolve.outbound.length > 0 &&
+                worklistBlocksCheckout(stateAfterPick.orderWorklist)
+            ) {
+                /** Picks fechados + irmãos pending_search: ack agora, IA force-search em seguida. */
+                await emitTurn({
+                    state: withResolvedSlotStep(stateAfterPick),
+                    outbound: pendingResolve.outbound,
+                });
             }
             if (pendingResolve.handled) {
                 pickResolveTurnForAi = true;

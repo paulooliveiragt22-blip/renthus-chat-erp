@@ -19,6 +19,19 @@ describe("extractCandidateTerms (lexical fallback)", () => {
         );
     });
 
+    it("extract: qty justapostas (smoke Ferrester sem 'e')", () => {
+        const terms = extractCandidatePendingTermsFromUserText(
+            "Quero duas skol tres caixa de jamel e um whisk"
+        ).map((t) => t.toLowerCase());
+        assert.ok(terms.includes("skol"), `esperava skol, got ${JSON.stringify(terms)}`);
+        assert.ok(
+            terms.some((t) => t.includes("jamel")),
+            `esperava jamel, got ${JSON.stringify(terms)}`
+        );
+        assert.ok(terms.includes("whisk") || terms.includes("whisky"), `esperava whisk, got ${JSON.stringify(terms)}`);
+        assert.ok(terms.length >= 3);
+    });
+
     it("extract: single product → [] (não semeia)", () => {
         assert.deepEqual(extractCandidatePendingTermsFromUserText("quero uma skol"), []);
         assert.deepEqual(extractCandidatePendingTermsFromUserText("oi"), []);

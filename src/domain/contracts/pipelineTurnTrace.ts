@@ -18,6 +18,8 @@ export const PipelineTurnTraceSchema = z.object({
     draftSnapshot: z.unknown().nullable(),
     telemetryReason: z.string().nullable(),
     aiProfile: z.enum(["degradado", "basico", "avancado"]).nullable(),
+    /** ADR 0011 — resumo OrderWorklist (opcional; null se worklist vazia). */
+    worklistSummary: z.unknown().nullable().optional(),
     createdAt: z.string().datetime(),
 });
 
