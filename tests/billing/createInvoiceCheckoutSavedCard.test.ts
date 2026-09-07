@@ -31,6 +31,9 @@ describe("create-invoice-checkout — saved card wallet", () => {
         assert.match(src, /createCustomer\(/);
         assert.match(src, /isPagarmeOrderTerminalFailed/);
         assert.match(src, /card_payment_failed/);
+        assert.match(src, /cardPaymentFailedUserMessage/);
+        assert.match(src, /isReusableOpenOrderForAmount/);
         assert.doesNotMatch(src, /createCustomerCard/);
+        assert.doesNotMatch(src, /No sandbox use CVV 123/);
     });
 });

@@ -20,7 +20,6 @@ import {
     formatCvvInput,
     formatHolderDocumentInput,
 } from "@/lib/billing/cardInputFormatters";
-import { lookupCep } from "@/lib/address/cepLookup";
 import type { RenthusBillingAddr, RenthusCardForm } from "@/lib/billing/planBillingTypes";
 
 const PAGARME_PUBLIC_KEY = process.env.NEXT_PUBLIC_PAGARME_PUBLIC_KEY ?? "";
@@ -79,11 +78,21 @@ export function AddPaymentMethodModal({
         if (digits.length !== 8) return;
         setCepLoading(true);
         try {
-            const data = await lookupCep(digits, 3000);
-            if (!data) return;
+            const res = await fetch(`/api/address/cep?cep=${encodeURIComponent(digits)}`, {
+                credentials: "include",
+            });
+            if (!res.ok) return;
+            const data = (await res.json().catch(() => null)) as {
+                cep?: string;
+                logradouro?: string;
+                bairro?: string;
+                localidade?: string;
+                uf?: string;
+            } | null;
+            if (!data?.localidade && !data?.logradouro) return;
             setAddr((prev) => ({
                 ...prev,
-                cep: data.cep,
+                cep: formatCepInput(data.cep ?? digits),
                 endereco: data.logradouro || prev.endereco,
                 bairro: data.bairro || prev.bairro,
                 cidade: data.localidade || prev.cidade,

@@ -207,13 +207,38 @@ export type PagarmePixTransaction = {
     /** Algumas respostas usam camelCase alternativo */
     qrCode?: string;
     qrCodeUrl?: string;
+    acquirer_message?: string;
+    acquirer_return_code?: string;
+    status?: string;
+    gateway_response?: {
+        code?: string;
+        errors?: Array<{ message?: string; type?: string }>;
+    };
 };
 
 export type PagarmeCharge = {
     id: string;
     status: string;
+    amount?: number;
     last_transaction?: PagarmePixTransaction;
 };
+
+/** Mensagem amigável quando charge de cartão falha no PSP (live vs sandbox). */
+export function cardPaymentFailedUserMessage(order: PagarmeOrder): string {
+    const tx = order.charges?.[0]?.last_transaction;
+    const acquirer = String(tx?.acquirer_message ?? "").trim();
+    const gwErr = String(tx?.gateway_response?.errors?.[0]?.message ?? "").trim();
+    const detail = acquirer || gwErr;
+    const key = process.env.PAGARME_API_KEY ?? "";
+    const isSandbox = key.includes("_test_") || key.startsWith("sk_test");
+    const base = detail
+        ? `Cartão recusado pelo Pagar.me: ${detail}`
+        : "Cartão recusado pelo Pagar.me. Confira dados do titular, CVV e endereço de cobrança.";
+    if (isSandbox) {
+        return `${base} No sandbox use CVV 123 e cartão de teste (ex.: 4000000000000010).`;
+    }
+    return `${base} Em produção use cartão real (números de teste do sandbox não funcionam). Ou pague via PIX.`;
+}
 
 export type PagarmeCheckout = {
     id: string;
@@ -224,6 +249,7 @@ export type PagarmeCheckout = {
 export type PagarmeOrder = {
     id: string;
     status: string;
+    amount?: number;
     charges?: PagarmeCharge[];
     checkouts?: PagarmeCheckout[];
     customer?: { id?: string };
@@ -439,6 +465,30 @@ export function isPagarmeOrderTerminalFailed(order: PagarmeOrder): boolean {
     if (TERMINAL_FAILED_STATUSES.has(orderSt)) return true;
     const chargeSt = String(order.charges?.[0]?.status ?? "").toLowerCase();
     return TERMINAL_FAILED_STATUSES.has(chargeSt);
+}
+
+/** Amount canônico do order (centavos). */
+export function extractOrderAmountCents(order: PagarmeOrder): number | null {
+    const fromOrder = Number(order.amount);
+    if (Number.isFinite(fromOrder) && fromOrder > 0) return Math.floor(fromOrder);
+    const fromCharge = Number(order.charges?.[0]?.amount);
+    if (Number.isFinite(fromCharge) && fromCharge > 0) return Math.floor(fromCharge);
+    return null;
+}
+
+/**
+ * PIX reuse: order aberto, não pago/falho, amount == obrigação atual.
+ * Evita reexibir QR anual após realign mensal (ou o contrário).
+ */
+export function isReusableOpenOrderForAmount(
+    order: PagarmeOrder,
+    expectedAmountCents: number
+): boolean {
+    if (!Number.isFinite(expectedAmountCents) || expectedAmountCents <= 0) return false;
+    if (isOrderCreditPaid(order)) return false;
+    if (isPagarmeOrderTerminalFailed(order)) return false;
+    const amt = extractOrderAmountCents(order);
+    return amt != null && amt === Math.floor(expectedAmountCents);
 }
 
 /** Cobrança com cartão já salvo no cliente Pagar.me (`card_id`). Preferido em contas PSP. */

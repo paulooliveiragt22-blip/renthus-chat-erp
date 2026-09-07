@@ -200,6 +200,10 @@ export async function loadCheckoutContext(
                   : "invoice";
 
         // Sempre a RPC: cria ou realinha amount (plano/seats/promo/período).
+        const priorOrderId =
+            String(pendingForKind?.pagarme_order_id ?? "").trim() || null;
+        const priorAmountCents = Math.round(Number(pendingForKind?.amount ?? 0) * 100);
+
         const { data: oblig, error: obligErr } = await admin.rpc(
             "rpc_create_billing_obligation",
             { p_company_id: companyId, p_kind: "subscription", p_seat_qty: null }
@@ -221,6 +225,17 @@ export async function loadCheckoutContext(
                 .maybeSingle();
             pendingForKind = (newInv as PendingKindRow | null) ?? null;
         }
+
+        // Realign mudou o amount: cancela order PSP antigo (RPC só limpa colunas locais).
+        if (
+            priorOrderId &&
+            priorAmountCents > 0 &&
+            chargeCents > 0 &&
+            priorAmountCents !== chargeCents
+        ) {
+            const { cancelPagarmeChargeBestEffort } = await import("@/lib/billing/pagarme");
+            await cancelPagarmeChargeBestEffort(priorOrderId);
+        }
     }
 
     const strategy = resolveCheckoutStrategy(
@@ -235,17 +250,19 @@ export async function loadCheckoutContext(
     strategy.metaType = metaType;
     strategy.amountCents = chargeCents;
 
-    // Reconcile order pendente já pago no PSP (webhook perdido) → libera antes do QR.
+    // Só fulfill se já paid no PSP (webhook perdido). NÃO cancela aqui —
+    // cancel é só na troca/regeneração (cartão ou novo PIX), senão PIX→cartão
+    // mata o QR e a RPC realinha amount (parece “desconto” do PIX).
     if (pendingForKind?.id && pendingForKind.pagarme_order_id) {
-        const { reconcileOrCancelLiveOrder } = await import(
-            "@/lib/billing/reconcileLivePagarmeOrder"
+        const { fulfillIfPagarmeOrderPaid } = await import(
+            "@/lib/billing/syncPendingObligationFromPsp"
         );
-        const recon = await reconcileOrCancelLiveOrder(
+        const paid = await fulfillIfPagarmeOrderPaid(
             admin,
             pendingForKind.pagarme_order_id,
             strategy.metaType
         );
-        if (recon.action === "fulfilled") {
+        if (paid.fulfilled) {
             pendingForKind = null;
         }
     }

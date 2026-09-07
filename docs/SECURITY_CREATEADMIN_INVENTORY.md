@@ -24,7 +24,7 @@ Ao adicionar `app/api/**/route.ts` que importa `createAdminClient`:
 
 Admin operacional, billing self-service, workspace, uploads, WhatsApp painel, delivery, chatbot config, reports.
 
-Exemplos: `app/api/admin/**`, `app/api/billing/status`, `create-invoice-checkout`, `change-plan`, `self-reactivate`, `payment-methods`, `allow-overage`, `pending-plan-change`, `app/api/workspace/**`, `app/api/products/upload-image`, `app/api/whatsapp/send`, `upload`, `threads`, `app/api/orders/**` (exceto gone), `app/api/companies/update`, `app/api/support/create-ticket` (`requireCompanyAccess` + `mutating`; company_id só do cookie), `app/api/delivery/**`, `app/api/chatbot/config`.
+Exemplos: `app/api/admin/**`, `app/api/billing/status`, `create-invoice-checkout`, `change-plan`, `self-reactivate`, `payment-methods`, `allow-overage`, `pending-plan-change`, `app/api/address/cep` (`billing_self`; sem `createAdminClient` direto), `app/api/workspace/**`, `app/api/products/upload-image`, `app/api/whatsapp/send`, `upload`, `threads`, `app/api/orders/**` (exceto gone), `app/api/companies/update`, `app/api/support/create-ticket` (`requireCompanyAccess` + `mutating`; company_id só do cookie), `app/api/delivery/**`, `app/api/chatbot/config`.
 
 `GET/POST /api/admin/whatsapp-channel/embedded-signup/*` — `requireCompanyPlanFeature("whatsapp_messages", ["owner","admin"])`. `company_id` só da sessão. Complete: rate limit 5/10min por empresa.
 

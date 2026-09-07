@@ -13,6 +13,7 @@ import { checkRateLimit } from "@/lib/security/rateLimit";
 import {
     createPixInvoiceOrder,
     createOrderWithSavedCard,
+    cardPaymentFailedUserMessage,
     createCustomer,
     createSetupOrder,
     resolvePixFromOrder,
@@ -21,6 +22,7 @@ import {
     extractCardIdFromOrder,
     isOrderCreditPaid,
     isPagarmeOrderTerminalFailed,
+    isReusableOpenOrderForAmount,
     listCustomerCards,
     updatePagarmeCustomer,
 } from "@/lib/billing/pagarme";
@@ -83,6 +85,24 @@ async function attachPspToPendingInvoice(
         .eq("id", p.invoiceId)
         .eq("status", "pending");
     if (error) throw error;
+}
+
+/** Limpa vínculo PSP local após cancel (anti QR/order stale). */
+async function clearPendingInvoicePspFields(
+    admin: ReturnType<typeof createAdminClient>,
+    invoiceId: string | null | undefined
+): Promise<void> {
+    const id = typeof invoiceId === "string" ? invoiceId.trim() : "";
+    if (!id) return;
+    await admin
+        .from("invoices")
+        .update({
+            pagarme_order_id: null,
+            pagarme_payment_url: null,
+            pix_qr_code: null,
+        })
+        .eq("id", id)
+        .eq("status", "pending");
 }
 
 type Body = {
@@ -322,6 +342,9 @@ export async function POST(req: Request) {
                     message: "Pagamento confirmado. Plano liberado.",
                 });
             }
+            if (cardRecon.action === "cancelled") {
+                await clearPendingInvoicePspFields(admin, pendingInv?.id);
+            }
 
             const installments = Math.max(1, Math.min(12, Number(body.installments) || 1));
             let order;
@@ -509,8 +532,7 @@ export async function POST(req: Request) {
                 return NextResponse.json(
                     {
                         error: "card_payment_failed",
-                        message:
-                            "Cartão recusado pelo Pagar.me. No sandbox use CVV 123 e cartão de teste (ex.: 4000000000000010). Confira CPF do titular e endereço.",
+                        message: cardPaymentFailedUserMessage(order),
                         order_id: order.id,
                         payment_status: "failed",
                     },
@@ -533,41 +555,46 @@ export async function POST(req: Request) {
             (pendingRecord as { pix_qr_code?: string | null } | null)?.pix_qr_code ?? null;
         const hasHostedCheckout = existingPixUrl?.includes("checkout.pagar.me") ?? false;
 
-        // Já tem order + EMV: reutiliza. Se só tem URL (sem copia-e-cola), tenta backfill.
+        // Reusa QR só se order PSP ainda aberto E amount == obrigação atual.
         if (pendingRecord?.pagarme_order_id && existingPixUrl && !hasHostedCheckout) {
-            if (existingPixCode) {
-                return remember({
-                    ok:             true,
-                    payment_method: "pix",
-                    pix_qr_url:     existingPixUrl,
-                    pix_qr_code:    existingPixCode,
-                });
-            }
+            let reusable = false;
             try {
                 const existingOrder = await getPagarmeOrder(pendingRecord.pagarme_order_id);
-                const resolved = await resolvePixFromOrder(existingOrder);
-                if (resolved.pixCode) {
-                    const url = resolved.pixUrl ?? existingPixUrl;
-                    if (pendingInv) {
-                        await admin.from("invoices")
-                            .update({
-                                pix_qr_code:         resolved.pixCode,
-                                pagarme_payment_url: url,
-                            })
-                            .eq("id", pendingInv.id);
-                    }
+                reusable = isReusableOpenOrderForAmount(existingOrder, amountCents);
+                if (reusable && existingPixCode) {
                     return remember({
                         ok:             true,
                         payment_method: "pix",
-                        pix_qr_url:     url,
-                        pix_qr_code:    resolved.pixCode,
+                        pix_qr_url:     existingPixUrl,
+                        pix_qr_code:    existingPixCode,
+                        amount_cents:   amountCents,
                     });
                 }
+                if (reusable) {
+                    const resolved = await resolvePixFromOrder(existingOrder);
+                    if (resolved.pixCode) {
+                        const url = resolved.pixUrl ?? existingPixUrl;
+                        if (pendingInv) {
+                            await admin.from("invoices")
+                                .update({
+                                    pix_qr_code:         resolved.pixCode,
+                                    pagarme_payment_url: url,
+                                })
+                                .eq("id", pendingInv.id);
+                        }
+                        return remember({
+                            ok:             true,
+                            payment_method: "pix",
+                            pix_qr_url:     url,
+                            pix_qr_code:    resolved.pixCode,
+                            amount_cents:   amountCents,
+                        });
+                    }
+                }
             } catch (backfillErr) {
-                console.warn("[create-invoice-checkout] PIX EMV backfill failed:", backfillErr);
+                console.warn("[create-invoice-checkout] PIX reuse/backfill failed:", backfillErr);
             }
-            // Sem EMV ainda: cai no fluxo de criar novo order abaixo (ou reutiliza URL só se
-            // o usuário só precisar do QR imagem — preferimos regenerar com EMV).
+            // Amount divergente / order morto / sem EMV → regenera abaixo.
         }
 
         const companyLabel = (company.nome_fantasia as string | null)?.trim()
@@ -588,6 +615,9 @@ export async function POST(req: Request) {
                     payment_status: "paid",
                     message: "Pagamento confirmado. Plano liberado.",
                 });
+            }
+            if (pixRecon.action === "cancelled") {
+                await clearPendingInvoicePspFields(admin, pendingInv?.id);
             }
         }
 

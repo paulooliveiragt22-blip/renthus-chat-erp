@@ -6,7 +6,7 @@ import { CalendarClock, CircleDollarSign, CreditCard, Loader2 } from "lucide-rea
 import { useWorkspace } from "@/lib/workspace/useWorkspace";
 import { useInvalidatePlanFeatures } from "@/lib/billing/usePlanFeatures";
 import { pagarmeCreateCardToken } from "@/lib/pagarme/cardTokenBrowser";
-import { lookupCep } from "@/lib/address/cepLookup";
+import { formatCepInput } from "@/lib/billing/cardInputFormatters";
 import { validateRenthusCardCheckout } from "@/lib/billing/validateRenthusCardCheckout";
 import type {
     BillingStatusJson,
@@ -228,11 +228,21 @@ export default function PlanBillingPanel({ variant = "full" }: PlanBillingPanelP
         if (digits.length !== 8) return;
         setCepLoading(true);
         try {
-            const data = await lookupCep(digits, 3000);
-            if (!data) return;
+            const res = await fetch(`/api/address/cep?cep=${encodeURIComponent(digits)}`, {
+                credentials: "include",
+            });
+            if (!res.ok) return;
+            const data = (await res.json().catch(() => null)) as {
+                cep?: string;
+                logradouro?: string;
+                bairro?: string;
+                localidade?: string;
+                uf?: string;
+            } | null;
+            if (!data?.localidade && !data?.logradouro) return;
             setCardAddr((prev) => ({
                 ...prev,
-                cep: data.cep,
+                cep: formatCepInput(data.cep ?? digits),
                 endereco: data.logradouro || prev.endereco,
                 bairro: data.bairro || prev.bairro,
                 cidade: data.localidade || prev.cidade,
@@ -628,7 +638,14 @@ export default function PlanBillingPanel({ variant = "full" }: PlanBillingPanelP
                         checkoutOpen={checkoutOpen}
                         onCheckoutOpenChange={setCheckoutOpen}
                         renthusPayMode={renthusPayMode}
-                        onPayModeChange={setRenthusPayMode}
+                        onPayModeChange={(mode) => {
+                            if (mode === "card") {
+                                setPixLiveCode(null);
+                                setPixLiveUrl(null);
+                            }
+                            setRenthusPayMode(mode);
+                            void loadBilling({ silent: true });
+                        }}
                         renthusCard={renthusCard}
                         setRenthusCard={setRenthusCard}
                         renthusInstallments={renthusInstallments}
