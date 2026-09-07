@@ -247,11 +247,26 @@ export function extractCardIdFromOrder(order: PagarmeOrder): string | null {
 // Customers
 // ---------------------------------------------------------------------------
 
+export type PagarmeCustomerAddressInput = {
+    street: string;
+    number: string;
+    neighborhood?: string;
+    zipCode: string;
+    city: string;
+    state: string;
+    country?: string;
+};
+
+/**
+ * POST /customers — e-mail único: se já existir, a API atualiza o cadastro
+ * (docs Pagar.me). Usado para garantir `address`+`phones` em conta PSP.
+ */
 export async function createCustomer(params: {
     name: string;
     email: string;
     document?: string; // CPF/CNPJ sem formatação
-    phone?: string;    // Ex: "5566992285005"
+    phone?: string; // Ex: "5566992285005"
+    address?: PagarmeCustomerAddressInput;
 }): Promise<PagarmeCustomer> {
     const body: Record<string, unknown> = {
         name: params.name,
@@ -262,13 +277,32 @@ export async function createCustomer(params: {
     if (params.document) {
         const classified = classifyFiscalDocument(params.document);
         if (classified.valid) {
-            body.document      = classified.digits;
+            body.document = classified.digits;
             body.document_type = classified.kind;
-            body.type          = classified.kind === "CPF" ? "individual" : "company";
+            body.type = classified.kind === "CPF" ? "individual" : "company";
         }
     }
 
     attachCustomerMobilePhone(body, params.phone);
+
+    if (params.address) {
+        let zip = params.address.zipCode.replaceAll(/\D/g, "");
+        if (zip.length > 0 && zip.length < 8) zip = zip.padStart(8, "0");
+        const line1Parts = [
+            params.address.number,
+            params.address.street,
+            params.address.neighborhood,
+        ]
+            .map((s) => s?.trim())
+            .filter(Boolean);
+        body.address = {
+            line_1: line1Parts.join(", "),
+            zip_code: zip,
+            city: params.address.city,
+            state: params.address.state.slice(0, 2).toUpperCase(),
+            country: params.address.country ?? "BR",
+        };
+    }
 
     return pagarmeRequest<PagarmeCustomer>("/customers", "POST", body);
 }
@@ -404,17 +438,19 @@ export function isPagarmeOrderTerminalFailed(order: PagarmeOrder): boolean {
     return TERMINAL_FAILED_STATUSES.has(chargeSt);
 }
 
-/** Cobrança com cartão já salvo no cliente Pagar.me (`card_id`). */
+/** Cobrança com cartão já salvo no cliente Pagar.me (`card_id`). Preferido em contas PSP. */
 export async function createOrderWithSavedCard(params: {
     amountCents: number;
     description: string;
     itemCode?: string;
     customerId: string;
     cardId: string;
+    installments?: number;
     /** true para mensalidade / renovação (descriptor recorrente). */
     recurrence?: boolean;
     metadata?: Record<string, string>;
 }): Promise<PagarmeOrder> {
+    const installments = Math.max(1, Math.min(12, Number(params.installments) || 1));
     const body: Record<string, unknown> = {
         customer_id: params.customerId,
         items: [
@@ -432,8 +468,9 @@ export async function createOrderWithSavedCard(params: {
                 credit_card: {
                     card_id: params.cardId,
                     recurrence: params.recurrence === true,
-                    installments: 1,
+                    installments,
                     statement_descriptor: "RENTHUS",
+                    operation_type: "auth_and_capture",
                     capture: true,
                 },
             },

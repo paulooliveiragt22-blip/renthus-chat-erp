@@ -44,6 +44,8 @@ npm run test:e2e:billing
 
 Cartão sandbox: `4000000000000010` · `12/30` · CVV `123`.
 
+**Conta PSP:** cobrança usa `card_id` (token → salva no customer → cobra). O customer precisa de **telefone + endereço** (docs Criar pedido). CPF do titular ≠ CNPJ da empresa.
+
 ---
 
 ## Smoke API local (opcional)
@@ -193,9 +195,12 @@ Esperado: `PASS cartão` + `PASS PIX`.
 2. Abrir **`/plano/pagar`** (ou `/plano` se já ativo).
 3. Aba **Cartão** — preencher:
    - Titular, número `4000000000000010`, validade `12/30`, CVV `123`
+   - **CPF do titular** (pessoa), ex. `529.982.247-25` — não use o CNPJ da loja neste campo
    - Endereço completo (CEP 8 dígitos)
    - CNPJ da empresa com dígito verificador válido (se vazio ou inválido: em **sandbox** o checkout usa o CNPJ de teste `11444777000161` só no Pagar.me — não altera `companies.cnpj`)
 4. Clicar **Pagar**.
+
+Se a UI mostrar `card_payment_failed`: charge já veio `failed` do PSP (não “em análise”). Confira CVV `123`, CPF titular e se o endereço foi preenchido (customer PSP sem `address` falha).
 
 **Esperado (imediato):**
 

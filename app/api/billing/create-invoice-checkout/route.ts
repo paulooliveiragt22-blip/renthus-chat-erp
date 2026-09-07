@@ -12,13 +12,14 @@ import { requireCompanyAccess } from "@/lib/workspace/requireCompanyAccess";
 import { checkRateLimit } from "@/lib/security/rateLimit";
 import {
     createPixInvoiceOrder,
-    createSetupOrder,
     createOrderWithSavedCard,
+    createCustomer,
+    createCustomerCard,
     resolvePixFromOrder,
     getPagarmeOrder,
     extractOrderCustomerId,
-    extractCardIdFromOrder,
     isOrderCreditPaid,
+    isPagarmeOrderTerminalFailed,
     listCustomerCards,
     updatePagarmeCustomer,
 } from "@/lib/billing/pagarme";
@@ -324,6 +325,8 @@ export async function POST(req: Request) {
             const installments = Math.max(1, Math.min(12, Number(body.installments) || 1));
             let order;
             let usedCardId: string | null = savedCardId || null;
+            /** Customer PSP com address+phones (docs: obrigatório em conta PSP). */
+            let chargeCustomerId = walletCustomerId;
 
             if (savedCardId) {
                 if (!walletCustomerId) {
@@ -342,12 +345,43 @@ export async function POST(req: Request) {
                         { status: 403 }
                     );
                 }
+                // Best-effort: upsert customer com endereço da empresa (PSP exige address).
+                const coStreet = String(company.endereco ?? "").trim();
+                const coNum = String(company.numero ?? "").trim();
+                const coCity = String(company.cidade ?? "").trim();
+                const coUf = String(company.uf ?? "").trim();
+                let coZip = String(company.cep ?? "").replaceAll(/\D/g, "");
+                if (coZip.length > 0 && coZip.length < 8) coZip = coZip.padStart(8, "0");
+                if (coStreet && coNum && coCity && coUf.length >= 2 && coZip.length >= 8) {
+                    try {
+                        await createCustomer({
+                            name: customerBase.name,
+                            email: customerBase.email,
+                            document: fiscal.value.digits,
+                            phone: customerBase.phone,
+                            address: {
+                                street: coStreet,
+                                number: coNum,
+                                zipCode: coZip,
+                                city: coCity,
+                                state: coUf.slice(0, 2).toUpperCase(),
+                                country: "BR",
+                            },
+                        });
+                    } catch (ensureErr: unknown) {
+                        console.warn(
+                            "[create-invoice-checkout] ensure customer address (saved card):",
+                            ensureErr instanceof Error ? ensureErr.message : ensureErr
+                        );
+                    }
+                }
                 order = await createOrderWithSavedCard({
                     amountCents,
                     description: labels.description,
                     itemCode: labels.itemCode,
                     customerId: walletCustomerId,
                     cardId: savedCardId,
+                    installments,
                     recurrence: !isFirstPayment,
                     metadata: orderMeta,
                 });
@@ -375,6 +409,7 @@ export async function POST(req: Request) {
                 }
 
                 const line1Parts = [num, street, bairro].filter(Boolean);
+                const line1 = line1Parts.join(", ");
 
                 const holderDoc = classifyFiscalDocument(body.holder_document);
                 if (!holderDoc.valid) {
@@ -387,29 +422,67 @@ export async function POST(req: Request) {
                     );
                 }
 
-                order = await createSetupOrder({
-                    amountCents,
-                    description:     labels.description,
-                    installments,
-                    cardToken:       token!,
-                    itemCode:        labels.itemCode,
-                    holderDocument:  holderDoc.digits,
-                    customerId:      reuseCustomerId,
-                    customer:        reuseCustomerId ? undefined : customerBase,
+                // PSP: customer completo (address+phones) via POST upsert por e-mail.
+                // Cobrança com card_id (docs: card_token só para Gateway).
+                const ensuredCustomer = await createCustomer({
+                    name: customerBase.name,
+                    email: customerBase.email,
+                    document: fiscal.value.digits,
+                    phone: customerBase.phone,
+                    address: {
+                        street,
+                        number: num,
+                        neighborhood: bairro || undefined,
+                        zipCode: zip,
+                        city,
+                        state: uf.slice(0, 2).toUpperCase(),
+                        country: "BR",
+                    },
+                });
+                const ensuredId = String(ensuredCustomer.id ?? "").trim();
+                if (!ensuredId) {
+                    return NextResponse.json(
+                        { error: "Não foi possível preparar o cliente no Pagar.me." },
+                        { status: 502 }
+                    );
+                }
+                chargeCustomerId = ensuredId;
+
+                const savedCard = await createCustomerCard({
+                    customerId: ensuredId,
+                    cardToken: token!,
                     billingAddress: {
-                        line_1:   line1Parts.join(", "),
-                        line_2:   "",
+                        line_1: line1,
                         zip_code: zip,
                         city,
-                        state:    uf.slice(0, 2).toUpperCase(),
-                        country:  "BR",
+                        state: uf.slice(0, 2).toUpperCase(),
+                        country: "BR",
                     },
+                    // Cobrança real em seguida; evita ZDA extra no sandbox.
+                    verifyCard: false,
+                });
+                const newCardId = String(savedCard.id ?? "").trim();
+                if (!newCardId) {
+                    return NextResponse.json(
+                        { error: "Não foi possível salvar o cartão no Pagar.me." },
+                        { status: 502 }
+                    );
+                }
+                usedCardId = newCardId;
+
+                order = await createOrderWithSavedCard({
+                    amountCents,
+                    description: labels.description,
+                    itemCode: labels.itemCode,
+                    customerId: ensuredId,
+                    cardId: newCardId,
+                    installments,
+                    recurrence: !isFirstPayment,
                     metadata: orderMeta,
                 });
-                usedCardId = extractCardIdFromOrder(order);
             }
 
-            const custId = extractOrderCustomerId(order);
+            const custId = extractOrderCustomerId(order) || chargeCustomerId || null;
 
             if (!pendingInv?.id) {
                 return NextResponse.json(
@@ -441,6 +514,19 @@ export async function POST(req: Request) {
                     payment_status: "paid",
                     message:        "Pagamento aprovado. Plano liberado.",
                 });
+            }
+
+            if (isPagarmeOrderTerminalFailed(order)) {
+                return NextResponse.json(
+                    {
+                        error: "card_payment_failed",
+                        message:
+                            "Cartão recusado pelo Pagar.me. No sandbox use CVV 123 e cartão de teste (ex.: 4000000000000010). Confira CPF do titular e endereço.",
+                        order_id: order.id,
+                        payment_status: "failed",
+                    },
+                    { status: 402 }
+                );
             }
 
             return remember({

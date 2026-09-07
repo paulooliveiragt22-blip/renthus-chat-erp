@@ -430,7 +430,11 @@ export default function PlanBillingPanel({ variant = "full" }: PlanBillingPanelP
             });
             const json = await res.json().catch(() => ({}));
             if (!res.ok) {
-                setBillingErr((json as { error?: string }).error ?? "Erro ao processar cartão.");
+                setBillingErr(
+                    (json as { message?: string }).message ??
+                        (json as { error?: string }).error ??
+                        "Erro ao processar cartão."
+                );
                 return;
             }
             const status = (json as { payment_status?: string }).payment_status;
