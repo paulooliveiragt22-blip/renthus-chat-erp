@@ -384,6 +384,96 @@ function ChoiceSegment({
     );
 }
 
+/** Tags livres → chips (espaço/Enter/vírgula cria; X remove). Persistido como CSV. */
+function parseTagChips(value: string): string[] {
+    return value
+        .split(/[,;\n]+/u)
+        .map((t) => t.trim())
+        .filter(Boolean);
+}
+
+function joinTagChips(chips: string[]): string {
+    return chips.join(", ");
+}
+
+function TagsChipInput({
+    value,
+    onChange,
+    placeholder,
+    className,
+}: {
+    value: string;
+    onChange: (next: string) => void;
+    placeholder?: string;
+    className?: string;
+}) {
+    const chips = parseTagChips(value);
+    const [draft, setDraft] = useState("");
+
+    const commitDraft = (raw: string) => {
+        const next = raw.trim().replace(/[,;]+$/u, "").trim();
+        if (!next) {
+            setDraft("");
+            return;
+        }
+        const key = next.toLowerCase();
+        if (chips.some((c) => c.toLowerCase() === key)) {
+            setDraft("");
+            return;
+        }
+        onChange(joinTagChips([...chips, next]));
+        setDraft("");
+    };
+
+    const removeAt = (idx: number) => {
+        onChange(joinTagChips(chips.filter((_, i) => i !== idx)));
+    };
+
+    return (
+        <div
+            className={cn(
+                "flex min-h-[2.25rem] flex-wrap items-center gap-1.5 rounded-lg border border-border bg-zinc-50 px-2 py-1.5 focus-within:border-primary focus-within:ring-1 focus-within:ring-primary/40 dark:bg-zinc-800",
+                className
+            )}
+        >
+            {chips.map((chip, idx) => (
+                <span
+                    key={`${chip}-${idx}`}
+                    className="inline-flex max-w-full items-center gap-0.5 rounded-md bg-violet-100 py-0.5 pl-2 pr-0.5 text-[11px] font-semibold text-violet-800 dark:bg-violet-900/40 dark:text-violet-200"
+                >
+                    <span className="truncate">{chip}</span>
+                    <button
+                        type="button"
+                        aria-label={`Remover tag ${chip}`}
+                        onClick={() => removeAt(idx)}
+                        className="shrink-0 rounded p-0.5 text-violet-600 hover:bg-violet-200/80 hover:text-violet-900 dark:text-violet-300 dark:hover:bg-violet-800/60"
+                    >
+                        <X className="h-3 w-3" />
+                    </button>
+                </span>
+            ))}
+            <input
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                onKeyDown={(e) => {
+                    if (e.key === " " || e.key === "Enter" || e.key === ",") {
+                        e.preventDefault();
+                        commitDraft(draft);
+                        return;
+                    }
+                    if (e.key === "Backspace" && !draft && chips.length) {
+                        e.preventDefault();
+                        removeAt(chips.length - 1);
+                    }
+                }}
+                onBlur={() => commitDraft(draft)}
+                placeholder={chips.length ? "" : placeholder}
+                className="min-w-[6rem] flex-1 border-0 bg-transparent py-0.5 text-xs text-foreground outline-none placeholder:text-foreground-muted"
+            />
+        </div>
+    );
+}
+
 /** Flags de catálogo — ficam na barra sticky do modal (não somem no scroll). */
 function ProductFlagsSticky({
     isActive,
@@ -1834,7 +1924,12 @@ export default function ProdutosListaPage() {
                                                             </div>
                                                             <div className="sm:col-span-2">
                                                                 <label className="mb-0.5 block text-[10px] font-semibold text-zinc-500">Tags / Sinônimos <span className="font-normal text-zinc-400">(busca chatbot)</span></label>
-                                                                <input value={it.tags} onChange={(e) => updateFormItem(vol.id, it.id, { tags: e.target.value })} placeholder="latinha, gelada…" className={`${inputCls} py-1.5 text-xs`} />
+                                                                <TagsChipInput
+                                                                    value={it.tags}
+                                                                    onChange={(tags) => updateFormItem(vol.id, it.id, { tags })}
+                                                                    placeholder="latinha gelada…"
+                                                                    className="py-1"
+                                                                />
                                                             </div>
                                                         </div>
                                                         <div className="mt-3 flex justify-end">
@@ -2218,7 +2313,12 @@ export default function ProdutosListaPage() {
                                                             </div>
                                                             <div className="sm:col-span-2">
                                                                 <label className="mb-0.5 block text-[10px] font-semibold text-zinc-500">Tags / Sinônimos <span className="font-normal text-zinc-400">(usado no chatbot)</span></label>
-                                                                <input value={it.tags} onChange={(e) => updateFormItem(vol.id, it.id, { tags: e.target.value })} placeholder="latinha, gelada, skolzinha…" className={`${inputCls} py-1.5 text-xs`} />
+                                                                <TagsChipInput
+                                                                    value={it.tags}
+                                                                    onChange={(tags) => updateFormItem(vol.id, it.id, { tags })}
+                                                                    placeholder="latinha gelada skolzinha…"
+                                                                    className="py-1"
+                                                                />
                                                             </div>
                                                         </div>
                                                     </div>

@@ -12,6 +12,7 @@ import {
     type PendingPickGroup,
 } from "@/src/pro/pipeline/pendingPickGroups";
 import { hasExplicitOrderQuantityInText } from "@/src/pro/tools/parseQtyPt";
+import { preferRowsMatchingTagAliases } from "@/src/pro/tools/tagAliasMatch";
 
 /**
  * Orquestração de `search_produtos` extraída de `ai.service.full.ts` (agora reusável por
@@ -85,7 +86,7 @@ export async function runSearchProdutosForAi(
     const categoryHint = input.categoryHint ?? null;
     const detailed = await deps.catalog.searchDetailed(deps.companyId, query, { categoryHint, limit: 8 });
 
-    let rows = detailed.items;
+    let rows = preferRowsMatchingTagAliases(detailed.items, query, deps.userText);
     if (rows.length >= 2) {
         let companySiglas: Awaited<ReturnType<typeof loadCompanySiglas>> = [];
         let habitSigla: string | null = null;
@@ -159,6 +160,8 @@ export async function runSearchProdutosForAi(
                       sigla_comercial?: string | null;
                       preco_venda?: number | string | null;
                       fator_conversao?: number | string | null;
+                      product_volume_id?: string | null;
+                      produto_id?: string | null;
                   }>
               )
             : null;

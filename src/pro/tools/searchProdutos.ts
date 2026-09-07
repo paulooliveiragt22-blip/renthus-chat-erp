@@ -11,6 +11,7 @@ import {
     setCachedCatalogSearchAsync,
 } from "./catalogSearchCache";
 import { applySearchRelevanceRerank } from "./searchRelevance";
+import { preferRowsMatchingTagAliases } from "./tagAliasMatch";
 
 export type ChatProdutoRow = {
     id:                   string;
@@ -288,7 +289,8 @@ export async function runSearchProdutosDetailed(
     }
 
     const finalized = await finalizeRows(admin, rows);
-    const ranked = applySearchRelevanceRerank(q, finalized);
+    const tagNarrowed = preferRowsMatchingTagAliases(finalized, q);
+    const ranked = applySearchRelevanceRerank(q, tagNarrowed);
     const items = ranked.slice(0, limit);
     const result: SearchProdutosResult = {
         items,

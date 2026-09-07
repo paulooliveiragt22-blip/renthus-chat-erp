@@ -139,6 +139,16 @@ export function resolvePreferredSigla(
     const explicit = matchExplicitSiglaFromText(segment, companySiglas, hitSiglaList(items));
     if (explicit) return explicit;
 
+    const formatText = opts?.formatHintText ?? segment;
+    /**
+     * Apelidos de caixa (tags do catálogo / fala do cliente): "caixinha", "fardinho".
+     * Tem prioridade sobre a heurística qty < fator → UN (ex.: "5 caixinhas de original").
+     */
+    if (/\b(caixinha|caixinhas|fardinho|fardinhos)\b/u.test(norm(formatText))) {
+        if (hitSiglaList(items).includes("CX")) return "CX";
+        if (hitSiglaList(items).includes("FARD")) return "FARD";
+    }
+
     const habit = String(opts?.habitSigla ?? "")
         .trim()
         .toUpperCase();
@@ -170,8 +180,11 @@ export function resolvePreferredSigla(
 
     // Palavra de formato "unidade única" (lata/garrafa/pet/long neck) sem caixa citada nem
     // quantidade decisiva: mesma regra pra qualquer produto (não é caso específico de 1 marca).
-    const formatText = opts?.formatHintText ?? segment;
-    if (SINGLE_UNIT_FORMAT_RE.test(norm(formatText))) {
+    // "caixinha" já foi tratada acima — não cair em UN por causa de "lata" no mesmo texto.
+    if (
+        SINGLE_UNIT_FORMAT_RE.test(norm(formatText)) &&
+        !/\b(caixinha|caixinhas|fardinho|fardinhos|caixa|caixas|\bcx\b)\b/u.test(norm(formatText))
+    ) {
         if (hitSiglaList(items).includes("UN")) return "UN";
         return siglaOfMinFator();
     }

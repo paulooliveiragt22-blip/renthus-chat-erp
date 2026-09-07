@@ -52,6 +52,48 @@ describe("isSamePackagingFamily", () => {
             true
         );
     });
+
+    it("false quando mesmo produto_id mas volumes distintos (ORIGINAL LATA vs 600ML)", () => {
+        assert.equal(
+            isSamePackagingFamily([
+                {
+                    id: "lata-un",
+                    product_name: "ORIGINAL LATA",
+                    produto_id: "prod-1",
+                    product_volume_id: "vol-lata",
+                },
+                {
+                    id: "un600",
+                    product_name: "ORIGINAL 600ML",
+                    produto_id: "prod-1",
+                    product_volume_id: "vol-600",
+                },
+            ]),
+            false
+        );
+    });
+
+    it("true para UN/CX do mesmo volume", () => {
+        assert.equal(
+            isSamePackagingFamily([
+                {
+                    id: "lata-un",
+                    product_name: "ORIGINAL LATA",
+                    produto_id: "prod-1",
+                    product_volume_id: "vol-lata",
+                    sigla_comercial: "UN",
+                },
+                {
+                    id: "lata-cx",
+                    product_name: "ORIGINAL LATA (CX)",
+                    produto_id: "prod-1",
+                    product_volume_id: "vol-lata",
+                    sigla_comercial: "CX",
+                },
+            ]),
+            true
+        );
+    });
 });
 
 describe("disambiguatePackagingForSearchRows", () => {

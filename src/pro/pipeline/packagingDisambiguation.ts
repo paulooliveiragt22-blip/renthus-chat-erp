@@ -24,6 +24,8 @@ type PackagingRow = {
     preco_venda?: number | string | null;
     fator_conversao?: number | string | null;
     produto_id?: string | null;
+    /** Volume/SKU (ex.: LATA 269 vs 600ML) — família UN/CX é por volume, não pelo produto pai. */
+    product_volume_id?: string | null;
 };
 
 function normalizePt(text: string): string {
@@ -36,12 +38,19 @@ function normalizePt(text: string): string {
 }
 
 /**
- * Mesma família de venda (UN/CX do mesmo SKU).
- * Prefere `produto_id`: após `enrichAndFilter` o `product_name` vira `display_name`
- * (MARMITA P vs G vs M) e o nome pai some — sem isso a desambiguação nunca rodava.
+ * Mesma família de venda (UN/CX do mesmo SKU/volume).
+ * Prefere `product_volume_id`: um produto pai (ex.: ORIGINAL) pode ter LATA + 600ML;
+ * tratar só por `produto_id` misturava volumes e a qty "5" virava heurística UN em tudo.
+ * Fallback: `produto_id`, depois `product_name` (legado quando enrich apaga o nome pai).
  */
 export function isSamePackagingFamily(rows: PackagingRow[]): boolean {
     if (rows.length < 2) return false;
+    const volIds = [
+        ...new Set(rows.map((r) => String(r.product_volume_id ?? "").trim()).filter(Boolean)),
+    ];
+    if (volIds.length === 1 && volIds[0]) return true;
+    /** Se há volumes distintos informados, não é a mesma família UN/CX. */
+    if (volIds.length > 1) return false;
     const ids = [...new Set(rows.map((r) => String(r.produto_id ?? "").trim()).filter(Boolean))];
     if (ids.length === 1 && ids[0]) return true;
     const names = new Set(
