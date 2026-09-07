@@ -14,10 +14,11 @@ import {
     createPixInvoiceOrder,
     createOrderWithSavedCard,
     createCustomer,
-    createCustomerCard,
+    createSetupOrder,
     resolvePixFromOrder,
     getPagarmeOrder,
     extractOrderCustomerId,
+    extractCardIdFromOrder,
     isOrderCreditPaid,
     isPagarmeOrderTerminalFailed,
     listCustomerCards,
@@ -423,7 +424,8 @@ export async function POST(req: Request) {
                 }
 
                 // PSP: customer completo (address+phones) via POST upsert por e-mail.
-                // Cobrança com card_id (docs: card_token só para Gateway).
+                // Cobrança com card_token no order (não POST /cards — ZDA/verify_card
+                // falha no sandbox PSP mesmo com verify_card:false).
                 const ensuredCustomer = await createCustomer({
                     name: customerBase.name,
                     email: customerBase.email,
@@ -448,38 +450,25 @@ export async function POST(req: Request) {
                 }
                 chargeCustomerId = ensuredId;
 
-                const savedCard = await createCustomerCard({
-                    customerId: ensuredId,
+                order = await createSetupOrder({
+                    amountCents,
+                    description: labels.description,
+                    installments,
                     cardToken: token!,
+                    itemCode: labels.itemCode,
+                    holderDocument: holderDoc.digits,
+                    customerId: ensuredId,
                     billingAddress: {
                         line_1: line1,
+                        line_2: "",
                         zip_code: zip,
                         city,
                         state: uf.slice(0, 2).toUpperCase(),
                         country: "BR",
                     },
-                    // Cobrança real em seguida; evita ZDA extra no sandbox.
-                    verifyCard: false,
-                });
-                const newCardId = String(savedCard.id ?? "").trim();
-                if (!newCardId) {
-                    return NextResponse.json(
-                        { error: "Não foi possível salvar o cartão no Pagar.me." },
-                        { status: 502 }
-                    );
-                }
-                usedCardId = newCardId;
-
-                order = await createOrderWithSavedCard({
-                    amountCents,
-                    description: labels.description,
-                    itemCode: labels.itemCode,
-                    customerId: ensuredId,
-                    cardId: newCardId,
-                    installments,
-                    recurrence: !isFirstPayment,
                     metadata: orderMeta,
                 });
+                usedCardId = extractCardIdFromOrder(order);
             }
 
             const custId = extractOrderCustomerId(order) || chargeCustomerId || null;

@@ -21,6 +21,7 @@ import { resolveCheckoutDisplayAmountBrl } from "@/lib/billing/resolveCheckoutDi
 import {
     formatCardExpiryInput,
     formatCardNumberInput,
+    formatCepInput,
     formatCvvInput,
     formatHolderDocumentInput,
 } from "@/lib/billing/cardInputFormatters";
@@ -75,7 +76,8 @@ type Props = {
     cardAddr: RenthusBillingAddr;
     setCardAddr: React.Dispatch<React.SetStateAction<RenthusBillingAddr>>;
     cepLoading: boolean;
-    onCepBlur: (cep: string) => void;
+    /** ViaCEP — chamado com CEP (qualquer formatação); dispara com 8 dígitos. */
+    onCepLookup: (cep: string) => void;
     pixLoading: boolean;
     pixCopied: boolean;
     pixLiveCode: string | null;
@@ -106,7 +108,7 @@ export function PlanCheckoutSection({
     cardAddr,
     setCardAddr,
     cepLoading,
-    onCepBlur,
+    onCepLookup,
     pixLoading,
     pixCopied,
     pixLiveCode,
@@ -356,12 +358,18 @@ export function PlanCheckoutSection({
                             <input
                                 type="text"
                                 value={cardAddr.cep}
-                                onChange={(e) =>
-                                    setCardAddr((a) => ({ ...a, cep: e.target.value }))
-                                }
-                                onBlur={(e) => onCepBlur(e.target.value)}
+                                onChange={(e) => {
+                                    const masked = formatCepInput(e.target.value);
+                                    setCardAddr((a) => ({ ...a, cep: masked }));
+                                    if (masked.replaceAll(/\D/g, "").length === 8) {
+                                        onCepLookup(masked);
+                                    }
+                                }}
+                                onBlur={(e) => onCepLookup(e.target.value)}
                                 placeholder="00000-000"
                                 maxLength={9}
+                                inputMode="numeric"
+                                autoComplete="postal-code"
                                 className="w-full rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-800"
                             />
                             {cepLoading ? (

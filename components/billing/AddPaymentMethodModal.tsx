@@ -16,6 +16,7 @@ import { validateRenthusCardCheckout } from "@/lib/billing/validateRenthusCardCh
 import {
     formatCardExpiryInput,
     formatCardNumberInput,
+    formatCepInput,
     formatCvvInput,
     formatHolderDocumentInput,
 } from "@/lib/billing/cardInputFormatters";
@@ -73,8 +74,8 @@ export function AddPaymentMethodModal({
         });
     }, [open, initialAddr, cnpj]);
 
-    async function onCepBlur() {
-        const digits = addr.cep.replaceAll(/\D/g, "");
+    async function lookupAddrCep(rawCep: string) {
+        const digits = rawCep.replaceAll(/\D/g, "");
         if (digits.length !== 8) return;
         setCepLoading(true);
         try {
@@ -292,9 +293,18 @@ export function AddPaymentMethodModal({
                         <input
                             className="rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 dark:border-zinc-700 dark:bg-zinc-800"
                             value={addr.cep}
-                            onChange={(e) => setAddr((a) => ({ ...a, cep: e.target.value }))}
-                            onBlur={() => void onCepBlur()}
+                            onChange={(e) => {
+                                const masked = formatCepInput(e.target.value);
+                                setAddr((a) => ({ ...a, cep: masked }));
+                                if (masked.replaceAll(/\D/g, "").length === 8) {
+                                    void lookupAddrCep(masked);
+                                }
+                            }}
+                            onBlur={() => void lookupAddrCep(addr.cep)}
+                            placeholder="00000-000"
+                            maxLength={9}
                             inputMode="numeric"
+                            autoComplete="postal-code"
                             disabled={Boolean(localSuccess)}
                         />
                     </label>

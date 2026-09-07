@@ -636,7 +636,7 @@ export default function PlanBillingPanel({ variant = "full" }: PlanBillingPanelP
                         cardAddr={cardAddr}
                         setCardAddr={setCardAddr}
                         cepLoading={cepLoading}
-                        onCepBlur={(cep) => { void fetchViaCep(cep); }}
+                        onCepLookup={(cep) => { void fetchViaCep(cep); }}
                         pixLoading={pixLoading}
                         pixCopied={pixCopied}
                         pixLiveCode={pixLiveCode}

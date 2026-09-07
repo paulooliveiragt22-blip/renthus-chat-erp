@@ -15,6 +15,13 @@ export function formatCvvInput(raw: string): string {
     return raw.replaceAll(/\D/g, "").slice(0, 4);
 }
 
+/** Máscara CEP 00000-000. */
+export function formatCepInput(raw: string): string {
+    const d = raw.replaceAll(/\D/g, "").slice(0, 8);
+    if (d.length <= 5) return d;
+    return `${d.slice(0, 5)}-${d.slice(5)}`;
+}
+
 /** Máscara progressiva CPF (11) / CNPJ (14, numérico ou alfanumérico). */
 export function formatHolderDocumentInput(raw: string): string {
     const d = raw

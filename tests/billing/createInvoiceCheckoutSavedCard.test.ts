@@ -25,12 +25,12 @@ describe("create-invoice-checkout — saved card wallet", () => {
         );
     });
 
-    it("cartão novo: PSP via createCustomer+createCustomerCard+card_id (não createSetupOrder/card_token)", () => {
+    it("cartão novo: customer com address + createSetupOrder (sem createCustomerCard/ZDA)", () => {
         const src = read("app/api/billing/create-invoice-checkout/route.ts");
-        assert.match(src, /createCustomerCard/);
+        assert.match(src, /createSetupOrder/);
         assert.match(src, /createCustomer\(/);
         assert.match(src, /isPagarmeOrderTerminalFailed/);
         assert.match(src, /card_payment_failed/);
-        assert.doesNotMatch(src, /createSetupOrder/);
+        assert.doesNotMatch(src, /createCustomerCard/);
     });
 });
