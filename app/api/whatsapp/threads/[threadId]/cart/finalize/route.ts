@@ -1,9 +1,11 @@
 import { NextResponse } from "next/server";
 import { requireCapability } from "@/lib/workspace/rbac/requireCapability";
-import { getThreadActiveCart } from "@\/src/pro/pipeline/getThreadActiveCart";
-import { OrderServiceV2Adapter } from "@\/src/pro/adapters/order/order.service.v2";
+import { getThreadActiveCart } from "@/src/pro/pipeline/getThreadActiveCart";
+import { OrderServiceV2Adapter } from "@/src/pro/adapters/order/order.service.v2";
 import { jsonAccessError, jsonError, jsonInternalError } from "@/lib/api/errors";
+import { getOrCreateCustomer } from "@/lib/chatbot/db/orders";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import type { OrderDraft, TenantRef } from "@/src/types/contracts";
 
 export const runtime = "nodejs";
 
@@ -95,7 +97,7 @@ export async function POST(
         deliveryAddressText: cart.draft.deliveryAddressText ?? null,
         deliveryMinOrder: null,
         deliveryEtaMin: null,
-        totalItems: grandTotal,
+        totalItems: cart.totalItems,
         pendingConfirmation: false,
         version: 1,
     };
@@ -112,14 +114,24 @@ export async function POST(
     // 6. Executar criação via OrderServiceV2Adapter (mesmo que resolvePendingOrderConfirmation faz)
     const orderService = new OrderServiceV2Adapter(admin);
     const idempotencyKey = `attendant_manual:${userId}:${threadId}:${Date.now()}`;
+    const messageId = `manual-finalize:${userId}:${threadId}:${Date.now()}`;
+    const tenant: TenantRef = {
+        companyId,
+        threadId,
+        messageId,
+        phoneE164: thread.phone_e164 as string,
+        messagingChannel: "whatsapp",
+        channelUserId: userId,
+    };
+    const customer = await getOrCreateCustomer(
+        admin,
+        companyId,
+        thread.phone_e164 as string,
+        thread.profile_name as string | null
+    );
     const orderResult = await orderService.createFromDraft({
-        tenant: {
-            companyId,
-            threadId,
-            phoneE164: thread.phone_e164 as string,
-            messagingChannel: "whatsapp",
-            channelUserId: userId,
-        },
+        tenant,
+        customerId: customer?.id ?? "__missing_handoff_customer__",
         draft,
         idempotencyKey,
     });

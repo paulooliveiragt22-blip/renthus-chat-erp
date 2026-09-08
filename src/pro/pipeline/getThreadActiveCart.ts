@@ -32,7 +32,12 @@ export type ActiveCartView = {
     grandTotal: number;
     paymentMethod: PaymentMethod | null;
     address: DraftAddress | null;
+    changeFor: number | null;
+    deliveryFee: number;
+    deliveryAddressText: string | null;
     updatedAt: string | null;
+    /** OrderDraft original recuperado da sessão ou carrinho abandonado. */
+    draft: OrderDraft;
 };
 
 const STEP_LABELS: Record<ProStep, string> = {
@@ -149,6 +154,10 @@ async function buildView(args: {
         grandTotal: draft.grandTotal ?? items.reduce((s, i) => s + i.subtotal, 0),
         paymentMethod: draft.paymentMethod ?? null,
         address: draft.address ?? null,
+        changeFor: draft.changeFor ?? null,
+        deliveryFee: draft.deliveryFee ?? 0,
+        deliveryAddressText: draft.deliveryAddressText ?? null,
         updatedAt,
+        draft,
     };
 }
