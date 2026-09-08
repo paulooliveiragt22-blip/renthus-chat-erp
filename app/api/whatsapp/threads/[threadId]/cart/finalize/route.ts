@@ -126,8 +126,9 @@ export async function POST(
 
     if (!orderResult.ok) {
         return jsonError(
-            \"order_creation_failed\",
-            orderResult.errorCode ?? \"Não foi possível criar o pedido.\\n\",\n            502,
+            "order_creation_failed",
+            orderResult.errorCode ?? "Não foi possível criar o pedido.",
+            502,
         );
     }
 
