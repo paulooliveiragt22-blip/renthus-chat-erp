@@ -4,7 +4,8 @@
  * (merge no seed — evita selar só o último termo ambíguo).
  */
 
-const MAX_PENDING_TERMS = 5;
+import { parsePtQuantity } from "@/src/pro/tools/parseQtyPt";
+import { MAX_WORKLIST_LINES } from "@/src/pro/domain/orderWorklist/orderWorklist";
 
 const FILLER_TOKENS = new Set([
     "quero",
@@ -18,10 +19,6 @@ const FILLER_TOKENS = new Set([
     "favor",
     "pf",
     "pfv",
-    "um",
-    "uma",
-    "uns",
-    "umas",
     "o",
     "a",
     "os",
@@ -47,8 +44,12 @@ const PACK_ONLY_RE =
 const FULFILLMENT_OR_PAYMENT_RE =
     /^(entrega|entregar|retirada|retirar|buscar|pix|dinheiro|cartao|cartão|credito|crédito|debito|débito|especie|espécie)$/i;
 
-/** Qty word/digit that starts a new product chunk mid-phrase (sem "e"/vírgula). */
 const QTY_START_RE = /(?:\d+|um|uma|uns|umas|dois|duas|tres|três)/i;
+
+export type LexicalCandidateTerm = {
+    rawTerm: string;
+    quantity: number | null;
+};
 
 export function normalizePendingTerm(text: string): string {
     return String(text ?? "")
@@ -59,24 +60,74 @@ export function normalizePendingTerm(text: string): string {
         .trim();
 }
 
-/** Dois rótulos referem o mesmo produto (query vs menção). */
+const QTY_LIKE_TOKENS = new Set([
+    "um",
+    "uma",
+    "uns",
+    "umas",
+    "dois",
+    "duas",
+    "tres",
+    "três",
+    "quatro",
+    "cinco",
+    "seis",
+    "sete",
+    "oito",
+    "nove",
+    "dez",
+]);
+
+function tokensHaveQtyLike(tokens: readonly string[]): boolean {
+    return tokens.some((t) => QTY_LIKE_TOKENS.has(t) || /^\d+$/.test(t));
+}
+
+const SIZE_VARIANT_TOKENS = new Set(["p", "m", "g", "gg", "xg", "pp"]);
+
 export function pendingTermsReferToSame(a: string, b: string): boolean {
     const na = normalizePendingTerm(a);
     const nb = normalizePendingTerm(b);
     if (!na || !nb) return false;
     if (na === nb) return true;
-    if (na.length >= 3 && nb.length >= 3 && (na.includes(nb) || nb.includes(na))) return true;
+
+    const allA = na.split(" ").filter(Boolean);
+    const allB = nb.split(" ").filter(Boolean);
+    /** "marmitas m" ≠ "marmitas g" — tamanho curto não pode ser descartado no match. */
+    const sizeA = allA.filter((t) => SIZE_VARIANT_TOKENS.has(t));
+    const sizeB = allB.filter((t) => SIZE_VARIANT_TOKENS.has(t));
+    if (sizeA.length && sizeB.length && sizeA.join("|") !== sizeB.join("|")) {
+        return false;
+    }
+
+    const ta = allA.filter((t) => t.length >= 3);
+    const tb = allB.filter((t) => t.length >= 3);
+    if (ta.length === 1 && tb.includes(ta[0]!)) {
+        if (tb.length === 1) return true;
+        if (tokensHaveQtyLike(allB)) return false;
+        return true;
+    }
+    if (tb.length === 1 && ta.includes(tb[0]!)) {
+        if (ta.length === 1) return true;
+        if (tokensHaveQtyLike(allA)) return false;
+        return true;
+    }
     return false;
 }
 
-function uniquePendingTerms(terms: readonly string[]): string[] {
-    const out: string[] = [];
-    for (const raw of terms) {
-        const t = String(raw ?? "").trim();
+function uniqueLexicalTerms(terms: readonly LexicalCandidateTerm[]): LexicalCandidateTerm[] {
+    const out: LexicalCandidateTerm[] = [];
+    for (const row of terms) {
+        const t = String(row.rawTerm ?? "").trim();
         if (!t) continue;
-        if (out.some((x) => pendingTermsReferToSame(x, t))) continue;
-        out.push(t);
-        if (out.length >= MAX_PENDING_TERMS) break;
+        if (out.some((x) => pendingTermsReferToSame(x.rawTerm, t))) continue;
+        out.push({
+            rawTerm: t,
+            quantity:
+                row.quantity != null && Number.isFinite(row.quantity) && row.quantity >= 1
+                    ? Math.floor(row.quantity)
+                    : null,
+        });
+        if (out.length >= MAX_WORKLIST_LINES) break;
     }
     return out;
 }
@@ -95,10 +146,6 @@ function isNoiseSegment(normalized: string): boolean {
     return false;
 }
 
-/**
- * "duas skol tres caixa de jamel" → ["duas skol", "tres caixa de jamel"]
- * Parte em qty words/dígitos no meio (smoke Ferrester sem "e" entre itens).
- */
 export function splitOnJuxtaposedQuantities(segment: string): string[] {
     const raw = String(segment ?? "").trim();
     if (!raw) return [];
@@ -108,27 +155,89 @@ export function splitOnJuxtaposedQuantities(segment: string): string[] {
     return parts.map((p) => p.trim()).filter(Boolean);
 }
 
-function normalizeProductSegment(segment: string): string {
-    let s = stripFillerPrefix(segment);
-    s = s.replace(/^(?:\d+|um|uma|dois|duas|tres|três)\s+/i, "").trim();
-    return s;
+const PACK_LEAD_RE =
+    /^(caixa|caixas|unidade|unidades|fardo|fardos|pacote|pacotes|lata|latas|garrafa|garrafas|un|cx|fard|pac)s?\s+(?:de\s+)?/i;
+
+function parseProductSegment(segment: string): LexicalCandidateTerm | null {
+    const stripped = stripFillerPrefix(segment);
+    if (!stripped) return null;
+    const m = stripped.match(/^(?:\d+|um|uma|uns|umas|dois|duas|tres|três)\s+/i);
+    let quantity: number | null = null;
+    let rest = stripped;
+    if (m) {
+        const qtyTok = m[0]!.trim().split(/\s+/)[0]!;
+        quantity = parsePtQuantity(qtyTok);
+        rest = stripped.slice(m[0]!.length).trim();
+    }
+    // "caixa de jamel" → termo de busca "jamel" (CX é hint, não o produto)
+    rest = rest.replace(PACK_LEAD_RE, "").trim() || rest;
+    const n = normalizePendingTerm(rest);
+    if (isNoiseSegment(n)) return null;
+    return { rawTerm: rest, quantity };
 }
 
 /**
  * Seed conservador: 2+ segmentos via " e " / vírgula / " mais " **ou**
- * qty justapostas ("duas X tres Y"). Evita semear em "quero skol" sozinho.
+ * qty justapostas ("duas X tres Y"). Preserva quantity do segmento.
  */
-export function extractCandidatePendingTermsFromUserText(userText: string): string[] {
+export function extractCandidatePendingTermsFromUserText(userText: string): LexicalCandidateTerm[] {
     const raw = String(userText ?? "").trim();
     if (!raw) return [];
-    const conjunctionParts = raw
+    const parts = raw
         .split(/\s*(?:,|;|\be\b|\bmais\b|\btamb[eé]m\b|\btb\b)\s+/i)
         .flatMap((p) => splitOnJuxtaposedQuantities(p))
-        .map((p) => normalizeProductSegment(p))
-        .filter((p) => {
-            const n = normalizePendingTerm(p);
-            return !isNoiseSegment(n);
-        });
-    if (conjunctionParts.length < 2) return [];
-    return uniquePendingTerms(conjunctionParts);
+        .map((p) => parseProductSegment(p))
+        .filter((p): p is LexicalCandidateTerm => p != null);
+    if (parts.length < 2) return [];
+    return uniqueLexicalTerms(parts);
 }
+
+/**
+ * Resposta curta de pick/qty/sigla — não deve (re)semeiar worklist
+ * (ex.: "3", "caixa", "2 un" enquanto clarify está aberto).
+ */
+export function isLikelyPickOrShortReply(userText: string): boolean {
+    const raw = String(userText ?? "").trim();
+    if (!raw) return true;
+    if (raw.length > 48) return false;
+    const n = normalizePendingTerm(raw);
+    if (!n) return true;
+    if (/^\d{1,2}$/.test(n)) return true;
+    if (PACK_ONLY_RE.test(n)) return true;
+    if (FULFILLMENT_OR_PAYMENT_RE.test(n)) return true;
+    /** "quero a 2" / "a unidade" / "a caixa" */
+    if (/^(a|o|uma|um)\s+(caixa|caixas|unidade|unidades|un|cx|fardo|pacote)s?$/.test(n)) {
+        return true;
+    }
+    const tokens = n.split(" ").filter(Boolean);
+    if (tokens.length <= 2 && tokens.every((t) => /^\d+$/.test(t) || QTY_LIKE_SHORT.has(t) || PACK_TOKEN.has(t))) {
+        return true;
+    }
+    return false;
+}
+
+const QTY_LIKE_SHORT = new Set([
+    "um",
+    "uma",
+    "dois",
+    "duas",
+    "tres",
+    "três",
+    "quatro",
+    "cinco",
+]);
+
+const PACK_TOKEN = new Set([
+    "caixa",
+    "caixas",
+    "unidade",
+    "unidades",
+    "un",
+    "cx",
+    "fardo",
+    "fardos",
+    "pacote",
+    "pacotes",
+    "lata",
+    "latas",
+]);

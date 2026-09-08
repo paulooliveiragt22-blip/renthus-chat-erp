@@ -1,8 +1,12 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
+    ANTHROPIC_HAIKU_45_MIN_CACHE_TOKENS,
     ANTHROPIC_PROMPT_CACHE_CONTROL,
+    ESTIMATED_AGENT_TOOLS_TOKENS_LOW,
     anthropicCacheProviderOptions,
+    ensureStableSystemMeetsCacheFloor,
+    estimateAnthropicTokensLow,
     isLlmPromptCacheEnabled,
 } from "../../src/pro/adapters/ai/promptCache";
 import { buildPromptPartsForCache } from "../../src/pro/adapters/ai/promptParts";
@@ -38,6 +42,20 @@ describe("anthropicCacheProviderOptions", () => {
         });
         assert.equal(ANTHROPIC_PROMPT_CACHE_CONTROL.type, "ephemeral");
         assert.equal(ANTHROPIC_PROMPT_CACHE_CONTROL.ttl, "5m");
+    });
+});
+
+describe("ensureStableSystemMeetsCacheFloor", () => {
+    it("pad até tools+system ≥ mínimo Haiku 4.5", () => {
+        const short = "regras curtas";
+        const padded = ensureStableSystemMeetsCacheFloor(short);
+        assert.ok(
+            estimateAnthropicTokensLow(padded) + ESTIMATED_AGENT_TOOLS_TOKENS_LOW >=
+                ANTHROPIC_HAIKU_45_MIN_CACHE_TOKENS
+        );
+        assert.ok(padded.includes("Exemplos estáveis"));
+        // idempotente / estável: mesma entrada → mesmo pad
+        assert.equal(ensureStableSystemMeetsCacheFloor(short), padded);
     });
 });
 
@@ -113,7 +131,7 @@ describe("buildPromptPartsForCache — estável vs dinâmico", () => {
             history: [],
             context,
             draft,
-            intentDecision: { intent: "order_intent", confidence: "high", reasonCode: "test" },
+            intentDecision: { intent: "order_intent", confidence: "high", reasonCode: "active_order_session" },
             limits: { maxToolRounds: 8, maxHistoryTurns: 12, timeoutMs: 5_000 },
         };
     }
@@ -146,5 +164,9 @@ describe("buildPromptPartsForCache — estável vs dinâmico", () => {
         const b = buildPromptPartsForCache(baseInput({ withDraft: true }));
         assert.equal(a.stableSystem, b.stableSystem);
         assert.notEqual(a.dynamicContext, b.dynamicContext);
+        assert.equal(
+            ensureStableSystemMeetsCacheFloor(a.stableSystem),
+            ensureStableSystemMeetsCacheFloor(b.stableSystem)
+        );
     });
 });

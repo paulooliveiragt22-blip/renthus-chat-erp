@@ -62,6 +62,11 @@ export type TurnState = {
     };
     /** Turno em que serverResolvePendingPicks já tratou pick — sem force-search (ADR 0011 D5). */
     pickResolveTurn: boolean;
+    /**
+     * Nomes sem estoque reportados pelo prepare neste turno (flag vender_com_estoque_zero=false).
+     * Post-process junta com strip físico do draft.
+     */
+    pendingOutOfStockOffer: { names: string[] } | null;
 };
 
 export function createInitialTurnState(seed: {
@@ -108,5 +113,6 @@ export function createInitialTurnState(seed: {
         forceResolvePendingPicksNudgeInjected: false,
         matchingMetrics: { prepareBlockedAllowlist: 0, searchHitsZero: 0 },
         pickResolveTurn: seed.pickResolveTurn === true,
+        pendingOutOfStockOffer: null,
     };
 }

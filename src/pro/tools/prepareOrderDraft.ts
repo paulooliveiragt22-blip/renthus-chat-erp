@@ -381,6 +381,7 @@ export async function prepareOrderDraftFromTool(
             siglaComercial: row.sigla_comercial,
             productVolumeId: row.product_volume_id,
             estoqueUnidades: estoque,
+            venderComEstoqueZero,
         });
     }
 
@@ -545,7 +546,10 @@ export function buildPrepareDraftGuidanceForModel(
         );
     }
     if (blob.includes("estoque")) {
-        lines.push("Próximo passo: ofereça quantidade menor ou outro item da lista do search_produtos.");
+        lines.push(
+            "O servidor removeu itens sem estoque e pergunta com botões Sim/Não se o cliente quer adicionar outro produto.",
+            "NÃO invente lista de itens, NÃO peça confirmação em prosa sobre estoque — no máximo 1 frase curta se ainda não houver botões."
+        );
     }
     if (blob.includes("mínimo") || blob.includes("minimo")) {
         lines.push("Próximo passo: explique o pedido mínimo e sugira acrescentar itens até atingir o valor.");

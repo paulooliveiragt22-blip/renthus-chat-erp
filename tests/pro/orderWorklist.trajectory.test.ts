@@ -80,7 +80,7 @@ describe("ADR 0011 trajetória worklist (Fase 4 A)", () => {
         );
     });
 
-    it("multi-item: 2+ hits → N ambiguous + groups com lineId na mesma clarify", () => {
+    it("multi-item: 2+ hits → N ambiguous + groups com lineId (estado); outbound 1 ativo (D8)", () => {
         let wl = sealMulti();
         const [w, v] = wl.lines;
         assert.ok(w && v);
@@ -182,7 +182,16 @@ describe("ADR 0011 trajetória worklist (Fase 4 A)", () => {
             }),
             false
         );
-        // Turno seguinte (sem pick): ainda force-search do gin
+        /** D8: ambiguous aberto (vodka) → não force-search gin no mesmo fluxo. */
+        assert.equal(shouldForceSearchWorklist({ worklist: wl, pickResolveTurn: false }), false);
+
+        wl = markLineInDraft({
+            worklist: wl,
+            lineId: vodka.id,
+            produtoEmbalagemId: "emb-vodka-un",
+            quantity: 1,
+        });
+        assert.equal(listLinesByStatus(wl, "ambiguous").length, 0);
         assert.equal(shouldForceSearchWorklist({ worklist: wl, pickResolveTurn: false }), true);
     });
 

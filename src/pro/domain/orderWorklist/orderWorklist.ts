@@ -8,7 +8,7 @@ import type {
     OrderWorklistLineStatus,
 } from "@/src/types/contracts";
 
-export const MAX_WORKLIST_LINES = 5;
+export const MAX_WORKLIST_LINES = 15;
 export const MAX_SEARCH_ATTEMPTS_PER_LINE = 2;
 
 const BLOCKING_STATUSES: ReadonlySet<OrderWorklistLineStatus> = new Set([
@@ -50,12 +50,62 @@ export function normalizeWorklistTerm(text: string): string {
         .trim();
 }
 
+const QTY_LIKE_TOKENS = new Set([
+    "um",
+    "uma",
+    "uns",
+    "umas",
+    "dois",
+    "duas",
+    "tres",
+    "três",
+    "quatro",
+    "cinco",
+    "seis",
+    "sete",
+    "oito",
+    "nove",
+    "dez",
+]);
+
+const SIZE_VARIANT_TOKENS = new Set(["p", "m", "g", "gg", "xg", "pp"]);
+
+function tokensHaveQtyLike(tokens: readonly string[]): boolean {
+    return tokens.some((t) => QTY_LIKE_TOKENS.has(t) || /^\d+$/.test(t));
+}
+
 export function termsReferToSame(a: string, b: string): boolean {
     const na = normalizeWorklistTerm(a);
     const nb = normalizeWorklistTerm(b);
     if (!na || !nb) return false;
     if (na === nb) return true;
-    if (na.length >= 3 && nb.length >= 3 && (na.includes(nb) || nb.includes(na))) return true;
+    /**
+     * Não usar `includes` solto: "skol" ⊆ "skol tres caixa de jamel" colapsava
+     * jamel no merge lexical (smoke multi-item).
+     * Mono-token casa em frase curta de produto; se o outro lado tem qty
+     * embutida, é blob multi-item — não é o mesmo termo.
+     */
+    const allA = na.split(" ").filter(Boolean);
+    const allB = nb.split(" ").filter(Boolean);
+    /** "marmitas m" ≠ "marmitas g" — tamanho curto não pode ser descartado. */
+    const sizeA = allA.filter((t) => SIZE_VARIANT_TOKENS.has(t));
+    const sizeB = allB.filter((t) => SIZE_VARIANT_TOKENS.has(t));
+    if (sizeA.length && sizeB.length && sizeA.join("|") !== sizeB.join("|")) {
+        return false;
+    }
+
+    const ta = allA.filter((t) => t.length >= 3);
+    const tb = allB.filter((t) => t.length >= 3);
+    if (ta.length === 1 && tb.includes(ta[0]!)) {
+        if (tb.length === 1) return true;
+        if (tokensHaveQtyLike(allB)) return false;
+        return true;
+    }
+    if (tb.length === 1 && ta.includes(tb[0]!)) {
+        if (ta.length === 1) return true;
+        if (tokensHaveQtyLike(allA)) return false;
+        return true;
+    }
     return false;
 }
 
@@ -72,10 +122,32 @@ export type ExtractedOrderLineInput = {
     quantity?: number | null;
 };
 
+function buildPendingLineFromExtract(
+    row: ExtractedOrderLineInput
+): OrderWorklistLine | null {
+    const rawTerm = String(row.rawTerm ?? "").trim();
+    if (!rawTerm) return null;
+    const qty =
+        row.quantity != null && Number.isFinite(row.quantity) && row.quantity >= 1
+            ? Math.floor(Number(row.quantity))
+            : null;
+    return {
+        id: newWorklistLineId(),
+        rawTerm,
+        quantity: qty,
+        status: "pending_search",
+        searchAttempts: 0,
+        productKey: null,
+        produtoEmbalagemId: null,
+        lastQuery: null,
+        pendingPickGroupKey: null,
+    };
+}
+
 /**
  * Selo / reseed da worklist a partir de extract estruturado.
- * Substitui lines ativas de coleta; preserva `in_draft` / `abandoned` / `not_found` recentes
- * só se o hash for o mesmo e pedirmos merge parcial — aqui: se hash igual, no-op.
+ * Mesmo hash: no-op se nada faltando; se o extract/lexical trouxe termos a mais
+ * (selo incompleto anterior), enriquece sem apagar progresso (skol/jamel/whisk).
  */
 export function sealWorklistFromExtract(params: {
     previous: OrderWorklist | null | undefined;
@@ -85,51 +157,51 @@ export function sealWorklistFromExtract(params: {
 }): OrderWorklist {
     const hash = hashUserTextForSeal(params.userText);
     const prev = params.previous;
-    if (prev?.sealedFromUserTextHash === hash && (prev.lines?.length ?? 0) > 0) {
-        return prev;
-    }
+    const nowIso = params.nowIso ?? new Date().toISOString();
 
-    const lines: OrderWorklistLine[] = [];
+    const candidateLines: OrderWorklistLine[] = [];
     for (const row of params.extracted) {
         const rawTerm = String(row.rawTerm ?? "").trim();
         if (!rawTerm) continue;
         if (!termAppearsInUserText(rawTerm, params.userText)) continue;
-        if (lines.some((l) => termsReferToSame(l.rawTerm, rawTerm))) continue;
-        const qty =
-            row.quantity != null && Number.isFinite(row.quantity) && row.quantity >= 1
-                ? Math.floor(Number(row.quantity))
-                : null;
-        lines.push({
-            id: newWorklistLineId(),
-            rawTerm,
-            quantity: qty,
-            status: "pending_search",
-            searchAttempts: 0,
-            productKey: null,
-            produtoEmbalagemId: null,
-            lastQuery: null,
-            pendingPickGroupKey: null,
-        });
-        if (lines.length >= MAX_WORKLIST_LINES) break;
+        if (candidateLines.some((l) => termsReferToSame(l.rawTerm, rawTerm))) continue;
+        const line = buildPendingLineFromExtract(row);
+        if (!line) continue;
+        candidateLines.push(line);
+        if (candidateLines.length >= MAX_WORKLIST_LINES) break;
+    }
+
+    if (prev?.sealedFromUserTextHash === hash && (prev.lines?.length ?? 0) > 0) {
+        const missing = candidateLines.filter(
+            (c) => !prev.lines.some((l) => termsReferToSame(l.rawTerm, c.rawTerm))
+        );
+        if (missing.length === 0) return prev;
+        const room = Math.max(0, MAX_WORKLIST_LINES - prev.lines.length);
+        if (room === 0) return prev;
+        return {
+            ...prev,
+            lines: [...prev.lines, ...missing.slice(0, room)],
+            updatedAtIso: nowIso,
+        };
     }
 
     /**
      * Extract vazio / filtrado não pode apagar carryover (ADR 0011):
      * IA/`[]` não é overwrite da worklist.
      */
-    if (lines.length === 0) {
+    if (candidateLines.length === 0) {
         if (prev && (prev.lines?.length ?? 0) > 0) return prev;
         return {
             lines: [],
             sealedFromUserTextHash: hash,
-            updatedAtIso: params.nowIso ?? new Date().toISOString(),
+            updatedAtIso: nowIso,
         };
     }
 
     return {
-        lines,
+        lines: candidateLines,
         sealedFromUserTextHash: hash,
-        updatedAtIso: params.nowIso ?? new Date().toISOString(),
+        updatedAtIso: nowIso,
     };
 }
 
@@ -168,6 +240,35 @@ export function hydrateWorklistFromLegacyMentions(params: {
 
 export function worklistBlocksCheckout(wl: OrderWorklist | null | undefined): boolean {
     return (wl?.lines ?? []).some((l) => BLOCKING_STATUSES.has(l.status));
+}
+
+/**
+ * Line `in_draft` na worklist sem o SKU no carrinho real → desync (ADR 0011).
+ * Bloqueia checkout/fulfillment até prepare reconciliar.
+ */
+export function worklistHasOrphanInDraftLines(
+    wl: OrderWorklist | null | undefined,
+    draft: { items?: Array<{ produtoEmbalagemId?: string | null }> } | null | undefined
+): boolean {
+    const inCart = new Set(
+        (draft?.items ?? [])
+            .map((i) => String(i.produtoEmbalagemId ?? "").trim())
+            .filter(Boolean)
+    );
+    return (wl?.lines ?? []).some((l) => {
+        if (l.status !== "in_draft") return false;
+        const id = String(l.produtoEmbalagemId ?? "").trim();
+        if (!id) return true;
+        return !inCart.has(id);
+    });
+}
+
+/** Status bloqueantes + órfãos in_draft↔draft (use em gates de checkout). */
+export function worklistPreventsCheckout(
+    wl: OrderWorklist | null | undefined,
+    draft?: { items?: Array<{ produtoEmbalagemId?: string | null }> } | null
+): boolean {
+    return worklistBlocksCheckout(wl) || worklistHasOrphanInDraftLines(wl, draft);
 }
 
 export function listLinesByStatus(
@@ -254,12 +355,17 @@ export function advanceLineAfterSearch(params: {
     if (hitCount === 1) {
         const embalagemId = params.produtoEmbalagemId ?? null;
         const hasQty = lHasQty(line);
+        /**
+         * Qty conhecida: `searching` (ainda bloqueia) até prepare + markLineInDraft.
+         * Marcar `in_draft` aqui sem carrinho real = preamble “Já anotei” mentiroso
+         * e checkout só com o último SKU (smoke skol+jamel+whisk).
+         */
         return mapLine(
             worklist,
             line.id,
             (l) => ({
                 ...l,
-                status: hasQty ? "in_draft" : "awaiting_qty",
+                status: hasQty ? "searching" : "awaiting_qty",
                 searchAttempts: attempts,
                 lastQuery: query,
                 productKey: params.productKey ?? l.productKey ?? null,
@@ -287,6 +393,67 @@ export function advanceLineAfterSearch(params: {
 
 function lHasQty(line: OrderWorklistLine): boolean {
     return line.quantity != null && Number.isFinite(line.quantity) && line.quantity >= 1;
+}
+
+/**
+ * Line já está no draft com o mesmo SKU → `in_draft`.
+ * Line `in_draft` cujo SKU **não** está no carrinho → `abandoned` (órfão pós-edit/novo pedido).
+ * Só reconciliha IDs que batem; não inventa line a partir do draft.
+ */
+export function reconcileWorklistLinesWithDraft(
+    wl: OrderWorklist | null | undefined,
+    draft: { items?: Array<{ produtoEmbalagemId?: string | null }> } | null | undefined,
+    nowIso?: string
+): OrderWorklist {
+    const base = wl ?? createEmptyOrderWorklist(nowIso);
+    const inCart = new Set(
+        (draft?.items ?? [])
+            .map((i) => String(i.produtoEmbalagemId ?? "").trim())
+            .filter(Boolean)
+    );
+    let changed = false;
+    const lines = base.lines.map((l) => {
+        const id = String(l.produtoEmbalagemId ?? "").trim();
+        if (l.status === "in_draft") {
+            if (!id || !inCart.has(id)) {
+                changed = true;
+                return {
+                    ...l,
+                    status: "abandoned" as const,
+                    pendingPickGroupKey: null,
+                };
+            }
+            return l;
+        }
+        if (!id || !inCart.has(id)) return l;
+        if (l.status === "abandoned" || l.status === "not_found") {
+            return l;
+        }
+        changed = true;
+        return {
+            ...l,
+            status: "in_draft" as const,
+            pendingPickGroupKey: null,
+        };
+    });
+    return changed ? touch(base, lines, nowIso) : base;
+}
+
+/** pending_search esgotado sem SKU → not_found (anti-loop force-search). */
+export function expireExhaustedPendingSearchLines(
+    wl: OrderWorklist | null | undefined,
+    nowIso?: string
+): OrderWorklist {
+    const base = wl ?? createEmptyOrderWorklist(nowIso);
+    let changed = false;
+    const lines = base.lines.map((l) => {
+        if (l.status !== "pending_search") return l;
+        if ((l.searchAttempts ?? 0) < MAX_SEARCH_ATTEMPTS_PER_LINE) return l;
+        if (String(l.produtoEmbalagemId ?? "").trim()) return l;
+        changed = true;
+        return { ...l, status: "not_found" as const };
+    });
+    return changed ? touch(base, lines, nowIso) : base;
 }
 
 export function markLineInDraft(params: {

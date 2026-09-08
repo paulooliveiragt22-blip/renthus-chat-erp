@@ -341,4 +341,44 @@ describe("disambiguatePackagingForSearchRows", () => {
         assert.equal(out.length, 1);
         assert.equal(out[0]!.id, "m-p");
     });
+
+    it("mesmo turno com marmitas m + marmitas g: query da line fecha sem clarify", () => {
+        const marmitaRows = [
+            {
+                id: "m-g",
+                display_name: "MARMITA G",
+                product_name: "MARMITA",
+                descricao: "G",
+                sigla_comercial: "UN",
+                produto_id: "marmita-pai",
+                product_volume_id: "vol-marmita",
+            },
+            {
+                id: "m-p",
+                display_name: "MARMITA P",
+                product_name: "MARMITA",
+                descricao: "P",
+                sigla_comercial: "UN",
+                produto_id: "marmita-pai",
+                product_volume_id: "vol-marmita",
+            },
+            {
+                id: "m-m",
+                display_name: "MARMITA M",
+                product_name: "MARMITA",
+                descricao: "M",
+                sigla_comercial: "UN",
+                produto_id: "marmita-pai",
+                product_volume_id: "vol-marmita",
+            },
+        ];
+        const userText =
+            "Quero 3 marmitas m, 2 caixa de skol lata, 2 Heineken longneck, duas Heineken lata, 1 salgadinho e duas marmitas g";
+        const m = disambiguatePackagingForSearchRows(marmitaRows, "marmitas m", userText);
+        assert.equal(m.length, 1);
+        assert.equal(m[0]!.id, "m-m");
+        const g = disambiguatePackagingForSearchRows(marmitaRows, "marmitas g", userText);
+        assert.equal(g.length, 1);
+        assert.equal(g[0]!.id, "m-g");
+    });
 });

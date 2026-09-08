@@ -69,6 +69,16 @@ function normalizeProV2State(raw: ProSessionState): ProSessionState {
         lastSearchPicks: raw.lastSearchPicks ?? [],
         emptySearchStreak: raw.emptySearchStreak ?? 0,
         checkoutEditHold: raw.checkoutEditHold === true,
+        pendingOutOfStockOffer:
+            raw.pendingOutOfStockOffer &&
+            Array.isArray(raw.pendingOutOfStockOffer.names) &&
+            raw.pendingOutOfStockOffer.names.length > 0
+                ? {
+                      names: raw.pendingOutOfStockOffer.names
+                          .map((n) => String(n ?? "").trim())
+                          .filter(Boolean),
+                  }
+                : null,
         pendingSwapRemoveName: raw.pendingSwapRemoveName ?? null,
         inferredPaymentMethod: raw.inferredPaymentMethod ?? null,
         bootstrapResolvedEmbalagemIds: raw.bootstrapResolvedEmbalagemIds ?? [],

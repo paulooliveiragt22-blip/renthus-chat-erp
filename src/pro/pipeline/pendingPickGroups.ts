@@ -73,13 +73,20 @@ export function buildPendingPickGroup(
     productKey: string,
     productLabel: string,
     rows: SourceRow[],
-    opts?: { requestedQuantity?: number | null; lineId?: string | null }
+    opts?: {
+        requestedQuantity?: number | null;
+        lineId?: string | null;
+        unavailableRequestedSigla?: string | null;
+    }
 ): PendingPickGroup {
     const qty = opts?.requestedQuantity;
     const lineId = String(opts?.lineId ?? "").trim();
     if (!lineId) {
         throw new Error("buildPendingPickGroup requires opts.lineId (ADR 0011)");
     }
+    const unavailable = String(opts?.unavailableRequestedSigla ?? "")
+        .trim()
+        .toUpperCase();
     return {
         lineId,
         productKey,
@@ -87,6 +94,7 @@ export function buildPendingPickGroup(
         unresolvedTurns: 0,
         requestedQuantity:
             qty != null && Number.isFinite(qty) && qty >= 1 ? Math.floor(qty) : null,
+        ...(unavailable ? { unavailableRequestedSigla: unavailable } : {}),
         options: rows.slice(0, MAX_OPTIONS_PER_GROUP).map((r) => {
             const volumeLabel =
                 String(r.volume_label ?? "").trim() ||
@@ -104,6 +112,14 @@ export function buildPendingPickGroup(
             };
         }),
     };
+}
+
+/** Group válido para clarify/outbound (≥2 opts, ou ≥1 com mismatch de sigla). */
+export function isPendingPickGroupClarifyEligible(group: PendingPickGroup): boolean {
+    const n = group.options?.length ?? 0;
+    if (n >= 2) return true;
+    if (n >= 1 && String(group.unavailableRequestedSigla ?? "").trim()) return true;
+    return false;
 }
 
 /** Insere/substitui um grupo por `productKey` (não duplica o mesmo produto); cap em MAX_GROUPS. */
@@ -283,6 +299,39 @@ export function buildPickClarificationFreeText(groups: readonly PendingPickGroup
         lines.push(`${row.index}. ${optionClarifyLabel(row.group, row.option)}`);
     }
 
+    const mismatchOnly =
+        groups.length === 1 && String(groups[0]!.unavailableRequestedSigla ?? "").trim();
+    if (mismatchOnly) {
+        const g = groups[0]!;
+        const pack = labelForUnknownPackagingSigla(String(g.unavailableRequestedSigla));
+        const label = g.productLabel || g.productKey || "este item";
+        const single = g.options.length === 1;
+        return (
+            `Não trabalhamos com ${pack} em ${label}. ` +
+            (single ? "Opção disponível:\n\n" : "Opções disponíveis:\n\n") +
+            lines.join("\n") +
+            (single
+                ? "\n\nConfirma? Digite 1 (ou o nome da opção)."
+                : "\n\nSelecione qual deseja (digite o número, ex.: 1).")
+        );
+    }
+
+    const mismatchAny = groups.some((g) => String(g.unavailableRequestedSigla ?? "").trim());
+    if (mismatchAny) {
+        const bits = groups
+            .filter((g) => String(g.unavailableRequestedSigla ?? "").trim())
+            .map((g) => {
+                const pack = labelForUnknownPackagingSigla(String(g.unavailableRequestedSigla));
+                return `${pack} em ${g.productLabel || g.productKey}`;
+            });
+        return (
+            `Não trabalhamos com ${bits.join("; ")}.\n\n` +
+            "Opções disponíveis:\n\n" +
+            lines.join("\n") +
+            "\n\nSelecione qual deseja (digite o número, ex.: 1)."
+        );
+    }
+
     return (
         "Encontrei mais de uma opção:\n\n" +
         lines.join("\n") +
@@ -308,6 +357,16 @@ function extractQuantityFromText(text: string): number | null {
 function groupRequestedQty(group: PendingPickGroup): number {
     const q = Number(group.requestedQuantity);
     return Number.isFinite(q) && q >= 1 ? Math.floor(q) : 1;
+}
+
+/** "sim"/"ok"/"pode" após mismatch (só 1 embalagem disponível). */
+function isAffirmativePackagingFallback(text: string): boolean {
+    const t = normalize(String(text ?? ""));
+    if (!t) return false;
+    if (/^(sim|ok|pode|confirma|confirmar|isso|certo|fechado|blz|beleza)\b/u.test(t)) {
+        return true;
+    }
+    return t === "1" || t === "unidade" || t === "un";
 }
 
 /** Divide a resposta do cliente em segmentos por produto (", "/" e "/"também"/"mais"). */
@@ -530,6 +589,37 @@ export function resolvePendingPickGroupsFromFreeText(
             })),
             unknownPackagingSigla: unknownPack,
         };
+    }
+
+    /** Mismatch 1 opção: "1", "sim", "ok", "unidade" → aceita a disponível. */
+    if (
+        groups.length === 1 &&
+        groups[0]!.options.length === 1 &&
+        String(groups[0]!.unavailableRequestedSigla ?? "").trim()
+    ) {
+        const group = groups[0]!;
+        const opt = group.options[0]!;
+        const flatLen = 1;
+        const pickIdx = parsePendingPickIndex(userText, flatLen);
+        const affirmative = isAffirmativePackagingFallback(userText);
+        const hit = resolveOne(group, userText, opts);
+        if (pickIdx === 1 || affirmative || hit) {
+            return {
+                resolved: [
+                    {
+                        productKey: group.productKey,
+                        embalagemId: (pickIdx === 1 || affirmative ? opt.embalagemId : null) ||
+                            hit?.embalagemId ||
+                            opt.embalagemId,
+                        quantity:
+                            pickIdx === 1 || affirmative
+                                ? groupRequestedQty(group)
+                                : (hit?.quantity ?? groupRequestedQty(group)),
+                    },
+                ],
+                remaining: [],
+            };
+        }
     }
 
     const flat = flattenPendingPickOptions(groups);

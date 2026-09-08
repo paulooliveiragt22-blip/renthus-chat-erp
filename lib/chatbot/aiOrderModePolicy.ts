@@ -122,6 +122,52 @@ export function buildAiLimitExceededOutbound(opts: {
     ];
 }
 
+/** maxSteps / TOOL_FAILED sem `respond_to_customer` — não é rate-limit do provider. */
+export const TOOL_FAILED_MAX_STEPS_MESSAGE_PT_BR =
+    "Não conseguimos entender seu pedido. Entre no nosso cardápio e finalize seu pedido — é mais rápido e seguro. Ou digite *atendente* e te passo pra um agora mesmo.";
+
+export function buildToolFailedMaxStepsOutbound(opts: {
+    webMenuUrl?: string | null;
+}): OutboundMessage[] {
+    const outbound: OutboundMessage[] = [
+        { kind: "text", text: TOOL_FAILED_MAX_STEPS_MESSAGE_PT_BR },
+    ];
+    return appendAbrirCardapioCta(outbound, opts.webMenuUrl);
+}
+
+/** CTA “Abrir cardápio” — reutilizado em not_found / busca vazia / TOOL_FAILED. */
+export function buildAbrirCardapioCta(webMenuUrl?: string | null): OutboundMessage | null {
+    const web = String(webMenuUrl ?? "").trim();
+    if (!web) return null;
+    return {
+        kind: "cta_url",
+        ctaUrl: {
+            bodyText: "Toque para abrir o cardápio e finalizar o pedido:",
+            displayText: "Abrir cardápio",
+            url: web,
+        },
+    };
+}
+
+export function appendAbrirCardapioCta(
+    outbound: OutboundMessage[],
+    webMenuUrl?: string | null
+): OutboundMessage[] {
+    const cta = buildAbrirCardapioCta(webMenuUrl);
+    if (!cta) return outbound;
+    const web = String(webMenuUrl ?? "").trim();
+    if (
+        outbound.some(
+            (m) =>
+                m.kind === "cta_url" &&
+                String(m.ctaUrl?.url ?? "").trim() === web
+        )
+    ) {
+        return outbound;
+    }
+    return [...outbound, cta];
+}
+
 export function buildInfoOnlyOrderBlockedText(webMenuUrl?: string | null): string {
     const web = String(webMenuUrl ?? "").trim();
     if (web) {

@@ -27,7 +27,7 @@ const extractSchema = z.object({
                     .describe("Quantidade se o cliente disse número; null se não disse."),
             })
         )
-        .max(5),
+        .max(15),
 });
 
 const SYSTEM = `Extraia APENAS produtos que o cliente quer PEDIR nesta mensagem (PT-BR).
@@ -35,7 +35,7 @@ Regras:
 - raw_term = termo de busca curto (marca/produto); inclua embalagem no termo só se o cliente pediu (caixa, fardo…).
 - quantity = número de embalagens se explícito; senão null (NÃO invente 1).
 - Ignore cumprimentos, entrega, pagamento, troco, endereço.
-- Máximo 5 lines. Se for só pergunta sem compra, lines=[].
+- Máximo 15 lines. Se for só pergunta sem compra, lines=[].
 - Nunca invente produto que não apareça na mensagem.`;
 
 export class LlmOrderLinesExtractAdapter implements OrderLinesExtractPort {
@@ -54,7 +54,7 @@ export class LlmOrderLinesExtractAdapter implements OrderLinesExtractPort {
             model: this.opts?.modelOverride ?? resolveLanguageModel(),
             system: SYSTEM,
             prompt: `Cliente: ${text.slice(0, 800)}`,
-            maxOutputTokens: 300,
+            maxOutputTokens: 700,
             maxRetries: 1,
             abortSignal: AbortSignal.timeout(this.opts?.timeoutMs ?? 8_000),
             output: Output.object({ schema: extractSchema }),
@@ -84,7 +84,10 @@ export class FakeOrderLinesExtractAdapter implements OrderLinesExtractPort {
         );
         const terms = extractCandidatePendingTermsFromUserText(userText);
         return {
-            lines: terms.map((rawTerm) => ({ rawTerm, quantity: null })),
+            lines: terms.map((t) => ({
+                rawTerm: t.rawTerm,
+                quantity: t.quantity,
+            })),
         };
     }
 }

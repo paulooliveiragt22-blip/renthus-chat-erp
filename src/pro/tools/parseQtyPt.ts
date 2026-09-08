@@ -76,38 +76,64 @@ export function hasExplicitOrderQuantityInText(text: string): boolean {
     return extractExplicitOrderQuantityFromText(text) != null;
 }
 
-/** Segmentos de pedido multi-produto (", " / " e " / "também" / "mais"). */
+/** Segmentos de pedido multi-produto (", " / " e " / "também" / "mais" / qty justapostas). */
 export function splitOrderProductSegments(text: string): string[] {
-    return String(text ?? "")
-        .split(/\s*(?:,|;|\be\b|\btambém\b|\bmais\b)\s*/giu)
-        .map((s) => s.trim())
+    const raw = String(text ?? "").trim();
+    if (!raw) return [];
+    const QTY_START = /(?:\d+|um|uma|uns|umas|dois|duas|tres|três)/i;
+    return raw
+        .split(/\s*(?:,|;|\be\b|\btambém\b|\btambem\b|\bmais\b)\s*/giu)
+        .flatMap((part) =>
+            part
+                .split(new RegExp(`(?<=\\S)\\s+(?=${QTY_START.source}\\s+\\S)`, "i"))
+                .map((s) => s.trim())
+                .filter(Boolean)
+        )
         .filter(Boolean);
+}
+
+function tokenMatchesQueryToken(segToken: string, qToken: string): boolean {
+    if (!segToken || !qToken) return false;
+    if (segToken === qToken) return true;
+    // "whisk" ⊆ "whisky" / "whisky" starts with "whisk"
+    if (segToken.length >= 3 && qToken.length >= 3) {
+        if (qToken.startsWith(segToken) || segToken.startsWith(qToken)) return true;
+        if (qToken.includes(segToken) || segToken.includes(qToken)) return true;
+    }
+    return false;
 }
 
 /**
  * Qty do segmento ligado ao termo de busca (multi-produto).
- * Evita que "3" de "… e 3 heineken" sobrescreva "duas" de "duas caixas de original".
+ * Nunca cai no "primeiro número da mensagem inteira" quando há 2+ segmentos —
+ * isso fazia "duas skol … e um whisk" gravar whisky com qty=2.
  */
 export function extractQuantityNearQuery(query: string, userText: string): number | null {
     const qTokens = normalize(query)
         .split(/\s+/u)
         .filter((t) => t.length >= 3 && !/^\d+$/u.test(t));
     const segments = splitOrderProductSegments(userText);
-    if (segments.length && qTokens.length) {
+    if (segments.length >= 2 && qTokens.length) {
         let best: string | null = null;
         let bestScore = 0;
         for (const seg of segments) {
-            const sn = normalize(seg);
-            const score = qTokens.filter((t) => sn.includes(t)).length;
+            const segTokens = normalize(seg).split(/\s+/u).filter(Boolean);
+            const score = qTokens.filter((qt) =>
+                segTokens.some((st) => tokenMatchesQueryToken(st, qt))
+            ).length;
             if (score > bestScore) {
                 bestScore = score;
                 best = seg;
             }
         }
         if (best && bestScore > 0) {
-            const fromSeg = extractExplicitOrderQuantityFromText(best);
-            if (fromSeg != null) return fromSeg;
+            return extractExplicitOrderQuantityFromText(best);
         }
+        // Multi-item sem segmento casado → não inventar qty de outro produto
+        return null;
+    }
+    if (segments.length === 1) {
+        return extractExplicitOrderQuantityFromText(segments[0]!);
     }
     return extractExplicitOrderQuantityFromText(userText);
 }

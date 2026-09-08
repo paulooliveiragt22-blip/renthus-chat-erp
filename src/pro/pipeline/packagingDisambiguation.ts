@@ -10,7 +10,7 @@
  *
  * Ambiguidade entre PRODUTOS diferentes (nomes distintos) não é tocada aqui.
  */
-import { enrichSearchTermPackagingFromUserText } from "./packagingHint";
+import { enrichSearchTermPackagingFromUserText, packagingScopeForQuery } from "./packagingHint";
 import { resolveSegmentPick } from "./resolveSegmentPick";
 import type { CompanySigla, CustomerSiglaHabit } from "./customerPackagingHabit";
 import { extractQuantityNearQuery } from "@/src/pro/tools/parseQtyPt";
@@ -108,6 +108,10 @@ export function filterRowsByBestLabelMatch<T extends PackagingRow>(
 /**
  * Casa variante por rótulo quando sigla comercial não diferencia (todas UN, tamanhos P/M/G).
  * Retorna 1 linha se houver match único; senão `null` (mantém ambiguidade).
+ *
+ * Prioriza o `query` (rawTerm da line na worklist). O userText completo do turno
+ * polui quando o cliente pede dois tamanhos no mesmo msg ("3 marmitas m … e 2 marmitas g"):
+ * tokens m+g empatam se misturados cedo demais.
  */
 export function matchUniqueVariantByLabel<T extends PackagingRow>(
     rows: readonly T[],
@@ -115,7 +119,20 @@ export function matchUniqueVariantByLabel<T extends PackagingRow>(
     userText: string
 ): T | null {
     if (rows.length < 2) return null;
-    const text = normalizePt(`${query} ${userText}`);
+    const q = normalizePt(query);
+    if (q) {
+        const fromQuery = matchUniqueVariantByLabelAgainstText(rows, q);
+        if (fromQuery) return fromQuery;
+    }
+    const combined = normalizePt(`${query} ${userText}`);
+    if (!combined || combined === q) return null;
+    return matchUniqueVariantByLabelAgainstText(rows, combined);
+}
+
+function matchUniqueVariantByLabelAgainstText<T extends PackagingRow>(
+    rows: readonly T[],
+    text: string
+): T | null {
     if (!text) return null;
 
     const isPhraseInText = (phrase: string): boolean =>
@@ -220,9 +237,11 @@ export function disambiguatePackagingForSearchRows<T extends PackagingRow>(
 
     if (isSamePackagingFamily(working)) {
         const segment = enrichSearchTermPackagingFromUserText(query, userText);
+        const scopedHint = packagingScopeForQuery(query, userText);
         const resolved = resolveSegmentPick(segment, working, {
             quantity: qtyHint,
-            formatHintText: userText,
+            /** Só o segmento do produto — não herdar "caixa" de outro item no turno. */
+            formatHintText: scopedHint,
             habitSigla: opts?.habitSigla ?? null,
             companySiglas: opts?.companySiglas ?? null,
         });

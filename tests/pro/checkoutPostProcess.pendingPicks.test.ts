@@ -57,7 +57,7 @@ function pendingGroups(): PendingPickGroup[] {
 }
 
 describe("checkoutPostProcess: clarify_pending_picks (Frente 1)", () => {
-    it("descarta o reply_text da IA e substitui por pergunta consolidada, sem botões", () => {
+    it("descarta o reply_text da IA e substitui por pergunta do ativo (D8: 1 produto), sem botões", () => {
         const state: ProSessionState = {
             step: "pro_collecting_order",
             customerId: null,
@@ -83,7 +83,8 @@ describe("checkoutPostProcess: clarify_pending_picks (Frente 1)", () => {
         assert.equal(out.outbound[0]!.kind, "text");
         const text = out.outbound[0]!.text ?? "";
         assert.match(text, /SKOL LATA/);
-        assert.match(text, /ORIGINAL 600ML/);
+        /** D8: só o primeiro group no outbound; Original fica no estado. */
+        assert.doesNotMatch(text, /ORIGINAL 600ML/);
         assert.doesNotMatch(text, /Ótimo! 🍺/);
         assert.ok(!out.outbound.some((m) => m.kind === "buttons"));
     });

@@ -10,6 +10,7 @@ import { buildOrderHintsPayload } from "@/src/pro/tools/orderHints";
 import {
     buildAiLimitExceededOutbound,
     buildInfoOnlyOrderBlockedText,
+    buildToolFailedMaxStepsOutbound,
     bumpAiTurnCount,
     isAiTurnLimitExceeded,
     isInfoOnlyMode,
@@ -67,11 +68,12 @@ import {
     serverPrepareAfterProductPick,
 } from "./serverPrepareAfterPick";
 import { serverResolvePendingPicksFromFreeText } from "./serverResolvePendingPicks";
-import { worklistBlocksCheckout } from "@/src/pro/domain/orderWorklist/orderWorklist";
+import { worklistPreventsCheckout } from "@/src/pro/domain/orderWorklist/orderWorklist";
 import {
     buildPickClarificationFreeText,
     removePendingPickGroupContaining,
 } from "./pendingPickGroups";
+import { activeClarifyPickGroups } from "./orderWorklist/syncPendingPickGroupsFromWorklist";
 import {
     parseAddressPickButtonId,
     serverPrepareAfterAddressPick,
@@ -568,7 +570,7 @@ export async function runProPipeline(
                      * Ainda há produto(s) ambíguo(s) OU worklist bloqueando: NÃO ir ao
                      * checkout. Worklist → deixa a IA force-search no mesmo turno.
                      */
-                    if (worklistBlocksCheckout(finalState.orderWorklist)) {
+                    if (worklistPreventsCheckout(finalState.orderWorklist, finalState.draft)) {
                         // fall through to AI (não return)
                     } else if (stillPending.length > 0) {
                     const finalOutbound: OutboundMessage[] = [
@@ -812,7 +814,7 @@ export async function runProPipeline(
             });
             stateAfterPick = pendingResolve.state;
             if (pendingResolve.continueToCheckoutWithoutAi) {
-                if (worklistBlocksCheckout(stateAfterPick.orderWorklist)) {
+                if (worklistPreventsCheckout(stateAfterPick.orderWorklist, stateAfterPick.draft)) {
                     /**
                      * Defesa: resolveu embalagens mas worklist ainda bloqueia.
                      * Emite ack (se houver) e segue à IA p/ force-search — sem checkout.
@@ -834,6 +836,7 @@ export async function runProPipeline(
                     mode: "ai",
                     fulfillmentPolicy,
                     acceptedPayments,
+                    webMenuUrl: input.webMenuUrl,
                     checkoutHandoffUrl: await resolveCheckoutHandoffUrl(
                         deps,
                         input,
@@ -863,7 +866,7 @@ export async function runProPipeline(
             } else if (
                 !pendingResolve.handled &&
                 pendingResolve.outbound.length > 0 &&
-                worklistBlocksCheckout(stateAfterPick.orderWorklist)
+                worklistPreventsCheckout(stateAfterPick.orderWorklist, stateAfterPick.draft)
             ) {
                 /** Picks fechados + irmãos pending_search: ack agora, IA force-search em seguida. */
                 await emitTurn({
@@ -879,11 +882,17 @@ export async function runProPipeline(
                     outbound.length === 0 &&
                     (pendingResolve.state.pendingPickGroups?.length ?? 0) > 0
                 ) {
+                    const active = activeClarifyPickGroups(
+                        pendingResolve.state.orderWorklist,
+                        pendingResolve.state.pendingPickGroups ?? []
+                    );
                     outbound = [
                         {
                             kind: "text",
                             text: buildPickClarificationFreeText(
-                                pendingResolve.state.pendingPickGroups ?? []
+                                active.length
+                                    ? active
+                                    : (pendingResolve.state.pendingPickGroups ?? []).slice(0, 1)
                             ),
                         },
                     ];
@@ -1360,11 +1369,23 @@ export async function runProPipeline(
         });
     }
 
+    /**
+     * maxSteps sem respond_to_customer (TOOL_FAILED) — cardápio + mensagem canônica.
+     * Não confundir com rate-limit Anthropic.
+     */
+    if (aiServiceErrorCode === "TOOL_FAILED") {
+        outbound.length = 0;
+        outbound.push(
+            ...buildToolFailedMaxStepsOutbound({ webMenuUrl: input.webMenuUrl })
+        );
+    }
+
     const checkoutHandoffUrl = await resolveCheckoutHandoffUrl(deps, input, nextState, {
         orderHints: checkoutOrderHints,
         intentNewAddress: false,
     });
-    const skipCheckoutUi = aiLimitExceeded || aiDegradedThisTurn;
+    const skipCheckoutUi =
+        aiLimitExceeded || aiDegradedThisTurn || aiServiceErrorCode === "TOOL_FAILED";
     const checkout = skipCheckoutUi
         ? { state: nextState, outbound, checkoutTurnKind: "none" as const }
         : checkoutPostProcess({
@@ -1372,11 +1393,12 @@ export async function runProPipeline(
               outbound,
               mode: routed.mode,
               checkoutHandoffUrl,
+              webMenuUrl: input.webMenuUrl,
               orderHints: checkoutOrderHints,
               addressFreeTextSignaled,
               intentNewAddress: false,
               fulfillmentPolicy,
-            acceptedPayments,
+              acceptedPayments,
           });
     nextState = checkout.state;
     const finalOutbound = checkout.outbound;

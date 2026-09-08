@@ -75,6 +75,11 @@ export interface DraftItem {
     siglaComercial?: string | null;
     productVolumeId: string | null;
     estoqueUnidades: number;
+    /**
+     * Espelho de `products.vender_com_estoque_zero` no momento do prepare.
+     * Default `true` (pode vender zerado) quando ausente — alinhado ao banco.
+     */
+    venderComEstoqueZero?: boolean;
 }
 
 export interface OrderDraft {
@@ -158,6 +163,11 @@ export type PendingPickGroup = {
      * Usada quando o cliente responde só com índice ("1") — sem isso virava sempre 1.
      */
     requestedQuantity?: number | null;
+    /**
+     * Sigla pedida pelo cliente que **não** existe nas options (ex.: pediu CX, só UN).
+     * Clarify de busca (não só pós-pick): avisa e oferece o que há.
+     */
+    unavailableRequestedSigla?: string | null;
 };
 
 /** ADR 0011 — lifecycle de uma menção de produto em coleta (servidor decide). */
@@ -213,6 +223,11 @@ export interface ProSessionState {
      * Limpa quando o draft muda (novo prepare) ou o pedido é cancelado.
      */
     checkoutEditHold?: boolean;
+    /**
+     * HITL pós-estoque físico insuficiente: itens OOS já foram removidos do draft;
+     * pergunta Sim (adicionar outro) / Não (seguir com o carrinho restante).
+     */
+    pendingOutOfStockOffer?: { names: string[] } | null;
     /**
      * Troca em andamento: ao confirmar pick, remover do draft itens cujo nome casa com este hint
      * (ex.: "salgadinho") antes de acrescentar o SKU novo.
@@ -539,6 +554,8 @@ export interface AiServiceResult {
     updatedOrderWorklist?: OrderWorklist | null;
     /** Ver `ProSessionState.pendingPickGroups`. */
     updatedPendingPickGroups?: PendingPickGroup[];
+    /** Ver `ProSessionState.pendingOutOfStockOffer`. */
+    updatedPendingOutOfStockOffer?: { names: string[] } | null;
     signals: {
         toolRoundsUsed: number;
         /** Heurística a partir do sufixo da resposta do modelo (não é payload de WhatsApp). */

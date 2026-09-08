@@ -93,6 +93,7 @@ export async function aiStage(params: {
         updatedSearchProdutoEmbalagemIds: raw?.updatedSearchProdutoEmbalagemIds,
         updatedOrderWorklist: raw?.updatedOrderWorklist,
         updatedPendingPickGroups: raw?.updatedPendingPickGroups,
+        updatedPendingOutOfStockOffer: raw?.updatedPendingOutOfStockOffer,
         signals: {
             toolRoundsUsed: Number(raw?.signals?.toolRoundsUsed ?? 0),
             intentMarker: raw?.signals?.intentMarker ?? null,
@@ -138,6 +139,10 @@ export async function aiStage(params: {
         pendingOrderMentions: [],
         pendingPickGroups:
             raw?.updatedPendingPickGroups ?? context.session.pendingPickGroups ?? [],
+        pendingOutOfStockOffer:
+            raw?.updatedPendingOutOfStockOffer !== undefined
+                ? raw.updatedPendingOutOfStockOffer
+                : context.session.pendingOutOfStockOffer ?? null,
     };
 
     const outbound: OutboundMessage[] = [{ kind: "text", text: aiResult.replyText }];

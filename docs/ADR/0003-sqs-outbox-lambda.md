@@ -762,9 +762,10 @@ Fila SQS por **tier comercial** (`essencial`, `pro`), não por tenant. Justifica
 | Path | Mudança |
 |---|---|
 | `src/pro/adapters/ai/promptCache.ts` | Flag `LLM_CACHE_CONTROL_ENABLED` (default on p/ Anthropic; off p/ Groq/OpenAI; `0` desliga) |
-| `src/pro/adapters/ai/ai.service.ts` | Split estável/dinâmico: `system` = regras; draft/worklist/hints no **user**; `cacheControl: { type: "ephemeral", ttl: "5m" }` na última tool (`respond_to_customer`) — prefixo system+tools ≥4096 (Haiku 4.5). Log/métricas `cacheReadTokens`/`cacheWriteTokens`. |
+| `src/pro/adapters/ai/ai.service.ts` | Split estável/dinâmico: `system` = regras; draft/worklist/hints no **user**; `cacheControl` no **system** (hierarquia tools→system→messages — breakpoint na tool só cacheava tools e Haiku 4.5 ≥4096 falhava em silêncio). Floor via `ensureStableSystemMeetsCacheFloor`. Log/métricas `cacheReadTokens`/`cacheWriteTokens`; wallet cobra read 0.1× / write 1.25×. |
+| `src/pro/adapters/ai/promptCache.ts` | Flag `LLM_CACHE_CONTROL_ENABLED` (default on p/ Anthropic; off p/ Groq/OpenAI; `0` desliga); floor Haiku 4.5. |
 
-**Conflito resolvido na ponta de maior valor:** cache no system monolítico com worklist/draft causava miss todo turno. Dinâmico fora do prefixo; breakpoint nas tools. Groq **não** recebe `cache_control`.
+**Conflito resolvido na ponta de maior valor:** cache no system monolítico com worklist/draft causava miss todo turno. Dinâmico fora do prefixo; breakpoint no **system** (não na tool). Groq **não** recebe `cache_control`.
 
 ### 9.4 `stopWhen: stepCountIs()` por tier
 

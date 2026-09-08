@@ -1,12 +1,12 @@
 import {
     sealWorklistFromExtract,
+    termAppearsInUserText,
+    MAX_WORKLIST_LINES,
     type ExtractedOrderLineInput,
 } from "@/src/pro/domain/orderWorklist/orderWorklist";
 import { pendingTermsReferToSame } from "@/src/pro/domain/orderWorklist/extractCandidateTerms";
 import type { OrderLinesExtractPort } from "@/src/pro/ports/orderLinesExtract.port";
 import type { OrderWorklist } from "@/src/types/contracts";
-
-const MAX_LINES = 5;
 
 /**
  * Une extract LLM com fallback lexical: se o LLM devolver só 1 termo mas o
@@ -17,7 +17,7 @@ export function mergeExtractedWithLexicalFallback(
     fallback: readonly ExtractedOrderLineInput[] | undefined
 ): ExtractedOrderLineInput[] {
     if (!fallback?.length) return [...extracted];
-    if (extracted.length === 0) return [...fallback].slice(0, MAX_LINES);
+    if (extracted.length === 0) return [...fallback].slice(0, MAX_WORKLIST_LINES);
     const out: ExtractedOrderLineInput[] = [...extracted];
     for (const f of fallback) {
         if (out.some((e) => pendingTermsReferToSame(e.rawTerm, f.rawTerm))) continue;
@@ -25,9 +25,20 @@ export function mergeExtractedWithLexicalFallback(
             rawTerm: f.rawTerm,
             quantity: f.quantity ?? null,
         });
-        if (out.length >= MAX_LINES) break;
+        if (out.length >= MAX_WORKLIST_LINES) break;
     }
     return out;
+}
+
+/**
+ * Descarta termos inventados pelo LLM (ex.: "Cachaça Jamel") **antes** do merge
+ * lexical — senão o inventado engole "jamel" e o seal depois o remove (smoke multi-item).
+ */
+export function filterExtractedTermsAppearingInUserText(
+    extracted: readonly ExtractedOrderLineInput[],
+    userText: string
+): ExtractedOrderLineInput[] {
+    return extracted.filter((row) => termAppearsInUserText(row.rawTerm, userText));
 }
 
 export async function seedWorklistFromExtract(params: {
@@ -48,6 +59,7 @@ export async function seedWorklistFromExtract(params: {
     } catch {
         extracted = [...(params.fallbackExtracted ?? [])];
     }
+    extracted = filterExtractedTermsAppearingInUserText(extracted, params.userText);
     extracted = mergeExtractedWithLexicalFallback(extracted, params.fallbackExtracted);
     return sealWorklistFromExtract({
         previous: params.previous,

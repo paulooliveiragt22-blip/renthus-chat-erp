@@ -14,6 +14,7 @@ import {
     buildPrepareDraftGuidanceForModel,
     type PrepareOrderDraftCatalogPolicy,
 } from "@/src/pro/tools/prepareOrderDraft";
+import { parseOutOfStockNamesFromPrepareErrors } from "@/src/pro/pipeline/outOfStockOffer";
 import { countAllowlistRejectionErrors } from "@/src/pro/pipeline/matchingMetrics";
 import type { TurnState } from "./turnState";
 
@@ -150,6 +151,14 @@ export function createPrepareOrderDraftTool(deps: {
              */
             if ((nextDraft?.items?.length ?? 0) > 0) {
                 deps.turnState.lastSearchPicks = [];
+            }
+
+            const oosNames = parseOutOfStockNamesFromPrepareErrors(prepared.errors);
+            if (oosNames.length > 0) {
+                const prev = deps.turnState.pendingOutOfStockOffer?.names ?? [];
+                deps.turnState.pendingOutOfStockOffer = {
+                    names: [...new Set([...prev, ...oosNames])],
+                };
             }
 
             const allowlistRejectedCount = countAllowlistRejectionErrors(prepared.errors);

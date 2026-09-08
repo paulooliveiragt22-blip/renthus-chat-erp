@@ -1,4 +1,7 @@
-import { worklistBlocksCheckout } from "@/src/pro/domain/orderWorklist/orderWorklist";
+import {
+    worklistBlocksCheckout,
+    worklistHasOrphanInDraftLines,
+} from "@/src/pro/domain/orderWorklist/orderWorklist";
 import type { OrderWorklist, ProSessionState } from "@/src/types/contracts";
 
 export function worklistCheckoutGate(params: {
@@ -8,6 +11,12 @@ export function worklistCheckoutGate(params: {
     const wl = params.worklist ?? params.state?.orderWorklist ?? null;
     if (worklistBlocksCheckout(wl)) {
         return { blocked: true, reason: "worklist_blocks_checkout" };
+    }
+    if (
+        params.state !== undefined &&
+        worklistHasOrphanInDraftLines(wl, params.state.draft)
+    ) {
+        return { blocked: true, reason: "worklist_orphan_in_draft" };
     }
     // Legado transitório: lastSearchPicks>=2 sem draft (ADR 0011 D5)
     const picks = params.state?.lastSearchPicks?.length ?? 0;

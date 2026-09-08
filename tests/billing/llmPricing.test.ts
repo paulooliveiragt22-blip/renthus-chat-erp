@@ -48,4 +48,33 @@ describe("llmPricing", () => {
         // uso mínimo ainda cobra 1 centavo
         assert.equal(estimateLlmCostBrlCents("claude-haiku-4-5", 10, 10, 5.5), 1);
     });
+
+    it("cache read 0.1× e write 1.25× (Anthropic)", () => {
+        // 1M cache read Haiku: $0.10 × 5.5 × 100 = 55
+        assert.equal(
+            estimateLlmCostBrlCents("claude-haiku-4-5", 0, 0, 5.5, {
+                noCacheInputTokens: 0,
+                cacheReadTokens: 1_000_000,
+                cacheWriteTokens: 0,
+            }),
+            55
+        );
+        // 1M cache write 5m: $1.25 × 5.5 × 100 = 688 (ceil 687.5)
+        assert.equal(
+            estimateLlmCostBrlCents("claude-haiku-4-5", 0, 0, 5.5, {
+                noCacheInputTokens: 0,
+                cacheReadTokens: 0,
+                cacheWriteTokens: 1_000_000,
+            }),
+            688
+        );
+        // total input 1.1M com 1M read + 100k noCache: não cobrar o total cheio
+        const mixed = estimateLlmCostBrlCents("claude-haiku-4-5", 1_100_000, 0, 5.5, {
+            noCacheInputTokens: 100_000,
+            cacheReadTokens: 1_000_000,
+            cacheWriteTokens: 0,
+        });
+        // 0.1M*$1 + 1M*$0.1 = $0.2 → $0.2*5.5*100 = 110
+        assert.equal(mixed, 110);
+    });
 });

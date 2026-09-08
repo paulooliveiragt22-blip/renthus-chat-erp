@@ -14,7 +14,7 @@ import {
     normalizeSttDurationSec,
     sttUsdPerMinute,
 } from "@/lib/billing/sttPricing";
-import { estimateLlmCostBrlCents } from "@/lib/billing/llmPricing";
+import { estimateLlmCostBrlCents, usdBrlRateFromEnv } from "@/lib/billing/llmPricing";
 import { isUniqueViolation } from "@/lib/billing/isUniqueViolation";
 
 export {
@@ -313,11 +313,16 @@ export function buildHighValueConfirmMessage(itemsTotal: number, amountBrl: numb
 type AnthropicUsageLike = {
     input_tokens?: number | null;
     output_tokens?: number | null;
+    /** Preferir noCache quando AI SDK expõe inputTokenDetails. */
+    cache_read_tokens?: number | null;
+    cache_write_tokens?: number | null;
+    no_cache_input_tokens?: number | null;
 };
 
 /**
  * Debita carteira a partir do `usage` LLM (Anthropic ou OpenAI via adapter).
  * Prefira passar `model` em `meta` (ou 4º arg) — sem modelo usa fallback caro.
+ * Com cache Anthropic: aplica multiplicadores read 0.1× / write 1.25× no input.
  */
 export async function debitFromAnthropicUsage(
     admin: SupabaseClient,
@@ -328,12 +333,35 @@ export async function debitFromAnthropicUsage(
     if (!companyId || !usage) return;
     const inputTokens = Number(usage.input_tokens ?? 0);
     const outputTokens = Number(usage.output_tokens ?? 0);
-    if (inputTokens <= 0 && outputTokens <= 0) return;
+    const cacheReadTokens = Number(
+        usage.cache_read_tokens ?? meta?.cache_read_tokens ?? 0
+    );
+    const cacheWriteTokens = Number(
+        usage.cache_write_tokens ?? meta?.cache_write_tokens ?? 0
+    );
+    const noCacheInputTokens =
+        usage.no_cache_input_tokens != null
+            ? Number(usage.no_cache_input_tokens)
+            : meta?.no_cache_input_tokens != null
+              ? Number(meta.no_cache_input_tokens)
+              : undefined;
+    if (
+        inputTokens <= 0 &&
+        outputTokens <= 0 &&
+        cacheReadTokens <= 0 &&
+        cacheWriteTokens <= 0
+    ) {
+        return;
+    }
     const model =
         typeof meta?.model === "string" && meta.model.trim()
             ? meta.model.trim()
             : null;
-    const cost = estimateLlmCostBrlCents(model, inputTokens, outputTokens);
+    const cost = estimateLlmCostBrlCents(model, inputTokens, outputTokens, usdBrlRateFromEnv(), {
+        noCacheInputTokens,
+        cacheReadTokens,
+        cacheWriteTokens,
+    });
     try {
         await debitAiUsage(admin, companyId, cost, {
             kind: "llm",
@@ -341,6 +369,15 @@ export async function debitFromAnthropicUsage(
             input_tokens: inputTokens,
             output_tokens: outputTokens,
             ...(meta ?? {}),
+            ...(cacheReadTokens > 0 || cacheWriteTokens > 0 || noCacheInputTokens != null
+                ? {
+                      cache_read_tokens: cacheReadTokens,
+                      cache_write_tokens: cacheWriteTokens,
+                      ...(noCacheInputTokens != null
+                          ? { no_cache_input_tokens: noCacheInputTokens }
+                          : {}),
+                  }
+                : {}),
         });
     } catch (e) {
         console.warn("[aiWallet] falha ao debitar uso LLM:", e);

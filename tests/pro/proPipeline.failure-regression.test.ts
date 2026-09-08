@@ -149,9 +149,9 @@ function deps(params: {
 }
 
 describe("pro pipeline - failure regression", () => {
-    it("IA TOOL_FAILED: métrica ai_tool_round_exhausted quando adapter devolve erro de ferramentas", async () => {
+    it("IA TOOL_FAILED: métrica ai_tool_round_exhausted + cardápio canônico", async () => {
         const out = await runProPipeline(
-            { ...baseInput(), inboundText: "quero 2 skol" },
+            { ...baseInput(), inboundText: "quero 2 skol", webMenuUrl: "https://menu.example/c/loja" },
             deps({
                 state: baseState(),
                 intent: "order_intent",
@@ -166,6 +166,14 @@ describe("pro pipeline - failure regression", () => {
         assert.ok(
             out.metrics.some(
                 (m) => m.name === "pro_pipeline.ai_tool_round_exhausted" && m.tags?.reason === "tool_output_rejected"
+            )
+        );
+        const texts = out.outbound.filter((m) => m.kind === "text").map((m) => String(m.text));
+        assert.ok(texts.some((t) => /Não conseguimos entender seu pedido/i.test(t)));
+        assert.ok(texts.every((t) => !/limite de consultas automáticas/i.test(t)));
+        assert.ok(
+            out.outbound.some(
+                (m) => m.kind === "cta_url" && /menu\.example/i.test(String(m.ctaUrl?.url ?? ""))
             )
         );
     });

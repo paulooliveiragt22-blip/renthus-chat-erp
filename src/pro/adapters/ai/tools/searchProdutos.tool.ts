@@ -3,8 +3,9 @@ import { z } from "zod";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { CatalogPort } from "@/src/pro/ports/catalog.port";
 import { runSearchProdutosForAi } from "@/src/pro/adapters/ai/tools/searchProdutosForAi";
-import { upsertPendingPickGroup } from "@/src/pro/pipeline/pendingPickGroups";
 import { advanceWorklistAfterSearch } from "@/src/pro/pipeline/orderWorklist/advanceWorklistAfterSearch";
+import { applyCatalogSearchToWorklistLine } from "@/src/pro/pipeline/orderWorklist/applyCatalogSearchToWorklistLine";
+import { upsertPendingPickGroupForLine } from "@/src/pro/pipeline/orderWorklist/syncPendingPickGroupsFromWorklist";
 import { matchWorklistLineForSearch } from "@/src/pro/domain/orderWorklist/matchWorklistLine";
 import { pendingSearchTermsFromWorklist } from "@/src/pro/domain/orderWorklist/orderWorklist";
 import { unionAllowlistIds } from "@/src/pro/pipeline/mergeOrderDraft";
@@ -61,13 +62,10 @@ export function createSearchProdutosTool(deps: {
                     customerId: deps.customerId,
                     userText: deps.userText,
                     worklistLineId: matched?.id ?? worklist_line_id ?? null,
+                    worklistLineQuantity: matched?.quantity ?? null,
                 }
             );
 
-            deps.turnState.allowlistIds = unionAllowlistIds(
-                deps.turnState.allowlistIds,
-                result.allowlistIds
-            );
             deps.turnState.emptySearchStreak = result.wasEmpty
                 ? deps.turnState.emptySearchStreak + 1
                 : 0;
@@ -81,41 +79,67 @@ export function createSearchProdutosTool(deps: {
                 query,
             ];
 
-            const hitCount = result.wasEmpty ? 0 : result.allowlistIds.length;
-            const productKey = result.pendingPickGroup?.productKey ?? null;
-            const uniqueId =
-                hitCount === 1 ? result.allowlistIds[0] ?? null : null;
-
-            deps.turnState.orderWorklist = advanceWorklistAfterSearch({
-                worklist: deps.turnState.orderWorklist,
-                query,
-                hitCount: result.pendingPickGroup
-                    ? Math.max(hitCount, 2)
-                    : hitCount,
-                productKey,
-                produtoEmbalagemId: uniqueId,
-                lineId: matched?.id ?? null,
-            });
-
-            if (result.pendingPickGroup) {
-                const lineId =
-                    matched?.id ??
-                    result.pendingPickGroup.lineId ??
-                    deps.turnState.orderWorklist.lines.find(
-                        (l) => l.status === "ambiguous" && l.productKey === productKey
-                    )?.id ??
-                    result.pendingPickGroup.lineId;
-                deps.turnState.pendingPickGroups = upsertPendingPickGroup(
-                    deps.turnState.pendingPickGroups,
-                    { ...result.pendingPickGroup, lineId }
+            if (matched?.id) {
+                const applied = await applyCatalogSearchToWorklistLine({
+                    admin: deps.admin,
+                    companyId: deps.companyId,
+                    customerId: deps.customerId,
+                    worklist: deps.turnState.orderWorklist,
+                    pendingPickGroups: deps.turnState.pendingPickGroups,
+                    allowlistIds: deps.turnState.allowlistIds,
+                    draft: deps.turnState.currentDraft,
+                    lineId: matched.id,
+                    query,
+                    result,
+                });
+                deps.turnState.orderWorklist = applied.worklist;
+                deps.turnState.pendingPickGroups = applied.pendingPickGroups;
+                deps.turnState.allowlistIds = applied.allowlistIds;
+                deps.turnState.currentDraft = applied.draft;
+                if (applied.prepared) {
+                    deps.turnState.prepareInvokedThisTurn = true;
+                }
+            } else {
+                deps.turnState.allowlistIds = unionAllowlistIds(
+                    deps.turnState.allowlistIds,
+                    result.allowlistIds
                 );
-                /** Ambíguo → só via worklist/groups; lastSearchPicks não compete. */
-                deps.turnState.lastSearchPicks = [];
-            } else if (deps.turnState.pendingPickGroups.length > 0) {
+                const hitCount = result.wasEmpty ? 0 : result.allowlistIds.length;
+                deps.turnState.orderWorklist = advanceWorklistAfterSearch({
+                    worklist: deps.turnState.orderWorklist,
+                    query,
+                    hitCount: result.pendingPickGroup ? Math.max(hitCount, 2) : hitCount,
+                    productKey: result.pendingPickGroup?.productKey ?? null,
+                    produtoEmbalagemId:
+                        hitCount === 1 && !result.pendingPickGroup
+                            ? result.allowlistIds[0] ?? null
+                            : null,
+                    lineId: null,
+                });
+                if (result.pendingPickGroup) {
+                    const lineId =
+                        result.pendingPickGroup.lineId ||
+                        deps.turnState.orderWorklist.lines.find(
+                            (l) =>
+                                l.status === "ambiguous" &&
+                                l.productKey === result.pendingPickGroup?.productKey
+                        )?.id ||
+                        result.pendingPickGroup.lineId;
+                    if (lineId) {
+                        deps.turnState.pendingPickGroups = upsertPendingPickGroupForLine({
+                            groups: deps.turnState.pendingPickGroups,
+                            group: { ...result.pendingPickGroup, lineId },
+                        });
+                    }
+                }
+            }
+
+            if (result.pendingPickGroup || deps.turnState.pendingPickGroups.length > 0) {
                 deps.turnState.lastSearchPicks = [];
             } else {
                 deps.turnState.lastSearchPicks = result.lastSearchPicks;
             }
+
             return {
                 ...result.body,
                 worklist_pending_search: pendingSearchTermsFromWorklist(

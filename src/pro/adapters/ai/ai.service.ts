@@ -27,12 +27,18 @@ import { SupabaseCatalogAdapter } from "@/src/pro/adapters/supabase/catalog.supa
 import { SupabaseOrderDraftAdapter } from "@/src/pro/adapters/supabase/orderDraft.supabase";
 import { NoopSessionMemoryAdapter } from "@/src/pro/adapters/ai/sessionMemory.llm";
 import { LlmOrderLinesExtractAdapter, FakeOrderLinesExtractAdapter } from "@/src/pro/adapters/ai/orderLinesExtract.llm";
+import { TOOL_FAILED_MAX_STEPS_MESSAGE_PT_BR } from "@/lib/chatbot/aiOrderModePolicy";
+import { extractCandidatePendingTermsFromUserText, isLikelyPickOrShortReply } from "@/src/pro/domain/orderWorklist/extractCandidateTerms";
 import {
     listLinesByStatus,
+    markLineInDraft,
+    expireExhaustedPendingSearchLines,
     pendingSearchTermsFromWorklist,
+    reconcileWorklistLinesWithDraft,
 } from "@/src/pro/domain/orderWorklist/orderWorklist";
 import { seedWorklistFromExtract } from "@/src/pro/pipeline/orderWorklist/seedWorklistFromExtract";
-import { extractCandidatePendingTermsFromUserText } from "@/src/pro/domain/orderWorklist/extractCandidateTerms";
+import { searchPendingWorklistLinesParallel } from "@/src/pro/pipeline/orderWorklist/searchPendingWorklistLinesParallel";
+import { pendingPickGroupsAlignedWithWorklist } from "@/src/pro/pipeline/orderWorklist/syncPendingPickGroupsFromWorklist";
 import {
     advanceWorklistAfterSearch,
     shouldForceSearchWorklist,
@@ -77,6 +83,7 @@ import { wrapUserInboundForLlm } from "./userInboundGuard";
 import { budgetAiHistoryForLlm } from "./aiHistoryBudget";
 import {
     anthropicCacheProviderOptions,
+    ensureStableSystemMeetsCacheFloor,
     isLlmPromptCacheEnabled,
 } from "./promptCache";
 import { buildPromptPartsForCache } from "./promptParts";
@@ -356,9 +363,7 @@ const RESPOND_TO_CUSTOMER_TOOL_DESCRIPTION =
     "NÃO diga que o pedido foi criado/confirmado/entregue (só o botão Confirmar + RPC no servidor). " +
     "NÃO peça para digitar sim/confirmar — o servidor envia botões.";
 
-function createRespondToCustomerTool(opts?: {
-    anthropicCache?: boolean;
-}) {
+function createRespondToCustomerTool() {
     return tool({
         description: RESPOND_TO_CUSTOMER_TOOL_DESCRIPTION,
         inputSchema: z.object({
@@ -374,9 +379,6 @@ function createRespondToCustomerTool(opts?: {
                 .nullish()
                 .describe("false só quando não entendeu a mensagem do cliente; null = entendeu."),
         }),
-        ...(opts?.anthropicCache
-            ? { providerOptions: anthropicCacheProviderOptions() }
-            : {}),
         execute: async (args) => args,
     });
 }
@@ -444,18 +446,20 @@ export function buildSearchPicksFallbackReply(
         const p = picks[0]!;
         const price =
             p.price != null && Number.isFinite(p.price) ? ` por R$ ${formatBrl(p.price)}` : "";
+        if (isLikelyPickOrShortReply(userText ?? "")) {
+            return `Sim! Temos ${p.label}${price}. Quantas unidades você quer?`;
+        }
         const qty = extractExplicitOrderQuantityFromText(userText ?? "");
         if (qty != null) {
             return `Anotei ${qty}× ${p.label}${price}.`;
         }
         return `Sim! Temos ${p.label}${price}. Quantas unidades você quer?`;
     }
-    const lines = picks.map((p) => {
-        const price =
-            p.price != null && Number.isFinite(p.price) ? ` — R$ ${formatBrl(p.price)}` : "";
-        return `• ${p.label}${price}`;
-    });
-    return `Encontrei estas opções:\n${lines.join("\n")}\nQual você prefere?`;
+    /**
+     * ≥2 picks sem pendingPickGroup alinhado: não listar opções numeradas aqui
+     * (vira clarify órfão). Peça reformulação curta — o search tool deve upsert group.
+     */
+    return "Encontrei mais de uma opção desse item. Pode repetir só o nome do produto (ex.: whisky ou skol)?";
 }
 
 /**
@@ -471,6 +475,8 @@ export async function applySearchFallbackPrepareIfQtyKnown(params: {
 }): Promise<boolean> {
     const { turnState } = params;
     if (turnState.pendingPickGroups.length > 0) return false;
+    if (listLinesByStatus(turnState.orderWorklist, "ambiguous").length > 0) return false;
+    if (isLikelyPickOrShortReply(params.userText)) return false;
     if (turnState.lastSearchPicks.length !== 1) return false;
     if (turnState.prepareInvokedThisTurn) return false;
     const qty = extractExplicitOrderQuantityFromText(params.userText);
@@ -488,6 +494,17 @@ export async function applySearchFallbackPrepareIfQtyKnown(params: {
     turnState.lastPrepareOutcome = { ok: prepared.ok, errors: prepared.errors };
     if (!prepared.draft) return false;
     turnState.currentDraft = mergePreparedDraftIntoCurrent(turnState.currentDraft, prepared.draft);
+    const searchingLine = listLinesByStatus(turnState.orderWorklist, "searching").find(
+        (l) => l.produtoEmbalagemId === embId
+    );
+    if (searchingLine && prepared.ok) {
+        turnState.orderWorklist = markLineInDraft({
+            worklist: turnState.orderWorklist,
+            lineId: searchingLine.id,
+            produtoEmbalagemId: embId,
+            quantity: qty,
+        });
+    }
     return Boolean(prepared.ok && (turnState.currentDraft?.items.length ?? 0) > 0);
 }
 
@@ -624,6 +641,7 @@ export class AiServiceAdapter implements AiService {
             addressFreeText: boolean;
             orderWorklist: OrderWorklist;
             pendingPickGroups: PendingPickGroup[];
+            pendingOutOfStockOffer?: { names: string[] } | null;
             matchingMetrics?: { prepareBlockedAllowlist: number; searchHitsZero: number };
         }
     ): Promise<AiServiceResult> {
@@ -656,6 +674,7 @@ export class AiServiceAdapter implements AiService {
                 emptySearchStreak: turn.emptySearchStreak,
                 updatedOrderWorklist: turn.orderWorklist,
                 updatedPendingPickGroups: turn.pendingPickGroups,
+                updatedPendingOutOfStockOffer: turn.pendingOutOfStockOffer ?? null,
                 signals: {
                     toolRoundsUsed,
                     intentMarker: marker,
@@ -682,6 +701,7 @@ export class AiServiceAdapter implements AiService {
             emptySearchStreak: turn.emptySearchStreak,
             updatedOrderWorklist: turn.orderWorklist,
             updatedPendingPickGroups: turn.pendingPickGroups,
+            updatedPendingOutOfStockOffer: turn.pendingOutOfStockOffer ?? null,
             signals: {
                 toolRoundsUsed,
                 intentMarker: marker,
@@ -721,20 +741,75 @@ export class AiServiceAdapter implements AiService {
         );
 
         const infoOnly = isInfoOnlyAi(input);
-        const hasActiveWorklistLines =
-            listLinesByStatus(turnState.orderWorklist, "pending_search").length > 0 ||
-            listLinesByStatus(turnState.orderWorklist, "ambiguous").length > 0 ||
-            listLinesByStatus(turnState.orderWorklist, "awaiting_qty").length > 0;
-        if (!infoOnly && !hasActiveWorklistLines && input.intentDecision.intent === "order_intent") {
+        /**
+         * Reseed/enrich em order_intent (mesmo com lines ativas), exceto reply curta de pick.
+         * Seal same-hash só enriquece — não apaga progresso (ADR 0011).
+         */
+        if (
+            !infoOnly &&
+            input.intentDecision.intent === "order_intent" &&
+            !isLikelyPickOrShortReply(input.userText)
+        ) {
             turnState.orderWorklist = await seedWorklistFromExtract({
                 previous: turnState.orderWorklist,
                 userText: input.userText,
                 extractPort: this.orderLinesExtract,
                 fallbackExtracted: extractCandidatePendingTermsFromUserText(input.userText).map(
-                    (rawTerm) => ({ rawTerm })
+                    (t) => ({ rawTerm: t.rawTerm, quantity: t.quantity })
                 ),
             });
         }
+        turnState.orderWorklist = reconcileWorklistLinesWithDraft(
+            turnState.orderWorklist,
+            turnState.currentDraft
+        );
+        turnState.orderWorklist = expireExhaustedPendingSearchLines(turnState.orderWorklist);
+        turnState.pendingPickGroups = pendingPickGroupsAlignedWithWorklist(
+            turnState.orderWorklist,
+            turnState.pendingPickGroups
+        );
+
+        /**
+         * ADR 0011 D5/D8: busca paralela das `pending_search` antes do loop LLM.
+         * Skip se já há `ambiguous` (clarify-first — não queimar attempts dos irmãos).
+         * Skip em pickResolveTurn (pós-pick busca em serverResolve).
+         */
+        if (
+            !infoOnly &&
+            !turnState.pickResolveTurn &&
+            listLinesByStatus(turnState.orderWorklist, "ambiguous").length === 0 &&
+            listLinesByStatus(turnState.orderWorklist, "pending_search").length > 0
+        ) {
+            const batch = await searchPendingWorklistLinesParallel({
+                admin: this.admin,
+                catalog: this.catalog,
+                companyId: input.context.tenant.companyId,
+                customerId: input.context.session.customerId,
+                state: {
+                    ...session,
+                    draft: turnState.currentDraft,
+                    orderWorklist: turnState.orderWorklist,
+                    pendingPickGroups: turnState.pendingPickGroups,
+                    searchProdutoEmbalagemIds: turnState.allowlistIds,
+                },
+                packagingContextText: input.userText,
+            });
+            turnState.orderWorklist = batch.state.orderWorklist ?? turnState.orderWorklist;
+            turnState.pendingPickGroups = batch.state.pendingPickGroups ?? [];
+            turnState.allowlistIds = batch.state.searchProdutoEmbalagemIds ?? turnState.allowlistIds;
+            turnState.currentDraft = batch.state.draft ?? turnState.currentDraft;
+            if (batch.state.pendingOutOfStockOffer?.names?.length) {
+                turnState.pendingOutOfStockOffer = batch.state.pendingOutOfStockOffer;
+            }
+            if (batch.searchedLineIds.length > 0) {
+                turnState.searchInvokedThisTurn = true;
+                turnState.searchCallCount += batch.searchedLineIds.length;
+            }
+        }
+        turnState.pendingPickGroups = pendingPickGroupsAlignedWithWorklist(
+            turnState.orderWorklist,
+            turnState.pendingPickGroups
+        );
 
         if (!this.modelOverride && !hasLlmApiKey(this.providerOverride)) {
             return {
@@ -760,10 +835,11 @@ export class AiServiceAdapter implements AiService {
             const provider = this.providerOverride ?? getConfiguredLlmProviderName();
 
             const promptCacheOn = isLlmPromptCacheEnabled(provider);
-            const { stableSystem, dynamicContext } = buildPromptPartsForCache(input);
-            const respondToCustomerTool = createRespondToCustomerTool({
-                anthropicCache: promptCacheOn,
-            });
+            const { stableSystem: stableSystemRaw, dynamicContext } = buildPromptPartsForCache(input);
+            const stableSystem = promptCacheOn
+                ? ensureStableSystemMeetsCacheFloor(stableSystemRaw)
+                : stableSystemRaw;
+            const respondToCustomerTool = createRespondToCustomerTool();
             const searchTool = createSearchProdutosTool({
                 admin: this.admin,
                 catalog: this.catalog,
@@ -807,11 +883,11 @@ export class AiServiceAdapter implements AiService {
             };
 
             /**
-             * Prompt cache Anthropic (ADR-0003 §9.3):
-             * - system = só prefixo estável (rules)
-             * - breakpoint em `respond_to_customer` (última tool) → cacheia system+tools
-             *   (Haiku 4.5 exige ≥4096 tokens; tools sozinhas fecham o mínimo)
-             * - draft/worklist/hints no user — fora do prefixo, senão miss a cada turno
+             * Prompt cache Anthropic (ADR-0003 §9.3 + docs 2026):
+             * Hierarquia: tools → system → messages. Breakpoint no **system**
+             * (não na tool) cacheia tools+system. Haiku 4.5 exige ≥4096 nesse
+             * prefixo — `ensureStableSystemMeetsCacheFloor` fecha o mínimo.
+             * Draft/worklist/hints no user — fora do prefixo estável.
              */
             const userInbound = wrapUserInboundForLlm(input.userText);
             const historyMsgs = historyToModelMessages(
@@ -821,16 +897,24 @@ export class AiServiceAdapter implements AiService {
             const system = promptCacheOn
                 ? stableSystem
                 : stableSystem + dynamicContext;
-            const messages = [
-                ...historyMsgs,
-                {
-                    role: "user" as const,
-                    content:
-                        promptCacheOn && dynamicContext
-                            ? `${dynamicContext}\n\n--- Mensagem do cliente ---\n${userInbound}`
-                            : userInbound,
-                },
-            ];
+            const userContent =
+                promptCacheOn && dynamicContext
+                    ? `${dynamicContext}\n\n--- Mensagem do cliente ---\n${userInbound}`
+                    : userInbound;
+            const messages = promptCacheOn
+                ? [
+                      {
+                          role: "system" as const,
+                          content: system,
+                          providerOptions: anthropicCacheProviderOptions(),
+                      },
+                      ...historyMsgs,
+                      { role: "user" as const, content: userContent },
+                  ]
+                : [
+                      ...historyMsgs,
+                      { role: "user" as const, content: userContent },
+                  ];
 
             const shouldForcePrepare = (): boolean => {
                 if (infoOnly || input.skipForcePrepareAfterPick) return false;
@@ -895,7 +979,7 @@ export class AiServiceAdapter implements AiService {
                 () =>
                 generateText({
                     model,
-                    system,
+                    ...(promptCacheOn ? {} : { system }),
                     messages,
                     tools,
                     toolChoice: "required",
@@ -1078,12 +1162,16 @@ export class AiServiceAdapter implements AiService {
                             step.usage.inputTokenDetails?.cacheReadTokens ?? 0;
                         const cacheWriteTokens =
                             step.usage.inputTokenDetails?.cacheWriteTokens ?? 0;
-                        if (promptCacheOn && (cacheReadTokens > 0 || cacheWriteTokens > 0)) {
+                        const noCacheInputTokens =
+                            step.usage.inputTokenDetails?.noCacheTokens ??
+                            Math.max(0, inputTokens - cacheReadTokens - cacheWriteTokens);
+                        if (promptCacheOn) {
                             console.info("[ai.service] prompt_cache", {
                                 companyId,
                                 model: modelId,
                                 cacheReadTokens,
                                 cacheWriteTokens,
+                                noCacheInputTokens,
                                 inputTokens,
                                 outputTokens,
                             });
@@ -1094,6 +1182,9 @@ export class AiServiceAdapter implements AiService {
                             {
                                 input_tokens: inputTokens,
                                 output_tokens: outputTokens,
+                                cache_read_tokens: cacheReadTokens,
+                                cache_write_tokens: cacheWriteTokens,
+                                no_cache_input_tokens: noCacheInputTokens,
                             },
                             {
                                 source: "pro_ai_service",
@@ -1103,6 +1194,7 @@ export class AiServiceAdapter implements AiService {
                                     ? {
                                           cache_read_tokens: cacheReadTokens,
                                           cache_write_tokens: cacheWriteTokens,
+                                          no_cache_input_tokens: noCacheInputTokens,
                                       }
                                     : {}),
                             }
@@ -1139,11 +1231,12 @@ export class AiServiceAdapter implements AiService {
             if (!finalRespondCall) {
                 return {
                     action: "error",
-                    replyText:
-                        "Atingimos o limite de consultas automáticas nesta mensagem. Pode repetir o pedido de forma mais curta ou em partes?",
+                    replyText: TOOL_FAILED_MAX_STEPS_MESSAGE_PT_BR,
                     updatedDraft: input.draft,
                     updatedHistory: input.history,
                     updatedSearchProdutoEmbalagemIds: turnState.allowlistIds,
+                    updatedOrderWorklist: turnState.orderWorklist,
+                    updatedPendingPickGroups: turnState.pendingPickGroups,
                     signals: { toolRoundsUsed: result.steps.length, intentMarker: "unknown" },
                     errorCode: "TOOL_FAILED",
                 };
@@ -1189,6 +1282,7 @@ export class AiServiceAdapter implements AiService {
                 addressFreeText,
                 orderWorklist: turnState.orderWorklist,
                 pendingPickGroups: turnState.pendingPickGroups,
+                pendingOutOfStockOffer: turnState.pendingOutOfStockOffer,
                 matchingMetrics: { ...turnState.matchingMetrics },
             });
         } catch (error) {
@@ -1242,6 +1336,7 @@ export class AiServiceAdapter implements AiService {
                         addressFreeText: false,
                         orderWorklist: turnState.orderWorklist,
                         pendingPickGroups: turnState.pendingPickGroups,
+                pendingOutOfStockOffer: turnState.pendingOutOfStockOffer,
                     });
                 }
                 return {
@@ -1295,6 +1390,7 @@ export class AiServiceAdapter implements AiService {
                         addressFreeText: false,
                         orderWorklist: turnState.orderWorklist,
                         pendingPickGroups: turnState.pendingPickGroups,
+                pendingOutOfStockOffer: turnState.pendingOutOfStockOffer,
                     }
                 );
             }
@@ -1336,16 +1432,18 @@ export class AiServiceAdapter implements AiService {
                             addressFreeText: false,
                             orderWorklist: turnState.orderWorklist,
                             pendingPickGroups: turnState.pendingPickGroups,
+                pendingOutOfStockOffer: turnState.pendingOutOfStockOffer,
                         }
                     );
                 }
                 return {
                     action: "error",
-                    replyText:
-                        "Não consegui montar a consulta automática nesta mensagem. Pode repetir de forma mais curta?",
+                    replyText: TOOL_FAILED_MAX_STEPS_MESSAGE_PT_BR,
                     updatedDraft: input.draft,
                     updatedHistory: input.history,
                     updatedSearchProdutoEmbalagemIds: turnState.allowlistIds,
+                    updatedOrderWorklist: turnState.orderWorklist,
+                    updatedPendingPickGroups: turnState.pendingPickGroups,
                     signals: { toolRoundsUsed: 0, intentMarker: "unknown" },
                     errorCode: "TOOL_FAILED",
                 };
@@ -1375,6 +1473,7 @@ export class AiServiceAdapter implements AiService {
                     addressFreeText: false,
                     orderWorklist: turnState.orderWorklist,
                     pendingPickGroups: turnState.pendingPickGroups,
+                pendingOutOfStockOffer: turnState.pendingOutOfStockOffer,
                 });
             }
             return this.buildProviderError(input, 0, turnState.allowlistIds);

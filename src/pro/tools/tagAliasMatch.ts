@@ -14,6 +14,7 @@
  */
 
 import { normalizeSearchKey } from "@/lib/products/searchNormalize";
+import { splitOrderProductSegments } from "@/src/pro/tools/parseQtyPt";
 
 /** Stopwords de qty / forma de venda canônica — NÃO incluir apelidos de tag (caixinha). */
 const STOP = new Set([
@@ -65,8 +66,8 @@ export function explicitCommercialSiglaFromText(text: string): string | null {
 
 /**
  * Sigla falada no segmento ligado ao termo de busca (multi-produto seguro).
- * Espelha a ideia de `extractQuantityNearQuery`.
- * Com vários segmentos ("A e B"), só usa o pedaço que casa com o query — não o texto inteiro.
+ * Usa o mesmo `splitOrderProductSegments` que qty — "duas skol tres caixa de jamel"
+ * NÃO aplica CX em skol.
  */
 export function explicitCommercialSiglaNearQuery(
     query: string,
@@ -78,12 +79,9 @@ export function explicitCommercialSiglaNearQuery(
     const u = normalizeSearchKey(userText);
     if (!u) return null;
 
-    const parts = u
-        .split(/\s+e\s+|\s+mais\s+|,/u)
-        .map((p) => p.trim())
-        .filter(Boolean);
+    const parts = splitOrderProductSegments(userText).map((p) => normalizeSearchKey(p));
 
-    if (qTokens.length && parts.length) {
+    if (qTokens.length && parts.length >= 1) {
         let best: string | null = null;
         let bestScore = 0;
         for (const part of parts) {

@@ -4,6 +4,8 @@
 **Data:** 2026-09-07  
 **Decisão qty (Fase 0):** **(A) `awaiting_qty`** — registada 2026-09-07 (dono)  
 **Aceite D1–D6 + cutover:** 2026-09-07 (dono)  
+**Aceite D7 (fan-out/fan-in + coalesce prepare):** 2026-09-07 (dono)  
+**Aceite D8 (clarify one-active-line):** 2026-09-08 (dono)  
 **Escopo técnico:** motor PRO multi-item — estado de “o que o cliente pediu e ainda não fechou em SKU”, clarificação UN/CX, force-search, cutover de filas string.  
 **Escopo comercial:** **não** muda preço, trial, `plan_features`, pagamento nem fulfillment. Só qualidade de coleta de itens no chat.  
 **Predecessor:** [`ADR/0005-pro-agent-calibration-pillars.md`](./0005-pro-agent-calibration-pillars.md) (D1: *LLM interpreta; servidor decide*; P0.1 multi-item reaberto **estruturalmente** aqui — C2 mitigou never-wipe, não a fragmentação de filas)  
@@ -89,7 +91,7 @@ Mudança de modelo mental:
 
 ### D4 — Extract estruturado 1× por “selo” de mensagem
 
-- Tool/port `extract_order_lines` (Zod) → `{ lines: [{ raw_term, quantity }] }` cap 5.
+- Tool/port `extract_order_lines` (Zod) → `{ lines: [{ raw_term, quantity }] }` cap 15.
 - Servidor gera `id`s, status `pending_search`, grava `sealedFromUserTextHash` (hash do inbound relevante).
 - **Não** re-extrair a cada step do `generateText` enquanto o hash do turno for o mesmo.
 - Re-extrair só se: worklist vazia + `order_intent`, ou usuário **adiciona** itens em mensagem nova (novo hash), ou fluxo “Corrigir / Adicionar produtos” limpa/parcialmente reabre worklist.
@@ -114,23 +116,84 @@ exists line in { pending_search, ambiguous, awaiting_qty }
 
 **Clarify outbound:**
 
-- Lista **todas** as lines `ambiguous` (via `pendingPickGroups` derivado).
-- Opcional: rodapé canônico “Ainda vou localizar: …” para `pending_search` remanescentes se bateu `maxSteps` — evita silêncio.
+- **D8 (2026-09-08, dono):** **uma** line `ambiguous` por vez (primeiro na ordem da worklist).
+  Demais `ambiguous` / `pending_search` ficam persistidos; preamble “Já anotei… / Ainda falta…”.
+- Índice numérico só vale para o grupo **ativo** (evita “3” cruzar produto).
+- Rodapé “Ainda vou localizar: …” só para `pending_search` se ainda restar após o clarify ativo.
 
 **Turno em que o cliente responde índice/caixa** (`serverResolvePendingPicks` handled):
 
-- **Não** force-search no mesmo turno (evita misturar “1” com busca de vodka).
-- Lines `pending_search` ficam para o turno seguinte.
+- **Não** force-search **via LLM** no mesmo turno (evita misturar “1”/“3” com query de busca).
+- **Sim** busca **paralela server-side** das lines `pending_search` remanescentes com `query = rawTerm` e `packagingContextText = ""` (nunca o texto do pick).
+- Se a batch fechar tudo → checkout sem IA; se nascer `ambiguous` → clarify **só o primeiro** no mesmo turno; se ainda faltar → follow-up canônico.
+
+**Primeiro turno multi-item (`order_intent`):** antes do loop de tools, mesma busca paralela (cap D6) com `packagingContextText = userText`. Se nascer `ambiguous`, **não** force-search LLM dos irmãos `pending_search` no mesmo turno (D8 — não queimar `searchAttempts`).
+
+### D8 — Clarify one-active-line (HITL)
+
+Smoke Ferrester (skol+jamel+whisk): batch deixava whisky `ambiguous` e queimava attempts de skol/jamel no mesmo turno → `not_found` sem clarify próprio.
+
+| Regra | Comportamento |
+|-------|----------------|
+| Outbound clarify | `activeClarifyPickGroups` = 1º group alinhado (≥2 options) |
+| Force-search LLM | **off** enquanto existir line `ambiguous` |
+| Parallel batch | **off** se já há `ambiguous` de turnos anteriores (clarify-first); no 1º turno roda e depois respeita a regra acima |
+| Resolve free-text | só contra o group **ativo** (índices 1..N da mensagem) |
+| Persistência | todas as lines/`pendingPickGroups` continuam na sessão; só a UI pergunta 1 |
+| Dedupe | upsert por `lineId`; não manter `whisk`+`whisky` duplicados |
+
+Arquivo: `activeClarifyPickGroups` em `syncPendingPickGroupsFromWorklist.ts`.
+
+### D7 — Fan-out / fan-in da busca paralela (hardening)
+
+Decisão (2026-09-07, dono): paralelizar **só I/O idempotente**; serializar merge de estado; coalescer mutação de draft.
+
+| Fase | O quê | Concorrência |
+|------|--------|--------------|
+| Preload | `BatchSearchContext`: 1× `loadCompanySiglas` (+ `AbortSignal` opcional) | 1 |
+| Fan-out | N× `fetchCatalogRowsForAi` (`searchDetailed` + expand siblings + tag prefer) | ≤5 (`MAX_PARALLEL_PENDING_SEARCHES`) |
+| Enrich | 1× `loadCustomerSiglaHabits` com union de `product_ids` | 1 |
+| Finalize | `finalizeSearchProdutosForAi` + disambiguate (sync) | CPU |
+| Fold | `applySearchResultToLine` na **ordem das lines** da worklist (não ordem de chegada) | serial |
+| Coalesce | **1×** `prepare_order_draft` com todos os hits únicos+qty (`coalescePrepareUniqueHits`) | 1 |
+
+**Coalesce + draft parcial (2026-09-08):** `prep.ok` = fullOk (itens+endereço+pagamento). Unique hits no batch só têm itens → draft **parcial** com `ok:false`. Mergear `prep.draft` (como `serverResolve`); **não** exigir `prep.ok` senão reverte → queima `searchAttempts` → `not_found` (smoke: jamel UN-only + cardápio).
+
+**Mismatch embalagem na busca (2026-09-08):** cliente pediu sigla (CX) e o hit não tem essa sigla → `PendingPickGroup.unavailableRequestedSigla` + clarify (“Não trabalhamos com caixa… Opção disponível”) mesmo com 1 option; **não** auto-prepare. Resolve: `1` / `sim` / sigla disponível.
+
+**Worklist pós-pedido (2026-09-08):** `order_created_ok` zera `orderWorklist` + `pendingPickGroups`. `reconcileWorklistLinesWithDraft` marca `in_draft` órfão (SKU fora do carrinho) como `abandoned` — evita `worklist_orphan_in_draft` silenciar botões de pagamento após endereço.
+
+**Label P/M/G multi-item (2026-09-08):** `matchUniqueVariantByLabel` prioriza o `query`/`rawTerm` da line; só cai no `userText` do turno se o query não fechar. Evita empate m+g quando o cliente pede “3 marmitas m … e 2 marmitas g” no mesmo texto.
+
+**Extract / worklist cap (2026-09-08):** `MAX_WORKLIST_LINES` + Zod extract = **15** (antes 5).
+
+**Não paralelizar:** tools LLM no mesmo step (`parallelToolCalls: false`); N prepares; force-search LLM residual; clarify humano; checkout/RPC.
+
+**Arquivos:**
+
+```text
+src/pro/pipeline/orderWorklist/
+  batchSearchContext.ts
+  applySearchResultToLine.ts          # sync (sem prepare)
+  coalescePrepareUniqueHits.ts        # 1 prepare N items
+  searchPendingWorklistLinesParallel.ts
+  applyCatalogSearchToWorklistLine.ts # tool path = apply + coalesce(1)
+```
+
+**Métricas / degradação (P1):** `searchedLineIds`, `preparedLineIds`, `prepareCallCount`, `searchFailCount`; se ≥50% fails → follow-up canônico sem burn de force-search LLM.
 
 ### D6 — Caps e anti-loop (mitiga gargalos)
 
 | Cap | Valor sugerido | Motivo |
 |-----|----------------|--------|
-| Max lines na worklist | 5 (espelha cap atual de mentions) | Custo LLM/search |
-| Max `pendingPickGroups` / ambiguous | 3 (`MAX_GROUPS` atual) | Mensagem WhatsApp legível |
+| Max lines na worklist | 15 | Pedidos multi-item reais; custo LLM/search mitigado por parallel cap + searchAttempts |
+| Max `pendingPickGroups` / ambiguous | 3 no estado; **1** no outbound (D8) | HITL WhatsApp |
 | Max options/grupo | 4 | Já existe |
 | Max `searchAttempts` por line | 1–2; depois `not_found` | Evita force-search até `maxSteps` |
+| Force-search com `ambiguous` aberto | **0** (D8) | Não queimar irmãos |
 | Searches forçados por turno | ≤ max(3, remaining pending_search) mas ≤ `maxToolRounds` | Latência |
+| Parallel catalog fan-out | ≤5 (`MAX_PARALLEL_PENDING_SEARCHES`) | Pooler + latência turno |
+| Prepare pós-batch | **1** call coalescida (N items) | Evita N× prepare serial |
 
 Termo inventado pela IA (não substring de `userText` normalizado): **não** entra na worklist.
 
@@ -265,10 +328,11 @@ docs/ADR/0011-pro-order-worklist-typed-lines.md  # este arquivo
 | Latência N searches no mesmo turno | Cap searches/turno; clarify do que já é `ambiguous`; resto no turno seguinte |
 | Termo preso em force-search | `searchAttempts` → `not_found` |
 | Extract ruim (faltou produto) | Usuário reenvia; novo hash reseeds; smoke + replay harness |
-| Extract a mais (alucinação) | Filtrar termos ∉ `userText`; cap 5 |
-| Concorrência search vs clarify “1” | D5: sem force-search no turno de resolve pick |
+| Extract a mais (alucinação) | Filtrar termos ∉ `userText`; cap 15 |
+| Extract a menos (cap antigo 5) | Cap 15 + reseeds em mensagem nova / “Adicionar produtos” |
+| Concorrência search vs clarify “1” | D5: sem force-search **LLM** no turno de pick; batch server usa `rawTerm` |
 | Dual clarify (`lastSearchPicks` vs groups) | D3: um caminho só |
-| `MAX_GROUPS=3` vs cap lines=5 | Dois `pending_search` podem esperar; mensagem esclarece |
+| `MAX_GROUPS=3` vs cap lines=15 | Ambiguous laterais esperam; D8 pergunta 1 por vez |
 
 ---
 
@@ -301,7 +365,7 @@ docs/ADR/0011-pro-order-worklist-typed-lines.md  # este arquivo
 
 **Positivas**
 
-- Clarificação pode mostrar **todos** os ambiguous do pedido.
+- Clarificação **HITL**: uma line `ambiguous` por mensagem (D8); demais ficam no estado.
 - Force-search deixa de depender de a IA “lembrar” pendentes.
 - Um lugar para debug (“qual o status de cada linha?”).
 - Alinha ADR 0005 pilar matching multi-item.
@@ -353,12 +417,15 @@ docs/ADR/0011-pro-order-worklist-typed-lines.md  # este arquivo
 
 **Unit / produto (A–B)**
 
-- [x] Testes: multi-item todos ambiguous → N groups na mesma clarify. (`orderWorklist.trajectory.test.ts`)
+- [x] Testes: multi-item todos ambiguous → N groups no estado; outbound **1** ativo (D8). (`orderWorklist.test.ts` + trajectory)
 - [x] Testes: IA manda `[]` / omite extract ruim → worklist selada não zera; ou re-extract só com novo hash.
 - [x] Testes: resolve 1 de N → resto ambiguous; sem force-search no mesmo turno.
 - [x] Testes: carryover `pending_search` no turno seguinte após pick.
 - [x] Testes: `not_found` após attempts; não trava até maxSteps eterno.
 - [x] Testes: gate checkout — bloqueio com line `pending_search` \| `ambiguous` \| `awaiting_qty`.
+- [x] D7: busca paralela fan-out/fan-in + pós-pick batch (`searchPendingWorklistLinesParallel`).
+- [x] D7 P0: preload siglas 1× + habits coalescidos + `coalescePrepareUniqueHits`.
+- [x] D8: `activeClarifyPickGroups` + force-search off com `ambiguous` + dedupe `lineId`.
 
 **Trajetória de tools (A/C — alinhado à rule de referências)**
 

@@ -5,7 +5,11 @@ import {
     disambiguatePackagingForSearchRows,
     isSamePackagingFamily,
 } from "@/src/pro/pipeline/packagingDisambiguation";
-import { loadCompanySiglas, loadCustomerSiglaHabits } from "@/src/pro/pipeline/customerPackagingHabit";
+import {
+    loadCompanySiglas,
+    loadCustomerSiglaHabits,
+    type CompanySigla,
+} from "@/src/pro/pipeline/customerPackagingHabit";
 import {
     buildPendingPickGroup,
     productKeyFromQuery,
@@ -22,11 +26,9 @@ import {
     type TagAliasRow,
 } from "@/src/pro/tools/tagAliasMatch";
 import { loadEmbalagensByVolumeIds, type ChatProdutoRow } from "@/src/pro/tools/searchProdutos";
+import type { BatchSearchContext } from "@/src/pro/pipeline/orderWorklist/batchSearchContext";
+import { habitSiglaForProductIds } from "@/src/pro/pipeline/orderWorklist/batchSearchContext";
 
-/**
- * Tag bateu numa sigla e o cliente pediu outra (ex.: buchudinha só na UN + "caixa"):
- * carrega irmãos do mesmo `product_volume_id` para o promote UN↔CX.
- */
 async function expandPoolWithTagVolumeSiblings(
     deps: SearchProdutosForAiDeps,
     rows: ChatProdutoRow[],
@@ -84,13 +86,6 @@ function normalizeTagsHay(tags?: string | null): string {
         .normalize("NFD")
         .replaceAll(/\p{Diacritic}/gu, "");
 }
-/**
- * Orquestração de `search_produtos` extraída de `ai.service.full.ts` (agora reusável por
- * qualquer implementação de `AiService`, incl. o loop Vercel AI SDK da Fase 3 — ver
- * docs/PLANO_MIGRACAO_VERCEL_AI_SDK.md). Comportamento idêntico ao método privado anterior:
- * busca no catálogo, desambiguação de embalagem (UN/CX) e guidance textual pro modelo.
- * Sem mutação por referência — quem chama decide o que fazer com o allowlist/picks devolvidos.
- */
 
 export type SearchProdutosForAiInput = {
     query: string;
@@ -101,12 +96,12 @@ export type SearchProdutosForAiDeps = {
     admin: SupabaseClient;
     catalog: CatalogPort;
     companyId: string;
-    /** Para aprender hábito de sigla (UN/CX) do cliente por produto. */
     customerId: string | null;
-    /** Texto do turno atual — usado para desambiguar embalagem por menção explícita/quantidade. */
     userText: string;
-    /** ADR 0011 — amarra PendingPickGroup à line da worklist. */
     worklistLineId?: string | null;
+    worklistLineQuantity?: number | null;
+    /** Batch paralelo (ADR 0011 D7): siglas + habits compartilhados. */
+    batchContext?: BatchSearchContext | null;
 };
 
 export type SearchProdutosPickSummary = {
@@ -117,28 +112,33 @@ export type SearchProdutosPickSummary = {
 };
 
 export type SearchProdutosForAiResult = {
-    /** Corpo pronto para `JSON.stringify` como conteúdo do tool_result (sem tool_use_id). */
     body: Record<string, unknown>;
-    /** IDs de produto_embalagem retornados nesta busca — allowlist da próxima prepare_order_draft. */
     allowlistIds: string[];
     lastSearchPicks: SearchProdutosPickSummary[];
-    /** Busca não encontrou nada — quem chama decide se incrementa/zera o streak de vazio. */
     wasEmpty: boolean;
-    /**
-     * Presente quando a busca ainda ficou com 2+ resultados após a tentativa de
-     * desambiguação por texto do turno atual — seja ambiguidade de embalagem do mesmo
-     * produto (UN/CX/Fardo) ou de produtos/variantes com nomes distintos batendo no mesmo
-     * termo (ex.: "original" → "ORIGINAL 600ML" e "ORIGINAL LATA"). Chamador faz upsert em
-     * `TurnState.pendingPickGroups` (ver `pendingPickGroups.ts`) — resolvido em texto livre,
-     * sem o teto de 3 opções dos botões do WhatsApp.
-     */
     pendingPickGroup: PendingPickGroup | null;
+};
+
+/** Fase catálogo (I/O) — antes da disambiguação com habits coalescidos. */
+export type CatalogSearchPhaseResult = {
+    query: string;
+    rows: ChatProdutoRow[];
+    didYouMean: Array<{ id: string; label: string; score: number }>;
+    queryNormalized: string;
+    empty: boolean;
+    productIds: string[];
 };
 
 async function resolvePackagingHabitForRows(
     deps: SearchProdutosForAiDeps,
     rows: Array<{ produto_id?: string | null }>
 ): Promise<string | null> {
+    if (deps.batchContext) {
+        return habitSiglaForProductIds(
+            deps.batchContext,
+            rows.map((r) => r.produto_id)
+        );
+    }
     const produtoId = rows.find((r) => r.produto_id)?.produto_id?.trim();
     if (!deps.customerId || !produtoId) return null;
     const habits = await loadCustomerSiglaHabits({
@@ -150,41 +150,78 @@ async function resolvePackagingHabitForRows(
     return habits.get(produtoId) ?? null;
 }
 
-export async function runSearchProdutosForAi(
+export async function fetchCatalogRowsForAi(
     input: SearchProdutosForAiInput,
     deps: SearchProdutosForAiDeps
-): Promise<SearchProdutosForAiResult> {
+): Promise<CatalogSearchPhaseResult> {
+    if (deps.batchContext?.signal?.aborted) {
+        throw new Error("batch_search_aborted");
+    }
     const query = input.query;
     const categoryHint = input.categoryHint ?? null;
-    const detailed = await deps.catalog.searchDetailed(deps.companyId, query, { categoryHint, limit: 8 });
+    const detailed = await deps.catalog.searchDetailed(deps.companyId, query, {
+        categoryHint,
+        limit: 8,
+    });
 
     const pool = await expandPoolWithTagVolumeSiblings(
         deps,
         detailed.items as ChatProdutoRow[],
         query
     );
-    let rows = preferRowsMatchingTagAliases(pool as TagAliasRow[], query, deps.userText) as ChatProdutoRow[];
+    const rows = preferRowsMatchingTagAliases(
+        pool as TagAliasRow[],
+        query,
+        deps.userText
+    ) as ChatProdutoRow[];
+
+    const productIds = [
+        ...new Set(
+            rows
+                .map((r) => String(r.produto_id ?? "").trim())
+                .filter(Boolean)
+        ),
+    ];
+
+    return {
+        query,
+        rows,
+        didYouMean: detailed.didYouMean,
+        queryNormalized: detailed.queryNormalized,
+        empty: detailed.empty,
+        productIds,
+    };
+}
+
+export function finalizeSearchProdutosForAi(
+    phase: CatalogSearchPhaseResult,
+    deps: SearchProdutosForAiDeps,
+    opts?: {
+        companySiglas?: CompanySigla[];
+        habitSigla?: string | null;
+    }
+): SearchProdutosForAiResult {
+    let rows = phase.rows;
     if (rows.length >= 2) {
-        let companySiglas: Awaited<ReturnType<typeof loadCompanySiglas>> = [];
-        let habitSigla: string | null = null;
-        try {
-            [companySiglas, habitSigla] = await Promise.all([
-                loadCompanySiglas(deps.admin, deps.companyId),
-                resolvePackagingHabitForRows(deps, rows),
-            ]);
-        } catch (err: unknown) {
-            console.warn(
-                "[searchProdutosForAi] sigla/habit load failed",
-                err instanceof Error ? err.message : err
-            );
-        }
-        rows = disambiguatePackagingForSearchRows(rows, query, deps.userText, {
+        const companySiglas = opts?.companySiglas ?? deps.batchContext?.companySiglas ?? [];
+        const habitSigla =
+            opts?.habitSigla !== undefined
+                ? opts.habitSigla
+                : deps.batchContext
+                  ? habitSiglaForProductIds(
+                        deps.batchContext,
+                        rows.map((r) => r.produto_id)
+                    )
+                  : null;
+        rows = disambiguatePackagingForSearchRows(rows, phase.query, deps.userText, {
             companySiglas,
             habitSigla,
         });
     }
 
-    const publicItems = rows.map((r) => toChatCatalogPublicItem(r as unknown as Record<string, unknown>));
+    const publicItems = rows.map((r) =>
+        toChatCatalogPublicItem(r as unknown as Record<string, unknown>)
+    );
     const allowlistIds = publicItems.map((r) => r.id).filter(Boolean);
     const lastSearchPicks: SearchProdutosPickSummary[] = publicItems.slice(0, 3).map((r) => ({
         embalagemId: r.id,
@@ -200,9 +237,9 @@ export async function runSearchProdutosForAi(
                   `IDs exatos desta busca (copie um literalmente): ${allowlistIds.join(", ")}.`,
                   "Não cite custo, estoque numérico, código interno, EAN nem UUID no texto ao cliente.",
                   "descricao_ingredientes = o que acompanha; informacoes = como é feito / extras.",
-                  ...(detailed.didYouMean.length
+                  ...(phase.didYouMean.length
                       ? [
-                            `did_you_mean: ${detailed.didYouMean.map((d) => d.label).join(" | ")}. Ofereça essas opções se o cliente digitou errado.`,
+                            `did_you_mean: ${phase.didYouMean.map((d) => d.label).join(" | ")}. Ofereça essas opções se o cliente digitou errado.`,
                         ]
                       : []),
                   ...(publicItems.length >= 2
@@ -223,14 +260,40 @@ export async function runSearchProdutosForAi(
               ];
 
     const sameFamily = isSamePackagingFamily(rows);
-    const requestedQuantity = extractQuantityNearQuery(query, deps.userText);
+    const fromLine =
+        deps.worklistLineQuantity != null &&
+        Number.isFinite(deps.worklistLineQuantity) &&
+        deps.worklistLineQuantity >= 1
+            ? Math.floor(deps.worklistLineQuantity)
+            : null;
+    const requestedQuantity = fromLine ?? extractQuantityNearQuery(phase.query, deps.userText);
+
+    const wantSigla = explicitCommercialSiglaNearQuery(phase.query, deps.userText);
+    const hitSiglas = [
+        ...new Set(
+            rows
+                .map((r) => String(r.sigla_comercial ?? "").trim().toUpperCase())
+                .filter(Boolean)
+        ),
+    ];
+    const packagingMismatch =
+        Boolean(wantSigla) && hitSiglas.length > 0 && !hitSiglas.includes(wantSigla!);
+
+    const lineId = deps.worklistLineId ?? `search_${productKeyFromQuery(phase.query)}`;
+    const label =
+        sameFamily || packagingMismatch
+            ? String(rows[0]?.product_name ?? phase.query).trim() || phase.query
+            : phase.query.trim() || String(rows[0]?.product_name ?? "Item");
+
+    /**
+     * Ambíguo (2+) OU mismatch de embalagem (pediu CX, só UN): PendingPickGroup
+     * — não auto-prepare; clarify com aviso (smoke jamel).
+     */
     const pendingPickGroup =
-        rows.length >= 2
+        rows.length >= 2 || (packagingMismatch && rows.length >= 1)
             ? buildPendingPickGroup(
-                  productKeyFromQuery(query),
-                  sameFamily
-                      ? String(rows[0]?.product_name ?? query).trim() || query
-                      : query.trim() || String(rows[0]?.product_name ?? "Item"),
+                  productKeyFromQuery(phase.query),
+                  label,
                   rows as unknown as Array<{
                       id: string;
                       display_name?: string | null;
@@ -243,22 +306,68 @@ export async function runSearchProdutosForAi(
                   }>,
                   {
                       requestedQuantity,
-                      lineId: deps.worklistLineId ?? `search_${productKeyFromQuery(query)}`,
+                      lineId,
+                      ...(packagingMismatch
+                          ? { unavailableRequestedSigla: wantSigla }
+                          : {}),
                   }
               )
             : null;
 
+    if (packagingMismatch && pendingPickGroup) {
+        guidanceForModelPt.push(
+            `Cliente pediu embalagem ${wantSigla} que não existe neste produto. ` +
+                "NÃO chame prepare_order_draft — o servidor pergunta se aceita a opção disponível."
+        );
+    }
+
     return {
         body: {
             items: publicItems,
-            did_you_mean: detailed.didYouMean,
-            query_normalized: detailed.queryNormalized,
+            did_you_mean: phase.didYouMean,
+            query_normalized: phase.queryNormalized,
             produto_embalagem_ids_validos: allowlistIds,
             guidance_for_model_pt: guidanceForModelPt,
         },
         allowlistIds,
         lastSearchPicks,
-        wasEmpty: detailed.empty,
+        wasEmpty: phase.empty,
         pendingPickGroup,
     };
+}
+
+export async function runSearchProdutosForAi(
+    input: SearchProdutosForAiInput,
+    deps: SearchProdutosForAiDeps
+): Promise<SearchProdutosForAiResult> {
+    const phase = await fetchCatalogRowsForAi(input, deps);
+
+    let companySiglas: CompanySigla[] = deps.batchContext?.companySiglas ?? [];
+    let habitSigla: string | null = null;
+    if (phase.rows.length >= 2) {
+        try {
+            if (deps.batchContext) {
+                habitSigla = habitSiglaForProductIds(
+                    deps.batchContext,
+                    phase.rows.map((r) => r.produto_id)
+                );
+            } else {
+                const [siglas, habit] = await Promise.all([
+                    companySiglas.length
+                        ? Promise.resolve(companySiglas)
+                        : loadCompanySiglas(deps.admin, deps.companyId),
+                    resolvePackagingHabitForRows(deps, phase.rows),
+                ]);
+                companySiglas = siglas;
+                habitSigla = habit;
+            }
+        } catch (err: unknown) {
+            console.warn(
+                "[searchProdutosForAi] sigla/habit load failed",
+                err instanceof Error ? err.message : err
+            );
+        }
+    }
+
+    return finalizeSearchProdutosForAi(phase, deps, { companySiglas, habitSigla });
 }

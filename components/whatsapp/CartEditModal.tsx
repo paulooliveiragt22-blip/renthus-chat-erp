@@ -240,15 +240,46 @@ export default function CartEditModal({
             onClose={onClose}
             zClass="z-[10000]"
             footer={
-                <div className="flex flex-wrap items-center gap-3">
-                    <button
-                        type="button"
-                        onClick={handleSend}
-                        disabled={sending}
-                        className="rounded-xl bg-primary px-5 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                        {sending ? "Enviando..." : "Enviar para confirmação"}
-                    </button>
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="flex flex-wrap items-center gap-3">
+                        <button
+                            type="button"
+                            onClick={handleSend}
+                            disabled={sending}
+                            className="rounded-xl bg-primary px-5 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                            {sending ? "Enviando..." : "Enviar resumo"}
+                        </button>
+                        <button
+                            type="button"
+                            onClick={async () => {
+                                setSending(true);
+                                try {
+                                    const res = await fetch(`/api/whatsapp/threads/${threadId}/cart/finalize`, {
+                                        method: "POST",
+                                        headers: { "Content-Type": "application/json" },
+                                        credentials: "include",
+                                    });
+                                    const json = await res.json().catch(() => ({}));
+                                    if (!res.ok) {
+                                        setMsg(`Erro ao finalizar: ${json?.error?.message ?? "falha desconhecida"}`);
+                                        return;
+                                    }
+                                    onSent();
+                                    onClose();
+                                } catch {
+                                    setMsg("Erro de conexão ao finalizar. Tente novamente.");
+                                } finally {
+                                    setSending(false);
+                                }
+                            }}
+                            disabled={sending}
+                            className="rounded-xl bg-violet-600 px-5 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                            {sending ? "Finalizando..." : "Finalizar pedido"}
+                        </button>
+                        {msg && <span className="ml-auto text-xs font-medium text-rose-600">{msg}</span>}
+                    </div>
                     <button
                         type="button"
                         onClick={onClose}
@@ -257,7 +288,6 @@ export default function CartEditModal({
                     >
                         Cancelar
                     </button>
-                    {msg && <span className="ml-auto text-xs font-medium text-rose-600">{msg}</span>}
                 </div>
             }
         >

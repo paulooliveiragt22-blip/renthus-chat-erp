@@ -7,6 +7,7 @@ import {
 import { mergePreparedDraftIntoCurrent, unionAllowlistWithDraftIds } from "./mergeOrderDraft";
 import { isDraftStructurallyCompleteForFinalize } from "./orderDraftGate";
 import { isAddressStructurallyComplete } from "./orderSlotStep";
+import { reconcileWorklistLinesWithDraft } from "@/src/pro/domain/orderWorklist/orderWorklist";
 
 /** Prefixo do botão de escolha de endereço (mais usado vs. do pedido mais recente). */
 export const PICK_ADDRESS_PREFIX = "pro_pick_address:";
@@ -86,6 +87,7 @@ export async function serverPrepareAfterAddressPick(params: {
         checkoutEditHold: false,
         pendingAddressPickOptions: [],
         proposedAddressId: null,
+        orderWorklist: reconcileWorklistLinesWithDraft(state.orderWorklist, nextDraft),
     };
 
     const readyForPaymentUi =

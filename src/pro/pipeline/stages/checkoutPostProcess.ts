@@ -19,6 +19,8 @@ import {
 } from "../paymentFromUserText";
 import { resolveCheckoutTurnOutcome, type CheckoutTurnOutcomeKind } from "../resolveCheckoutTurnOutcome";
 import { buildPickClarificationFreeText } from "../pendingPickGroups";
+import { buildWorklistSiblingProgressPreamble } from "../serverResolvePendingPicks";
+import { activeClarifyPickGroups } from "../orderWorklist/syncPendingPickGroupsFromWorklist";
 import {
     checkoutChannelInputFromState,
     resolveCheckoutChannel,
@@ -37,7 +39,12 @@ import {
 } from "@/lib/delivery/fulfillment";
 import { scrubOutboundForFulfillmentChoice } from "@/src/pro/tools/checkoutPhasePolicy";
 import { worklistCheckoutGate } from "@/src/pro/pipeline/orderWorklist/worklistCheckoutGate";
-import { listLinesByStatus } from "@/src/pro/domain/orderWorklist/orderWorklist";
+import { listLinesByStatus, reconcileWorklistLinesWithDraft } from "@/src/pro/domain/orderWorklist/orderWorklist";
+import { appendAbrirCardapioCta } from "@/lib/chatbot/aiOrderModePolicy";
+import {
+    buildOutOfStockOfferButtons,
+    stripBlockedOutOfStockFromDraft,
+} from "@/src/pro/pipeline/outOfStockOffer";
 import {
     CUSTOMER_PAYMENT_LABELS,
     DEFAULT_ACCEPTED_CUSTOMER_PAYMENTS,
@@ -238,8 +245,14 @@ function checkoutButtonsForState(
     accepted: AcceptedCustomerPayments = DEFAULT_ACCEPTED_CUSTOMER_PAYMENTS
 ): OutboundMessage[] {
     if (!state.draft) return [];
-    if (worklistCheckoutGate({ state }).blocked) return [];
-    if (listLinesByStatus(state.orderWorklist, "not_found").length > 0) return [];
+    if ((state.pendingOutOfStockOffer?.names?.length ?? 0) > 0) return [];
+    /** Órfãos in_draft (SKU fora do carrinho) → abandoned antes do gate (evita outbound vazio no pagamento). */
+    const stateForGate: ProSessionState = {
+        ...state,
+        orderWorklist: reconcileWorklistLinesWithDraft(state.orderWorklist, state.draft),
+    };
+    if (worklistCheckoutGate({ state: stateForGate }).blocked) return [];
+    if (listLinesByStatus(stateForGate.orderWorklist, "not_found").length > 0) return [];
     /**
      * Picks residuais só bloqueiam checkout quando ainda falta clarificar embalagem.
      * Com itens no draft e sem pendingPickGroups, não segurar Entrega/Retirada.
@@ -476,6 +489,69 @@ export function applyQuickAction(
 ): QuickActionResult {
     const action = normalizeInboundAction(text);
     if (!action) return { handled: false, actionTag: null, state, outbound: [] };
+
+    const pendingOos = state.pendingOutOfStockOffer?.names ?? [];
+    if (pendingOos.length > 0) {
+        const wantsAdd =
+            action === "pro_oos_add_other" ||
+            action === "sim" ||
+            action === "ss" ||
+            action === "yes";
+        const wantsContinue =
+            action === "pro_oos_continue" ||
+            action === "nao" ||
+            action === "não" ||
+            action === "n" ||
+            action === "no";
+        if (wantsAdd) {
+            return {
+                handled: true,
+                actionTag: "pro_oos_add_other",
+                state: {
+                    ...state,
+                    pendingOutOfStockOffer: null,
+                    step: "pro_collecting_order",
+                    checkoutEditHold: true,
+                    lastSearchPicks: [],
+                    pendingSwapRemoveName: null,
+                },
+                outbound: [{ kind: "text", text: "Certo. Me diga os produtos que quer adicionar." }],
+            };
+        }
+        if (wantsContinue) {
+            const cleared = { ...state, pendingOutOfStockOffer: null, checkoutEditHold: false };
+            if (!cleared.draft?.items?.length) {
+                return {
+                    handled: true,
+                    actionTag: "pro_oos_continue",
+                    state: withResolvedSlotStep({
+                        ...cleared,
+                        step: "pro_idle",
+                        draft: null,
+                    }),
+                    outbound: [
+                        {
+                            kind: "text",
+                            text: "Tudo bem. Quando quiser pedir, me diga os produtos.",
+                        },
+                    ],
+                };
+            }
+            return {
+                handled: true,
+                actionTag: "pro_oos_continue",
+                state: withResolvedSlotStep(cleared),
+                outbound: [],
+            };
+        }
+        /** Enquanto a oferta está aberta, não cair em outros quick-actions. */
+        return {
+            handled: true,
+            actionTag: "pro_oos_offer_repeat",
+            state,
+            outbound: [buildOutOfStockOfferButtons(pendingOos)],
+        };
+    }
 
     /**
      * Botão "Confirmar" atrasado (WhatsApp) ou reenvio após `draft` limpo: não mandar para IA
@@ -730,6 +806,7 @@ export function applyQuickAction(
             deliveryAddressUiConfirmed: true,
             pendingAddressPickOptions: [],
             proposedAddressId: null,
+            orderWorklist: reconcileWorklistLinesWithDraft(state.orderWorklist, state.draft),
         };
         return {
             handled: true,
@@ -795,6 +872,8 @@ export function checkoutPostProcess(params: {
     mode: "direct_reply" | "ai";
     /** URL do cardápio com carrinho (handoff). Sem Flow Meta. */
     checkoutHandoffUrl?: string | null;
+    /** Cardápio web da loja (CTA em not_found / busca vazia). */
+    webMenuUrl?: string | null;
     /** Resultado de `buildOrderHintsPayload` quando o checkout precisa decidir cadastro. */
     orderHints?: Record<string, unknown> | null;
     /**
@@ -812,11 +891,49 @@ export function checkoutPostProcess(params: {
     const accepted = params.acceptedPayments ?? DEFAULT_ACCEPTED_CUSTOMER_PAYMENTS;
     let nextState = params.state;
     if (nextState.draft) {
-        const draft = applyFulfillmentPolicyToDraft(nextState.draft, policy);
-        if (draft !== nextState.draft) {
+        const currentDraft = nextState.draft;
+        nextState = {
+            ...nextState,
+            orderWorklist: reconcileWorklistLinesWithDraft(
+                nextState.orderWorklist,
+                currentDraft
+            ),
+        };
+        const draft = applyFulfillmentPolicyToDraft(currentDraft, policy);
+        if (draft !== currentDraft) {
             nextState = { ...nextState, draft };
         }
     }
+
+    /**
+     * Estoque físico insuficiente: tira OOS do carrinho (mantém quem tem estoque) e
+     * abre oferta Sim/Não — não deixa a IA narrar “fora do estoque” sem botões.
+     */
+    if (!nextState.checkoutEditHold) {
+        const existingNames = nextState.pendingOutOfStockOffer?.names ?? [];
+        let offerNames = [...existingNames];
+        if (nextState.draft?.items?.length) {
+            const stripped = stripBlockedOutOfStockFromDraft(nextState.draft);
+            if (stripped.removedNames.length) {
+                offerNames = [...new Set([...offerNames, ...stripped.removedNames])];
+                nextState = {
+                    ...nextState,
+                    draft: stripped.draft,
+                    orderWorklist: reconcileWorklistLinesWithDraft(
+                        nextState.orderWorklist,
+                        stripped.draft
+                    ),
+                };
+            }
+        }
+        if (offerNames.length > 0) {
+            nextState = {
+                ...nextState,
+                pendingOutOfStockOffer: { names: offerNames },
+            };
+        }
+    }
+
     const outbound = [...params.outbound];
 
     if (isFulfillmentUnavailable(policy) && nextState.draft && nextState.draft.items.length > 0) {
@@ -844,7 +961,8 @@ export function checkoutPostProcess(params: {
         nextState.draft &&
         nextState.draft.items.length > 0 &&
         !skipAddressUi &&
-        nextState.deliveryAddressUiConfirmed !== true;
+        nextState.deliveryAddressUiConfirmed !== true &&
+        !(nextState.pendingOutOfStockOffer?.names?.length);
     if (showAddressRegistrationPrompt && handoffUrl) {
         outbound.push(
             {
@@ -876,12 +994,33 @@ export function checkoutPostProcess(params: {
      * regex) e usa a pergunta consolidada determinística — elimina tanto a duplicidade quanto
      * o risco de a IA alucinar disponibilidade/preço na prosa (Frente 1 do diagnóstico do S2).
      */
-    if (turnOutcome.kind === "clarify_pending_picks") {
+    if (turnOutcome.kind === "offer_out_of_stock") {
+        const names = nextState.pendingOutOfStockOffer?.names ?? [];
         outbound.length = 0;
-        outbound.push({
-            kind: "text",
-            text: buildPickClarificationFreeText(nextState.pendingPickGroups ?? []),
-        });
+        outbound.push(buildOutOfStockOfferButtons(names));
+    } else if (turnOutcome.kind === "clarify_pending_picks") {
+        outbound.length = 0;
+        const active = activeClarifyPickGroups(
+            nextState.orderWorklist,
+            nextState.pendingPickGroups ?? []
+        );
+        if (!active.length) {
+            const preamble = buildWorklistSiblingProgressPreamble(
+                nextState.orderWorklist,
+                nextState.draft
+            );
+            if (preamble) outbound.push({ kind: "text", text: preamble });
+        } else {
+            const preamble = buildWorklistSiblingProgressPreamble(
+                nextState.orderWorklist,
+                nextState.draft
+            );
+            const clarify = buildPickClarificationFreeText(active);
+            outbound.push({
+                kind: "text",
+                text: preamble ? `${preamble}\n\n${clarify}` : clarify,
+            });
+        }
     }
 
     if (turnOutcome.kind === "clarify_product_picks") {
@@ -899,12 +1038,39 @@ export function checkoutPostProcess(params: {
         outbound.push(...scrubbed);
     }
 
-    // Escalação suave: muitas buscas vazias → cardápio
+    // Escalação suave: muitas buscas vazias → cardápio + CTA
     if (turnOutcome.kind === "empty_search_hint") {
         outbound.push({
             kind: "text",
-            text: "Não encontrei esse produto no catálogo. Tente outro nome, ou abra o cardápio pelo botão Cardápio / menu da loja.",
+            text: "Não encontrei esse produto no catálogo. Tente outro nome, ou abra o cardápio pelo botão abaixo.",
         });
+        const withMenu = appendAbrirCardapioCta(outbound, params.webMenuUrl);
+        outbound.length = 0;
+        outbound.push(...withMenu);
+    }
+
+    /** Item(ns) not_found na worklist — oferecer cardápio junto da mensagem. */
+    const notFoundTerms = listLinesByStatus(nextState.orderWorklist, "not_found").map(
+        (l) => l.rawTerm
+    );
+    if (notFoundTerms.length > 0 && params.webMenuUrl) {
+        const alreadyMentionsCatalog = outbound.some(
+            (m) =>
+                m.kind === "cta_url" ||
+                (m.kind === "text" && /cardápio|cardapio/i.test(String(m.text ?? "")))
+        );
+        if (!alreadyMentionsCatalog && outbound.length > 0) {
+            outbound.push({
+                kind: "text",
+                text:
+                    notFoundTerms.length === 1
+                        ? `Não fechei "${notFoundTerms[0]}" no catálogo. Você pode escolher no cardápio:`
+                        : `Não fechei estes itens no catálogo: ${notFoundTerms.join(", ")}. Você pode escolher no cardápio:`,
+            });
+        }
+        const withMenu = appendAbrirCardapioCta(outbound, params.webMenuUrl);
+        outbound.length = 0;
+        outbound.push(...withMenu);
     }
 
     // Endereço com 2 candidatos reais (mais usado ≠ pedido mais recente): botão em vez de

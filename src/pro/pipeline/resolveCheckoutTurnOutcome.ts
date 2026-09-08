@@ -9,10 +9,12 @@ import { isDraftStructurallyCompleteForFinalize } from "./orderDraftGate";
 import { isPickupDraft, needsFulfillmentChoice, type FulfillmentPolicy } from "@/lib/delivery/fulfillment";
 import { worklistCheckoutGate } from "./orderWorklist/worklistCheckoutGate";
 import { listLinesByStatus } from "@/src/pro/domain/orderWorklist/orderWorklist";
+import { activeClarifyPickGroups } from "./orderWorklist/syncPendingPickGroupsFromWorklist";
 
 export type CheckoutTurnOutcomeKind =
     | "clarify_pending_picks"
     | "clarify_product_picks"
+    | "offer_out_of_stock"
     | "register_address_flow"
     | "confirm_address"
     | "ask_payment"
@@ -40,18 +42,23 @@ export function resolveCheckoutTurnOutcome(params: {
     const { state, mode } = params;
     const draft = state.draft;
 
+    if ((state.pendingOutOfStockOffer?.names?.length ?? 0) > 0) {
+        return { kind: "offer_out_of_stock", reason: "pending_out_of_stock_offer" };
+    }
+
     if (params.showAddressRegistrationPrompt) {
         return { kind: "register_address_flow", reason: "needs_address_registration" };
     }
 
     /**
-     * Embalagem ambígua de 1+ produtos citados no mesmo turno (`search_produtos` acabou de
-     * popular `pendingPickGroups`): pergunta consolidada em texto livre substitui a prosa da
-     * IA — nunca card de botões em paralelo (ver `pendingPickGroups.ts`).
+     * Embalagem ambígua: group ativo alinhado (ADR 0011 D8 — um por vez).
      */
+    const alignedGroups = activeClarifyPickGroups(
+        state.orderWorklist,
+        state.pendingPickGroups ?? []
+    );
     if (
-        ((state.pendingPickGroups?.length ?? 0) > 0 ||
-            listLinesByStatus(state.orderWorklist, "ambiguous").length > 0) &&
+        alignedGroups.length > 0 &&
         (mode === "ai" || state.checkoutEditHold === true) &&
         state.step !== "pro_awaiting_confirmation"
     ) {
@@ -72,10 +79,11 @@ export function resolveCheckoutTurnOutcome(params: {
     }
 
     /**
-     * Picks legados só clarificam se ainda NÃO há itens no draft. Com rascunho parcial
-     * (prepare já montou), residual lastSearchPicks não pode engolir Entrega/Retirada.
+     * Picks legados: só se worklist vazia (sem lines). Com worklist, clarify é só via groups.
      */
+    const hasWorklistLines = (state.orderWorklist?.lines?.length ?? 0) > 0;
     if (
+        !hasWorklistLines &&
         (state.lastSearchPicks?.length ?? 0) >= 2 &&
         !(draft?.items?.length) &&
         (mode === "ai" || state.checkoutEditHold === true) &&

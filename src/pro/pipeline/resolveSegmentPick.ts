@@ -149,11 +149,6 @@ export function resolvePreferredSigla(
     const spokenNear = explicitCommercialSiglaNearQuery(segment, formatText);
     if (spokenNear && hitSiglaList(items).includes(spokenNear)) return spokenNear;
 
-    const habit = String(opts?.habitSigla ?? "")
-        .trim()
-        .toUpperCase();
-    if (habit && hitSiglaList(items).includes(habit)) return habit;
-
     const qty = Number(opts?.quantity);
     const qtyOk = Number.isFinite(qty) && qty > 0 ? qty : null;
     const fatores = items.map(fatorOf);
@@ -174,18 +169,28 @@ export function resolvePreferredSigla(
         return rowSigla(candidates[0]!) || null;
     };
 
-    if (qtyOk != null && maxF > minF && qtyOk < maxF) {
+    /**
+     * Lata / long neck / garrafa / pet no segmento → UN, **antes** do hábito do cliente.
+     * Evita "duas Heineken lata" virar CX porque o hábito (ou "caixa" de outro item
+     * no texto completo) puxava caixa.
+     */
+    const formatNorm = norm(formatText);
+    const segmentNorm = norm(segment);
+    const formatOrSeg = `${segmentNorm} ${formatNorm}`;
+    if (
+        SINGLE_UNIT_FORMAT_RE.test(formatOrSeg) &&
+        !/\b(caixinha|caixinhas|fardinho|fardinhos|caixa|caixas|\bcx\b)\b/u.test(formatOrSeg)
+    ) {
+        if (hitSiglaList(items).includes("UN")) return "UN";
         return siglaOfMinFator();
     }
 
-    // Palavra de formato "unidade única" (lata/garrafa/pet/long neck) sem caixa citada nem
-    // quantidade decisiva. Se o texto ainda traz apelido típico de tag de CX (caixinha),
-    // não forçar UN — o match de tag / clarificação resolve o SKU.
-    if (
-        SINGLE_UNIT_FORMAT_RE.test(norm(formatText)) &&
-        !/\b(caixinha|caixinhas|fardinho|fardinhos|caixa|caixas|\bcx\b)\b/u.test(norm(formatText))
-    ) {
-        if (hitSiglaList(items).includes("UN")) return "UN";
+    const habit = String(opts?.habitSigla ?? "")
+        .trim()
+        .toUpperCase();
+    if (habit && hitSiglaList(items).includes(habit)) return habit;
+
+    if (qtyOk != null && maxF > minF && qtyOk < maxF) {
         return siglaOfMinFator();
     }
 

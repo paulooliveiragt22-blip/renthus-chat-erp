@@ -9,6 +9,11 @@ import {
     pendingSearchTermsFromWorklist,
     sealWorklistFromExtract,
 } from "@/src/pro/domain/orderWorklist/orderWorklist";
+import {
+    filterExtractedTermsAppearingInUserText,
+    mergeExtractedWithLexicalFallback,
+} from "@/src/pro/pipeline/orderWorklist/seedWorklistFromExtract";
+import { extractCandidatePendingTermsFromUserText } from "@/src/pro/domain/orderWorklist/extractCandidateTerms";
 import type { OrderLinesExtractPort } from "@/src/pro/ports/orderLinesExtract.port";
 import type { TurnState } from "./turnState";
 
@@ -29,13 +34,21 @@ export function createExtractOrderLinesTool(deps: {
         execute: async () => {
             const prev = deps.turnState.orderWorklist;
             const extracted = await deps.extractPort.extract(deps.userText);
-            const next = sealWorklistFromExtract({
-                previous: prev,
-                userText: deps.userText,
-                extracted: extracted.lines.map((l) => ({
+            const appearing = filterExtractedTermsAppearingInUserText(
+                (extracted.lines ?? []).map((l) => ({
                     rawTerm: l.rawTerm,
                     quantity: l.quantity,
                 })),
+                deps.userText
+            );
+            const withLexical = mergeExtractedWithLexicalFallback(
+                appearing,
+                extractCandidatePendingTermsFromUserText(deps.userText)
+            );
+            const next = sealWorklistFromExtract({
+                previous: prev,
+                userText: deps.userText,
+                extracted: withLexical,
             });
             deps.turnState.orderWorklist = next;
             return {

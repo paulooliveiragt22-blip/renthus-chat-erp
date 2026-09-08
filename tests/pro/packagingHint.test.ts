@@ -27,6 +27,12 @@ describe("enrichSearchTermPackagingFromUserText", () => {
         );
         assert.equal(t, "coca 2 litros");
     });
+
+    it("qty justapostas: caixa de jamel não vira caixa em skol", () => {
+        const msg = "Quero duas skol tres caixa de jamel e um whisk";
+        assert.equal(enrichSearchTermPackagingFromUserText("skol", msg), "skol");
+        assert.equal(enrichSearchTermPackagingFromUserText("jamel", msg), "jamel caixa");
+    });
 });
 
 describe("buildBootstrapSegmentPlanFromExtraction + userText", () => {

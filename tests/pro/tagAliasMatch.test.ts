@@ -41,6 +41,13 @@ describe("tagAliasMatch", () => {
         );
     });
 
+    it("explicitCommercialSiglaNearQuery: qty justapostas (skol / caixa de jamel)", () => {
+        const msg = "Quero duas skol tres caixa de jamel e um whisk";
+        assert.equal(explicitCommercialSiglaNearQuery("skol", msg), null);
+        assert.equal(explicitCommercialSiglaNearQuery("jamel", msg), "CX");
+        assert.equal(explicitCommercialSiglaNearQuery("whisk", msg), null);
+    });
+
     it("rowTagTokens split vírgula", () => {
         assert.deepEqual(rowTagTokens("caixinha, fardinho", null).sort(), [
             "caixinha",

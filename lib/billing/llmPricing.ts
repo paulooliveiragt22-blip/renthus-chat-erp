@@ -76,19 +76,59 @@ function usdToBrlCents(usd: number, rate: number): number {
     return Math.max(1, Math.ceil(usd * rate * 100));
 }
 
+/** Multiplicadores Anthropic prompt cache (5m TTL) sobre o preço de input base. */
+export const ANTHROPIC_CACHE_WRITE_5M_MULTIPLIER = 1.25;
+export const ANTHROPIC_CACHE_READ_MULTIPLIER = 0.1;
+
+export type LlmCacheUsageParts = {
+    /** Tokens de input fora do cache (usage.input_tokens / noCache). */
+    noCacheInputTokens?: number;
+    cacheReadTokens?: number;
+    /** cache_creation_input_tokens (write). */
+    cacheWriteTokens?: number;
+};
+
 /**
  * Custo LLM em centavos BRL a partir de tokens + modelo.
  * Sem modelo → fallback caro (Sonnet-class).
+ *
+ * Com `cacheParts` (Anthropic): cobra noCache×1 + write×1.25 + read×0.1 + output.
+ * `inputTokens` sem breakdown = input cheio (legado / providers sem cache).
+ *
+ * Aritmética em décimos de µUSD para evitar float (ex.: 0.1×5.5×100 → 56 por ceil).
  */
 export function estimateLlmCostBrlCents(
     model: string | null | undefined,
     inputTokens: number,
     outputTokens: number,
-    usdBrlRate: number = usdBrlRateFromEnv()
+    usdBrlRate: number = usdBrlRateFromEnv(),
+    cacheParts?: LlmCacheUsageParts | null
 ): number {
     const rates = resolveLlmRates(model);
+    const read = Math.max(0, Number(cacheParts?.cacheReadTokens ?? 0));
+    const write = Math.max(0, Number(cacheParts?.cacheWriteTokens ?? 0));
+    const hasCacheBreakdown = read > 0 || write > 0 || cacheParts?.noCacheInputTokens != null;
+
+    let noCache: number;
+    if (hasCacheBreakdown) {
+        noCache =
+            cacheParts?.noCacheInputTokens != null
+                ? Math.max(0, Number(cacheParts.noCacheInputTokens))
+                : Math.max(0, Math.max(0, inputTokens) - read - write);
+    } else {
+        noCache = Math.max(0, inputTokens);
+    }
+
+    /** USD = tokens/1e6 * usdPerM * mult → BRL cents = ceil(USD * rate * 100) */
     const usd =
-        (Math.max(0, inputTokens) / 1_000_000) * rates.inputUsdPerM +
+        (noCache / 1_000_000) * rates.inputUsdPerM +
+        (write / 1_000_000) * rates.inputUsdPerM * ANTHROPIC_CACHE_WRITE_5M_MULTIPLIER +
+        (read / 1_000_000) * rates.inputUsdPerM * ANTHROPIC_CACHE_READ_MULTIPLIER +
         (Math.max(0, outputTokens) / 1_000_000) * rates.outputUsdPerM;
-    return usdToBrlCents(usd, usdBrlRate);
+
+    if (!(usd > 0)) return 0;
+    // Evita 0.55*100 = 55.00000000000001 → ceil 56: arredonda para 1e-9 antes do ceil.
+    const brlCents = usd * usdBrlRate * 100;
+    const cleaned = Math.round(brlCents * 1e9) / 1e9;
+    return Math.max(1, Math.ceil(cleaned - 1e-9));
 }
