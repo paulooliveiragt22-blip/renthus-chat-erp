@@ -17,6 +17,8 @@ import { sendAndPersistWaText } from "@/lib/whatsapp/sendAndPersist";
 import type { WaConfig } from "@/lib/whatsapp/send";
 import type { MetricsPort } from "@/src/pro/ports/metrics.port";
 import { detectStructuredCheckoutAction } from "./orderConfirmationText";
+import { restoreBotAfterConfirmation } from "./restoreBotAfterConfirmation";
+import type { BotRestoreReason } from "@/src/pro/ports/threadControl.port";
 
 const CONFIRMATION_TTL_MS = 60 * 60 * 1000;
 
@@ -90,13 +92,17 @@ export async function tryResolvePendingOrderConfirmation(params: {
             .update({ status: "expired", resolved_at: new Date().toISOString() })
             .eq("id", confirmationId);
         emitHitlMetric(metrics, companyId, threadId, "expired");
-        await sendAndPersistWaText(admin, {
-            threadId,
-            phoneE164,
-            waConfig,
-            senderType: "bot",
-            text: "Esse pedido expirou por falta de resposta. Fala com a gente que a gente monta de novo rapidinho. 🙂",
-        });
+        const reason: BotRestoreReason = "confirmation_resolved_expired";
+        await Promise.allSettled([
+            sendAndPersistWaText(admin, {
+                threadId,
+                phoneE164,
+                waConfig,
+                senderType: "bot",
+                text: "Esse pedido expirou por falta de resposta. Fala com a gente que a gente monta de novo rapidinho. 🙂",
+            }),
+            restoreBotAfterConfirmation({ admin, companyId, threadId, reason }),
+        ]);
         return true;
     }
 
@@ -106,13 +112,17 @@ export async function tryResolvePendingOrderConfirmation(params: {
             .update({ status: "cancelled", resolved_at: new Date().toISOString() })
             .eq("id", confirmationId);
         emitHitlMetric(metrics, companyId, threadId, "cancel");
-        await sendAndPersistWaText(admin, {
-            threadId,
-            phoneE164,
-            waConfig,
-            senderType: "bot",
-            text: "Tudo bem, pedido cancelado. Se quiser, é só chamar de novo por aqui. 🙂",
-        });
+        const reason: BotRestoreReason = "confirmation_resolved_cancelled";
+        await Promise.allSettled([
+            sendAndPersistWaText(admin, {
+                threadId,
+                phoneE164,
+                waConfig,
+                senderType: "bot",
+                text: "Tudo bem, pedido cancelado. Se quiser, é só chamar de novo por aqui. 🙂",
+            }),
+            restoreBotAfterConfirmation({ admin, companyId, threadId, reason }),
+        ]);
         return true;
     }
 
@@ -145,13 +155,20 @@ export async function tryResolvePendingOrderConfirmation(params: {
 
     emitHitlMetric(metrics, companyId, threadId, result.ok ? "confirm" : "failed");
 
-    await sendAndPersistWaText(admin, {
-        threadId,
-        phoneE164,
-        waConfig,
-        senderType: "bot",
-        text: result.customerMessage,
-    });
+    const reason: BotRestoreReason = result.ok
+        ? "confirmation_resolved_confirmed"
+        : "confirmation_resolved_failed_order";
+
+    await Promise.allSettled([
+        sendAndPersistWaText(admin, {
+            threadId,
+            phoneE164,
+            waConfig,
+            senderType: "bot",
+            text: result.customerMessage,
+        }),
+        restoreBotAfterConfirmation({ admin, companyId, threadId, reason }),
+    ]);
 
     return true;
 }
