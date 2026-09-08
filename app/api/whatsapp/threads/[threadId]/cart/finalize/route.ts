@@ -57,7 +57,7 @@ export async function POST(
         return jsonError(
             "cart_not_found",
             "Não há nenhum carrinho ativo para finalizar.",
-n            400,
+            400,
         );
     }
 
