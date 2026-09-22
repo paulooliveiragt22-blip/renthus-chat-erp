@@ -7,7 +7,7 @@ import {
     checkoutPostProcessForQuickAction,
     strictCheckoutStructuredGate,
 } from "../../src/pro/pipeline/stages/checkoutPostProcess";
-import { withResolvedSlotStep } from "../../src/pro/pipeline/orderSlotStep";
+import { cartReviewFingerprint, withResolvedSlotStep } from "../../src/pro/pipeline/orderSlotStep";
 
 function minimalDraft(overrides: Partial<OrderDraft> = {}): OrderDraft {
     return {
@@ -58,14 +58,22 @@ function state(overrides: Partial<ProSessionState> = {}): ProSessionState {
     };
 }
 
+function reviewed(draft: ReturnType<typeof minimalDraft>, extras: Partial<ProSessionState> = {}) {
+    return state({
+        step: "pro_awaiting_payment_method",
+        draft,
+        deliveryAddressUiConfirmed: true,
+        cartReviewAcknowledged: true,
+        cartReviewFingerprint: cartReviewFingerprint(draft),
+        ...extras,
+    });
+}
+
 describe("applyQuickAction — pedido mínimo não atingido", () => {
     it("pro_pay_pix abaixo do mínimo: fica em collecting e avisa o valor faltante (sem pedir confirmação)", () => {
         const r = applyQuickAction(
             "pro_pay_pix",
-            state({
-                step: "pro_awaiting_payment_method",
-                draft: minimalDraft({ deliveryMinOrder: 50, grandTotal: 10, totalItems: 10 }),
-            })
+            reviewed(minimalDraft({ deliveryMinOrder: 50, grandTotal: 10, totalItems: 10 }))
         );
         assert.equal(r.handled, true);
         assert.equal(r.state.step, "pro_collecting_order");
@@ -80,10 +88,7 @@ describe("applyQuickAction — pedido mínimo não atingido", () => {
     it("pro_pay_cash abaixo do mínimo: não pede troco ainda, avisa o valor faltante", () => {
         const r = applyQuickAction(
             "pro_pay_cash",
-            state({
-                step: "pro_awaiting_payment_method",
-                draft: minimalDraft({ deliveryMinOrder: 50, grandTotal: 25, totalItems: 25 }),
-            })
+            reviewed(minimalDraft({ deliveryMinOrder: 50, grandTotal: 25, totalItems: 25 }))
         );
         assert.equal(r.state.step, "pro_collecting_order");
         assert.ok(!r.outbound.some((m) => m.kind === "text" && String(m.text).includes("Troco")));
@@ -130,12 +135,77 @@ describe("applyQuickAction — confirmação órfã e pagamento em texto", () =>
         assert.equal(r.handled, false);
     });
 
+    it("pro_confirm_order no resumo: libera pagamento e não persiste", () => {
+        const r = applyQuickAction(
+            "pro_confirm_order",
+            state({
+                step: "pro_awaiting_cart_review",
+                draft: minimalDraft({ fulfillmentType: "delivery" }),
+                deliveryAddressUiConfirmed: true,
+            })
+        );
+        assert.equal(r.handled, true);
+        assert.equal(r.actionTag, "pro_cart_review_ack");
+        assert.equal(r.state.cartReviewAcknowledged, true);
+        assert.equal(r.state.draft?.paymentMethod ?? null, null);
+        assert.equal(r.state.step, "pro_awaiting_payment_method");
+        const out = checkoutPostProcessForQuickAction({ state: r.state, outbound: r.outbound });
+        assert.ok(out.some((m) => m.kind === "buttons" && m.buttons?.some((b) => b.id === "pro_pay_pix")));
+        assert.ok(!out.some((m) => m.kind === "buttons" && m.buttons?.some((b) => b.id === "pro_confirm_order")));
+    });
+
+    it("pro_confirm_order no resumo com PIX já no draft: mantém PIX (não zera)", () => {
+        const r = applyQuickAction(
+            "pro_confirm_order",
+            state({
+                step: "pro_awaiting_cart_review",
+                draft: minimalDraft({ fulfillmentType: "delivery", paymentMethod: "pix" }),
+                deliveryAddressUiConfirmed: true,
+            })
+        );
+        assert.equal(r.handled, true);
+        assert.equal(r.actionTag, "pro_cart_review_ack");
+        assert.equal(r.state.cartReviewAcknowledged, true);
+        assert.equal(r.state.draft?.paymentMethod, "pix");
+        assert.equal(r.state.step, "pro_awaiting_confirmation");
+    });
+
+    it("pro_confirm_order no resumo com dinheiro: pede troco", () => {
+        const r = applyQuickAction(
+            "pro_confirm_order",
+            state({
+                step: "pro_awaiting_cart_review",
+                draft: minimalDraft({ fulfillmentType: "delivery", paymentMethod: "cash" }),
+                deliveryAddressUiConfirmed: true,
+            })
+        );
+        assert.equal(r.state.step, "pro_awaiting_change_amount");
+        assert.ok(r.outbound.some((m) => m.kind === "text" && /Troco/i.test(String(m.text))));
+    });
+
+    it("pro_pay_pix antes do resumo: não grava pagamento e reenvia o resumo", () => {
+        const r = applyQuickAction(
+            "pro_pay_pix",
+            state({
+                step: "pro_awaiting_cart_review",
+                draft: minimalDraft({ fulfillmentType: "delivery" }),
+                deliveryAddressUiConfirmed: true,
+            })
+        );
+        assert.equal(r.handled, true);
+        assert.equal(r.actionTag, "payment_before_cart_review");
+        assert.equal(r.state.draft?.paymentMethod ?? null, null);
+        assert.ok(
+            r.outbound.some((m) => m.kind === "buttons" && m.buttons?.some((b) => b.id === "pro_confirm_order"))
+        );
+    });
+
     it("strict gate: em coleta com endereco completo, texto Cartão não bloqueia por endereço", () => {
         const g = strictCheckoutStructuredGate(
             "Cartão",
             state({
                 step: "pro_collecting_order",
-                draft: minimalDraft(),
+                draft: minimalDraft({ fulfillmentType: "delivery" }),
             })
         );
         assert.equal(g, null);
@@ -146,7 +216,7 @@ describe("applyQuickAction — confirmação órfã e pagamento em texto", () =>
             "cartao",
             state({
                 step: "pro_awaiting_payment_method",
-                draft: minimalDraft(),
+                draft: minimalDraft({ fulfillmentType: "delivery" }),
             })
         );
         assert.ok(g && g.handled);
@@ -159,7 +229,7 @@ describe("applyQuickAction — confirmação órfã e pagamento em texto", () =>
             "pro_pay_pix",
             state({
                 step: "pro_awaiting_payment_method",
-                draft: minimalDraft(),
+                draft: minimalDraft({ fulfillmentType: "delivery" }),
             })
         );
         assert.equal(g, null);
@@ -170,7 +240,7 @@ describe("applyQuickAction — confirmação órfã e pagamento em texto", () =>
             "pro_pick_emb:aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
             state({
                 step: "pro_awaiting_payment_method",
-                draft: minimalDraft(),
+                draft: minimalDraft({ fulfillmentType: "delivery" }),
                 lastSearchPicks: [
                     { embalagemId: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee", label: "SALGADINHO" },
                     { embalagemId: "bbbbbbbb-bbbb-cccc-dddd-eeeeeeeeeeee", label: "SALGADINHO CX" },
@@ -248,12 +318,26 @@ describe("applyQuickAction — confirmação órfã e pagamento em texto", () =>
         assert.ok(msg?.ctaUrl?.url.includes("checkout=1"));
     });
 
-    it("strict gate: com pagamento e endereco completo, texto pix nao bloqueia", () => {
+    it("strict gate: confirmação high-value — prosa pix reenvia o card Confirmar", () => {
         const g = strictCheckoutStructuredGate(
             "pix",
             state({
                 step: "pro_awaiting_confirmation",
-                draft: minimalDraft({ paymentMethod: "pix" }),
+                draft: minimalDraft({ paymentMethod: "pix", fulfillmentType: "delivery" }),
+                deliveryAddressUiConfirmed: true,
+            })
+        );
+        assert.ok(g && g.handled);
+        assert.equal(g.actionTag, "strict_confirmation_inbound_gate");
+        assert.ok(g.outbound.some((m) => m.kind === "buttons" && m.buttons?.some((b) => b.id === "pro_confirm_order")));
+    });
+
+    it("strict gate: confirmação — botão Confirmar passa", () => {
+        const g = strictCheckoutStructuredGate(
+            "pro_confirm_order",
+            state({
+                step: "pro_awaiting_confirmation",
+                draft: minimalDraft({ paymentMethod: "pix", fulfillmentType: "delivery" }),
                 deliveryAddressUiConfirmed: true,
             })
         );
@@ -346,7 +430,7 @@ describe("applyQuickAction — entrega vs retirada", () => {
         const pickup = applyQuickAction("Retirar no local", base);
         assert.equal(pickup.handled, true);
         assert.equal(pickup.state.draft?.fulfillmentType, "pickup");
-        assert.equal(pickup.state.step, "pro_awaiting_payment_method");
+        assert.equal(pickup.state.step, "pro_awaiting_cart_review");
     });
 
     it("strict gate não engole clique de Entrega/Retirar em awaiting_payment_method", () => {
@@ -364,7 +448,11 @@ describe("applyQuickAction — entrega vs retirada", () => {
         const out = checkoutPostProcess({
             state: state({
                 step: "pro_collecting_order",
-                draft: minimalDraft({ paymentMethod: null, fulfillmentType: null }),
+                draft: minimalDraft({
+                    paymentMethod: null,
+                    fulfillmentType: null,
+                    address: null,
+                }),
                 lastSearchPicks: [
                     { embalagemId: "a", label: "A", price: 10 },
                     { embalagemId: "b", label: "B", price: 12 },
@@ -388,9 +476,39 @@ describe("applyQuickAction — entrega vs retirada", () => {
                 (m) => m.kind === "text" && /preciso do seu endere/i.test(String(m.text ?? ""))
             )
         );
+        assert.ok(
+            !out.outbound.some((m) => m.kind === "text"),
+            "prosa da IA não deve acompanhar Entrega/Retirar"
+        );
     });
 
-    it("checkoutPostProcess oferece Entrega / Retirar mesmo com endereço salvo (não infere entrega)", () => {
+    it("checkoutPostProcess: some opções extras / vou buscar quando já vai Entrega/Retirar", () => {
+        const out = checkoutPostProcess({
+            state: state({
+                step: "pro_collecting_order",
+                draft: minimalDraft({
+                    paymentMethod: null,
+                    fulfillmentType: null,
+                    address: null,
+                }),
+            }),
+            outbound: [
+                {
+                    kind: "text",
+                    text:
+                        "Oi! Sobre a Original lata em caixa — temos a **ORIGINAL LATA (CX c/15)** a R$ 60. " +
+                        "Tem mais duas opções: ORIGINAL 600ML (CX c/24). Qual você prefere? " +
+                        "Enquanto isso, vou buscar a Heineken longneck.",
+                },
+            ],
+            mode: "ai",
+            fulfillmentPolicy: { deliveriesEnabled: true, pickupEnabled: true },
+        });
+        assert.ok(out.outbound.some((m) => m.kind === "buttons"));
+        assert.ok(!out.outbound.some((m) => m.kind === "text"));
+    });
+
+    it("checkoutPostProcess com endereço completo: infere entrega e vai ao resumo (não Entrega/Retirar)", () => {
         const out = checkoutPostProcess({
             state: state({
                 step: "pro_collecting_order",
@@ -400,11 +518,18 @@ describe("applyQuickAction — entrega vs retirada", () => {
             mode: "ai",
             fulfillmentPolicy: { deliveriesEnabled: true, pickupEnabled: true },
         });
-        const buttons = out.outbound.find((m) => m.kind === "buttons");
-        assert.ok(buttons);
-        assert.ok(buttons!.buttons?.some((b) => b.id === "pro_fulfillment_delivery"));
-        assert.ok(buttons!.buttons?.some((b) => b.id === "pro_fulfillment_pickup"));
-        assert.equal(out.state.draft?.fulfillmentType ?? null, null);
+        assert.equal(out.state.draft?.fulfillmentType, "delivery");
+        assert.equal(out.state.step, "pro_awaiting_cart_review");
+        assert.ok(
+            out.outbound.some(
+                (m) => m.kind === "buttons" && m.buttons?.some((b) => b.id === "pro_confirm_order")
+            )
+        );
+        assert.ok(
+            !out.outbound.some(
+                (m) => m.kind === "buttons" && m.buttons?.some((b) => b.id === "pro_fulfillment_delivery")
+            )
+        );
     });
 
     it("checkoutPostProcess oferece Entrega / Retirar quando os dois modos estão ligados", () => {
@@ -424,7 +549,57 @@ describe("applyQuickAction — entrega vs retirada", () => {
         assert.ok(!buttons!.buttons?.some((b) => b.id === "pro_pay_pix"));
     });
 
-    it("loja só retirada: checkoutPostProcess aplica pickup e oferece pagamento sem endereço", () => {
+    it("strict gate: Entrega/Retirar aberto — texto de item reenvia botões", () => {
+        const g = strictCheckoutStructuredGate(
+            "2 skol lata",
+            state({
+                step: "pro_collecting_order",
+                draft: minimalDraft({
+                    fulfillmentType: null,
+                    paymentMethod: null,
+                    address: null,
+                }),
+            }),
+            undefined,
+            { deliveriesEnabled: true, pickupEnabled: true }
+        );
+        assert.ok(g && g.handled);
+        assert.equal(g.actionTag, "strict_fulfillment_inbound_gate");
+        assert.ok(
+            g.outbound.some((m) => m.kind === "buttons" && m.buttons?.some((b) => b.id === "pro_fulfillment_delivery"))
+        );
+    });
+
+    it("strict gate: Entrega/Retirar — título Entrega passa", () => {
+        const g = strictCheckoutStructuredGate(
+            "Entrega",
+            state({
+                step: "pro_collecting_order",
+                draft: minimalDraft({
+                    fulfillmentType: null,
+                    paymentMethod: null,
+                    address: null,
+                }),
+            }),
+            undefined,
+            { deliveriesEnabled: true, pickupEnabled: true }
+        );
+        assert.equal(g, null);
+    });
+
+    it("retirada genérica em texto não aplica modalidade", () => {
+        const r = applyQuickAction(
+            "retirada",
+            state({
+                step: "pro_collecting_order",
+                draft: minimalDraft({ fulfillmentType: null }),
+            })
+        );
+        assert.equal(r.handled, false);
+        assert.equal(r.state.draft?.fulfillmentType ?? null, null);
+    });
+
+    it("loja só retirada: checkoutPostProcess aplica pickup e oferece resumo (não pagamento)", () => {
         const out = checkoutPostProcess({
             state: state({
                 step: "pro_collecting_order",
@@ -436,10 +611,128 @@ describe("applyQuickAction — entrega vs retirada", () => {
         });
         assert.equal(out.state.draft?.fulfillmentType, "pickup");
         assert.equal(out.state.draft?.deliveryFee, 0);
+        assert.equal(out.state.step, "pro_awaiting_cart_review");
         assert.ok(
             out.outbound.some(
+                (m) => m.kind === "buttons" && m.buttons?.some((b) => b.id === "pro_confirm_order")
+            )
+        );
+        assert.ok(
+            !out.outbound.some(
                 (m) => m.kind === "buttons" && m.buttons?.some((b) => b.id === "pro_pay_pix")
             )
+        );
+    });
+});
+
+describe("strictCheckoutStructuredGate — resumo, OOS e escalação", () => {
+    it("resumo: sim/pode fechar reenvia o card (não confirma)", () => {
+        const g = strictCheckoutStructuredGate(
+            "sim pode fechar",
+            state({
+                step: "pro_awaiting_cart_review",
+                draft: minimalDraft({ fulfillmentType: "delivery" }),
+                deliveryAddressUiConfirmed: true,
+            })
+        );
+        assert.ok(g && g.handled);
+        assert.equal(g.actionTag, "strict_cart_review_inbound_gate");
+        assert.ok(
+            g.outbound.some((m) => m.kind === "buttons" && m.buttons?.some((b) => b.id === "pro_confirm_order"))
+        );
+    });
+
+    it("resumo: revisão real de itens passa", () => {
+        const g = strictCheckoutStructuredGate(
+            "quero 2 skol lata",
+            state({
+                step: "pro_awaiting_cart_review",
+                draft: minimalDraft({ fulfillmentType: "delivery" }),
+                deliveryAddressUiConfirmed: true,
+            })
+        );
+        assert.equal(g, null);
+    });
+
+    it("resumo: Confirmar passa", () => {
+        const g = strictCheckoutStructuredGate(
+            "pro_confirm_order",
+            state({
+                step: "pro_awaiting_cart_review",
+                draft: minimalDraft({ fulfillmentType: "delivery" }),
+                deliveryAddressUiConfirmed: true,
+            })
+        );
+        assert.equal(g, null);
+    });
+
+    it("OOS: ss/yes reenvia card; Sim exacto adiciona", () => {
+        const withOffer = state({
+            draft: minimalDraft(),
+            pendingOutOfStockOffer: { names: ["SALGADINHO"] },
+        });
+        const ss = applyQuickAction("ss", withOffer);
+        assert.equal(ss.actionTag, "pro_oos_offer_repeat");
+        const sim = applyQuickAction("Sim", withOffer);
+        assert.equal(sim.actionTag, "pro_oos_add_other");
+    });
+
+    it("escalação: prosa reenvia Atendente / Continuar", () => {
+        const g = strictCheckoutStructuredGate(
+            "cartao",
+            state({ step: "pro_escalation_choice", draft: null })
+        );
+        assert.ok(g && g.handled);
+        assert.equal(g.actionTag, "strict_escalation_inbound_gate");
+        assert.ok(g.outbound.some((m) => m.kind === "buttons" && m.buttons?.some((b) => b.id === "btn_support")));
+        assert.ok(g.outbound.some((m) => m.kind === "buttons" && m.buttons?.some((b) => b.id === "btn_order")));
+    });
+
+    it("escalação: btn_support e atendente passam", () => {
+        const s = state({ step: "pro_escalation_choice", draft: null });
+        assert.equal(strictCheckoutStructuredGate("btn_support", s), null);
+        assert.equal(strictCheckoutStructuredGate("atendente", s), null);
+    });
+
+    it("oferta de endereço: texto livre reenvia Confirmar/Novo", () => {
+        const g = strictCheckoutStructuredGate(
+            "pode ser no centro",
+            state({
+                step: "pro_collecting_order",
+                draft: minimalDraft({ fulfillmentType: "delivery" }),
+                pendingAddressPickOptions: [
+                    { id: "a1", label: "Rua B" },
+                    { id: "a2", label: "Rua C" },
+                ],
+            })
+        );
+        assert.ok(g && g.handled);
+        assert.equal(g.actionTag, "strict_address_offer_inbound_gate");
+    });
+
+    it("oferta de endereço: 2 passa", () => {
+        const g = strictCheckoutStructuredGate(
+            "2",
+            state({
+                step: "pro_collecting_order",
+                draft: minimalDraft({ fulfillmentType: "delivery" }),
+                pendingAddressPickOptions: [
+                    { id: "a1", label: "Rua B" },
+                    { id: "a2", label: "Rua C" },
+                ],
+            })
+        );
+        assert.equal(g, null);
+    });
+
+    it("checkoutPostProcess em escalação envia botões", () => {
+        const out = checkoutPostProcess({
+            state: state({ step: "pro_escalation_choice", draft: null }),
+            outbound: [{ kind: "text", text: "Não estou conseguindo entender bem." }],
+            mode: "ai",
+        });
+        assert.ok(
+            out.outbound.some((m) => m.kind === "buttons" && m.buttons?.some((b) => b.id === "btn_support"))
         );
     });
 });

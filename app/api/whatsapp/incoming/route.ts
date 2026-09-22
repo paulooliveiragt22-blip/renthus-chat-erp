@@ -31,6 +31,7 @@ import { canProcessInboundChannel } from "@/lib/billing/canProcessInboundChannel
 import { isCoexistenceWebhookField } from "@/lib/channels/coexistenceWebhookParse";
 import { ingestCoexistenceWebhookField } from "@/lib/channels/ingestCoexistenceWebhook";
 import { toE164Phone, upsertWhatsappThread } from "@/lib/whatsapp/upsertWhatsappThread";
+import { shouldEnqueueHitlCheckoutDespiteHandover } from "@/src/pro/pipeline/hitlHandoverBypass";
 
 export const runtime = "nodejs";
 const INBOUND_ENQUEUE_DEDUP_WINDOW_SECONDS = getPositiveIntEnv("INBOUND_DEDUP_WINDOW_SECONDS", 20);
@@ -390,13 +391,26 @@ async function processSingleInboundMessage(params: {
     });
     if (consentHandled) return;
 
-    const shouldContinue = await ensureBotActiveOrRecover({
+    /**
+     * Clique Confirmar/Cancelar com confirmação HITL em aberto entra na fila mesmo
+     * com bot pausado — senão o pedido do atendente nunca é criado.
+     */
+    const hitlCheckoutBypass = await shouldEnqueueHitlCheckoutDespiteHandover({
         admin,
-        threadId,
         companyId: channel.company_id,
-        phoneE164,
-        waConfig,
+        threadId,
+        bodyText,
     });
+
+    const shouldContinue =
+        hitlCheckoutBypass ||
+        (await ensureBotActiveOrRecover({
+            admin,
+            threadId,
+            companyId: channel.company_id,
+            phoneE164,
+            waConfig,
+        }));
     if (!shouldContinue) return;
 
     await enqueueInboundIfNeeded({

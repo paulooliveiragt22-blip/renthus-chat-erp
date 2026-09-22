@@ -138,7 +138,7 @@ describe("resolveCheckoutTurnOutcome", () => {
         assert.equal(out.kind, "clarify_product_picks");
     });
 
-    it("ask_payment quando endereço UI ok sem pagamento", () => {
+    it("confirm_order (resumo) quando endereço UI ok sem resumo confirmado", () => {
         const out = resolveCheckoutTurnOutcome({
             mode: "ai",
             state: state({
@@ -156,6 +156,34 @@ describe("resolveCheckoutTurnOutcome", () => {
                         },
                     ],
                     address: addr,
+                    fulfillmentType: "delivery",
+                }),
+            }),
+        });
+        assert.equal(out.kind, "confirm_order");
+        assert.equal(out.reason, "cart_review_before_payment");
+    });
+
+    it("ask_payment só depois do resumo confirmado", () => {
+        const out = resolveCheckoutTurnOutcome({
+            mode: "ai",
+            state: state({
+                deliveryAddressUiConfirmed: true,
+                cartReviewAcknowledged: true,
+                draft: draft({
+                    items: [
+                        {
+                            produtoEmbalagemId: "x",
+                            productName: "X",
+                            quantity: 1,
+                            unitPrice: 10,
+                            fatorConversao: 1,
+                            productVolumeId: null,
+                            estoqueUnidades: 1,
+                        },
+                    ],
+                    address: addr,
+                    fulfillmentType: "delivery",
                 }),
             }),
         });
@@ -168,6 +196,7 @@ describe("resolveCheckoutTurnOutcome", () => {
             state: state({
                 step: "pro_awaiting_confirmation",
                 deliveryAddressUiConfirmed: true,
+                cartReviewAcknowledged: true,
                 draft: draft({
                     items: [
                         {

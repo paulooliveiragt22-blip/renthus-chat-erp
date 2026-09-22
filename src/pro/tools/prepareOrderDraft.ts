@@ -12,6 +12,7 @@ import {
 } from "./resolveSavedAddress";
 import { parsePtQuantity } from "./parseQtyPt";
 import { tryParseAddressOneLine } from "./parseAddressLoosePt";
+import { enrichDeliveryAddress, hasCustomerAddressCore } from "@/lib/address/enrichDeliveryAddress";
 import { roundBrl } from "@/lib/chatbot/utils";
 import { resolveDeliveryForNeighborhood } from "@/lib/delivery/policy";
 import { canFulfillQty } from "@/lib/products/stockPolicy";
@@ -262,7 +263,7 @@ export async function prepareOrderDraftFromTool(
         } else {
             const resolved = await resolveDefaultAddressForCustomer(admin, companyId, customerId);
             if (!resolved) {
-                errors.push("Não encontrei endereço salvo; peça rua, número, bairro e cidade.");
+                errors.push("Não encontrei endereço salvo; peça rua, número e bairro.");
             } else {
                 address     = resolved.address;
                 addressNote = resolved.note;
@@ -270,9 +271,24 @@ export async function prepareOrderDraftFromTool(
         }
     }
 
+    if (address && hasCustomerAddressCore(address)) {
+        address = await enrichDeliveryAddress({
+            admin,
+            companyId,
+            address,
+        });
+    }
+
     const ufOk = address?.estado && String(address.estado).trim().length >= 2;
-    if (address && (!address.logradouro || !address.numero || !address.bairro || !address.cidade?.trim() || !ufOk)) {
-        errors.push("Endereço incompleto: obrigatório rua, número, bairro, cidade e UF (2 letras).");
+    if (address && hasCustomerAddressCore(address) && (!address.cidade?.trim() || !ufOk)) {
+        errors.push(
+            "Não consegui completar cidade/UF da loja. Peça ao cliente só rua, número e bairro de novo, ou cadastre cidade/UF da empresa."
+        );
+    } else if (
+        address &&
+        (!address.logradouro || !address.numero || !address.bairro)
+    ) {
+        errors.push("Endereço incompleto: obrigatório rua, número e bairro.");
     }
 
     const pm = normPm(body.paymentMethod ?? null);
@@ -455,6 +471,7 @@ export async function prepareOrderDraftFromTool(
                   grandTotal: addressUsable ? grandTotal : totalItems,
                   pendingConfirmation: fullOk,
                   addressResolutionNote: addressUsable ? addressNote : null,
+                  fulfillmentType: addressUsable ? ("delivery" as const) : undefined,
                   ...(body.orderNotes !== undefined
                       ? { orderNotes: sanitizeOrderNotes(body.orderNotes) }
                       : {}),
@@ -508,6 +525,7 @@ export function buildPrepareDraftGuidanceForModel(
             "Rascunho aceito no servidor (itens + endereço resolvido + pagamento).",
             "NÃO peça confirmação de endereço de novo (já batido no servidor se rua/número/bairro/cidade/UF ok).",
             "NÃO invente subtotal/taxa/total — o servidor envia o resumo oficial com taxa nos botões.",
+            "NÃO peça forma de pagamento se o servidor ainda não mostrou o resumo — o cliente confirma o resumo primeiro.",
             "No máximo 1 frase curta de confirmação de entendimento; sem listar preços nem pedir 'sim' do pedido (botão Confirmar do servidor).",
         ];
     }
@@ -542,7 +560,7 @@ export function buildPrepareDraftGuidanceForModel(
     }
     if (blob.includes("endereço") || blob.includes("endereco") || blob.includes("bairro") || blob.includes("rua")) {
         lines.push(
-            "Próximo passo: se get_order_hints trouxe saved_addresses, liste-os; senão peça rua, número, bairro e cidade; use address_raw, address estruturado ou saved_address_id."
+            "Próximo passo: se get_order_hints trouxe saved_addresses, liste-os; senão peça rua, número e bairro (cidade/UF a loja completa); use address_raw, address estruturado ou saved_address_id."
         );
     }
     if (blob.includes("estoque")) {

@@ -62,14 +62,14 @@ describe("orderSlotStep / resolveProStepFromDraft", () => {
         );
     });
 
-    it("endereço completo sem pagamento: vai direto a payment (sem confirmar endereço)", () => {
+    it("endereço completo sem pagamento: vai ao resumo (não ao pagamento)", () => {
         assert.equal(
             resolveProStepFromDraft({ step: "pro_collecting_order", draft: draft() }),
-            "pro_awaiting_payment_method"
+            "pro_awaiting_cart_review"
         );
     });
 
-    it("endereço salvo completo sem pagamento: payment method", () => {
+    it("endereço salvo completo sem pagamento: resumo do carrinho", () => {
         const d = draft({
             address: {
                 logradouro: "Rua A",
@@ -83,7 +83,49 @@ describe("orderSlotStep / resolveProStepFromDraft", () => {
         });
         assert.equal(
             resolveProStepFromDraft({ step: "pro_collecting_order", draft: d }),
+            "pro_awaiting_cart_review"
+        );
+    });
+
+    it("pix no draft sem resumo confirmado: ainda fica no resumo", () => {
+        assert.equal(
+            resolveProStepFromDraft({
+                step: "pro_collecting_order",
+                draft: draft({ paymentMethod: "pix" }),
+            }),
+            "pro_awaiting_cart_review"
+        );
+    });
+
+    it("resumo confirmado sem pagamento: vai ao pagamento", () => {
+        assert.equal(
+            resolveProStepFromDraft({
+                step: "pro_awaiting_cart_review",
+                draft: draft(),
+                cartReviewAcknowledged: true,
+            }),
             "pro_awaiting_payment_method"
+        );
+    });
+
+    it("resumo confirmado + pix: confirmação/persistência", () => {
+        assert.equal(
+            resolveProStepFromDraft({
+                step: "pro_awaiting_payment_method",
+                draft: draft({ paymentMethod: "pix" }),
+                cartReviewAcknowledged: true,
+            }),
+            "pro_awaiting_confirmation"
+        );
+    });
+
+    it("já em awaiting_confirmation com draft completo: não volta ao resumo", () => {
+        assert.equal(
+            resolveProStepFromDraft({
+                step: "pro_awaiting_confirmation",
+                draft: draft({ paymentMethod: "pix" }),
+            }),
+            "pro_awaiting_confirmation"
         );
     });
 
@@ -123,9 +165,20 @@ describe("orderSlotStep / resolveProStepFromDraft", () => {
         assert.equal(next.deliveryAddressUiConfirmed, false);
     });
 
-    it("mantém pro_awaiting_payment_method", () => {
+    it("sem resumo confirmado não mantém payment_method", () => {
         assert.equal(
             resolveProStepFromDraft({ step: "pro_awaiting_payment_method", draft: draft() }),
+            "pro_awaiting_cart_review"
+        );
+    });
+
+    it("mantém pro_awaiting_payment_method só depois do resumo", () => {
+        assert.equal(
+            resolveProStepFromDraft({
+                step: "pro_awaiting_payment_method",
+                draft: draft(),
+                cartReviewAcknowledged: true,
+            }),
             "pro_awaiting_payment_method"
         );
     });
@@ -187,29 +240,33 @@ describe("orderSlotStep / resolveProStepFromDraft", () => {
         );
     });
 
-    it("dinheiro sem troco: awaiting_change_amount", () => {
+    it("dinheiro sem troco: awaiting_change_amount só depois do resumo", () => {
         const d = draft({
             paymentMethod: "cash",
             changeFor: null,
         });
         assert.equal(
-            resolveProStepFromDraft({ step: "pro_collecting_order", draft: d }),
+            resolveProStepFromDraft({
+                step: "pro_collecting_order",
+                draft: d,
+                cartReviewAcknowledged: true,
+            }),
             "pro_awaiting_change_amount"
         );
     });
 
-    it("rascunho completo com pix: confirmação final (sem hold de endereço)", () => {
+    it("rascunho completo com pix sem resumo: cart_review", () => {
         const d = draft({
             paymentMethod: "pix",
             changeFor: null,
         });
         assert.equal(
             resolveProStepFromDraft({ step: "pro_collecting_order", draft: d }),
-            "pro_awaiting_confirmation"
+            "pro_awaiting_cart_review"
         );
     });
 
-    it("pro_escalation_choice com rascunho completo: confirmação final", () => {
+    it("pro_escalation_choice com rascunho completo sem resumo: cart_review", () => {
         const d = draft({
             paymentMethod: "pix",
             changeFor: null,
@@ -217,11 +274,11 @@ describe("orderSlotStep / resolveProStepFromDraft", () => {
         });
         assert.equal(
             resolveProStepFromDraft({ step: "pro_escalation_choice", draft: d }),
-            "pro_awaiting_confirmation"
+            "pro_awaiting_cart_review"
         );
     });
 
-    it("withResolvedSlotStep auto-confirma endereço e vai ao resumo", () => {
+    it("withResolvedSlotStep auto-confirma endereço e vai ao resumo (não ao pagamento)", () => {
         const s: ProSessionState = {
             step: "pro_collecting_order",
             customerId: "c1",
@@ -233,7 +290,8 @@ describe("orderSlotStep / resolveProStepFromDraft", () => {
         };
         const next = withResolvedSlotStep(s);
         assert.equal(next.deliveryAddressUiConfirmed, true);
-        assert.equal(next.step, "pro_awaiting_confirmation");
+        assert.equal(next.step, "pro_awaiting_cart_review");
+        assert.equal(next.cartReviewAcknowledged, false);
     });
 
     it("withResolvedSlotStepUnlessAwaitingConfirmation não desce o passo", () => {
@@ -256,7 +314,7 @@ describe("orderSlotStep / resolveProStepFromDraft", () => {
  * para respostas curtas (“2”, “pix”, “o de sempre”) quando o draft já carrega o efeito.
  */
 describe("orderSlotStep C1.4 matriz curta (draft → step)", () => {
-    it("qty já no draft (cliente disse “2”): collecting → payment se endereço+fulfillment ok", () => {
+    it("qty já no draft (cliente disse “2”): collecting → resumo se endereço+fulfillment ok", () => {
         const d = draft({
             items: [
                 {
@@ -274,25 +332,26 @@ describe("orderSlotStep C1.4 matriz curta (draft → step)", () => {
         });
         assert.equal(
             resolveProStepFromDraft({ step: "pro_collecting_order", draft: d }),
-            "pro_awaiting_payment_method"
+            "pro_awaiting_cart_review"
         );
     });
 
-    it("pix já no draft (cliente disse “pix”): → confirmação", () => {
+    it("pix já no draft sem resumo: → cart_review", () => {
         assert.equal(
             resolveProStepFromDraft({
                 step: "pro_awaiting_payment_method",
                 draft: draft({ paymentMethod: "pix" }),
             }),
-            "pro_awaiting_confirmation"
+            "pro_awaiting_cart_review"
         );
     });
 
-    it("dinheiro sem troco (cliente escolheu cash): → awaiting_change_amount", () => {
+    it("dinheiro sem troco depois do resumo: → awaiting_change_amount", () => {
         assert.equal(
             resolveProStepFromDraft({
                 step: "pro_awaiting_payment_method",
                 draft: draft({ paymentMethod: "cash", changeFor: null }),
+                cartReviewAcknowledged: true,
             }),
             "pro_awaiting_change_amount"
         );
@@ -317,7 +376,7 @@ describe("orderSlotStep C1.4 matriz curta (draft → step)", () => {
         );
     });
 
-    it("retirada: sem endereço → payment quando payment null", () => {
+    it("retirada: sem endereço → resumo quando payment null", () => {
         assert.equal(
             resolveProStepFromDraft({
                 step: "pro_collecting_order",
@@ -327,7 +386,7 @@ describe("orderSlotStep C1.4 matriz curta (draft → step)", () => {
                     paymentMethod: null,
                 }),
             }),
-            "pro_awaiting_payment_method"
+            "pro_awaiting_cart_review"
         );
     });
 

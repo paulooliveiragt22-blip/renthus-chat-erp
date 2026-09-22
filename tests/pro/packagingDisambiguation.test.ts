@@ -381,4 +381,36 @@ describe("disambiguatePackagingForSearchRows", () => {
         assert.equal(g.length, 1);
         assert.equal(g[0]!.id, "m-g");
     });
+
+    it("Heineken lata (catálogo real: pai HEINEKEN) + caixa da Skol → UN", () => {
+        const rows = [
+            {
+                id: "hl-cx",
+                display_name: "HEINEKEN LATA (CX c/8)",
+                product_name: "HEINEKEN",
+                descricao: "LATA",
+                sigla_comercial: "CX",
+                fator_conversao: 8,
+                produto_id: "p-hein",
+                product_volume_id: "vol-hl",
+            },
+            {
+                id: "hl-un",
+                display_name: "HEINEKEN LATA",
+                product_name: "HEINEKEN",
+                descricao: "LATA",
+                sigla_comercial: "UN",
+                fator_conversao: 1,
+                produto_id: "p-hein",
+                product_volume_id: "vol-hl",
+            },
+        ];
+        const userText =
+            "Quero 3 marmitas m, 2 caixa de skol lata, 2 Heineken longneck, duas Heineken lata, 1 salgadinho e duas marmitas g";
+        const out = disambiguatePackagingForSearchRows(rows, "Heineken lata", userText, {
+            habitSigla: "CX",
+        });
+        assert.equal(out.length, 1);
+        assert.equal(out[0]!.id, "hl-un");
+    });
 });

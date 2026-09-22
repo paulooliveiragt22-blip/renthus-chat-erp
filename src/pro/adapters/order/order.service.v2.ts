@@ -205,7 +205,7 @@ export class OrderServiceV2Adapter implements OrderService {
     }
 
     async createFromDraft(input: Parameters<OrderService["createFromDraft"]>[0]): Promise<OrderServiceResult> {
-        const { tenant, draft, idempotencyKey } = input;
+        const { tenant, draft, idempotencyKey, forceConfirmed, source } = input;
         const fresh = await this.revalidateDraft(tenant.companyId, draft);
         if (!fresh.ok) {
             return {
@@ -342,8 +342,9 @@ export class OrderServiceV2Adapter implements OrderService {
             .eq("company_id", tenant.companyId)
             .maybeSingle();
 
-        const requireApproval = Boolean(settings?.require_order_approval);
+        const requireApproval = forceConfirmed ? false : Boolean(settings?.require_order_approval);
         const confirmationStatus = requireApproval ? "pending_confirmation" : "confirmed";
+        const orderSource = source ?? "ai_chat_pro_v2";
         const deliveryAddress = isPickup
             ? draft.deliveryAddressText?.trim() || "Retirada no local"
             : draft.deliveryAddressText || (address ? buildAddressText(address) : "");
@@ -362,7 +363,7 @@ export class OrderServiceV2Adapter implements OrderService {
             p_customer_id: customer.id,
             p_status: "new",
             p_confirmation_status: confirmationStatus,
-            p_source: "ai_chat_pro_v2",
+            p_source: orderSource,
             p_channel: messagingChannel,
             p_total_amount: draft.grandTotal,
             p_total: draft.totalItems,

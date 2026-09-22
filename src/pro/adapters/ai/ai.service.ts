@@ -268,6 +268,23 @@ function isInfoOnlyAi(input: AiServiceInput): boolean {
     return input.context.aiOrderMode === "info_only";
 }
 
+/**
+ * `unknown` vem de `defer_to_agent`: o classificador não gasta LLM e delega ao loop.
+ * Sem tratar isso como pedido, uma frase multi-item ("manda 2 caixas de X e 3 de Y")
+ * fica sem worklist e sem force-prepare — o turno morre na narração ("agora deixa eu
+ * procurar...") e o cliente não recebe mais nada. O detector lexical de linhas é
+ * determinístico (sem custo de LLM), então só promove o que já é claramente pedido.
+ */
+export function resolveIntentForOrderGates(params: {
+    intent: string;
+    lexicalOrderLineCount: number;
+}): string {
+    if (params.intent === "unknown" && params.lexicalOrderLineCount >= 2) {
+        return "order_intent";
+    }
+    return params.intent;
+}
+
 /** Evita contradicao: modelo fala em “erro” mas o draft (BD/tools) ja tem itens validos. */
 function sanitizeVisibleAgainstDraft(visible: string, draft: OrderDraft | null): string {
     if (!draft) return visible;
@@ -741,22 +758,27 @@ export class AiServiceAdapter implements AiService {
         );
 
         const infoOnly = isInfoOnlyAi(input);
+        const lexicalOrderTerms = extractCandidatePendingTermsFromUserText(input.userText).map(
+            (t) => ({ rawTerm: t.rawTerm, quantity: t.quantity })
+        );
+        const intentForOrderGates = resolveIntentForOrderGates({
+            intent: input.intentDecision.intent,
+            lexicalOrderLineCount: lexicalOrderTerms.length,
+        });
         /**
          * Reseed/enrich em order_intent (mesmo com lines ativas), exceto reply curta de pick.
          * Seal same-hash só enriquece — não apaga progresso (ADR 0011).
          */
         if (
             !infoOnly &&
-            input.intentDecision.intent === "order_intent" &&
+            intentForOrderGates === "order_intent" &&
             !isLikelyPickOrShortReply(input.userText)
         ) {
             turnState.orderWorklist = await seedWorklistFromExtract({
                 previous: turnState.orderWorklist,
                 userText: input.userText,
                 extractPort: this.orderLinesExtract,
-                fallbackExtracted: extractCandidatePendingTermsFromUserText(input.userText).map(
-                    (t) => ({ rawTerm: t.rawTerm, quantity: t.quantity })
-                ),
+                fallbackExtracted: lexicalOrderTerms,
             });
         }
         turnState.orderWorklist = reconcileWorklistLinesWithDraft(
@@ -920,7 +942,7 @@ export class AiServiceAdapter implements AiService {
                 if (infoOnly || input.skipForcePrepareAfterPick) return false;
                 return (
                     shouldForcePrepareAfterEmbalagemChoice({
-                        intent: input.intentDecision.intent,
+                        intent: intentForOrderGates,
                         step: input.context.session.step,
                         allowlistAtStart,
                         allowlistNow: turnState.allowlistIds,
@@ -928,7 +950,7 @@ export class AiServiceAdapter implements AiService {
                         draftItemCount: turnState.currentDraft?.items?.length ?? 0,
                     }) ||
                     shouldForcePrepareAfterUnambiguousSearch({
-                        intent: input.intentDecision.intent,
+                        intent: intentForOrderGates,
                         step: input.context.session.step,
                         prepareInvokedThisTurn: turnState.prepareInvokedThisTurn,
                         searchInvokedThisTurn: turnState.searchInvokedThisTurn,

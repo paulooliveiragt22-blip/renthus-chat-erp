@@ -44,6 +44,7 @@ const STEP_LABELS: Record<ProStep, string> = {
     pro_idle: "Sem pedido em andamento",
     pro_collecting_order: "Cliente ainda montando o carrinho",
     pro_awaiting_address_confirmation: "Aguardando confirmação do endereço",
+    pro_awaiting_cart_review: "Aguardando confirmação do resumo do pedido",
     pro_awaiting_payment_method: "Aguardando forma de pagamento",
     pro_awaiting_change_amount: "Aguardando valor pro troco",
     pro_awaiting_confirmation: "Aguardando confirmação final do pedido",

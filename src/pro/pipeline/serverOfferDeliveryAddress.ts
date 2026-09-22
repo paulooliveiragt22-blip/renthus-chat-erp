@@ -37,7 +37,7 @@ export async function serverOfferDeliveryAddressAfterFulfillment(params: {
             outbound: [
                 {
                     kind: "text",
-                    text: "Combinado: entrega. Me envia o endereço: rua, número, bairro, cidade e UF.",
+                    text: "Combinado: entrega. Me envia o endereço: rua, número e bairro.",
                 },
             ],
             offered: false,
@@ -59,7 +59,7 @@ export async function serverOfferDeliveryAddressAfterFulfillment(params: {
             outbound: [
                 {
                     kind: "text",
-                    text: "Combinado: entrega. Me envia o endereço: rua, número, bairro, cidade e UF.",
+                    text: "Combinado: entrega. Me envia o endereço: rua, número e bairro.",
                 },
             ],
             offered: false,
@@ -109,7 +109,7 @@ export async function serverOfferDeliveryAddressAfterFulfillment(params: {
             outbound: [
                 {
                     kind: "text",
-                    text: "Combinado: entrega. Me envia o endereço: rua, número, bairro, cidade e UF.",
+                    text: "Combinado: entrega. Me envia o endereço: rua, número e bairro.",
                 },
             ],
             offered: false,

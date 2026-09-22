@@ -62,10 +62,30 @@ function fakeAdmin() {
             }
             if (table === "outbound_jobs") {
                 return {
-                    upsert: async (row: UpsertRow) => {
+                    upsert: (row: UpsertRow) => {
                         upserts.push(row);
-                        return { error: upsertError };
+                        return {
+                            select: () => ({
+                                maybeSingle: async () => ({
+                                    data: upsertError
+                                        ? null
+                                        : {
+                                              id: "job-1",
+                                              company_id: "c1",
+                                              thread_id: String(row.thread_id ?? ""),
+                                          },
+                                    error: upsertError,
+                                }),
+                            }),
+                        };
                     },
+                    select: () => ({
+                        eq: () => ({
+                            eq: () => ({
+                                maybeSingle: async () => ({ data: null, error: null }),
+                            }),
+                        }),
+                    }),
                 };
             }
             throw new Error(`unexpected table ${table}`);

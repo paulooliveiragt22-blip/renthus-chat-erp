@@ -5,6 +5,8 @@
  * ao cliente remove UUIDs da prosa.
  */
 
+import { allowsSellWithZeroStock } from "@/lib/products/stockPolicy";
+
 export type ChatCatalogPublicItem = {
     id: string;
     produto_embalagem_id: string;
@@ -76,11 +78,13 @@ export function formatCatalogVolumeLabel(
 export function toChatCatalogPublicItem(row: Record<string, unknown>): ChatCatalogPublicItem {
     const id = String(row.id ?? "").trim();
     const estoque = Number(row.estoque_unidades);
-    const venderZero = row.vender_com_estoque_zero !== false;
-    const disponivel =
-        row.disponivel_venda != null
-            ? Number(row.disponivel_venda) > 0
-            : venderZero || (Number.isFinite(estoque) && estoque > 0);
+    const venderZero = row.vender_com_estoque_zero as boolean | null | undefined;
+    const pacotesDisponiveis = Number(row.disponivel_venda);
+    const disponivel = allowsSellWithZeroStock(venderZero)
+        ? true
+        : Number.isFinite(pacotesDisponiveis)
+          ? pacotesDisponiveis > 0
+          : Number.isFinite(estoque) && estoque > 0;
 
     const preco = Number(row.preco_venda);
     const fator = Number(row.fator_conversao);

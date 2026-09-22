@@ -20,6 +20,19 @@ export function canFulfillQty(params: {
     return Number(params.estoqueUnidades) >= need;
 }
 
+/**
+ * Vitrine/busca: a embalagem pode ser oferecida ao cliente?
+ * A flag da loja vence estoque zerado — só o par (flag=false + sem pacote inteiro) barra.
+ */
+export function isPackSellable(params: {
+    venderComEstoqueZero: boolean | null | undefined;
+    estoqueUnidades: number;
+    fatorConversao: number;
+}): boolean {
+    if (allowsSellWithZeroStock(params.venderComEstoqueZero)) return true;
+    return disponivelVenda(params.estoqueUnidades, params.fatorConversao) >= 1;
+}
+
 /** Cardápio web / busca: ocultar quando flag=false e sem unidades. */
 export function shouldHideWhenOutOfStock(
     venderComEstoqueZero: boolean | null | undefined,

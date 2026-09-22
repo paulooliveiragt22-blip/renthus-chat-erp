@@ -122,17 +122,36 @@ Pré-requisito: cliente de teste com **2 endereços cadastrados** em `enderecos_
 
 ### S5b — HITL atendente→cliente (só botão) — **você roda no WA**
 
-Automação de lab: `tests/pro/orderConfirmationText.test.ts` + HITL intent. Este smoke valida Meta + Graph.
+Automação de lab: `tests/pro/orderConfirmationText.test.ts` + `tests/pro/attendantCartFlow.test.ts`. Este smoke valida Meta + Graph.
 
-1. Inbox: montar carrinho no modal → **Enviar para confirmação**.  
+1. Inbox: pausar o bot, montar carrinho no modal → **Enviar resumo**.  
 2. No telemóvel: deve aparecer resumo + botões **Confirmar** / **Cancelar** (não instrução “responda CONFIRMAR”).  
-3. Digite `sim` ou `CONFIRMAR` → **não** cria pedido.  
-4. Toque **Confirmar** → pedido criado.  
-5. (Nova tentativa) Enviar confirmação de novo → toque **Cancelar** → pending cancelado, sem pedido.
+3. Inbox: o toggle do bot deve voltar pra **Ativo** (o envio religa o bot — senão o clique morre no gate de handover).  
+4. Digite `sim` ou `CONFIRMAR` → **não** cria pedido.  
+5. Toque **Confirmar** → pedido criado.  
+6. (Nova tentativa) Enviar resumo de novo → toque **Cancelar** → pending cancelado, sem pedido.  
+7. Pausar o bot na mão e tocar num botão **Confirmar antigo** (já cancelado) → nada acontece, bot **não** religa.
 
 | | |
 |--|--|
-| **Falha se** | Texto `sim`/`ok`/`1` fecha pedido; mensagem sem botões; bot Confirmar não cria. |
+| **Falha se** | Texto `sim`/`ok`/`1` fecha pedido; mensagem sem botões; botão Confirmar não cria; thread fica Pausada após o resumo. |
+| ☐ | |
+
+---
+
+### S5c — Finalização manual pelo atendente — **você roda no WA**
+
+Cliente deu o ok **na conversa** (texto), sem botão: quem fecha é o atendente.
+
+1. Inbox: montar/ajustar carrinho no modal → **Finalizar pedido**.  
+2. Pedido criado na hora, `confirmation_status = confirmed` (não entra na fila de aprovação mesmo com `require_order_approval`), `source = ui`.  
+3. Cliente recebe no WhatsApp a confirmação canônica (mesmo template do cardápio).  
+4. Clicar **Finalizar pedido** 2× com o mesmo carrinho → **1** pedido (idempotência determinística).  
+5. Se havia confirmação HITL em aberto, ela vira `cancelled` — clique Confirmar posterior não cria 2º pedido.
+
+| | |
+|--|--|
+| **Falha se** | 2 pedidos no duplo clique; pedido em `pending_confirmation`; cliente não recebe aviso; confirmação HITL antiga continua `pending`. |
 | ☐ | |
 
 ---

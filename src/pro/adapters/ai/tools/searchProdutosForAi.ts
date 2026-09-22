@@ -236,6 +236,7 @@ export function finalizeSearchProdutosForAi(
                   "Use apenas o UUID de cada linha em items (campos id ou produto_embalagem_id) em prepare_order_draft — não invente UUID.",
                   `IDs exatos desta busca (copie um literalmente): ${allowlistIds.join(", ")}.`,
                   "Não cite custo, estoque numérico, código interno, EAN nem UUID no texto ao cliente.",
+                  "Só trate item como indisponível se disponivel=false no JSON; nunca deduza falta de estoque por conta própria (a loja pode vender com estoque zerado).",
                   "descricao_ingredientes = o que acompanha; informacoes = como é feito / extras.",
                   ...(phase.didYouMean.length
                       ? [

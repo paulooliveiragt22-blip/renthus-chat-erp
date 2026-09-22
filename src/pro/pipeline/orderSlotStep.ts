@@ -30,9 +30,66 @@ export function orderDraftFingerprintForAddressConfirm(draft: OrderDraft | null)
     return `${deliveryAddressFingerprint(draft.address)}#${itemsKey}`;
 }
 
+/** Itens + endereço + modalidade: alteração invalida o Confirmar do resumo. */
+export function cartReviewFingerprint(draft: OrderDraft | null): string {
+    if (!draft) return "";
+    return `${orderDraftFingerprintForAddressConfirm(draft)}#${draft.fulfillmentType ?? ""}`;
+}
+
+export function isCartReviewHoldStep(step: ProStep): boolean {
+    return step === "pro_awaiting_cart_review";
+}
+
+/**
+ * Pagamento só conta no slot depois do resumo confirmado.
+ * Evita a IA pular o resumo com `prepare_order_draft(paymentMethod)`.
+ */
+export function effectiveCheckoutPaymentMethod(
+    draft: OrderDraft | null,
+    cartReviewAcknowledged: boolean | undefined
+): OrderDraft["paymentMethod"] {
+    if (!cartReviewAcknowledged) return null;
+    return draft?.paymentMethod ?? null;
+}
+
+/** Recalcula o ack do resumo se o draft mudou depois do Confirmar. */
+export function withCartReviewValidity(state: ProSessionState): ProSessionState {
+    const fp = cartReviewFingerprint(state.draft);
+    const ack =
+        state.cartReviewAcknowledged === true &&
+        Boolean(fp) &&
+        state.cartReviewFingerprint === fp;
+    return {
+        ...state,
+        cartReviewAcknowledged: ack,
+        cartReviewFingerprint: ack ? fp : null,
+    };
+}
+
+/**
+ * Confirmar do resumo: libera o pagamento efetivo.
+ * Se o cliente já tinha dito PIX/cartão/dinheiro na mensagem (payment no draft),
+ * mantém — não zera para forçar botões de novo.
+ */
+export function acknowledgeCartReview(state: ProSessionState): ProSessionState {
+    if (!state.draft) return state;
+    const draft: OrderDraft = {
+        ...state.draft,
+        pendingConfirmation: false,
+    };
+    const fp = cartReviewFingerprint(draft);
+    return withResolvedSlotStep({
+        ...state,
+        draft,
+        cartReviewAcknowledged: true,
+        cartReviewFingerprint: fp,
+        checkoutEditHold: false,
+    });
+}
+
 /**
  * @deprecated Hold de endereço na UI removido: com rua+número+bairro(+cidade/UF) resolvidos
- * no servidor, segue direto para pagamento / resumo final. Mantido por compat de imports.
+ * no servidor, segue para o resumo do carrinho e depois pagamento. Mantido por compat de imports.
  */
 export function shouldHoldAwaitingAddressUi(
     _draft: OrderDraft | null,
@@ -47,28 +104,28 @@ export function isDeliveryAddressAutoConfirmed(draft: OrderDraft | null): boolea
     return isAddressStructurallyComplete(draft?.address ?? null);
 }
 
-/** Chamado só com endereço já estruturalmente completo e sem `paymentMethod`. */
+/** Chamado só com endereço já estruturalmente completo e sem pagamento efetivo. */
 function resolveStepWhenPaymentMissing(
     step: ProStep,
-    opts?: { hasPendingProductClarify?: boolean }
+    opts?: { hasPendingProductClarify?: boolean; cartReviewAcknowledged?: boolean }
 ): ProStep {
-    /** Ainda há UN/CX para escolher — não avance para pagamento. */
+    /** Ainda há UN/CX para escolher — não avance para resumo/pagamento. */
     if (opts?.hasPendingProductClarify) return "pro_collecting_order";
+    if (!opts?.cartReviewAcknowledged) return "pro_awaiting_cart_review";
     if (step === "pro_awaiting_payment_method") return "pro_awaiting_payment_method";
-    /** Endereço já batido no servidor — não pedir "Confirma este endereço?". */
     return "pro_awaiting_payment_method";
 }
 
 /**
  * Sincroniza `ProStep` com o rascunho canónico (fonte: draft persistido + tools).
- * Usa `pro_awaiting_address_confirmation` e `pro_awaiting_payment_method` já declarados em `ProStep`.
  *
- * Regra especial: se o cliente já passou para escolha de pagamento (`pro_awaiting_payment_method`)
- * após confirmar endereço salvo, não regressar para confirmação de endereço só porque o draft
- * ainda carrega `enderecoClienteId`.
+ * Ordem: endereço → resumo (`pro_awaiting_cart_review`) → pagamento → troco →
+ * persistência (pagamento é o commit; `pro_awaiting_confirmation` só high-value / legado).
  *
- * Confirmação final (`pro_awaiting_confirmation`): basta o draft estruturalmente completo
- * (`isDraftStructurallyCompleteForFinalize`); `pendingConfirmation` na tool é opcional.
+ * Pagamento no draft é ignorado até `cartReviewAcknowledged` — a IA não pula o resumo.
+ *
+ * Sessão já em `pro_awaiting_confirmation` com draft completo+pagamento: mantém
+ * (cliente a meio do fluxo antigo ou high-value).
  */
 export function resolveProStepFromDraft(params: {
     step: ProStep;
@@ -76,8 +133,10 @@ export function resolveProStepFromDraft(params: {
     deliveryAddressUiConfirmed?: boolean;
     /** Clarificação UN/CX ainda na tela (lastSearchPicks ou fila bootstrap). */
     hasPendingProductClarify?: boolean;
+    cartReviewAcknowledged?: boolean;
 }): ProStep {
     const { step, draft, hasPendingProductClarify } = params;
+    const cartReviewAcknowledged = params.cartReviewAcknowledged === true;
 
     if (step === "handover") return "handover";
     if (step === "pro_awaiting_phone") return "pro_awaiting_phone";
@@ -90,7 +149,7 @@ export function resolveProStepFromDraft(params: {
         return step === "pro_idle" ? "pro_idle" : "pro_collecting_order";
     }
 
-    /** Sem modo explícito: não pular pra pagamento só porque já tem endereço (cliente ainda escolhe Entrega/Retirar). */
+    /** Sem modo explícito: não pular pra resumo/pagamento só porque já tem endereço. */
     if (!isPickupDraft(draft) && draft.fulfillmentType !== "delivery") {
         return "pro_collecting_order";
     }
@@ -100,7 +159,7 @@ export function resolveProStepFromDraft(params: {
     }
 
     /**
-     * Pedido mínimo de entrega não atingido: não avança pra pagamento/troco/confirmação —
+     * Pedido mínimo de entrega não atingido: não avança pra resumo/pagamento/troco —
      * o cliente ainda precisa poder adicionar itens livremente (texto solto não pode ser
      * barrado pelo gate estrito de pagamento, que só age em `pro_awaiting_payment_method`).
      */
@@ -108,7 +167,17 @@ export function resolveProStepFromDraft(params: {
         return "pro_collecting_order";
     }
 
-    if (!draft.paymentMethod) {
+    /**
+     * Fluxo legado / high-value: já está no passo de persistir com pagamento no draft.
+     * Não empurrar de volta ao resumo.
+     */
+    if (step === "pro_awaiting_confirmation" && isDraftStructurallyCompleteForFinalize(draft)) {
+        return "pro_awaiting_confirmation";
+    }
+
+    const payment = effectiveCheckoutPaymentMethod(draft, cartReviewAcknowledged);
+
+    if (!payment) {
         if (
             params.deliveryAddressUiConfirmed === false &&
             !isPickupDraft(draft) &&
@@ -116,14 +185,17 @@ export function resolveProStepFromDraft(params: {
         ) {
             return "pro_awaiting_address_confirmation";
         }
-        return resolveStepWhenPaymentMissing(step, { hasPendingProductClarify });
+        return resolveStepWhenPaymentMissing(step, {
+            hasPendingProductClarify,
+            cartReviewAcknowledged,
+        });
     }
 
-    if (draft.paymentMethod === "cash" && draft.changeFor == null) {
+    if (payment === "cash" && draft.changeFor == null) {
         return "pro_awaiting_change_amount";
     }
 
-    if (isDraftStructurallyCompleteForFinalize(draft)) {
+    if (isDraftStructurallyCompleteForFinalize(draft) && cartReviewAcknowledged) {
         return "pro_awaiting_confirmation";
     }
 
@@ -137,27 +209,30 @@ export function withResolvedSlotStep(state: ProSessionState): ProSessionState {
     const deliveryAddressUiConfirmed = awaitingAddressOffer
         ? state.deliveryAddressUiConfirmed === true
         : isDeliveryAddressAutoConfirmed(state.draft) || state.deliveryAddressUiConfirmed === true;
-    if (state.checkoutEditHold) {
+    const withReview = withCartReviewValidity({
+        ...state,
+        deliveryAddressUiConfirmed,
+    });
+    if (withReview.checkoutEditHold) {
         return {
-            ...state,
-            deliveryAddressUiConfirmed,
+            ...withReview,
             step: "pro_collecting_order",
         };
     }
     const hasPendingProductClarify =
-        (state.pendingPickGroups?.length ?? 0) > 0 ||
-        listLinesByStatus(state.orderWorklist, "ambiguous").length > 0 ||
-        (state.lastSearchPicks?.length ?? 0) >= 2 ||
-        (state.bootstrapPendingClarifications?.length ?? 0) > 0 ||
-        listLinesByStatus(state.orderWorklist, "not_found").length > 0;
+        (withReview.pendingPickGroups?.length ?? 0) > 0 ||
+        listLinesByStatus(withReview.orderWorklist, "ambiguous").length > 0 ||
+        (withReview.lastSearchPicks?.length ?? 0) >= 2 ||
+        (withReview.bootstrapPendingClarifications?.length ?? 0) > 0 ||
+        listLinesByStatus(withReview.orderWorklist, "not_found").length > 0;
     return {
-        ...state,
-        deliveryAddressUiConfirmed,
+        ...withReview,
         step: resolveProStepFromDraft({
-            step: state.step,
-            draft: state.draft,
+            step: withReview.step,
+            draft: withReview.draft,
             deliveryAddressUiConfirmed,
             hasPendingProductClarify,
+            cartReviewAcknowledged: withReview.cartReviewAcknowledged === true,
         }),
     };
 }

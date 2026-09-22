@@ -184,7 +184,11 @@ export class ProIntentClassifierService implements IntentService {
         const useLlm = llmLanguageEnabled(context);
 
         // Camada 1: IDs de botão e atalhos de confirmação (não são interpretação de linguagem livre)
-        if (context.session.step === "pro_awaiting_confirmation" && (CONFIRM_RE.test(raw) || REJECT_RE.test(raw))) {
+        if (
+            (context.session.step === "pro_awaiting_confirmation" ||
+                context.session.step === "pro_awaiting_cart_review") &&
+            (CONFIRM_RE.test(raw) || REJECT_RE.test(raw))
+        ) {
             return { intent: "order_intent", confidence: "high", reasonCode: "confirmation_shortcut" };
         }
         if (

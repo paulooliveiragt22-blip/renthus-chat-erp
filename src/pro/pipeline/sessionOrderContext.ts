@@ -12,6 +12,7 @@ import {
 const STEPS_IMPLYING_ORDER_SESSION: ReadonlySet<ProStep> = new Set([
     "pro_collecting_order",
     "pro_awaiting_address_confirmation",
+    "pro_awaiting_cart_review",
     "pro_awaiting_payment_method",
     "pro_awaiting_change_amount",
     "pro_awaiting_confirmation",

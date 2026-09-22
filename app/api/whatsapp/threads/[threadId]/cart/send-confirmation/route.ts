@@ -3,66 +3,12 @@ import { requireCapability } from "@/lib/workspace/rbac/requireCapability";
 import { getOrCreateCustomer } from "@/lib/chatbot/db/orders";
 import { loadWaConfigForCompany } from "@/lib/whatsapp/channelCredentials";
 import { sendAndPersistWaButtons } from "@/lib/whatsapp/sendAndPersist";
-import { formatEnderecoLine } from "@/lib/orders/helpers";
-import { validateDraftConsistency } from "@/src/pro/adapters/order/order.service.v2";
 import { HITL_ORDER_CONFIRM_BUTTONS } from "@/src/pro/pipeline/orderConfirmationText";
-import type { DraftAddress, DraftItem, OrderDraft, PaymentMethod } from "@/src/types/contracts";
+import { buildHitlSummaryText, parseAttendantCartBody } from "@/src/pro/pipeline/attendantCartDraft";
+import { resumeThreadBot } from "@/src/pro/pipeline/resumeThreadBot";
 import { jsonAccessError, jsonError, jsonInternalError } from "@/lib/api/errors";
 
 export const runtime = "nodejs";
-
-type BodyItem = { produtoEmbalagemId: string; productName: string; quantity: number; unitPrice: number };
-type BodyAddress = {
-    logradouro: string;
-    numero: string;
-    complemento?: string | null;
-    bairro: string;
-    cidade: string;
-    estado: string;
-    cep?: string | null;
-};
-type Body = {
-    items: BodyItem[];
-    address: BodyAddress;
-    paymentMethod: PaymentMethod;
-    changeFor?: number | null;
-    deliveryFee?: number;
-};
-
-function asMoney(n: unknown): number {
-    return Number((Number(n) || 0).toFixed(2));
-}
-
-function buildSummaryText(params: {
-    items: BodyItem[];
-    address: DraftAddress;
-    paymentMethod: PaymentMethod;
-    deliveryFee: number;
-    grandTotal: number;
-}): string {
-    const { items, address, paymentMethod, deliveryFee, grandTotal } = params;
-    const paymentLabel =
-        paymentMethod === "pix" ? "PIX" : paymentMethod === "card" ? "Cartão" : "Dinheiro";
-    const lines = items.map(
-        (it) =>
-            `• ${it.quantity}x ${it.productName} — R$ ${asMoney(it.quantity * it.unitPrice)
-                .toFixed(2)
-                .replace(".", ",")}`
-    );
-    const parts = [
-        "Confere seu pedido pra eu finalizar:",
-        ...lines,
-        deliveryFee > 0
-            ? `Taxa de entrega: R$ ${deliveryFee.toFixed(2).replace(".", ",")}`
-            : null,
-        `Total: R$ ${grandTotal.toFixed(2).replace(".", ",")}`,
-        `Pagamento: ${paymentLabel}`,
-        `Entrega: ${formatEnderecoLine(address)}`,
-        "",
-        "Toque em *Confirmar* ou *Cancelar* nos botões abaixo.",
-    ].filter(Boolean);
-    return parts.join("\n");
-}
 
 /**
  * POST /api/whatsapp/threads/:threadId/cart/send-confirmation
@@ -70,6 +16,9 @@ function buildSummaryText(params: {
  * Atendente monta o carrinho e pede confirmação do cliente. Não cria o pedido —
  * grava `whatsapp_order_confirmations` (pending) e envia interactive buttons.
  * Pedido só com clique em `pro_confirm_order` (ADR-0005 C1).
+ *
+ * O bot é religado ao enviar o resumo: o clique Confirmar e a conversa depois
+ * dele seguem o fluxo do chatbot, sem depender do timeout de handover.
  */
 export async function POST(req: Request, { params }: { params: Promise<{ threadId: string }> }) {
     const { threadId } = await params;
@@ -77,28 +26,9 @@ export async function POST(req: Request, { params }: { params: Promise<{ threadI
     if (!ctx.ok) return jsonAccessError(ctx);
     const { admin, companyId, userId } = ctx;
 
-    const body = (await req.json().catch(() => null)) as Body | null;
-    if (!body || !Array.isArray(body.items) || body.items.length === 0) {
-        return jsonError("items_required", "Adicione ao menos um item ao carrinho.", 400);
-    }
-    if (!body.paymentMethod || !["pix", "cash", "card"].includes(body.paymentMethod)) {
-        return jsonError("invalid_payment_method", "Selecione uma forma de pagamento válida.", 400);
-    }
-    const addr = body.address;
-    if (
-        !addr?.logradouro?.trim() ||
-        !addr?.numero?.trim() ||
-        !addr?.bairro?.trim() ||
-        !addr?.cidade?.trim() ||
-        !addr?.estado?.trim() ||
-        addr.estado.trim().length < 2
-    ) {
-        return jsonError(
-            "invalid_address",
-            "Preencha o endereço completo (rua, número, bairro, cidade e estado).",
-            400
-        );
-    }
+    const parsed = parseAttendantCartBody(await req.json().catch(() => null));
+    if (!parsed.ok) return jsonError(parsed.code, parsed.message, 400);
+    const { draft, items, address, paymentMethod } = parsed;
 
     const { data: thread, error: threadErr } = await admin
         .from("whatsapp_threads")
@@ -113,53 +43,6 @@ export async function POST(req: Request, { params }: { params: Promise<{ threadI
     }
     if (!thread?.phone_e164) return jsonError("thread_not_found", "Conversa não encontrada.", 404);
 
-    const items: DraftItem[] = body.items.map((it) => ({
-        produtoEmbalagemId: String(it.produtoEmbalagemId),
-        productName: String(it.productName),
-        quantity: Math.max(1, Number(it.quantity) || 0),
-        unitPrice: asMoney(it.unitPrice),
-        fatorConversao: 1,
-        productVolumeId: null,
-        estoqueUnidades: 0,
-    }));
-
-    const address: DraftAddress = {
-        logradouro: addr.logradouro.trim(),
-        numero: addr.numero.trim(),
-        bairro: addr.bairro.trim(),
-        complemento: addr.complemento?.trim() || null,
-        cidade: addr.cidade.trim(),
-        estado: addr.estado.trim().toUpperCase(),
-        cep: addr.cep?.trim() || null,
-        apelido: "WhatsApp",
-    };
-
-    const totalItems = asMoney(items.reduce((s, it) => s + it.quantity * it.unitPrice, 0));
-    const deliveryFee = asMoney(body.deliveryFee ?? 0);
-    const grandTotal = asMoney(totalItems + deliveryFee);
-
-    const draft: OrderDraft = {
-        items,
-        address,
-        paymentMethod: body.paymentMethod,
-        changeFor:
-            body.paymentMethod === "cash" && body.changeFor != null ? asMoney(body.changeFor) : null,
-        deliveryFee,
-        deliveryZoneId: null,
-        deliveryAddressText: formatEnderecoLine(address),
-        deliveryMinOrder: null,
-        deliveryEtaMin: null,
-        totalItems,
-        grandTotal,
-        pendingConfirmation: false,
-        version: 1,
-    };
-
-    const consistency = validateDraftConsistency(draft);
-    if (!consistency.ok) {
-        return jsonError("inconsistent_draft", consistency.message, 400);
-    }
-
     const customer = await getOrCreateCustomer(
         admin,
         companyId,
@@ -171,14 +54,15 @@ export async function POST(req: Request, { params }: { params: Promise<{ threadI
         .from("whatsapp_order_confirmations")
         .update({ status: "cancelled", resolved_at: new Date().toISOString() })
         .eq("thread_id", threadId)
+        .eq("company_id", companyId)
         .eq("status", "pending");
 
-    const summaryText = buildSummaryText({
-        items: body.items,
+    const summaryText = buildHitlSummaryText({
+        items,
         address,
-        paymentMethod: body.paymentMethod,
-        deliveryFee,
-        grandTotal,
+        paymentMethod,
+        deliveryFee: draft.deliveryFee,
+        grandTotal: draft.grandTotal,
     });
 
     const { data: inserted, error: insertErr } = await admin
@@ -201,11 +85,12 @@ export async function POST(req: Request, { params }: { params: Promise<{ threadI
         });
     }
 
-    if (thread.bot_active !== false) {
-        await admin
-            .from("whatsapp_threads")
-            .update({ bot_active: false, handover_at: new Date().toISOString() })
-            .eq("id", threadId);
+    /**
+     * Religa o bot antes do envio: sem isso o clique Confirmar cai no gate de
+     * handover do inbound e a confirmação fica `pending` para sempre.
+     */
+    if (thread.bot_active === false) {
+        await resumeThreadBot({ admin, companyId, threadId });
     }
 
     const waConfig = await loadWaConfigForCompany(admin, companyId);
@@ -227,5 +112,10 @@ export async function POST(req: Request, { params }: { params: Promise<{ threadI
         );
     }
 
-    return NextResponse.json({ ok: true, confirmationId: inserted.id, summaryText });
+    return NextResponse.json({
+        ok: true,
+        confirmationId: inserted.id,
+        summaryText,
+        botResumed: true,
+    });
 }

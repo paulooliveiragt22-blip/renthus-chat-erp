@@ -124,6 +124,10 @@ export async function aiStage(params: {
         checkoutEditHold: prevFp === nextFp ? Boolean(context.session.checkoutEditHold) : false,
         highValueAcknowledged:
             prevFp === nextFp ? context.session.highValueAcknowledged : false,
+        cartReviewAcknowledged:
+            prevFp === nextFp ? context.session.cartReviewAcknowledged : false,
+        cartReviewFingerprint:
+            prevFp === nextFp ? context.session.cartReviewFingerprint : null,
         aiHistory: aiResult.updatedHistory ?? [],
         aiHistorySummary:
             raw?.updatedAiHistorySummary !== undefined

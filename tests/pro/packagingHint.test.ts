@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { enrichSearchTermPackagingFromUserText } from "../../src/pro/pipeline/packagingHint";
+import {
+    enrichSearchTermPackagingFromUserText,
+    packagingScopeForQuery,
+} from "../../src/pro/pipeline/packagingHint";
 import { buildBootstrapSegmentPlanFromExtraction } from "../../src/pro/replay/bootstrapSegmentPlan";
 
 describe("enrichSearchTermPackagingFromUserText", () => {
@@ -26,6 +29,17 @@ describe("enrichSearchTermPackagingFromUserText", () => {
             "me ve uma caixa de skol lata e duas coca 2 litros"
         );
         assert.equal(t, "coca 2 litros");
+    });
+
+    it("scope: Heineken lata ≠ Heineken longneck nem caixa da Skol", () => {
+        const msg =
+            "Quero 3 marmitas m, 2 caixa de skol lata, 2 Heineken longneck, duas Heineken lata, 1 salgadinho e duas marmitas g";
+        const scope = packagingScopeForQuery("Heineken lata", msg);
+        assert.match(scope, /heineken/);
+        assert.match(scope, /lata/);
+        assert.doesNotMatch(scope, /longneck|long neck/);
+        assert.doesNotMatch(scope, /caixa|skol/);
+        assert.equal(enrichSearchTermPackagingFromUserText("Heineken lata", msg), "Heineken lata");
     });
 
     it("qty justapostas: caixa de jamel não vira caixa em skol", () => {

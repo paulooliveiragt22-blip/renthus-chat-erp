@@ -47,6 +47,43 @@ export function isExplicitOrderCancellation(text: string): boolean {
     return detectStructuredCheckoutAction(text) === "cancel";
 }
 
+/**
+ * Prosa que tenta confirmar (“sim”, “pode fechar”) sem ser o botão Confirmar.
+ * Não é revisão de itens — o gate do resumo reenvia o card.
+ */
+export function looksLikeWeakConfirmProse(text: string): boolean {
+    const raw = text.trim();
+    if (!raw || raw.length > 48) return false;
+    if (detectStructuredCheckoutAction(raw) != null) return false;
+
+    const normalized = normalizeButtonPayload(raw);
+    if (!normalized) return false;
+    if (
+        /^(sim+|ok+|okay|pode|fechamos|fechar|confirmar|confirma|isso|ta|beleza|blz|uhum|yes|certo|perfeito|fechado|bora)$/u.test(
+            normalized
+        )
+    ) {
+        return true;
+    }
+    if (/^(isso\s+mesmo|ta\s+bom|ok\s+pode|ok\s+fechar|ok\s+confirmar)$/u.test(normalized)) {
+        return true;
+    }
+    if (
+        /^(sim\s+|ok\s+|okay\s+)?(pode\s+)?(fechar|confirmar|confirma)(\s+(o\s+)?pedido)?$/u.test(
+            normalized
+        )
+    ) {
+        return true;
+    }
+    if (/^(sim\s+)?pode(\s+(fechar|confirmar)(\s+(o\s+)?pedido)?)?$/u.test(normalized)) {
+        return true;
+    }
+    if (/^(quero\s+)(fechar|confirmar)(\s+(o\s+)?pedido)?$/u.test(normalized)) {
+        return true;
+    }
+    return false;
+}
+
 /** Botões Meta no envio HITL (`send-confirmation`) e alinhados ao PRO. */
 export const HITL_ORDER_CONFIRM_BUTTONS: ReadonlyArray<{ id: string; title: string }> = [
     { id: "pro_confirm_order", title: "Confirmar" },
@@ -61,6 +98,7 @@ export function looksLikeCheckoutRevisionText(text: string): boolean {
     const raw = text.trim();
     if (!raw || raw.length < 4) return false;
     if (detectStructuredCheckoutAction(raw) != null) return false;
+    if (looksLikeWeakConfirmProse(raw)) return false;
 
     const normalized = raw
         .toLowerCase()

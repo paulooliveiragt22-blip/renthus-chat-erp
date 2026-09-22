@@ -60,7 +60,8 @@ export function resolveCheckoutTurnOutcome(params: {
     if (
         alignedGroups.length > 0 &&
         (mode === "ai" || state.checkoutEditHold === true) &&
-        state.step !== "pro_awaiting_confirmation"
+        state.step !== "pro_awaiting_confirmation" &&
+        state.step !== "pro_awaiting_cart_review"
     ) {
         return { kind: "clarify_pending_picks", reason: "pending_pick_groups" };
     }
@@ -68,7 +69,8 @@ export function resolveCheckoutTurnOutcome(params: {
     if (
         listLinesByStatus(state.orderWorklist, "awaiting_qty").length > 0 &&
         (mode === "ai" || state.checkoutEditHold === true) &&
-        state.step !== "pro_awaiting_confirmation"
+        state.step !== "pro_awaiting_confirmation" &&
+        state.step !== "pro_awaiting_cart_review"
     ) {
         return { kind: "collecting", reason: "worklist_awaiting_qty" };
     }
@@ -87,7 +89,8 @@ export function resolveCheckoutTurnOutcome(params: {
         (state.lastSearchPicks?.length ?? 0) >= 2 &&
         !(draft?.items?.length) &&
         (mode === "ai" || state.checkoutEditHold === true) &&
-        state.step !== "pro_awaiting_confirmation"
+        state.step !== "pro_awaiting_confirmation" &&
+        state.step !== "pro_awaiting_cart_review"
     ) {
         return { kind: "clarify_product_picks", reason: "ambiguous_search_picks" };
     }
@@ -113,19 +116,33 @@ export function resolveCheckoutTurnOutcome(params: {
         return { kind: "confirm_address", reason: "address_needs_ui_confirm" };
     }
 
-    if (addrOk && state.deliveryAddressUiConfirmed === true && !draft.paymentMethod) {
+    if (addrOk && state.deliveryAddressUiConfirmed === true && state.cartReviewAcknowledged !== true) {
+        return { kind: "confirm_order", reason: "cart_review_before_payment" };
+    }
+
+    if (
+        addrOk &&
+        state.deliveryAddressUiConfirmed === true &&
+        state.cartReviewAcknowledged === true &&
+        !draft.paymentMethod
+    ) {
         return { kind: "ask_payment", reason: "awaiting_payment_method" };
     }
 
     if (
         draft.paymentMethod === "cash" &&
         draft.changeFor == null &&
-        state.deliveryAddressUiConfirmed === true
+        state.deliveryAddressUiConfirmed === true &&
+        state.cartReviewAcknowledged === true
     ) {
         return { kind: "ask_change", reason: "awaiting_change_amount" };
     }
 
-    if (isDraftStructurallyCompleteForFinalize(draft) && state.deliveryAddressUiConfirmed === true) {
+    if (
+        isDraftStructurallyCompleteForFinalize(draft) &&
+        state.deliveryAddressUiConfirmed === true &&
+        state.cartReviewAcknowledged === true
+    ) {
         return { kind: "confirm_order", reason: "draft_ready_for_confirm" };
     }
 

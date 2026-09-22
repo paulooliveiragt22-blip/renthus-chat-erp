@@ -1,6 +1,6 @@
 # Máquina de slots do pedido PRO (V2)
 
-Este documento descreve **como o servidor mantém o passo (`ProStep`) alinhado ao rascunho (`OrderDraft`)**, para reduzir ambiguidade da IA e manter UX previsível (endereço salvo → confirmação → pagamento → troco → confirmação final).
+Este documento descreve **como o servidor mantém o passo (`ProStep`) alinhado ao rascunho (`OrderDraft`)**, para reduzir ambiguidade da IA e manter UX previsível (endereço → **resumo** → pagamento → troco → persistência).
 
 **Relacionado:** [`CHATBOT_PROD.md`](./CHATBOT_PROD.md) (orquestrador e flags), [`REFACTOR_STRATEGY_PRO_ORDER_AND_IA.md`](./REFACTOR_STRATEGY_PRO_ORDER_AND_IA.md) (fases R0–R3), [`ADR/0011-pro-order-worklist-typed-lines.md`](./ADR/0011-pro-order-worklist-typed-lines.md) (coleta multi-item / `OrderWorklist` — bloqueia checkout com `pending_search` \| `ambiguous` \| `awaiting_qty`), código em `src/pro/pipeline/orderSlotStep.ts` e `src/pro/pipeline/stages/checkoutPostProcess.ts`.
 
@@ -32,21 +32,36 @@ Ordem de avaliação (simplificado):
 
 1. **`handover`**, **`pro_escalation_choice`**, **`pro_awaiting_change_amount`:** mantêm-se (não sobrescrever pelo draft excepto onde o fluxo já mudou o passo).
 2. **Sem itens no draft:** `pro_idle` se já estava idle; senão `pro_collecting_order`.
-3. **Endereço estrutural incompleto:** `pro_collecting_order`.
-4. **Sem `paymentMethod`:**
-   - Se `step === pro_awaiting_payment_method` → mantém (cliente já confirmou o endereço e está a escolher pagamento).
-   - Se `step === pro_awaiting_address_confirmation` → mantém (à espera do botão ou novo texto).
-   - Caso contrário, com endereço estruturalmente completo → `pro_awaiting_address_confirmation` (salvo ou só digitado; CTA `pro_confirm_saved_address` ou `pro_confirm_typed_address`).
-5. **`paymentMethod === cash`** e `changeFor == null` → `pro_awaiting_change_amount`.
-6. **Draft completo para finalize** (`isDraftStructurallyCompleteForFinalize`) **e** `pendingConfirmation` → `pro_awaiting_confirmation`.
-7. **Caso contrário:** `pro_collecting_order`.
+3. **Endereço estrutural incompleto** ou modalidade em aberto: `pro_collecting_order`.
+4. **Já em `pro_awaiting_confirmation` com draft completo+pagamento:** mantém (high-value ou sessão legado a persistir).
+5. **Pagamento efetivo** = `draft.paymentMethod` só se `cartReviewAcknowledged` (fingerprint itens+endereço+modalidade ainda bate). A IA não pula o resumo gravando PIX no prepare.
+6. **Sem pagamento efetivo:**
+   - Endereço UI explicitamente não confirmado → `pro_awaiting_address_confirmation`.
+   - Senão, sem resumo confirmado → `pro_awaiting_cart_review`.
+   - Resumo confirmado → `pro_awaiting_payment_method`.
+7. **`paymentMethod === cash`** e `changeFor == null` (após resumo) → `pro_awaiting_change_amount`.
+8. **Draft completo + resumo confirmado** → `pro_awaiting_confirmation` (persistência no mesmo turno do PIX/cartão/troco; high-value ainda pede Confirmar).
+9. **Caso contrário:** `pro_collecting_order`.
 
 ---
 
 ## 4. Botões e prioridade de UI
 
-- **`checkoutButtonsForState`:** não mostra PIX/Cartão/Dinheiro enquanto o passo for `pro_awaiting_address_confirmation` **ou** enquanto (em `pro_collecting_order`) existir endereço estruturalmente completo sem pagamento — nesses casos só entra a UI de **confirmar endereço** (`buildAddressConfirmationMessage`).
+- **`checkoutButtonsForState`:** endereço pronto sem `cartReviewAcknowledged` → card de **resumo** (Confirmar/Corrigir/Adicionar). Só depois do Confirmar aparecem PIX/Cartão/Dinheiro. `pro_confirm_order` no resumo **não** cria pedido.
 - **`prioritizeInteractiveFirst`:** mensagens `buttons` / `flow` antes de `text` (WhatsApp).
+- **Inbound (`checkoutInboundPolicy` + `strictCheckoutStructuredGate`):** conjunto fechado (dinheiro/estado) só aceita botão (ID ou título exacto). Dado inventável continua texto+botão.
+- **Mensagem completa (itens + endereço + PIX):** `prepare` grava itens/endereço/pagamento; endereço completo **infere entrega** (sem card Entrega/Retirar); cidade/UF vêm da loja (+ ViaCEP por rua quando possível). Confirmar do **resumo** mantém PIX/cartão e persiste; dinheiro pede troco; sem pagamento → botões.
+
+| Passo / overlay | Só botão | Texto + botão |
+|---|---|---|
+| `pro_awaiting_cart_review` | Confirmar; prosa fraca (`sim`, `pode fechar`) reenvia o card | Corrigir/Adicionar/cancelar + revisão real de itens |
+| Entrega/Retirar (os dois modos) | IDs + títulos `Entrega` / `Retirar no local` | — |
+| `pro_awaiting_payment_method` | PIX/Cartão/Dinheiro | cancelar |
+| `pro_awaiting_confirmation` | Confirmar (ADR-0005) | Corrigir/Adicionar + revisão real |
+| OOS Sim/Não | IDs + `Sim`/`Não` exactos | — |
+| Oferta de endereços salvos | Confirmar/Novo + `1..N` | — |
+| `pro_escalation_choice` | Atendente / Continuar pedido (`atendente` vale) | — |
+| Coleta / telefone / troco / endereço livre | — | texto + botões de pick |
 
 ---
 
@@ -75,3 +90,5 @@ Isto **não substitui** a máquina de slots: slots governam **passo + botões**;
 - `tests/pro/orderSlotStep.test.ts` — matriz de `resolveProStepFromDraft` / `withResolvedSlotStep`.
 - `tests/pro/proPipeline.test.ts` — integração rápida (saudação, flow, troco).
 - `tests/pro/prepareDraftGuidance.test.ts` — texto de orientação pós-`prepare_order_draft`.
+- `tests/pro/checkoutInboundPolicy.test.ts` — só-botão vs texto+botão.
+- `tests/pro/checkoutPostProcess.quickActions.test.ts` — gates de resumo, Entrega/Retirar, escalação.

@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 import {
     canFulfillQty,
     disponivelVenda,
+    isPackSellable,
     shouldHideWhenOutOfStock,
 } from "../../lib/products/stockPolicy";
 
@@ -52,6 +53,29 @@ describe("stockPolicy vender_com_estoque_zero", () => {
                 qty: 1,
             }),
             false
+        );
+    });
+
+    it("isPackSellable: flag true vence estoque zerado", () => {
+        assert.equal(
+            isPackSellable({ venderComEstoqueZero: true, estoqueUnidades: 0, fatorConversao: 15 }),
+            true
+        );
+        assert.equal(
+            isPackSellable({ venderComEstoqueZero: undefined, estoqueUnidades: 0, fatorConversao: 1 }),
+            true
+        );
+        assert.equal(
+            isPackSellable({ venderComEstoqueZero: false, estoqueUnidades: 0, fatorConversao: 1 }),
+            false
+        );
+        assert.equal(
+            isPackSellable({ venderComEstoqueZero: false, estoqueUnidades: 5, fatorConversao: 15 }),
+            false
+        );
+        assert.equal(
+            isPackSellable({ venderComEstoqueZero: false, estoqueUnidades: 30, fatorConversao: 15 }),
+            true
         );
     });
 

@@ -3,8 +3,9 @@
 /**
  * Modal de montagem/edição de carrinho dentro do WhatsApp Inbox — atendente
  * ajusta itens, endereço estruturado e pagamento sem sair da conversa, e
- * dispara "Enviar para confirmação" (o cliente confirma pelo próprio
- * WhatsApp, sem IA envolvida — ver resolvePendingOrderConfirmation.ts).
+ * escolhe entre "Enviar resumo" (cliente confirma pelo botão no WhatsApp, sem IA
+ * — ver resolvePendingOrderConfirmation.ts) e "Finalizar pedido" (atendente fecha
+ * na hora, cliente já deu o ok na conversa).
  *
  * Reaproveita as mesmas peças da tela Pedidos (VariantResultRow, CartRow,
  * helpers de formatação) só que sem o seletor de cliente cadastrado do
@@ -91,7 +92,7 @@ export default function CartEditModal({
     const [searching, setSearching] = useState(false);
     const [draftQty, setDraftQty] = useState<Record<string, DraftQty>>({});
 
-    const [sending, setSending] = useState(false);
+    const [sending, setSending] = useState<"send-confirmation" | "finalize" | null>(null);
     const [msg, setMsg] = useState<string | null>(null);
 
     useEffect(() => {
@@ -188,14 +189,14 @@ export default function CartEditModal({
     const customerPaysNow = brlToNumber(changeFor);
     const trocoNow = Math.max(0, customerPaysNow - totalNow);
 
-    async function handleSend() {
+    async function submitCart(action: "send-confirmation" | "finalize") {
         setMsg(null);
         if (cart.length === 0) { setMsg("Adicione pelo menos um item ao carrinho."); return; }
         if (!addr.logradouro.trim() || !addr.numero.trim() || !addr.bairro.trim() || !addr.cidade.trim() || addr.estado.trim().length < 2) {
             setMsg("Preencha o endereço completo (rua, número, bairro, cidade e UF).");
             return;
         }
-        setSending(true);
+        setSending(action);
         try {
             const items = cart.map((c) => {
                 const embalagemId =
@@ -207,7 +208,7 @@ export default function CartEditModal({
                     unitPrice: c.price,
                 };
             });
-            const res = await fetch(`/api/whatsapp/threads/${threadId}/cart/send-confirmation`, {
+            const res = await fetch(`/api/whatsapp/threads/${threadId}/cart/${action}`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 credentials: "include",
@@ -221,15 +222,16 @@ export default function CartEditModal({
             });
             const json = await res.json().catch(() => ({}));
             if (!res.ok) {
-                setMsg(`Erro ao enviar: ${json?.error?.message ?? "falha desconhecida"}`);
+                const prefix = action === "finalize" ? "Erro ao finalizar" : "Erro ao enviar";
+                setMsg(`${prefix}: ${json?.error?.message ?? "falha desconhecida"}`);
                 return;
             }
             onSent();
             onClose();
         } catch {
-            setMsg("Erro de conexão ao enviar. Tente novamente.");
+            setMsg("Erro de conexão. Tente novamente.");
         } finally {
-            setSending(false);
+            setSending(null);
         }
     }
 
@@ -244,46 +246,26 @@ export default function CartEditModal({
                     <div className="flex flex-wrap items-center gap-3">
                         <button
                             type="button"
-                            onClick={handleSend}
-                            disabled={sending}
+                            onClick={() => void submitCart("send-confirmation")}
+                            disabled={sending !== null}
                             className="rounded-xl bg-primary px-5 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
                         >
-                            {sending ? "Enviando..." : "Enviar resumo"}
+                            {sending === "send-confirmation" ? "Enviando..." : "Enviar resumo"}
                         </button>
                         <button
                             type="button"
-                            onClick={async () => {
-                                setSending(true);
-                                try {
-                                    const res = await fetch(`/api/whatsapp/threads/${threadId}/cart/finalize`, {
-                                        method: "POST",
-                                        headers: { "Content-Type": "application/json" },
-                                        credentials: "include",
-                                    });
-                                    const json = await res.json().catch(() => ({}));
-                                    if (!res.ok) {
-                                        setMsg(`Erro ao finalizar: ${json?.error?.message ?? "falha desconhecida"}`);
-                                        return;
-                                    }
-                                    onSent();
-                                    onClose();
-                                } catch {
-                                    setMsg("Erro de conexão ao finalizar. Tente novamente.");
-                                } finally {
-                                    setSending(false);
-                                }
-                            }}
-                            disabled={sending}
+                            onClick={() => void submitCart("finalize")}
+                            disabled={sending !== null}
                             className="rounded-xl bg-violet-600 px-5 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-50"
                         >
-                            {sending ? "Finalizando..." : "Finalizar pedido"}
+                            {sending === "finalize" ? "Finalizando..." : "Finalizar pedido"}
                         </button>
                         {msg && <span className="ml-auto text-xs font-medium text-rose-600">{msg}</span>}
                     </div>
                     <button
                         type="button"
                         onClick={onClose}
-                        disabled={sending}
+                        disabled={sending !== null}
                         className="rounded-xl border border-zinc-200 px-4 py-2 text-sm font-medium text-zinc-600 transition-colors hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800"
                     >
                         Cancelar
@@ -425,7 +407,10 @@ export default function CartEditModal({
             </div>
 
             <p className="mt-2 text-[11px] text-zinc-400 dark:text-zinc-500">
-                O pedido só é criado depois que o cliente tocar em Confirmar (botão) no WhatsApp.
+                <strong>Enviar resumo:</strong> manda o resumo com os botões Confirmar/Cancelar e
+                religa o chatbot — o pedido nasce quando o cliente tocar em Confirmar.{" "}
+                <strong>Finalizar pedido:</strong> cria o pedido agora (cliente já deu o ok na
+                conversa) e avisa o cliente no WhatsApp.
             </p>
         </Modal>
     );

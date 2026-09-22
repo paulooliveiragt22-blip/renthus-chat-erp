@@ -139,8 +139,8 @@ export function nextMenuCheckoutStep(policy: FulfillmentPolicy): MenuCheckoutFul
 }
 
 /**
- * Aplica o modo único da loja (só entrega ou só retirada). Não infere a partir de endereço —
- * isso fica no checkout do bot para não misturar domínio de endereço aqui.
+ * Aplica modo único da loja; se ambos ligados e o endereço já está completo,
+ * assume entrega (mensagem com rua não precisa do card Entrega/Retirar).
  */
 export function applyFulfillmentPolicyToDraft(
     draft: OrderDraft,
@@ -151,7 +151,23 @@ export function applyFulfillmentPolicyToDraft(
     const sole = resolveSoleFulfillmentType(policy);
     if (sole === "pickup") return applyPickupTotals({ ...draft, fulfillmentType: "pickup" });
     if (sole === "delivery") return { ...draft, fulfillmentType: "delivery" };
+    if (policy.deliveriesEnabled && addressReadyForDeliveryInfer(draft)) {
+        return { ...draft, fulfillmentType: "delivery" };
+    }
     return draft;
+}
+
+function addressReadyForDeliveryInfer(draft: OrderDraft): boolean {
+    const a = draft.address;
+    if (!a) return false;
+    const uf = a.estado?.trim().toUpperCase() ?? "";
+    return Boolean(
+        a.logradouro?.trim() &&
+            a.numero?.trim() &&
+            a.bairro?.trim() &&
+            a.cidade?.trim() &&
+            uf.length === 2
+    );
 }
 
 export function isPickupDraft(draft: OrderDraft | null | undefined): boolean {

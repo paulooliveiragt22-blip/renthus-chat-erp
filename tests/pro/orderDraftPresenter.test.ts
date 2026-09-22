@@ -48,6 +48,46 @@ describe("orderDraftPresenter", () => {
         assert.match(s, /PIX/);
     });
 
+    it("resumo antes do pagamento omite linha Pagamento e pede confirmar itens", () => {
+        const draft: OrderDraft = {
+            items: [
+                {
+                    produtoEmbalagemId: "pe-1",
+                    productName: "HEINEKEN LATA",
+                    quantity: 2,
+                    unitPrice: 6,
+                    fatorConversao: 1,
+                    siglaComercial: "UN",
+                    productVolumeId: null,
+                    estoqueUnidades: 10,
+                },
+            ],
+            address: {
+                logradouro: "Rua A",
+                numero: "1",
+                bairro: "Centro",
+                cidade: "Sorriso",
+                estado: "MT",
+                complemento: null,
+            },
+            paymentMethod: null,
+            changeFor: null,
+            fulfillmentType: "delivery",
+            deliveryFee: 5,
+            deliveryZoneId: "z1",
+            deliveryAddressText: null,
+            deliveryMinOrder: null,
+            deliveryEtaMin: null,
+            totalItems: 12,
+            grandTotal: 17,
+            pendingConfirmation: false,
+            version: 1,
+        };
+        const s = formatCanonicalDraftSummary(draft);
+        assert.match(s, /Confirme os itens e o endereço/);
+        assert.ok(!/Pagamento:/u.test(s));
+    });
+
     it("inclui observação do pedido no resumo", () => {
         const draft: OrderDraft = {
             items: [
