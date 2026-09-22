@@ -27,3 +27,31 @@ export function tryParseAddressOneLine(raw: string): {
 
     return { logradouro, numero, bairro };
 }
+
+/** Onde o endereço começa dentro de uma frase que também tem itens. */
+const ADDRESS_START_RE =
+    /\b(?:aqui\s+n[ao]s?|aqui\s+em|na\s+rua|no\s+bairro|rua|avenida|av\.?|alameda|travessa|estrada|rodovia)\b/iu;
+
+/** Cauda de pagamento depois do endereço ("... 1627 Industrial pagamento no pix"). */
+const PAYMENT_TAIL_RE =
+    /\b(?:pagamento|pagar|pago|pix|cart[aã]o|dinheiro|cr[eé]dito|d[eé]bito|esp[eé]cie)\b.*$/iu;
+
+/**
+ * Recorta o trecho de endereço de uma mensagem que mistura itens, endereço e pagamento
+ * ("manda 2 caixas de X aqui na Rua das Turmalinas, 1627 Industrial pagamento no pix").
+ * Devolve `null` quando o recorte não forma um endereço utilizável — o servidor não
+ * inventa endereço a partir de texto solto.
+ */
+export function extractAddressLineFromText(text: string): string | null {
+    const raw = String(text ?? "").trim();
+    if (!raw) return null;
+    const start = ADDRESS_START_RE.exec(raw);
+    if (!start) return null;
+    const slice = raw
+        .slice(start.index)
+        .replace(PAYMENT_TAIL_RE, "")
+        .trim()
+        .replace(/[.,;\s]+$/u, "");
+    if (!slice) return null;
+    return tryParseAddressOneLine(slice) ? slice : null;
+}

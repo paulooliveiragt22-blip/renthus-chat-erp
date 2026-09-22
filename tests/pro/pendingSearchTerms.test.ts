@@ -45,6 +45,29 @@ describe("extractCandidateTerms (lexical fallback)", () => {
         assert.deepEqual(extractCandidatePendingTermsFromUserText("quero skol e entrega"), []);
     });
 
+    it("extract: verbo imperativo não vira linha e endereço/pagamento não colam no termo", () => {
+        const terms = extractCandidatePendingTermsFromUserText(
+            "manda duas caixas de original lata e 3 caixa de Heineken longneck aqui na rua turmalinas 1627, industrial. pagamento no pix"
+        );
+        assert.deepEqual(
+            terms.map((t) => [t.rawTerm.toLowerCase(), t.quantity]),
+            [
+                ["original lata", 2],
+                ["heineken longneck", 3],
+            ]
+        );
+    });
+
+    it("extract: corta cauda de entrega/pagamento sem perder itens anteriores", () => {
+        const terms = extractCandidatePendingTermsFromUserText(
+            "traz 2 skol e 1 heineken, entrega na avenida brasil 100"
+        );
+        assert.deepEqual(
+            terms.map((t) => t.rawTerm.toLowerCase()),
+            ["skol", "heineken"]
+        );
+    });
+
     it("pendingTermsReferToSame: token (não substring solta multi-item)", () => {
         assert.equal(pendingTermsReferToSame("skol", "Skol"), true);
         assert.equal(pendingTermsReferToSame("original", "cerveja original"), true);

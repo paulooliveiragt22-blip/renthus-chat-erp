@@ -5,6 +5,7 @@ import type { OrderDraftPort } from "@/src/pro/ports/orderDraft.port";
 import type { PrepareDraftToolTelemetryPayload } from "@/src/types/contracts";
 import { getOrCreateCustomer } from "@/lib/chatbot/db/orders";
 import { normalizePrepareDraftAnthropicInput } from "@/src/pro/tools/normalizePrepareDraftAnthropicInput";
+import { extractAddressLineFromText } from "@/src/pro/tools/parseAddressLoosePt";
 import { sanitizePreparePaymentAgainstUserText } from "@/src/pro/pipeline/sanitizePreparePayment";
 import {
     mergePreparedDraftIntoCurrent,
@@ -112,6 +113,31 @@ export function createPrepareOrderDraftTool(deps: {
                 effectiveCustomerId = c?.id ?? null;
             }
 
+            const addrIn = toolInput.address;
+            const hasStructuredAddress = Boolean(
+                addrIn &&
+                    String(addrIn.logradouro ?? "").trim() &&
+                    String(addrIn.numero ?? "").trim() &&
+                    String(addrIn.bairro ?? "").trim()
+            );
+            const modelSentAddress =
+                Boolean(toolInput.savedAddressId?.trim()) ||
+                Boolean(toolInput.useSavedAddress) ||
+                Boolean(toolInput.addressRaw?.trim()) ||
+                hasStructuredAddress;
+            /**
+             * Endereço veio na mesma frase do pedido e o modelo não repassou nada: recorte
+             * determinístico do texto do cliente. Sem isso o servidor ignorava o endereço
+             * digitado, perguntava Entrega/Retirada e ainda oferecia endereço salvo antigo.
+             */
+            const addressFromUserText =
+                !modelSentAddress && !deps.turnState.currentDraft?.address?.logradouro
+                    ? extractAddressLineFromText(deps.userText)
+                    : null;
+            const preparedInput = addressFromUserText
+                ? { ...toolInput, addressRaw: addressFromUserText }
+                : toolInput;
+
             const allowedEmbalagemIds = unionAllowlistWithDraftIds(
                 deps.turnState.allowlistIds,
                 deps.turnState.currentDraft
@@ -124,22 +150,11 @@ export function createPrepareOrderDraftTool(deps: {
             const prepared = await deps.orderDraft.prepareFromToolInput({
                 companyId: deps.companyId,
                 customerId: effectiveCustomerId,
-                body: toolInput,
+                body: preparedInput,
                 catalogPolicy,
             });
 
-            const addrIn = toolInput.address;
-            const hasStructuredAddress = Boolean(
-                addrIn &&
-                    String(addrIn.logradouro ?? "").trim() &&
-                    String(addrIn.numero ?? "").trim() &&
-                    String(addrIn.bairro ?? "").trim()
-            );
-            const hasAddressPayload =
-                Boolean(toolInput.savedAddressId?.trim()) ||
-                Boolean(toolInput.useSavedAddress) ||
-                Boolean(toolInput.addressRaw?.trim()) ||
-                hasStructuredAddress;
+            const hasAddressPayload = modelSentAddress || Boolean(addressFromUserText);
 
             const nextDraft = mergePreparedDraftIntoCurrent(deps.turnState.currentDraft, prepared.draft);
             deps.turnState.currentDraft = nextDraft;

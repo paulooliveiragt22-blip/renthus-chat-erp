@@ -291,6 +291,9 @@ function Publish-InboundLiveAlias {
 
     # RoutingConfig com pesos bloqueia Provisioned Concurrency — limpar via arquivo JSON
     # (PowerShell engole `{}` em string inline e deixa pesos residuais).
+    # Só mandar --routing-config quando ainda HÁ pesos: com PC alocada no alias, passar
+    # routing-config (mesmo vazio) faz a AWS rejeitar com
+    # "Invalid alias configuration for Provisioned Concurrency" e o alias trava na versão antiga.
     $routingFile = Join-Path $env:TEMP "renthus-alias-routing.json"
     [System.IO.File]::WriteAllText(
         $routingFile,
@@ -299,13 +302,23 @@ function Publish-InboundLiveAlias {
     )
     $routingUri = "file://" + ($routingFile -replace "\\", "/")
     if ($aliasExists -eq $InboundAlias) {
-        Invoke-AwsRaw @(
+        $prevEapW = $ErrorActionPreference
+        $ErrorActionPreference = "SilentlyContinue"
+        $weights = aws --profile $Profile --region $Region lambda get-alias `
+            --function-name $InboundFn --name $InboundAlias `
+            --query "RoutingConfig.AdditionalVersionWeights" --output json 2>$null
+        $ErrorActionPreference = $prevEapW
+        $weightsFlat = ($weights | Out-String).Trim()
+        $hasWeights = $weightsFlat -and $weightsFlat -ne "null" -and $weightsFlat -ne "{}"
+
+        $updateArgs = @(
             "lambda", "update-alias",
             "--function-name", $InboundFn,
             "--name", $InboundAlias,
-            "--function-version", "$ver",
-            "--routing-config", $routingUri
-        ) | Out-Null
+            "--function-version", "$ver"
+        )
+        if ($hasWeights) { $updateArgs += @("--routing-config", $routingUri) }
+        Invoke-AwsRaw $updateArgs | Out-Null
     } else {
         Invoke-AwsRaw @(
             "lambda", "create-alias",

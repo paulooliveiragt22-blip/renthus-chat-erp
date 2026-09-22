@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { tryParseAddressOneLine } from "../../src/pro/tools/parseAddressLoosePt";
+import {
+    extractAddressLineFromText,
+    tryParseAddressOneLine,
+} from "../../src/pro/tools/parseAddressLoosePt";
 import { hasCustomerAddressCore } from "../../lib/address/enrichDeliveryAddress";
 
 describe("tryParseAddressOneLine", () => {
@@ -19,6 +22,26 @@ describe("tryParseAddressOneLine", () => {
         assert.equal(p!.numero, "850");
         assert.match(p!.logradouro, /tangara/i);
         assert.match(p!.bairro, /sao mateus/i);
+    });
+});
+
+describe("extractAddressLineFromText", () => {
+    it("recorta endereço de mensagem com itens e pagamento", () => {
+        const line = extractAddressLineFromText(
+            "manda duas caixas de original lata e 3 caixa de Heineken longneck aqui na Rua das Turmalinas, 1627  Industrial 1ª Etapa pagamento no pix"
+        );
+        assert.ok(line, "esperava recorte de endereço");
+        const parsed = tryParseAddressOneLine(line!);
+        assert.ok(parsed);
+        assert.match(parsed!.logradouro, /turmalinas/i);
+        assert.equal(parsed!.numero, "1627");
+        assert.match(parsed!.bairro, /industrial/i);
+    });
+
+    it("mensagem sem endereço não vira endereço", () => {
+        assert.equal(extractAddressLineFromText("manda duas caixas de original lata"), null);
+        assert.equal(extractAddressLineFromText("quero pagar no pix"), null);
+        assert.equal(extractAddressLineFromText("na rua"), null);
     });
 });
 
