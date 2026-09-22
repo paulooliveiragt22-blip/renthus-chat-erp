@@ -15,6 +15,8 @@ export function phaseFromProStep(step: ProStep | string | null | undefined): Che
     switch (step) {
         case "pro_awaiting_address_confirmation":
             return "confirm_address";
+        case "pro_awaiting_cart_review":
+            return "confirm_order";
         case "pro_awaiting_payment_method":
         case "pro_awaiting_change_amount":
             return "collect_payment";
@@ -52,11 +54,11 @@ export function buildPhasePlaybookForModel(params: {
         );
     } else if (phase === "collect_payment") {
         lines.push(
-            "Endereço já resolvido. Oriente pagamento (PIX/cartão/dinheiro) sem pedir 'sim' do pedido ainda. Não invente totais."
+            "Resumo já confirmado. Oriente só o pagamento (PIX/cartão/dinheiro). Não invente totais nem diga que o pedido foi criado."
         );
     } else if (phase === "confirm_order") {
         lines.push(
-            "O servidor envia o resumo oficial com taxa e botões Confirmar/Corrigir. Não invente totais nem peça 'sim' em texto paralelo."
+            "O servidor envia o resumo oficial com taxa e botões Confirmar/Corrigir. Não peça forma de pagamento ainda — só depois do Confirmar. Não invente totais nem peça 'sim' em texto paralelo."
         );
     } else if (phase === "collect_items") {
         lines.push(
@@ -67,7 +69,7 @@ export function buildPhasePlaybookForModel(params: {
                 "Já há itens no rascunho: em troca/edição, busque pelo NOME do produto (ex.: salgadinho caixa), não só embalagem; não apague outros itens."
             );
             lines.push(
-                "Com itens no rascunho e sem pagamento: NÃO peça endereço nem pagamento na prosa — o servidor envia botões Entrega/Retirar (se ambos ligados) e depois pagamento. No máximo 1 frase curta listando o que anotou."
+                "Com itens no rascunho e sem pagamento: NÃO peça endereço nem pagamento na prosa — o servidor envia Entrega/Retirar (se ambos ligados), depois o resumo, depois pagamento. No máximo 1 frase curta listando o que anotou."
             );
         }
     }
@@ -137,6 +139,34 @@ export function scrubOutboundForAddressHold(
     return kept;
 }
 
+/** IA ainda “busca produto” / lista opções / pede pagamento — polui botões do servidor. */
+export function looksLikeCheckoutUiPollution(text: string): boolean {
+    const flat = normalizePt(text);
+    if (!flat) return false;
+    const hints = [
+        "qual voce prefere",
+        "qual voce quer",
+        "tem mais duas opcoes",
+        "tem mais opcoes",
+        "mais duas opcoes",
+        "vou buscar",
+        "enquanto isso",
+        "forma de pagamento",
+        "escolhe a forma",
+        "escolha a forma",
+        "agora escolhe",
+        "agora escolha",
+        "pix, cartao",
+        "pix, cartão",
+        "cartao ou dinheiro",
+        "encontrei mais de uma",
+        "temos a ",
+    ];
+    if (hints.some((h) => flat.includes(h))) return true;
+    if (/\br\$\b/.test(flat) && (flat.includes("opcao") || flat.includes("opcoes"))) return true;
+    return false;
+}
+
 /** Detecta prosa da IA pedindo endereço antes da escolha Entrega/Retirada. */
 export function looksLikePrematureAddressAsk(text: string): boolean {
     const flat = normalizePt(text);
@@ -159,29 +189,26 @@ export function looksLikePrematureAddressAsk(text: string): boolean {
 }
 
 /**
- * Com itens no draft e modalidade ainda em aberto: remove pedido precoce de endereço
- * (o servidor manda Entrega/Retirar). Mantém prosa útil (resumo de itens).
+ * Com itens no draft e modalidade ainda em aberto: o servidor manda Entrega/Retirar.
+ * Qualquer prosa da IA (opções extras, “vou buscar”, pedido de pagamento/endereço)
+ * polui o turno — descarta texto e deixa só botões/CTA.
  */
 export function scrubOutboundForFulfillmentChoice(outbound: OutboundMessage[]): OutboundMessage[] {
-    const kept: OutboundMessage[] = [];
-    for (const m of outbound) {
-        if (m.kind !== "text") {
-            kept.push(m);
-            continue;
-        }
+    return outbound.filter((m) => m.kind !== "text");
+}
+
+/**
+ * Quando o servidor já vai mandar PIX/Cartão/Dinheiro: tira pedido de pagamento
+ * e lista de produto na prosa da IA.
+ */
+export function scrubOutboundForServerPaymentUi(outbound: OutboundMessage[]): OutboundMessage[] {
+    return outbound.filter((m) => {
+        if (m.kind !== "text") return true;
         const t = String(m.text ?? "").trim();
-        if (!t) continue;
-        if (looksLikePrematureAddressAsk(t)) {
-            // Mantém só a parte antes do pedido de endereço, se houver conteúdo útil.
-            const cut = t.split(/(?:Agora\s+preciso|Preciso\s+do\s+(?:seu\s+)?endere|Me\s+(?:passa|envie)\s+o\s+endere)/i)[0]?.trim();
-            if (cut && cut.length >= 12 && !looksLikePrematureAddressAsk(cut)) {
-                kept.push({ kind: "text", text: cut });
-            }
-            continue;
-        }
-        kept.push(m);
-    }
-    return kept;
+        if (!t) return false;
+        if (looksLikeCheckoutUiPollution(t) || looksLikePrematureAddressAsk(t)) return false;
+        return true;
+    });
 }
 
 export function buildDeliverySpecialistSystemPreamble(): string {
@@ -190,7 +217,7 @@ export function buildDeliverySpecialistSystemPreamble(): string {
 - Contexto: o cliente pode digitar errado (hamburgueres→hambúrguer). Use search_produtos; se vier did_you_mean, ofereça essas opções em uma frase curta (sem dump de preço).
 - Nunca invente produto, preço, estoque, taxa ou ETA — só tools.
 - Upsell leve só se fizer sentido (ex.: caixa quando pediu unidade), sem pressão.
-- Checkout é faseado pelo servidor: modalidade (Entrega/Retirada) → endereço se entrega → pagamento → confirmação final. Respeite o bloco "Fase atual".
+- Checkout é faseado pelo servidor: modalidade (Entrega/Retirada) → endereço se entrega → resumo (Confirmar) → pagamento → fecha o pedido. Respeite o bloco "Fase atual".
 - Quando search_produtos tiver várias embalagens: NÃO liste preços/opções na prosa — o servidor envia a pergunta/botões de escolha.`;
 }
 

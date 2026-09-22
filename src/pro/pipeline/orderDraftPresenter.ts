@@ -63,9 +63,11 @@ export function formatCanonicalDraftSummary(draft: OrderDraft): string {
         lines.push("Taxa de entrega: R$ 0,00");
     }
     lines.push(`*Total: R$ ${brl(Number(draft.grandTotal) || 0)}*`);
-    lines.push(`Pagamento: ${paymentLabel(draft.paymentMethod)}`);
-    if (draft.paymentMethod === "cash" && draft.changeFor != null) {
-        lines.push(`Troco para: R$ ${brl(Number(draft.changeFor))}`);
+    if (draft.paymentMethod) {
+        lines.push(`Pagamento: ${paymentLabel(draft.paymentMethod)}`);
+        if (draft.paymentMethod === "cash" && draft.changeFor != null) {
+            lines.push(`Troco para: R$ ${brl(Number(draft.changeFor))}`);
+        }
     }
     lines.push(`Endereço: ${addressLine(draft)}`);
     const obs = String(draft.orderNotes ?? "").trim();
@@ -73,7 +75,11 @@ export function formatCanonicalDraftSummary(draft: OrderDraft): string {
         lines.push(`Obs.: ${obs}`);
     }
     lines.push("");
-    lines.push("Revise e escolha uma opção:");
+    lines.push(
+        draft.paymentMethod
+            ? "Revise e escolha uma opção:"
+            : "Confirme os itens e o endereço para escolher a forma de pagamento:"
+    );
 
     return lines.join("\n");
 }

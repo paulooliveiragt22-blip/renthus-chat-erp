@@ -229,6 +229,8 @@ export async function orderStage(params: {
                 orderWorklist: null,
                 deliveryAddressUiConfirmed: false,
                 checkoutEditHold: false,
+                cartReviewAcknowledged: false,
+                cartReviewFingerprint: null,
                 pendingOutOfStockOffer: null,
                 inferredPaymentMethod: null,
                 pendingClarifyQuantity: null,

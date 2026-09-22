@@ -40,4 +40,34 @@ describe("toChatCatalogPublicItem", () => {
             false
         );
     });
+
+    it("vender_com_estoque_zero=true fica disponivel mesmo com disponivel_venda=0", () => {
+        const pub = toChatCatalogPublicItem({
+            id: "cc2ddb6e-bb57-452e-9afc-d0b8e4cba4cd",
+            product_name: "ORIGINAL",
+            display_name: "ORIGINAL LATA (CX c/15)",
+            sigla_comercial: "CX",
+            preco_venda: 60,
+            fator_conversao: 15,
+            estoque_unidades: 0,
+            disponivel_venda: 0,
+            vender_com_estoque_zero: true,
+        });
+        assert.equal(pub.disponivel, true);
+    });
+
+    it("vender_com_estoque_zero=false sem pacote inteiro fica indisponivel", () => {
+        const pub = toChatCatalogPublicItem({
+            id: "d65c2907-a522-4d87-a96c-31faa914133b",
+            product_name: "ORIGINAL",
+            display_name: "ORIGINAL LATA (CX c/15)",
+            sigla_comercial: "CX",
+            preco_venda: 60,
+            fator_conversao: 15,
+            estoque_unidades: 5,
+            disponivel_venda: 0,
+            vender_com_estoque_zero: false,
+        });
+        assert.equal(pub.disponivel, false);
+    });
 });

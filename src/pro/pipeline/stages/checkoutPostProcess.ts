@@ -9,7 +9,9 @@ import { buildUniquePickButtons } from "../pickButtonTitles";
 import { catalogProductHintFromPicks } from "../catalogProductHint";
 import { isDraftBelowMinimumOrder } from "../orderDraftGate";
 import {
+    acknowledgeCartReview,
     isAddressStructurallyComplete,
+    isCartReviewHoldStep,
     resolveProStepFromDraft,
     withResolvedSlotStep,
 } from "../orderSlotStep";
@@ -34,11 +36,27 @@ import {
     isFulfillmentUnavailable,
     isPickupDraft,
     needsFulfillmentChoice,
-    parseFulfillmentType,
     type FulfillmentPolicy,
 } from "@/lib/delivery/fulfillment";
-import { scrubOutboundForFulfillmentChoice } from "@/src/pro/tools/checkoutPhasePolicy";
-import { worklistCheckoutGate } from "@/src/pro/pipeline/orderWorklist/worklistCheckoutGate";
+import {
+    blocksCheckoutStructuredButtons,
+    buildAddressOfferRepeatButtons,
+    buildEscalationChoiceButtons,
+    fulfillmentTypeFromButtonInbound,
+    isAddressOfferPassThrough,
+    isCartReviewPassThrough,
+    isClosedChoiceCancelInbound,
+    isClosedFulfillmentChoiceOpen,
+    isEscalationPassThrough,
+    isFinalConfirmPassThrough,
+    isFulfillmentButtonInbound,
+    isOosAddInbound,
+    isOosContinueInbound,
+} from "../checkoutInboundPolicy";
+import {
+    scrubOutboundForFulfillmentChoice,
+    scrubOutboundForServerPaymentUi,
+} from "@/src/pro/tools/checkoutPhasePolicy";
 import { listLinesByStatus, reconcileWorklistLinesWithDraft } from "@/src/pro/domain/orderWorklist/orderWorklist";
 import { appendAbrirCardapioCta } from "@/lib/chatbot/aiOrderModePolicy";
 import {
@@ -203,10 +221,15 @@ function extractAddressChoiceCandidates(
     return { primary, secondary };
 }
 
-function buildConfirmationActionButtons(draft: OrderDraft): OutboundMessage {
+function buildConfirmationActionButtons(
+    draft: OrderDraft,
+    opts?: { hidePayment?: boolean }
+): OutboundMessage {
+    const view =
+        opts?.hidePayment === true ? { ...draft, paymentMethod: null, changeFor: null } : draft;
     return {
         kind: "buttons",
-        text: formatCanonicalDraftSummary(draft),
+        text: formatCanonicalDraftSummary(view),
         buttons: [
             { id: "pro_confirm_order", title: "Confirmar" },
             { id: "pro_edit_order", title: "Corrigir" },
@@ -244,25 +267,12 @@ function checkoutButtonsForState(
     policy: FulfillmentPolicy = DEFAULT_FULFILLMENT_POLICY,
     accepted: AcceptedCustomerPayments = DEFAULT_ACCEPTED_CUSTOMER_PAYMENTS
 ): OutboundMessage[] {
+    if (state.step === "pro_escalation_choice") {
+        return [buildEscalationChoiceButtons()];
+    }
+    if (blocksCheckoutStructuredButtons(state)) return [];
     if (!state.draft) return [];
-    if ((state.pendingOutOfStockOffer?.names?.length ?? 0) > 0) return [];
-    /** Órfãos in_draft (SKU fora do carrinho) → abandoned antes do gate (evita outbound vazio no pagamento). */
-    const stateForGate: ProSessionState = {
-        ...state,
-        orderWorklist: reconcileWorklistLinesWithDraft(state.orderWorklist, state.draft),
-    };
-    if (worklistCheckoutGate({ state: stateForGate }).blocked) return [];
-    if (listLinesByStatus(stateForGate.orderWorklist, "not_found").length > 0) return [];
-    /**
-     * Picks residuais só bloqueiam checkout quando ainda falta clarificar embalagem.
-     * Com itens no draft e sem pendingPickGroups, não segurar Entrega/Retirada.
-     */
     const hasDraftItems = state.draft.items.length > 0;
-    const ambiguousPicksOpen =
-        (state.pendingPickGroups?.length ?? 0) > 0 ||
-        ((state.lastSearchPicks?.length ?? 0) >= 2 && !hasDraftItems);
-    if (ambiguousPicksOpen) return [];
-    if ((state.bootstrapPendingClarifications?.length ?? 0) > 0) return [];
     if (isFulfillmentUnavailable(policy) && hasDraftItems) {
         return [];
     }
@@ -279,9 +289,15 @@ function checkoutButtonsForState(
             state.deliveryAddressUiConfirmed === true &&
             !isDraftBelowMinimumOrder(state.draft)
         ) {
+            if (state.cartReviewAcknowledged !== true) {
+                return [buildConfirmationActionButtons(state.draft, { hidePayment: true })];
+            }
             return [buildPaymentButtons(accepted)];
         }
         return [];
+    }
+    if (isCartReviewHoldStep(state.step)) {
+        return [buildConfirmationActionButtons(state.draft, { hidePayment: true })];
     }
     if (state.step === "pro_awaiting_confirmation") {
         return [buildConfirmationActionButtons(state.draft)];
@@ -297,6 +313,25 @@ function resolvePaymentQuickAction(
     if (!state.draft) return null;
     const paymentMethod = paymentMethodFromPayAction(action);
     if (!paymentMethod) return null;
+    if (state.cartReviewAcknowledged !== true) {
+        const addrReady = checkoutAddressReady(state.draft);
+        return {
+            handled: true,
+            actionTag: "payment_before_cart_review",
+            state: withResolvedSlotStep({
+                ...state,
+                draft: { ...state.draft, paymentMethod: null, changeFor: null },
+            }),
+            outbound: addrReady
+                ? [buildConfirmationActionButtons(state.draft, { hidePayment: true })]
+                : [
+                      {
+                          kind: "text",
+                          text: "Antes de escolher o pagamento, confirme o resumo do pedido.",
+                      },
+                  ],
+        };
+    }
     if (!accepted[paymentMethod]) {
         return {
             handled: true,
@@ -342,12 +377,8 @@ function resolvePaymentQuickAction(
     };
 }
 
-const CANCEL_TEXT_ACTIONS = new Set(["cancelar", "cancela", "desistir", "desisto"]);
-
 function isCancelOrderPlainText(text: string): boolean {
-    const action = normalizeInboundAction(text).replaceAll(/\s+/g, " ").trim();
-    if (CANCEL_TEXT_ACTIONS.has(action)) return true;
-    return /^(?:cancelar|cancela|desistir|desisto)\b/u.test(action);
+    return isClosedChoiceCancelInbound(text);
 }
 
 const PAYMENT_BUTTON_IDS = new Set([
@@ -357,14 +388,27 @@ const PAYMENT_BUTTON_IDS = new Set([
     "pro_pay_cash",
 ]);
 
-const PAYMENT_WORD_ONLY_RE = /^(pix|cartao|dinheiro|especie|card|cash|credito|debito)$/u;
+function cardButtonIds(card: OutboundMessage): string[] {
+    if (card.kind !== "buttons") return [];
+    return (card.buttons ?? []).map((b) => String(b.id ?? "")).filter(Boolean);
+}
 
-function outboundHasPaymentButtons(messages: OutboundMessage[]): boolean {
+function outboundHasAnyButtonId(messages: OutboundMessage[], ids: readonly string[]): boolean {
+    const set = new Set(ids);
     return messages.some(
-        (m) =>
-            m.kind === "buttons" &&
-            (m.buttons ?? []).some((b) => PAYMENT_BUTTON_IDS.has(String(b.id ?? "")))
+        (m) => m.kind === "buttons" && (m.buttons ?? []).some((b) => set.has(String(b.id ?? "")))
     );
+}
+
+function cardsNotAlreadyPresent(
+    outbound: OutboundMessage[],
+    cards: OutboundMessage[]
+): OutboundMessage[] {
+    return cards.filter((c) => {
+        const ids = cardButtonIds(c);
+        if (ids.length === 0) return true;
+        return !outboundHasAnyButtonId(outbound, ids);
+    });
 }
 
 /** Pick de embalagem (botão ou número) não pode ser barrado pelo gate de pagamento. */
@@ -380,13 +424,14 @@ function looksLikePendingProductPick(text: string, state: ProSessionState): bool
 }
 
 /**
- * Checkout estruturado: (1) em pagamento só botões; (2) antes disso, pagamento por texto/botão
- * só depois de confirmar endereço no servidor.
+ * Escolha fechada: só ID/título de botão (ou revisão real no resumo).
+ * Conjunto fechado = dinheiro/estado; dado inventável continua texto+botão.
  */
 export function strictCheckoutStructuredGate(
     text: string,
     state: ProSessionState,
-    accepted: AcceptedCustomerPayments = DEFAULT_ACCEPTED_CUSTOMER_PAYMENTS
+    accepted: AcceptedCustomerPayments = DEFAULT_ACCEPTED_CUSTOMER_PAYMENTS,
+    fulfillmentPolicy: FulfillmentPolicy = DEFAULT_FULFILLMENT_POLICY
 ): QuickActionResult | null {
     const action = normalizeInboundAction(text);
     const d = state.draft;
@@ -394,11 +439,58 @@ export function strictCheckoutStructuredGate(
     /** Aguardando o cliente repetir o nome do produto — não barrar como pagamento. */
     if (listLinesByStatus(state.orderWorklist, "not_found").length > 0) return null;
 
+    const pendingAddrCount = state.pendingAddressPickOptions?.length ?? 0;
+    if (pendingAddrCount > 0) {
+        if (!action) return null;
+        if (isAddressOfferPassThrough(text, pendingAddrCount)) return null;
+        return {
+            handled: true,
+            actionTag: "strict_address_offer_inbound_gate",
+            state,
+            outbound: [buildAddressOfferRepeatButtons()],
+        };
+    }
+
+    if (state.step === "pro_escalation_choice") {
+        if (!action) return null;
+        if (isEscalationPassThrough(text)) return null;
+        return {
+            handled: true,
+            actionTag: "strict_escalation_inbound_gate",
+            state,
+            outbound: [buildEscalationChoiceButtons()],
+        };
+    }
+
+    if (isClosedFulfillmentChoiceOpen(state, fulfillmentPolicy)) {
+        if (!action) return null;
+        if (isCancelOrderPlainText(text)) return null;
+        if (isFulfillmentButtonInbound(text)) return null;
+        if (looksLikePendingProductPick(text, state)) return null;
+        return {
+            handled: true,
+            actionTag: "strict_fulfillment_inbound_gate",
+            state,
+            outbound: [buildFulfillmentButtons()],
+        };
+    }
+
+    if (state.step === "pro_awaiting_cart_review" && d) {
+        if (!action) return null;
+        if (isCartReviewPassThrough(text)) return null;
+        return {
+            handled: true,
+            actionTag: "strict_cart_review_inbound_gate",
+            state,
+            outbound: [buildConfirmationActionButtons(d, { hidePayment: true })],
+        };
+    }
+
     if (state.step === "pro_awaiting_payment_method" && d) {
         if (!action) return null;
         if (isCancelOrderPlainText(text)) return null;
         if (PAYMENT_BUTTON_IDS.has(action)) return null;
-        if (parseFulfillmentType(text) != null) return null;
+        if (isFulfillmentButtonInbound(text)) return null;
         if (looksLikePendingProductPick(text, state)) return null;
         return {
             handled: true,
@@ -406,6 +498,18 @@ export function strictCheckoutStructuredGate(
             state,
             /** Só reenvia os botões — sem texto extra. */
             outbound: [buildPaymentButtons(accepted)],
+        };
+    }
+
+    if (state.step === "pro_awaiting_confirmation" && d) {
+        if (!action) return null;
+        if (isFinalConfirmPassThrough(text)) return null;
+        if (looksLikePendingProductPick(text, state)) return null;
+        return {
+            handled: true,
+            actionTag: "strict_confirmation_inbound_gate",
+            state,
+            outbound: [buildConfirmationActionButtons(d)],
         };
     }
 
@@ -458,8 +562,12 @@ function stripAiOptionListText(messages: OutboundMessage[]): OutboundMessage[] {
 }
 
 /** Em confirmação final: só o card canónico (sem texto IA paralelo). */
-function keepOnlyFinalConfirmationCard(messages: OutboundMessage[], draft: OrderDraft): OutboundMessage[] {
-    const card = buildConfirmationActionButtons(draft);
+function keepOnlyFinalConfirmationCard(
+    messages: OutboundMessage[],
+    draft: OrderDraft,
+    opts?: { hidePayment?: boolean }
+): OutboundMessage[] {
+    const card = buildConfirmationActionButtons(draft, opts);
     const others = messages.filter(
         (m) => !(m.kind === "buttons" && m.buttons?.some((b) => b.id === "pro_confirm_order"))
     );
@@ -492,17 +600,8 @@ export function applyQuickAction(
 
     const pendingOos = state.pendingOutOfStockOffer?.names ?? [];
     if (pendingOos.length > 0) {
-        const wantsAdd =
-            action === "pro_oos_add_other" ||
-            action === "sim" ||
-            action === "ss" ||
-            action === "yes";
-        const wantsContinue =
-            action === "pro_oos_continue" ||
-            action === "nao" ||
-            action === "não" ||
-            action === "n" ||
-            action === "no";
+        const wantsAdd = isOosAddInbound(text);
+        const wantsContinue = isOosContinueInbound(text);
         if (wantsAdd) {
             return {
                 handled: true,
@@ -576,6 +675,41 @@ export function applyQuickAction(
         };
     }
 
+    /**
+     * Confirmar no resumo: libera pagamento efetivo.
+     * Se PIX/cartão já vinha na mensagem, o pipeline auto-persiste (`pro_cart_review_ack`).
+     * Se dinheiro sem troco, pede o valor.
+     */
+    if (ORPHAN_FINAL_CONFIRM_IDS.has(action) && state.draft && state.step !== "pro_awaiting_confirmation") {
+        const d = state.draft;
+        const reviewReady =
+            d.items.length > 0 &&
+            !isDraftBelowMinimumOrder(d) &&
+            checkoutAddressReady(d) &&
+            (isPickupDraft(d) || d.fulfillmentType === "delivery");
+        if (reviewReady) {
+            const next = acknowledgeCartReview(state);
+            const pay = next.draft?.paymentMethod ?? null;
+            if (pay === "cash" && next.draft?.changeFor == null) {
+                return {
+                    handled: true,
+                    actionTag: "pro_cart_review_ack",
+                    state: {
+                        ...next,
+                        step: "pro_awaiting_change_amount",
+                    },
+                    outbound: [{ kind: "text", text: "Pagamento em dinheiro. Troco pra quanto?" }],
+                };
+            }
+            return {
+                handled: true,
+                actionTag: "pro_cart_review_ack",
+                state: next,
+                outbound: [],
+            };
+        }
+    }
+
     if (isCancelOrderPlainText(text)) {
         const nextState: ProSessionState = {
             ...state,
@@ -593,6 +727,8 @@ export function applyQuickAction(
             orderWorklist: null,
             deliveryAddressUiConfirmed: false,
             checkoutEditHold: false,
+            cartReviewAcknowledged: false,
+            cartReviewFingerprint: null,
         };
         return {
             handled: true,
@@ -619,6 +755,8 @@ export function applyQuickAction(
             orderWorklist: null,
             deliveryAddressUiConfirmed: false,
             checkoutEditHold: false,
+            cartReviewAcknowledged: false,
+            cartReviewFingerprint: null,
         };
         return {
             handled: true,
@@ -636,6 +774,8 @@ export function applyQuickAction(
                 ...state,
                 step: "pro_collecting_order",
                 checkoutEditHold: true,
+                cartReviewAcknowledged: false,
+                cartReviewFingerprint: null,
                 /** Evita botões de clarificação velhos (ex.: hambúrguer) após Corrigir. */
                 lastSearchPicks: [],
                 pendingSwapRemoveName: null,
@@ -652,6 +792,8 @@ export function applyQuickAction(
                 ...state,
                 step: "pro_collecting_order",
                 checkoutEditHold: true,
+                cartReviewAcknowledged: false,
+                cartReviewFingerprint: null,
                 lastSearchPicks: [],
                 pendingSwapRemoveName: null,
             },
@@ -688,7 +830,7 @@ export function applyQuickAction(
                 ? [
                       {
                           kind: "text",
-                          text: "Ótimo! Falta só o endereço de entrega: rua, número, bairro, cidade e UF.",
+                          text: "Ótimo! Falta só o endereço de entrega: rua, número e bairro.",
                       },
                   ]
                 : [],
@@ -702,7 +844,7 @@ export function applyQuickAction(
     );
     if (paymentAction) return paymentAction;
 
-    const fulfillmentChoice = parseFulfillmentType(text);
+    const fulfillmentChoice = fulfillmentTypeFromButtonInbound(text);
     if (fulfillmentChoice && state.draft && state.draft.items.length > 0) {
         const policy = opts?.fulfillmentPolicy ?? DEFAULT_FULFILLMENT_POLICY;
         const type = fulfillmentChoice;
@@ -842,7 +984,7 @@ export function applyQuickAction(
                         ctaUrl: {
                             bodyText:
                                 "Toque para cadastrar o endereço e finalizar no cardápio. " +
-                                "Se preferir, envie o endereço em texto: rua, número, bairro, cidade e UF.",
+                                "Se preferir, envie o endereço em texto: rua, número e bairro.",
                             displayText: "Cadastrar endereço",
                             url: handoffUrl,
                         },
@@ -857,7 +999,7 @@ export function applyQuickAction(
             outbound: [
                 {
                     kind: "text",
-                    text: "Informe o novo endereço: rua, número, bairro e cidade (todos obrigatórios). Exemplo: Rua Tangará, 850, São Mateus, Sorriso-MT.",
+                    text: "Informe o novo endereço: rua, número e bairro. Exemplo: Rua Tangará, 850, São Mateus.",
                 },
             ],
         };
@@ -969,7 +1111,7 @@ export function checkoutPostProcess(params: {
                 kind: "text",
                 text:
                     "Seu pedido já tem produtos. Para entregar, cadastre o endereço completo no cardápio " +
-                    "(rua, número, bairro, cidade e UF) ou descreva tudo em uma mensagem.",
+                    "(rua, número e bairro) ou descreva tudo em uma mensagem.",
             },
             {
                 kind: "cta_url",
@@ -1038,6 +1180,18 @@ export function checkoutPostProcess(params: {
         outbound.push(...scrubbed);
     }
 
+    if (turnOutcome.kind === "ask_payment") {
+        const scrubbed = scrubOutboundForServerPaymentUi(outbound);
+        outbound.length = 0;
+        outbound.push(...scrubbed);
+    }
+
+    if (turnOutcome.reason === "cart_review_before_payment") {
+        const scrubbed = scrubOutboundForServerPaymentUi(outbound);
+        outbound.length = 0;
+        outbound.push(...scrubbed);
+    }
+
     // Escalação suave: muitas buscas vazias → cardápio + CTA
     if (turnOutcome.kind === "empty_search_hint") {
         outbound.push({
@@ -1097,22 +1251,24 @@ export function checkoutPostProcess(params: {
             step: nextState.step,
             draft: nextState.draft,
             deliveryAddressUiConfirmed: nextState.deliveryAddressUiConfirmed,
+            cartReviewAcknowledged: nextState.cartReviewAcknowledged === true,
         }),
     });
 
     const checkoutCards = checkoutButtonsForState(nextState, policy, accepted);
-    if (nextState.step === "pro_awaiting_confirmation" && nextState.draft) {
+    if (
+        (nextState.step === "pro_awaiting_confirmation" || isCartReviewHoldStep(nextState.step)) &&
+        nextState.draft
+    ) {
         const composed = keepOnlyFinalConfirmationCard(
             [...outbound, ...checkoutCards],
-            nextState.draft
+            nextState.draft,
+            { hidePayment: isCartReviewHoldStep(nextState.step) }
         );
         return { state: nextState, outbound: composed, checkoutTurnKind: turnOutcome.kind };
     }
 
-    const cardsToAdd = outboundHasPaymentButtons(outbound)
-        ? checkoutCards.filter((c) => !outboundHasPaymentButtons([c]))
-        : checkoutCards;
-    outbound.push(...cardsToAdd);
+    outbound.push(...cardsNotAlreadyPresent(outbound, checkoutCards));
 
     /** Rede de segurança: com picks pendentes, nunca terminar sem UI de escolha. */
     if (
@@ -1145,12 +1301,16 @@ export function checkoutPostProcessForQuickAction(params: {
         return prioritizeInteractiveFirst([...params.outbound]);
     }
     const cards = checkoutButtonsForState(state, policy, accepted);
-    if (state.step === "pro_awaiting_confirmation" && state.draft) {
-        return keepOnlyFinalConfirmationCard([...params.outbound, ...cards], state.draft);
+    if (
+        (state.step === "pro_awaiting_confirmation" || isCartReviewHoldStep(state.step)) &&
+        state.draft
+    ) {
+        return keepOnlyFinalConfirmationCard([...params.outbound, ...cards], state.draft, {
+            hidePayment: isCartReviewHoldStep(state.step),
+        });
     }
-    /** Evita duplicar PIX/Cartão/Dinheiro quando o caller já incluiu o card. */
-    const cardsToAdd = outboundHasPaymentButtons(params.outbound)
-        ? cards.filter((c) => !outboundHasPaymentButtons([c]))
-        : cards;
-    return prioritizeInteractiveFirst([...params.outbound, ...cardsToAdd]);
+    return prioritizeInteractiveFirst([
+        ...params.outbound,
+        ...cardsNotAlreadyPresent(params.outbound, cards),
+    ]);
 }

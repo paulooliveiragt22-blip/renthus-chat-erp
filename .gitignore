@@ -50,6 +50,8 @@ yarn-error.log*
 
 # saidas manuais de `npm test` redirecionadas a arquivo (debug local, nao versionar)
 test_output*.log
+# log do scripts/deploy-workers.ps1 (saida local de deploy, nao versionar)
+deploy-workers.log
 # vercel
 .vercel
 # Vercel CLI local env export (gerado por `vercel env pull`);

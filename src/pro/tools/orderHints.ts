@@ -26,9 +26,9 @@ export async function buildOrderHintsPayload(params: {
             customer_known: false,
             requires_address_flow_registration: true,
             address_registration_reason_pt:
-                "Primeiro contato: cadastre endereco completo (rua, numero, bairro, cidade e UF) pelo formulario enviado pelo botao.",
+                "Primeiro contato: cadastre endereco (rua, numero e bairro) pelo formulario enviado pelo botao.",
             hint:
-                "Primeiro pedido: se o canal tiver Flow de cadastro, envie-o; senao peca logradouro, numero, bairro, cidade e UF (2 letras) em campos separados; CEP opcional para preencher via ViaCEP.",
+                "Primeiro pedido: se o canal tiver Flow de cadastro, envie-o; senao peca logradouro, numero e bairro; cidade/UF a loja completa (ViaCEP se houver CEP).",
         };
     }
 
@@ -65,8 +65,8 @@ export async function buildOrderHintsPayload(params: {
         savedList.length === 0 || !hasCompleteSavedAddress;
     const address_registration_reason_pt = requires_address_flow_registration
         ? savedList.length === 0
-            ? "Cliente sem enderecos cadastrados; use o Flow ou colete rua, numero, bairro, cidade e UF."
-            : "Nenhum endereco cadastral completo (ex.: falta cidade ou UF); peca para completar pelo Flow ou texto estruturado."
+            ? "Cliente sem enderecos cadastrados; use o Flow ou colete rua, numero e bairro."
+            : "Nenhum endereco cadastral utilizavel (falta rua/numero/bairro); peca para completar pelo Flow ou texto."
         : null;
 
     const favorite_lines = await loadCustomerFavoriteLinesSafe(admin, companyId, phoneE164);

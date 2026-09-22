@@ -25,6 +25,7 @@ export type ProStep =
     | "pro_idle"
     | "pro_collecting_order"
     | "pro_awaiting_address_confirmation"
+    | "pro_awaiting_cart_review"
     | "pro_awaiting_payment_method"
     | "pro_awaiting_change_amount"
     | "pro_awaiting_confirmation"
@@ -316,6 +317,14 @@ export interface ProSessionState {
      * a segunda (com este flag true) fecha o pedido.
      */
     highValueAcknowledged?: boolean;
+    /**
+     * Cliente confirmou o resumo (itens + endereço) antes de escolher pagamento.
+     * Sem isto o slot não avança para `pro_awaiting_payment_method`.
+     * Invalida quando `cartReviewFingerprint` diverge do draft atual.
+     */
+    cartReviewAcknowledged?: boolean;
+    /** Fingerprint itens+endereço+modalidade no momento do Confirmar do resumo. */
+    cartReviewFingerprint?: string | null;
     /** Turnos Anthropic cobrados na janela wall-clock atual (`info_only` + limite > 0). */
     aiTurnCount?: number;
     /** ISO do início da janela de cota de turnos IA. */
@@ -580,6 +589,13 @@ export interface OrderServiceInput {
     customerId: string;
     draft: OrderDraft;
     idempotencyKey: string;
+    /**
+     * Atendente fecha no inbox: `orders.confirmation_status = confirmed`
+     * mesmo se a empresa pede aprovação na fila admin.
+     */
+    forceConfirmed?: boolean;
+    /** Default `ai_chat_pro_v2`. Finalize manual usa `ui`. */
+    source?: "ai_chat_pro_v2" | "ui";
 }
 
 export type OrderServiceResult =

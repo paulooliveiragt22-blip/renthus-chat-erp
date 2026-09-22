@@ -217,6 +217,9 @@ function scoreItem(segment: string, r: HitRow, preferredSigla: string | null): n
         if (/\blong\s*neck|longneck\b/u.test(name)) score += 12;
         if (/\b600\b/u.test(name)) score -= 8;
         if (/\blata\b/u.test(name)) score -= 8;
+    } else if (/\blata\b/u.test(seg)) {
+        if (/\blata\b/u.test(name)) score += 12;
+        if (/\blong\s*neck|longneck\b/u.test(name)) score -= 8;
     }
 
     const brands = brandTokens(seg);

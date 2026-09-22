@@ -248,9 +248,9 @@ Complementa a arquitetura **Webhook → fila → worker**: o transporte já desa
 Decisão de UX/estado para PRO V2: o orquestrador deve resolver os passos de checkout com ações determinísticas antes de cair em ambiguidade de LLM.
 
 - **Saudação contextual:** no início da conversa, distinguir primeiro acesso vs cliente recorrente e mostrar botões (`Cardápio`, `Meu pedido`, `Falar com atendente`).
-- **Mensagem inicial já completa (itens + endereço + pagamento):** devolver resumo entendido e botões `Confirmar`, `Corrigir`, `Adicionar produtos`.
-- **Pagamento:** botões interativos (`PIX`, `Cartão`, `Dinheiro`). Se `Dinheiro`, pedir `Troco pra quanto?` e persistir no draft.
-- **Endereço:** se o servidor resolver rua+número+bairro+cidade+UF (salvo ou digitado), **não** pede “Confirma este endereço?” — avança para pagamento ou resumo. Corrigir endereço continua via `Corrigir`.
+- **Mensagem inicial já completa (itens + endereço + pagamento):** servidor monta o draft; endereço completo infere **entrega**; cidade/UF da loja (ViaCEP por rua se der); **resumo** Confirmar/Corrigir/Adicionar; Confirmar **mantém** PIX/cartão já ditos e fecha (ou pede troco se dinheiro).
+- **Pagamento:** botões interativos (`PIX`, `Cartão`, `Dinheiro`) só se ainda não veio na mensagem. Se `Dinheiro`, pedir `Troco pra quanto?` e persistir no draft.
+- **Endereço:** cliente informa **rua, número e bairro**; cidade/UF completados pela empresa (`companies` / `service_city`) e CEP via ViaCEP/BrasilAPI — **não** Google Places.
 - **Resumo final:** card único do servidor com itens, **taxa**, total e botões `Confirmar` / `Corrigir` / `Adicionar produtos` (não depender da IA para R$). Clarificação de produto: só botões/lista do servidor; “Opção 2” mapeia para a embalagem.
 - **Proibição de UX enganosa:** não emitir “pedido confirmado” antes de retorno `ok` do RPC de criação.
 
@@ -268,14 +268,41 @@ Implementação actual no PRO (`runProPipeline` — único motor para plano PRO)
 |------|------|-------------|
 | Saudação + menu | `src/pro/pipeline/stages/routeStage.ts` | `greeting`, `faq` e **`unknown`**: uma mensagem `buttons` + CTA `cta_url` do cardápio (`webMenuUrl`) para `btn_catalog` / `btn_status`. |
 | Quick actions (checkout) | `runProPipeline.ts` + `stages/checkoutPostProcess.ts` (`applyQuickAction`) | IDs `pro_edit_order`, `pro_add_items`, `pro_cancel_order`, `pro_pay_*`, `pro_confirm_saved_address`, `pro_confirm_typed_address`; troco em `pro_awaiting_change_amount`; texto `cancelar` / `desistir` cancela o rascunho. Após cada quick action, `withResolvedSlotStep` alinha `ProStep` ao draft. |
-| Slots de checkout (passo explícito) | `src/pro/pipeline/orderSlotStep.ts` (`resolveProStepFromDraft`, `withResolvedSlotStep`) | Sincroniza `ProStep` com o draft: endereço estruturalmente completo sem pagamento → `pro_awaiting_address_confirmation` (salvo ou digitado); após confirmar endereço → `pro_awaiting_payment_method`; dinheiro sem troco → `pro_awaiting_change_amount`; draft completo → `pro_awaiting_confirmation`. |
-| Pós-processamento UI | `stages/checkoutPostProcess.ts` | `buildAddressConfirmationMessage` com morada completa e sem pagamento (com ou sem `enderecoClienteId`); botões de pagamento só após confirmação de endereço; confirmação final em `pro_awaiting_confirmation`. Mensagens interactivas primeiro (`prioritizeInteractiveFirst`). |
+| Slots de checkout (passo explícito) | `src/pro/pipeline/orderSlotStep.ts` (`resolveProStepFromDraft`, `withResolvedSlotStep`) | Sincroniza `ProStep` com o draft: endereço pronto → `pro_awaiting_cart_review` (resumo); Confirmar do resumo → `pro_awaiting_payment_method`; dinheiro sem troco → `pro_awaiting_change_amount`; PIX/cartão/troco após o resumo persiste o pedido (`pro_awaiting_confirmation` só high-value / legado). |
+| Pós-processamento UI | `stages/checkoutPostProcess.ts` | Resumo (Confirmar/Corrigir/Adicionar) **antes** dos botões de pagamento; pagamento só com `cartReviewAcknowledged`; mensagens interactivas primeiro (`prioritizeInteractiveFirst`). |
+| Inbound de escolha fechada | `checkoutInboundPolicy.ts` + `strictCheckoutStructuredGate` | Dinheiro/estado só por botão (resumo, Entrega/Retirar, pagamento, OOS, escalação, oferta de endereço). Itens/troco/endereço livre continuam texto+botão. |
 | Consistência texto IA ↔ tools | `src/pro/adapters/ai/ai.service.ts` + `src/pro/tools/prepareOrderDraft.ts` + `src/pro/tools/orderHints.ts` | `guidance_for_model_pt` em `search_produtos` / `prepare_order_draft`; `flow_reminder_pt` em `get_order_hints`; system prompt reforçado; `sanitizeVisibleAgainstDraft` quando o modelo contradiz o draft. |
 | Relevância catálogo | `src/pro/tools/searchRelevance.ts` + RPC `rpc_search_chat_produtos` | Rerank por long neck / CX / volume; remove 600ml quando o pedido pede long neck e há hit de descritor. |
 | Classificação de botões | `src/pro/services/intent/intentClassifier.service.ts` | Mapeia IDs de botão para `order_intent` / `status_intent` / `human_intent` com alta confiança. |
-| Passos no tipo | `src/types/contracts.ts` (`ProStep`) | `pro_awaiting_address_confirmation`, `pro_awaiting_payment_method`, `pro_awaiting_change_amount`, etc. |
+| Passos no tipo | `src/types/contracts.ts` (`ProStep`) | `pro_awaiting_cart_review`, `pro_awaiting_address_confirmation`, `pro_awaiting_payment_method`, `pro_awaiting_change_amount`, etc. |
 
 **Testes:** `tests/pro/proPipeline.test.ts`, `tests/pro/orderSlotStep.test.ts`, `tests/pro/prepareDraftGuidance.test.ts`.
+
+#### Atendente assume o carrinho (inbox) — modelo misto
+
+Decisão do dono (2026-09-09): o atendente escolhe **como** fecha; as regras do bot não mudam
+(prosa nunca cria pedido — ADR-0005 C1).
+
+| Caminho | Rota | Quem aprova | Efeito |
+|---|---|---|---|
+| **Enviar resumo** (HITL) | `POST .../cart/send-confirmation` | Cliente, só botão `pro_confirm_order` | Grava `whatsapp_order_confirmations` (`pending`), manda botões e **religa o bot**; pedido nasce no clique (`resolvePendingOrderConfirmation` → `create_order_with_items`) e respeita `require_order_approval` |
+| **Finalizar pedido** (manual) | `POST .../cart/finalize` | **Atendente** (cliente já deu o ok na conversa) | Cria o pedido na hora `confirmed` (`forceConfirmed`, `source = ui`), avisa o cliente no WhatsApp, cancela confirmação HITL em aberto e religa o bot |
+
+Pontos que sustentam o fluxo:
+
+- `send-confirmation` **religa** o bot (`resumeThreadBot`) em vez de pausar. Antes ele forçava
+  `bot_active=false` e o gate de handover do webhook descartava o clique **antes** do enqueue —
+  a confirmação ficava `pending` para sempre e o cliente não recebia nada.
+- Rede de segurança no ingress: `shouldEnqueueHitlCheckoutDespiteHandover` enfileira botão
+  Confirmar/Cancelar mesmo com bot pausado, **só** quando existe confirmação `pending` na thread.
+- Botão órfão (sem `pending`) com bot pausado: worker ignora e **não** religa o bot por clique morto.
+- Finalize é idempotente por conteúdo do carrinho (`attendantFinalizeIdempotencyKey`) —
+  duplo clique não cria dois pedidos.
+- Draft do atendente tem uma só fonte: `src/pro/pipeline/attendantCartDraft.ts` (parse + totais +
+  `validateDraftConsistency`), usada pelas duas rotas.
+
+**Testes:** `tests/pro/attendantCartFlow.test.ts`. **Smoke:** S5b / S5c em
+[`SMOKE_AGENT_LOOP_WHATSAPP.md`](./SMOKE_AGENT_LOOP_WHATSAPP.md).
 
 **Documentação de slots:** [`PRO_ORDER_SLOT_MACHINE.md`](./PRO_ORDER_SLOT_MACHINE.md).
 

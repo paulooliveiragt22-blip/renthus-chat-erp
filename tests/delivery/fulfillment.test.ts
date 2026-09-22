@@ -136,4 +136,31 @@ describe("fulfillment domain", () => {
         assert.equal(deliveryOnly.fulfillmentType, "delivery");
         assert.equal(deliveryOnly.deliveryFee, 8);
     });
+
+    it("ambos modos + endereço completo: infere delivery (não pede Entrega/Retirar)", () => {
+        const withAddr = draft({
+            fulfillmentType: null,
+            address: {
+                logradouro: "Rua Tangará",
+                numero: "850",
+                bairro: "São Mateus",
+                cidade: "Sorriso",
+                estado: "MT",
+                complemento: null,
+            },
+        });
+        const next = applyFulfillmentPolicyToDraft(withAddr, {
+            deliveriesEnabled: true,
+            pickupEnabled: true,
+        });
+        assert.equal(next.fulfillmentType, "delivery");
+    });
+
+    it("ambos modos sem endereço: não infere", () => {
+        const next = applyFulfillmentPolicyToDraft(draft({ fulfillmentType: null, address: null }), {
+            deliveriesEnabled: true,
+            pickupEnabled: true,
+        });
+        assert.equal(next.fulfillmentType ?? null, null);
+    });
 });

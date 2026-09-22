@@ -246,9 +246,11 @@ export function preferRowsMatchingTagAliases<T extends TagAliasRow>(
         if (queryHasBrandInPool) return [...rows];
     }
 
-    const wantSigla =
-        explicitCommercialSiglaNearQuery(query, userText ?? query) ??
-        explicitCommercialSiglaFromText(fullText);
+    /**
+     * Só a sigla do **segmento** do termo. Fallback no texto inteiro herdava
+     * "caixa" de outro item ("2 caixa de skol lata … duas Heineken lata" → CX).
+     */
+    const wantSigla = explicitCommercialSiglaNearQuery(query, userText ?? query);
     if (wantSigla) {
         return promoteTagHitsToRequestedSiglaSiblings(
             rows,

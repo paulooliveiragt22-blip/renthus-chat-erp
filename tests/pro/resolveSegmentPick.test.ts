@@ -93,6 +93,36 @@ describe("resolveSegmentPick", () => {
         if (r.kind === "unique") assert.equal(r.pick.embalagemId, "un");
     });
 
+    it("duas Heineken lata + hábito CX → UN (não CX c/8)", () => {
+        const lataHits = [
+            {
+                id: "hl-cx",
+                display_name: "HEINEKEN LATA (CX c/8)",
+                product_name: "HEINEKEN",
+                descricao: "LATA",
+                sigla_comercial: "CX",
+                fator_conversao: 8,
+                preco_venda: 48,
+            },
+            {
+                id: "hl-un",
+                display_name: "HEINEKEN LATA",
+                product_name: "HEINEKEN",
+                descricao: "LATA",
+                sigla_comercial: "UN",
+                fator_conversao: 1,
+                preco_venda: 8,
+            },
+        ];
+        const r = resolveSegmentPick("duas Heineken lata", lataHits, {
+            quantity: 2,
+            habitSigla: "CX",
+            formatHintText: "duas Heineken lata",
+        });
+        assert.equal(r.kind, "unique");
+        if (r.kind === "unique") assert.equal(r.pick.embalagemId, "hl-un");
+    });
+
     it("skol lata caixa → CX Skol (não Heineken/Original UN)", () => {
         const r = resolveSegmentPick("skol lata caixa", [
             {

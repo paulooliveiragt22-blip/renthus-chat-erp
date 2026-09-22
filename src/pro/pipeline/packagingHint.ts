@@ -33,14 +33,21 @@ const PACKAGING_STOP = new Set([
     "unidade",
     "unidades",
     "un",
+    "litros",
+    "litro",
+]);
+
+/** Distinguem SKU (lata vs longneck). Não podem ser stop senão "Heineken lata"
+ * casa no primeiro "Heineken …" do turno (ex.: longneck) e perde o segmento certo. */
+const FORMAT_SCOPE_TOKENS = new Set([
     "lata",
+    "latas",
     "long",
     "neck",
     "longneck",
     "garrafa",
+    "garrafas",
     "pet",
-    "litros",
-    "litro",
 ]);
 
 /**
@@ -55,7 +62,12 @@ export function packagingScopeForQuery(searchTerm: string, userText: string): st
 
     const tokens = seg
         .split(" ")
-        .filter((t) => t.length >= 3 && !PACKAGING_STOP.has(t) && !/^\d/.test(t));
+        .filter(
+            (t) =>
+                (t.length >= 3 || FORMAT_SCOPE_TOKENS.has(t)) &&
+                !PACKAGING_STOP.has(t) &&
+                !/^\d/.test(t)
+        );
     const parts = splitOrderProductSegments(userText);
     if (tokens.length && parts.length >= 1) {
         let bestPart: string | null = null;
@@ -87,7 +99,12 @@ export function enrichSearchTermPackagingFromUserText(
 
     const tokens = seg
         .split(" ")
-        .filter((t) => t.length >= 3 && !PACKAGING_STOP.has(t) && !/^\d/.test(t));
+        .filter(
+            (t) =>
+                (t.length >= 3 || FORMAT_SCOPE_TOKENS.has(t)) &&
+                !PACKAGING_STOP.has(t) &&
+                !/^\d/.test(t)
+        );
     if (!tokens.length) return searchTerm.trim();
 
     const scope = packagingScopeForQuery(searchTerm, userText);

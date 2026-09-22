@@ -182,6 +182,43 @@ describe("tagAliasMatch", () => {
         );
     });
 
+    it("Heineken lata: tag CX 'caixinha' não herda caixa da Skol no mesmo turno", () => {
+        const rows = [
+            {
+                id: "hl-cx",
+                product_name: "HEINEKEN",
+                display_name: "HEINEKEN LATA (CX c/8)",
+                descricao: "LATA",
+                tags: "caixinha de heineken",
+                sigla_comercial: "CX",
+                product_volume_id: "vol-hl",
+                produto_id: "p-hein",
+            },
+            {
+                id: "hl-un",
+                product_name: "HEINEKEN",
+                display_name: "HEINEKEN LATA",
+                descricao: "LATA",
+                tags: "lata",
+                sigla_comercial: "UN",
+                product_volume_id: "vol-hl",
+                produto_id: "p-hein",
+            },
+        ];
+        const userText =
+            "Quero 3 marmitas m, 2 caixa de skol lata, 2 Heineken longneck, duas Heineken lata, 1 salgadinho";
+        const out = preferRowsMatchingTagAliases(rows, "Heineken lata", userText);
+        assert.ok(
+            out.some((r) => r.id === "hl-un"),
+            JSON.stringify(out.map((r) => r.id))
+        );
+        assert.equal(
+            out.every((r) => r.id === "hl-cx"),
+            false,
+            "não pode colapsar só na CX"
+        );
+    });
+
     it("buchudinha sem sigla → UN e CX se ambos tiverem tag; senão só tag hits", () => {
         const rows = [
             {

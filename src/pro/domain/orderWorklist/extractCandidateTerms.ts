@@ -36,6 +36,27 @@ const FILLER_TOKENS = new Set([
     "apenas",
     "pedido",
     "pedindo",
+    /**
+     * Verbo imperativo de pedido ("manda duas caixas...") — sem isso o split por
+     * quantidade justaposta deixava o verbo sozinho virando linha de produto,
+     * e o servidor buscava "manda" no catálogo.
+     */
+    "manda",
+    "mande",
+    "mandar",
+    "traz",
+    "trazer",
+    "traga",
+    "envia",
+    "enviar",
+    "separa",
+    "separar",
+    "bota",
+    "coloca",
+    "poe",
+    "pega",
+    "ve",
+    "ai",
 ]);
 
 const PACK_ONLY_RE =
@@ -177,17 +198,39 @@ function parseProductSegment(segment: string): LexicalCandidateTerm | null {
 }
 
 /**
+ * Onde a frase deixa de falar de produto e passa a falar de endereço / entrega /
+ * pagamento. Sem esse corte, "3 caixa de heineken longneck aqui na rua turmalinas
+ * 1627, industrial. pagamento no pix" virava termo de busca com o endereço colado
+ * e ainda gerava uma linha extra ("industrial. pagamento no pix").
+ */
+const ADDRESS_OR_PAYMENT_CUT_RE =
+    /\b(?:aqui\s+n[ao]s?|aqui\s+em|na\s+rua|no\s+bairro|rua|avenida|av\.?|alameda|travessa|estrada|rodovia|bairro|endere[cç]o|entrega(?:r)?|retirada|retirar|pagamento|pagar|pago|pix|cart[aã]o|dinheiro|cr[eé]dito|d[eé]bito|esp[eé]cie)\b/iu;
+
+function cutAtAddressOrPaymentTail(segment: string): { term: string; tailReached: boolean } {
+    const match = ADDRESS_OR_PAYMENT_CUT_RE.exec(segment);
+    if (!match) return { term: segment, tailReached: false };
+    return { term: segment.slice(0, match.index).trim(), tailReached: true };
+}
+
+/**
  * Seed conservador: 2+ segmentos via " e " / vírgula / " mais " **ou**
  * qty justapostas ("duas X tres Y"). Preserva quantity do segmento.
  */
 export function extractCandidatePendingTermsFromUserText(userText: string): LexicalCandidateTerm[] {
     const raw = String(userText ?? "").trim();
     if (!raw) return [];
-    const parts = raw
+    const segments = raw
         .split(/\s*(?:,|;|\be\b|\bmais\b|\btamb[eé]m\b|\btb\b)\s+/i)
-        .flatMap((p) => splitOnJuxtaposedQuantities(p))
-        .map((p) => parseProductSegment(p))
-        .filter((p): p is LexicalCandidateTerm => p != null);
+        .flatMap((p) => splitOnJuxtaposedQuantities(p));
+
+    const parts: LexicalCandidateTerm[] = [];
+    for (const segment of segments) {
+        const { term, tailReached } = cutAtAddressOrPaymentTail(segment);
+        const parsed = term ? parseProductSegment(term) : null;
+        if (parsed) parts.push(parsed);
+        /** Depois do endereço/pagamento o resto da frase não é mais item. */
+        if (tailReached) break;
+    }
     if (parts.length < 2) return [];
     return uniqueLexicalTerms(parts);
 }

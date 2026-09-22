@@ -1,10 +1,50 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
+    resolveIntentForOrderGates,
     shouldForcePrepareAfterEmbalagemChoice,
     shouldForcePrepareAfterUnambiguousSearch,
     shouldForceSearchForDeclaredPendingTerms,
 } from "../../src/pro/adapters/ai/ai.service";
+import { extractCandidatePendingTermsFromUserText } from "../../src/pro/domain/orderWorklist/extractCandidateTerms";
+
+describe("resolveIntentForOrderGates", () => {
+    it("unknown (defer_to_agent) com frase multi-item vale como pedido", () => {
+        const terms = extractCandidatePendingTermsFromUserText(
+            "manda duas caixas de original lata e 3 caixa de Heineken longneck aqui na rua turmalinas 1627, industrial. pagamento no pix"
+        );
+        assert.ok(terms.length >= 2);
+        assert.equal(
+            resolveIntentForOrderGates({
+                intent: "unknown",
+                lexicalOrderLineCount: terms.length,
+            }),
+            "order_intent"
+        );
+    });
+
+    it("unknown sem linhas lexicais continua unknown", () => {
+        assert.equal(
+            resolveIntentForOrderGates({ intent: "unknown", lexicalOrderLineCount: 0 }),
+            "unknown"
+        );
+        assert.equal(
+            resolveIntentForOrderGates({ intent: "unknown", lexicalOrderLineCount: 1 }),
+            "unknown"
+        );
+    });
+
+    it("faq/greeting nunca são promovidos, mesmo com 2+ termos", () => {
+        assert.equal(
+            resolveIntentForOrderGates({ intent: "faq", lexicalOrderLineCount: 3 }),
+            "faq"
+        );
+        assert.equal(
+            resolveIntentForOrderGates({ intent: "greeting", lexicalOrderLineCount: 2 }),
+            "greeting"
+        );
+    });
+});
 
 describe("shouldForcePrepareAfterEmbalagemChoice", () => {
     const base = {

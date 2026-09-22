@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { runProPipeline } from "../../src/pro/pipeline/runProPipeline";
+import { cartReviewFingerprint } from "../../src/pro/pipeline/orderSlotStep";
 import type { ProPipelineInput, ProSessionState } from "../../src/types/contracts";
 import type { LoggerPort } from "../../src/pro/ports/logger.port";
 import type { MessageGateway } from "../../src/pro/ports/message.gateway";
@@ -173,7 +174,15 @@ describe("novo pipeline PRO - falhas reais", () => {
     it("Fase 9: tag provider vai junto em pro_pipeline.run quando aiCapability.provider é resolvido", async () => {
         const increments: Array<{ name: string; tags?: Record<string, string> }> = [];
         const deps = buildDeps({
-            session: stateAwaitingConfirmation({ step: "pro_collecting_order" }),
+            session: {
+                step: "pro_idle",
+                customerId: "cust-1",
+                misunderstandingStreak: 0,
+                escalationTier: 0,
+                draft: null,
+                aiHistory: [],
+                searchProdutoEmbalagemIds: [],
+            },
             intent: "greeting",
         });
         deps.metrics.increment = (name, _value, tags) => {
@@ -340,13 +349,16 @@ describe("novo pipeline PRO - falhas reais", () => {
     });
 
     it("botão de pagamento em dinheiro deve pedir troco", async () => {
+        const draft = {
+            ...stateAwaitingConfirmation().draft!,
+            paymentMethod: null,
+        };
         const deps = buildDeps({
             session: stateAwaitingConfirmation({
                 step: "pro_awaiting_payment_method",
-                draft: {
-                    ...stateAwaitingConfirmation().draft!,
-                    paymentMethod: null,
-                },
+                draft,
+                cartReviewAcknowledged: true,
+                cartReviewFingerprint: cartReviewFingerprint(draft),
             }),
             intent: "order_intent",
         });

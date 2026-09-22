@@ -100,7 +100,9 @@ function applyPick(
         .filter((id) => id && !rejectSet.has(id));
     const allow = [embId, ...draftIds.filter((id) => id !== embId), ...bootIds.filter((id) => id !== embId)];
     const step =
-        state.step === "pro_idle" || state.step === "pro_awaiting_confirmation"
+        state.step === "pro_idle" ||
+        state.step === "pro_awaiting_confirmation" ||
+        state.step === "pro_awaiting_cart_review"
             ? "pro_collecting_order"
             : state.step;
     return {
@@ -109,7 +111,13 @@ function applyPick(
             step,
             draft: draftAfterReject,
             bootstrapResolvedEmbalagemIds: bootIds,
-            checkoutEditHold: state.step === "pro_awaiting_confirmation" ? true : state.checkoutEditHold,
+            checkoutEditHold:
+                state.step === "pro_awaiting_confirmation" ||
+                state.step === "pro_awaiting_cart_review"
+                    ? true
+                    : state.checkoutEditHold,
+            cartReviewAcknowledged: false,
+            cartReviewFingerprint: null,
             searchProdutoEmbalagemIds: allow,
             lastSearchPicks: [],
             pendingPickGroups: removePendingPickGroupContaining(

@@ -1,8 +1,11 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
+    looksLikeCheckoutUiPollution,
     looksLikeFinalOrderConfirmAsk,
     scrubOutboundForAddressHold,
+    scrubOutboundForFulfillmentChoice,
+    scrubOutboundForServerPaymentUi,
 } from "../../src/pro/tools/checkoutPhasePolicy";
 import { checkoutPostProcess } from "../../src/pro/pipeline/stages/checkoutPostProcess";
 import type { OrderDraft, ProSessionState } from "../../src/types/contracts";
@@ -14,6 +17,51 @@ describe("checkoutPhasePolicy", () => {
             true
         );
         assert.equal(looksLikeFinalOrderConfirmAsk("Qual sabor voce quer?"), false);
+    });
+
+    it("pollution: lista de opcoes / vou buscar / pedido de pagamento", () => {
+        assert.equal(
+            looksLikeCheckoutUiPollution(
+                "Oi! Sobre a Original lata em caixa — temos a ORIGINAL LATA (CX c/15) a R$ 60. Tem mais duas opções: ORIGINAL 600ML. Qual você prefere? Enquanto isso, vou buscar a Heineken."
+            ),
+            true
+        );
+        assert.equal(
+            looksLikeCheckoutUiPollution(
+                "Perfeito! Anotei 2 caixas. Agora escolhe a forma de pagamento: PIX, Cartão ou Dinheiro?"
+            ),
+            true
+        );
+        assert.equal(looksLikeCheckoutUiPollution("Anotei 2x Original e 3x Heineken."), false);
+    });
+
+    it("fulfillment: descarta toda prosa da IA (só botões)", () => {
+        const out = scrubOutboundForFulfillmentChoice([
+            {
+                kind: "text",
+                text: "Oi! Sobre a Original lata — temos mais duas opções. Qual você prefere? Vou buscar a Heineken.",
+            },
+            {
+                kind: "buttons",
+                text: "Como você prefere receber este pedido?",
+                buttons: [{ id: "pro_fulfillment_delivery", title: "Entrega" }],
+            },
+        ]);
+        assert.equal(out.some((m) => m.kind === "text"), false);
+        assert.ok(out.some((m) => m.kind === "buttons"));
+    });
+
+    it("pagamento: tira pedido de PIX na prosa", () => {
+        const out = scrubOutboundForServerPaymentUi([
+            { kind: "text", text: "Agora escolhe a forma de pagamento: PIX, Cartão ou Dinheiro?" },
+            {
+                kind: "buttons",
+                text: "Escolha a forma de pagamento:",
+                buttons: [{ id: "pro_pay_pix", title: "PIX" }],
+            },
+        ]);
+        assert.ok(!out.some((m) => m.kind === "text"));
+        assert.ok(out.some((m) => m.kind === "buttons"));
     });
 
     it("scrub remove prosa de confirmacao final", () => {
@@ -88,7 +136,7 @@ describe("checkoutPostProcess — resumo final canónico", () => {
                 },
             ],
         });
-        assert.equal(r.state.step, "pro_awaiting_confirmation");
+        assert.equal(r.state.step, "pro_awaiting_cart_review");
         const confirm = r.outbound.find(
             (m) => m.kind === "buttons" && (m.buttons ?? []).some((b) => b.id === "pro_confirm_order")
         );

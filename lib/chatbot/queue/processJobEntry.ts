@@ -3,6 +3,7 @@ import { processInboundMessage } from "@/lib/chatbot/processMessage";
 import { sendTypingIndicator, sendWhatsAppMessage, type WaConfig } from "@/lib/whatsapp/send";
 import { resolveChannelAccessToken } from "@/lib/whatsapp/channelCredentials";
 import { tryResolvePendingOrderConfirmation } from "@/src/pro/pipeline/resolvePendingOrderConfirmation";
+import { detectStructuredCheckoutAction } from "@/src/pro/pipeline/orderConfirmationText";
 import type { AdminClient, ChatbotQueueJobRow } from "./types";
 import { canProcessInboundChannel } from "@/lib/billing/canProcessInboundChannel";
 
@@ -133,6 +134,15 @@ export async function processQueueJobEntry(admin: AdminClient, job: ChatbotQueue
         .maybeSingle();
 
     if (threadRow?.bot_active === false) {
+        const structuredCheckout = detectStructuredCheckoutAction(body_text ?? "");
+        if (structuredCheckout) {
+            console.log(
+                "[process-queue] botão HITL órfão com bot pausado, skipping:",
+                thread_id
+            );
+            return;
+        }
+
         // Verifica handover timeout (configurável via chatbots.config ou padrão 5min)
         const handoverAt = threadRow.handover_at ? new Date(threadRow.handover_at) : null;
         const timeoutMinutes = await getHandoverTimeout(admin, company_id);

@@ -1371,7 +1371,12 @@ export default function WhatsAppInbox({ initialPhone }: { initialPhone?: string 
                     customerName={customerProfile?.name || selectedThread?.profile_name || null}
                     customerPhone={selectedThread?.phone_e164 ?? null}
                     initialCart={activeCart}
-                    onSent={() => { setCartModalOpen(false); loadActiveCart(selectedThreadId); }}
+                    onSent={() => {
+                        setCartModalOpen(false);
+                        void loadActiveCart(selectedThreadId);
+                        // Enviar resumo / finalizar religa o bot: recarrega pra refletir o toggle.
+                        void loadThreads(selectedThreadId);
+                    }}
                 />
             )}
 

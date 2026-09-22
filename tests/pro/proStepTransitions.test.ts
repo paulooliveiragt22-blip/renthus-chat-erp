@@ -186,6 +186,6 @@ describe("proStepTransitions (R1)", () => {
         });
         assert.equal(afterAi.step, "pro_collecting_order");
         const slotted = withResolvedSlotStep(afterAi);
-        assert.equal(slotted.step, "pro_awaiting_confirmation");
+        assert.equal(slotted.step, "pro_awaiting_cart_review");
     });
 });

@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { runProPipeline } from "../../src/pro/pipeline/runProPipeline";
 import { checkoutPostProcessForQuickAction } from "../../src/pro/pipeline/stages/checkoutPostProcess";
-import { withResolvedSlotStep } from "../../src/pro/pipeline/orderSlotStep";
+import { cartReviewFingerprint, withResolvedSlotStep } from "../../src/pro/pipeline/orderSlotStep";
 import type { OrderDraft, ProPipelineInput, ProSessionState } from "../../src/types/contracts";
 import type { LoggerPort } from "../../src/pro/ports/logger.port";
 import type { MessageGateway } from "../../src/pro/ports/message.gateway";
@@ -180,24 +180,28 @@ describe("agent loop smoke", () => {
             session({
                 draft: d,
                 deliveryAddressUiConfirmed: true,
-                step: "pro_awaiting_payment_method",
+                step: "pro_awaiting_cart_review",
             })
         );
-        const payOut = checkoutPostProcessForQuickAction({
-            state: {
-                ...afterAddr,
-                draft: { ...d, paymentMethod: "pix" },
-            },
+        assert.equal(afterAddr.step, "pro_awaiting_cart_review");
+        const reviewOut = checkoutPostProcessForQuickAction({
+            state: afterAddr,
             outbound: [],
         });
-        assert.ok(
-            payOut.some((m) => m.buttons?.some((b) => b.id === "pro_confirm_order")) ||
-                withResolvedSlotStep({
-                    ...afterAddr,
-                    draft: { ...d, paymentMethod: "pix" },
-                    deliveryAddressUiConfirmed: true,
-                }).step === "pro_awaiting_confirmation"
-        );
+        assert.ok(reviewOut.some((m) => m.buttons?.some((b) => b.id === "pro_confirm_order")));
+        const reviewedDraft = { ...d, paymentMethod: null };
+        const afterReview = withResolvedSlotStep({
+            ...afterAddr,
+            draft: reviewedDraft,
+            cartReviewAcknowledged: true,
+            cartReviewFingerprint: cartReviewFingerprint(reviewedDraft),
+        });
+        assert.equal(afterReview.step, "pro_awaiting_payment_method");
+        const payOut = checkoutPostProcessForQuickAction({
+            state: afterReview,
+            outbound: [],
+        });
+        assert.ok(payOut.some((m) => m.buttons?.some((b) => b.id === "pro_pay_pix")));
 
         const deps = buildDeps({
             session: session({
@@ -233,15 +237,17 @@ describe("agent loop smoke", () => {
         assert.ok((out.nextState.draft?.items?.[0]?.quantity ?? 0) >= 2);
     });
 
-    it("multi-item: prosa não finaliza; só botão Confirmar", async () => {
+    it("multi-item: prosa não finaliza; Confirmar no resumo pede pagamento", async () => {
         let ordered = 0;
+        const draft = completeDraft({
+            paymentMethod: null,
+            items: [item("a", "Heineken", 2, 8), item("b", "Salgadinho", 1, 15)],
+        });
         const deps = buildDeps({
             session: session({
-                step: "pro_awaiting_confirmation",
+                step: "pro_awaiting_cart_review",
                 deliveryAddressUiConfirmed: true,
-                draft: completeDraft({
-                    items: [item("a", "Heineken", 2, 8), item("b", "Salgadinho", 1, 15)],
-                }),
+                draft,
             }),
             intent: "order_intent",
             onOrder: () => {
@@ -250,7 +256,12 @@ describe("agent loop smoke", () => {
         });
         await runProPipeline(baseInput("sim pode fechar"), deps);
         assert.equal(ordered, 0);
-        await runProPipeline(baseInput("pro_confirm_order"), deps);
-        assert.equal(ordered, 1);
+        const afterConfirm = await runProPipeline(baseInput("pro_confirm_order"), deps);
+        assert.equal(ordered, 0);
+        assert.equal(afterConfirm.nextState.cartReviewAcknowledged, true);
+        assert.equal(afterConfirm.nextState.step, "pro_awaiting_payment_method");
+        assert.ok(
+            afterConfirm.outbound.some((m) => m.buttons?.some((b) => b.id === "pro_pay_pix"))
+        );
     });
 });

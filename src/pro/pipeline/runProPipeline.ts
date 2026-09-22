@@ -96,6 +96,32 @@ import {
 import { loadAcceptedCustomerPayments } from "@/lib/payments/loadAcceptedCustomerPayments";
 import { DEFAULT_ACCEPTED_CUSTOMER_PAYMENTS } from "@/src/financeiro/domain/acceptedCustomerPayments";
 
+const PAYMENT_COMMIT_ACTION_TAGS = new Set([
+    "pro_pay_pix",
+    "pro_pay_card",
+    "pro_pay_debit",
+    "pro_cash_change_value",
+    /** Resumo confirmado com PIX/cartão já dito na mensagem. */
+    "pro_cart_review_ack",
+]);
+
+/** Após o resumo confirmado, PIX/cartão/troco fecha o pedido (sem segundo card de resumo). */
+function shouldAutoPersistAfterPayment(
+    actionTag: string | null,
+    state: ProSessionState
+): boolean {
+    if (!actionTag || !PAYMENT_COMMIT_ACTION_TAGS.has(actionTag)) return false;
+    if (state.cartReviewAcknowledged !== true) return false;
+    if (state.checkoutEditHold) return false;
+    if (!state.draft || !isDraftStructurallyCompleteForFinalize(state.draft)) return false;
+    /** Ack do resumo só persiste se pagamento já veio (não cash sem troco). */
+    if (actionTag === "pro_cart_review_ack") {
+        const pm = state.draft.paymentMethod;
+        if (pm !== "pix" && pm !== "card" && pm !== "debit") return false;
+    }
+    return true;
+}
+
 function resolvePipelineAiPolicy(input: ProPipelineInput): AiOrderModePolicy {
     if (input.aiOrderModePolicy) {
         return parseAiOrderModePolicy({
@@ -388,7 +414,8 @@ export async function runProPipeline(
     const strictGate = strictCheckoutStructuredGate(
         input.inboundText,
         gateState,
-        acceptedPayments
+        acceptedPayments,
+        fulfillmentPolicy
     );
     if (strictGate) {
         const syncedQuick = withResolvedSlotStep(strictGate.state);
@@ -410,6 +437,13 @@ export async function runProPipeline(
             },
             { name: "pro_pipeline.outbound_count", value: quickOutbound.length },
         ];
+        if (strictGate.actionTag === "strict_confirmation_inbound_gate") {
+            metrics.push({
+                name: "pro_pipeline.confirmation_ambiguous",
+                value: 1,
+                tags: { reason: "confirmation_ambiguous" },
+            });
+        }
         flushPipelineRunMetrics(
             deps.metrics,
             input.tenant,
@@ -757,10 +791,83 @@ export async function runProPipeline(
                 quickOutbound = [
                     {
                         kind: "text",
-                        text: "Combinado: entrega. Me envia o endereço: rua, número, bairro, cidade e UF.",
+                        text: "Combinado: entrega. Me envia o endereço: rua, número e bairro.",
                     },
                 ];
             }
+        }
+
+        if (shouldAutoPersistAfterPayment(quick.actionTag, syncedQuick)) {
+            const persistInfoOnly = isInfoOnlyMode(aiPolicy);
+            let persistHighValue: { enabled: boolean; amountBrl: number } | undefined;
+            if (deps.companyPolicy) {
+                persistHighValue = await deps.companyPolicy.getHighValueConfirmPolicy(
+                    input.tenant.companyId
+                );
+            }
+            const persist = await orderStage({
+                orderService: deps.orderService,
+                tenant: input.tenant,
+                state: { ...syncedQuick, step: "pro_awaiting_confirmation" },
+                decision: {
+                    intent: "order_intent",
+                    confidence: "high",
+                    reasonCode: "button_id_match",
+                },
+                userText: "pro_confirm_order",
+                logger: deps.logger,
+                highValuePolicy: persistHighValue,
+                blockFinalize: persistInfoOnly || !storeOpen,
+                blockFinalizeMessage: persistInfoOnly
+                    ? buildInfoOnlyOrderBlockedText(input.webMenuUrl)
+                    : storeClosedMessage,
+            });
+            const persistState =
+                persist.outcome === "order_create_failed"
+                    ? persist.state
+                    : withResolvedSlotStep(persist.state);
+            quickOutbound = persist.outboundText
+                ? [
+                      { kind: "text" as const, text: persist.outboundText },
+                      ...checkoutPostProcessForQuickAction({
+                          state: persistState,
+                          outbound: [],
+                          fulfillmentPolicy,
+                          acceptedPayments,
+                      }),
+                  ]
+                : checkoutPostProcessForQuickAction({
+                      state: persistState,
+                      outbound: [],
+                      fulfillmentPolicy,
+                      acceptedPayments,
+                  });
+            await emitTurn({
+                state: persistState,
+                outbound: quickOutbound,
+            });
+            const persistMetrics: PipelineMetric[] = [
+                { name: "pro_pipeline.quick_action", value: 1, tags: { action: quick.actionTag ?? "unknown" } },
+                {
+                    name: "pro_pipeline.order_outcome",
+                    value: 1,
+                    tags: { intent: "order_intent", outcome: persist.outcome },
+                },
+                { name: "pro_pipeline.outbound_count", value: quickOutbound.length },
+            ];
+            flushPipelineRunMetrics(
+                deps.metrics,
+                input.tenant,
+                persistMetrics,
+                new Set(["pro_pipeline.outbound_count"]),
+                context.policies.aiProvider
+            );
+            return {
+                nextState: persistState,
+                outbound: quickOutbound,
+                sideEffects: [],
+                metrics: persistMetrics,
+            };
         }
 
         quickOutbound = checkoutPostProcessForQuickAction({
@@ -1235,6 +1342,7 @@ export async function runProPipeline(
                     draft: null,
                     step:
                         nextState.step === "pro_awaiting_confirmation" ||
+                        nextState.step === "pro_awaiting_cart_review" ||
                         nextState.step === "pro_collecting_order"
                             ? "pro_idle"
                             : nextState.step,
