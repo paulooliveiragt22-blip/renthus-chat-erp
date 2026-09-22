@@ -5,6 +5,7 @@ import type { CatalogPort } from "../../src/pro/ports/catalog.port";
 import type { ProSessionState } from "../../src/types/contracts";
 import { searchPendingWorklistLinesParallel } from "../../src/pro/pipeline/orderWorklist/searchPendingWorklistLinesParallel";
 import { createEmptyOrderWorklist } from "../../src/pro/domain/orderWorklist/orderWorklist";
+import { EMPTY_INBOUND_SLOTS } from "../../src/pro/domain/inboundSlots/extractInboundSlots";
 
 function fakeAdmin(): SupabaseClient {
     const terminal = {
@@ -117,6 +118,7 @@ describe("searchPendingWorklistLinesParallel", () => {
             state: baseState({ orderWorklist: wl }),
             /** Sem contexto de embalagem: UN+CX ficam ambiguous (não colapsam). */
             packagingContextText: "",
+            inboundSlots: EMPTY_INBOUND_SLOTS,
         });
         assert.equal(res.searchedLineIds.length, 2);
         assert.deepEqual(
@@ -166,6 +168,7 @@ describe("searchPendingWorklistLinesParallel", () => {
             customerId: "c1",
             state: baseState({ orderWorklist: wl }),
             packagingContextText: "",
+            inboundSlots: EMPTY_INBOUND_SLOTS,
         });
         const skol = res.state.orderWorklist?.lines.find((l) => l.id === "l_skol");
         const jamel = res.state.orderWorklist?.lines.find((l) => l.id === "l_jamel");

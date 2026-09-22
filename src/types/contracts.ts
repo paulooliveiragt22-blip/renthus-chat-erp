@@ -130,6 +130,29 @@ export interface PrepareDraftToolInput {
     orderNotes?: string | null;
 }
 
+/**
+ * Interpretação canônica do inbound deste turno (ADR 0012).
+ *
+ * Derivada só do texto do cliente, por função pura (`extractInboundSlots`) — sem I/O,
+ * sem LLM. É **evidência do que o cliente disse**, não decisão: quem decide continua
+ * sendo `prepareOrderDraftFromTool` + `resolveProStepFromDraft`. Obrigatória em todo
+ * caminho de `prepare`, para nenhum call site perder endereço/pagamento em silêncio.
+ */
+export interface InboundSlots {
+    /** Trecho de endereço recortado da frase ("rua tangara 850, sao mateus"). */
+    addressLine: string | null;
+    /** Endereço estruturado quando a linha fecha rua + número + bairro. */
+    address: { logradouro: string; numero: string; bairro: string } | null;
+    paymentMethod: PaymentMethod | null;
+    changeFor: number | null;
+    /** Só menção explícita em texto livre ("vou buscar", "pode entregar"). */
+    fulfillmentType: FulfillmentType | null;
+    /** Espelho lexical das linhas; canônico segue sendo a `OrderWorklist` (ADR 0011). */
+    orderLines: Array<{ rawTerm: string; quantity: number | null }>;
+    /** Selo do texto que gerou este envelope (mesmo hash da worklist). */
+    sourceTextHash: string;
+}
+
 export interface AiTurn {
     role: "user" | "assistant";
     content: unknown;
@@ -528,6 +551,11 @@ export interface AiServiceInput {
     preferPrepareToolChoiceFirst?: boolean;
     /** Prepare já rodou no servidor neste turno (pick) — não reabrir force-prepare. */
     skipForcePrepareAfterPick?: boolean;
+    /**
+     * Envelope do inbound já calculado pelo pipeline (ADR 0012). Ausente = o serviço
+     * deriva do próprio `userText` (mesma função pura, mesmo resultado).
+     */
+    inboundSlots?: InboundSlots;
 }
 
 export type AiServiceAction =

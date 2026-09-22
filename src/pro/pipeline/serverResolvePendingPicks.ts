@@ -1,5 +1,12 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { OutboundMessage, OrderWorklist, PendingPickGroup, ProSessionState } from "@/src/types/contracts";
+import type {
+    InboundSlots,
+    OutboundMessage,
+    OrderWorklist,
+    PendingPickGroup,
+    ProSessionState,
+} from "@/src/types/contracts";
+import { extractInboundSlots } from "@/src/pro/domain/inboundSlots/extractInboundSlots";
 import {
     prepareOrderDraftFromTool,
     type PrepareOrderDraftCatalogPolicy,
@@ -202,10 +209,13 @@ export async function serverResolvePendingPicksFromFreeText(params: {
     customerId: string | null;
     state: ProSessionState;
     userText: string;
+    /** Envelope do inbound (ADR 0012); ausente = derivado do próprio `userText`. */
+    inboundSlots?: InboundSlots;
     /** Injeta catálogo (testes); default = SupabaseCatalogAdapter. */
     catalog?: CatalogPort;
 }): Promise<ServerResolvePendingPicksResult> {
     const { admin, companyId, customerId, userText } = params;
+    const inboundSlots = params.inboundSlots ?? extractInboundSlots(userText);
     const catalog = params.catalog ?? new SupabaseCatalogAdapter(admin);
     const ensured = ensureGroupLineIds(params.state.pendingPickGroups ?? []);
     /** D8: resolve free-text só contra o group ativo (índices da mensagem). */
@@ -256,6 +266,7 @@ export async function serverResolvePendingPicksFromFreeText(params: {
                 })),
                 address: null,
             },
+            { slots: inboundSlots, currentDraft: state.draft },
             catalogPolicy
         );
         state = { ...state, draft: mergePreparedDraftIntoCurrent(state.draft, prepared.draft) };
@@ -311,6 +322,7 @@ export async function serverResolvePendingPicksFromFreeText(params: {
                 customerId,
                 state: nextState,
                 packagingContextText: "",
+                inboundSlots,
             });
             nextState = {
                 ...afterBatch.state,

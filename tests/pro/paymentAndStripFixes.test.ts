@@ -4,7 +4,8 @@ import {
     looksLikeNonMoneyWhileAwaitingChange,
     parsePtMoneyInput,
 } from "../../src/pro/pipeline/paymentFromUserText";
-import { sanitizePreparePaymentAgainstUserText } from "../../src/pro/pipeline/sanitizePreparePayment";
+import { resolvePrepareInput } from "../../src/pro/domain/inboundSlots/resolvePrepareInput";
+import { extractInboundSlots } from "../../src/pro/domain/inboundSlots/extractInboundSlots";
 import { stripHallucinatedOrderPersistenceClaims } from "../../src/pro/adapters/ai/sanitizeAiVisibleOrderClaims";
 import { parseOrderLineExtractionJson } from "../../src/domain/contracts/orderExtraction";
 import type { PrepareDraftToolInput } from "../../src/types/contracts";
@@ -30,7 +31,7 @@ describe("looksLikeNonMoneyWhileAwaitingChange", () => {
     });
 });
 
-describe("sanitizePreparePaymentAgainstUserText", () => {
+describe("resolvePrepareInput — pagamento (ADR 0012, ex-sanitizePreparePayment)", () => {
     const base: PrepareDraftToolInput = {
         items: [{ produtoEmbalagemId: "a", quantity: 1 }],
         address: null,
@@ -42,28 +43,40 @@ describe("sanitizePreparePaymentAgainstUserText", () => {
         readyForConfirmation: false,
     };
 
+    const resolve = (input: PrepareDraftToolInput, userText: string, currentDraft: unknown = null) =>
+        resolvePrepareInput({
+            input,
+            currentDraft: currentDraft as never,
+            slots: extractInboundSlots(userText),
+        }).input;
+
     it("remove pagamento inventado sem menção do cliente/draft", () => {
-        const out = sanitizePreparePaymentAgainstUserText(base, "exatament", null);
+        const out = resolve(base, "exatament");
         assert.equal(out.paymentMethod, null);
         assert.equal(out.changeFor, null);
     });
 
     it("aceita pix citado no texto do cliente", () => {
-        const out = sanitizePreparePaymentAgainstUserText(
-            { ...base, paymentMethod: "pix", changeFor: null },
-            "quero fechar no pix",
-            null
-        );
+        const out = resolve({ ...base, paymentMethod: "pix", changeFor: null }, "quero fechar no pix");
         assert.equal(out.paymentMethod, "pix");
     });
 
     it("preserva pagamento já no draft", () => {
-        const out = sanitizePreparePaymentAgainstUserText(base, "exatament", {
+        const out = resolve(base, "exatament", {
             items: [],
             paymentMethod: "pix",
             changeFor: null,
-        } as never);
+        });
         assert.equal(out.paymentMethod, "pix");
+    });
+
+    it("troco dito na frase entra mesmo se a LLM não repassou", () => {
+        const out = resolve(
+            { ...base, paymentMethod: null, changeFor: null },
+            "dinheiro, troco pra 100"
+        );
+        assert.equal(out.paymentMethod, "cash");
+        assert.equal(out.changeFor, 100);
     });
 });
 

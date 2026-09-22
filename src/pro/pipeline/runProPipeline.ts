@@ -48,6 +48,7 @@ import {
     withResolvedSlotStep,
     withResolvedSlotStepUnlessAwaitingConfirmation,
 } from "./orderSlotStep";
+import { extractInboundSlots } from "@/src/pro/domain/inboundSlots/extractInboundSlots";
 import { enrichProSessionCustomerFromPhone } from "./enrichCustomerFromPhone";
 import { handleAwaitingPhoneTurn } from "./handleAwaitingPhone";
 import { clearStaleClarifyUiIfNoDraft, isOrderSessionContinuityNeeded } from "./sessionOrderContext";
@@ -374,6 +375,12 @@ export async function runProPipeline(
         policies: effectivePolicies,
     });
 
+    /**
+     * Interpretação canônica do inbound deste turno (ADR 0012): calculada 1× e passada
+     * a todo caminho que monta rascunho. Função pura — sem I/O, sem LLM.
+     */
+    const inboundSlots = extractInboundSlots(input.inboundText);
+
     const guarded = guardRails({ state: context.session, inboundText: input.inboundText });
     if (guarded.stop) {
         const metrics: PipelineMetric[] = [
@@ -477,6 +484,7 @@ export async function runProPipeline(
                 customerId: gateState.customerId,
                 state: gateState,
                 enderecoClienteId: addressPickId,
+                inboundSlots,
             });
             const synced = withResolvedSlotStep(addrPrep.state);
             const finalOutbound = addrPrep.preparedOk
@@ -545,21 +553,13 @@ export async function runProPipeline(
                 ),
             };
             try {
-                const recentUserText = [
-                    input.inboundText,
-                    ...[...(stateAfterPick.aiHistory ?? [])]
-                        .reverse()
-                        .filter((h) => h.role === "user")
-                        .slice(0, 3)
-                        .map((h) => (typeof h.content === "string" ? h.content : "")),
-                ].join("\n");
                 const serverPrep = await serverPrepareAfterProductPick({
                     admin: deps.admin,
                     companyId: input.tenant.companyId,
                     customerId: stateAfterPick.customerId,
                     state: stateAfterPick,
                     pickedEmbalagemId: pickedId,
-                    recentUserText,
+                    inboundSlots,
                 });
                 stateAfterPick = serverPrep.state;
                 serverPreparedOnPick = Boolean(serverPrep.state.draft?.items?.length);
@@ -714,6 +714,7 @@ export async function runProPipeline(
                     customerId: stateAfterPick.customerId,
                     state: stateAfterPick,
                     enderecoClienteId: chosen.id,
+                    inboundSlots,
                 });
                 const synced = withResolvedSlotStep(addrPrep.state);
                 const finalOutbound = addrPrep.preparedOk
@@ -779,6 +780,7 @@ export async function runProPipeline(
                     companyId: input.tenant.companyId,
                     customerId: syncedQuick.customerId,
                     state: syncedQuick,
+                    inboundSlots,
                 });
                 syncedQuick = withResolvedSlotStep(offer.state);
                 quickOutbound = offer.outbound;
@@ -918,6 +920,7 @@ export async function runProPipeline(
                 customerId: stateAfterPick.customerId,
                 state: stateAfterPick,
                 userText: inboundTextForPipeline,
+                inboundSlots,
             });
             stateAfterPick = pendingResolve.state;
             if (pendingResolve.continueToCheckoutWithoutAi) {
@@ -1392,6 +1395,7 @@ export async function runProPipeline(
                 decision,
                 userText: inboundTextForPipeline,
                 logger: deps.logger,
+                inboundSlots,
                 /**
                  * tool_choice=prepare no step 0 só após pick aplicado neste turno.
                  * Allowlist/picks só da sessão + qty NÃO forçam prepare (SKU stale → TOOL_FAILED).

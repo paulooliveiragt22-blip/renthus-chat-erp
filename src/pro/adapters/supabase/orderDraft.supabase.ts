@@ -3,6 +3,7 @@ import type { OrderDraftPort, PrepareOrderDraftResult } from "@/src/pro/ports/or
 import {
     prepareOrderDraftFromTool,
     type PrepareOrderDraftCatalogPolicy,
+    type PrepareTurnContext,
 } from "@/src/pro/tools/prepareOrderDraft";
 import type { PrepareDraftToolInput } from "@/src/types/contracts";
 
@@ -13,6 +14,7 @@ export class SupabaseOrderDraftAdapter implements OrderDraftPort {
         companyId: string;
         customerId: string | null;
         body: PrepareDraftToolInput;
+        turn: PrepareTurnContext;
         catalogPolicy?: PrepareOrderDraftCatalogPolicy;
     }): Promise<PrepareOrderDraftResult> {
         return prepareOrderDraftFromTool(
@@ -20,6 +22,7 @@ export class SupabaseOrderDraftAdapter implements OrderDraftPort {
             params.companyId,
             params.customerId,
             params.body,
+            params.turn,
             params.catalogPolicy ?? { kind: "unrestricted" }
         );
     }

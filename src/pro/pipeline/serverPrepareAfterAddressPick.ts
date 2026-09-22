@@ -1,5 +1,10 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { OutboundMessage, PrepareDraftToolInput, ProSessionState } from "@/src/types/contracts";
+import type {
+    InboundSlots,
+    OutboundMessage,
+    PrepareDraftToolInput,
+    ProSessionState,
+} from "@/src/types/contracts";
 import {
     prepareOrderDraftFromTool,
     type PrepareOrderDraftCatalogPolicy,
@@ -31,6 +36,8 @@ export async function serverPrepareAfterAddressPick(params: {
     customerId: string | null;
     state: ProSessionState;
     enderecoClienteId: string;
+    /** Envelope do inbound deste turno (ADR 0012). Endereço escolhido no botão vence. */
+    inboundSlots: InboundSlots;
 }): Promise<{
     state: ProSessionState;
     /** Draft ficou completo (ou só falta pagamento): não precisa rodada de IA. */
@@ -61,7 +68,14 @@ export async function serverPrepareAfterAddressPick(params: {
         allowedEmbalagemIds: unionAllowlistWithDraftIds(state.searchProdutoEmbalagemIds ?? [], draft),
     };
 
-    const prepared = await prepareOrderDraftFromTool(admin, companyId, customerId, toolInput, catalogPolicy);
+    const prepared = await prepareOrderDraftFromTool(
+        admin,
+        companyId,
+        customerId,
+        toolInput,
+        { slots: params.inboundSlots, currentDraft: draft },
+        catalogPolicy
+    );
 
     if (!prepared.draft?.address) {
         return {

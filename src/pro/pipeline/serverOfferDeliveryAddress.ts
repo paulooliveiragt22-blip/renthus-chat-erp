@@ -4,7 +4,12 @@
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { OutboundMessage, PrepareDraftToolInput, ProSessionState } from "@/src/types/contracts";
+import type {
+    InboundSlots,
+    OutboundMessage,
+    PrepareDraftToolInput,
+    ProSessionState,
+} from "@/src/types/contracts";
 import {
     prepareOrderDraftFromTool,
     type PrepareOrderDraftCatalogPolicy,
@@ -24,6 +29,8 @@ export async function serverOfferDeliveryAddressAfterFulfillment(params: {
     companyId: string;
     customerId: string | null;
     state: ProSessionState;
+    /** Envelope do inbound deste turno (ADR 0012). */
+    inboundSlots: InboundSlots;
 }): Promise<{
     state: ProSessionState;
     outbound: OutboundMessage[];
@@ -86,6 +93,7 @@ export async function serverOfferDeliveryAddressAfterFulfillment(params: {
         companyId,
         customerId,
         toolInput,
+        { slots: params.inboundSlots, currentDraft: draft },
         catalogPolicy
     );
 

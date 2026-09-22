@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type {
+    InboundSlots,
     OrderDraft,
     OutboundMessage,
     PrepareDraftToolInput,
@@ -36,8 +37,11 @@ export async function serverPrepareAfterProductPick(params: {
     state: ProSessionState;
     /** Embalagem escolhida (primeiro id da allowlist pós-pick). */
     pickedEmbalagemId: string;
-    /** Texto recente do cliente (para herdar PIX se draft ainda sem pagamento). */
-    recentUserText?: string | null;
+    /**
+     * Envelope do inbound **deste** turno (ADR 0012). Nunca histórico concatenado:
+     * endereço/pagamento de mensagem antiga não pode reentrar num turno de pick.
+     */
+    inboundSlots: InboundSlots;
     /**
      * Se true, `pendingClarifyQuantity` (ou 1) é somada à qty já no draft.
      * Usado em “quer adicionar mais?” → “2”.
@@ -161,6 +165,7 @@ export async function serverPrepareAfterProductPick(params: {
         companyId,
         customerId,
         toolInput,
+        { slots: params.inboundSlots, currentDraft: state.draft },
         catalogPolicy
     );
     let nextDraft: OrderDraft | null = mergePreparedDraftIntoCurrent(state.draft, prepared.draft);

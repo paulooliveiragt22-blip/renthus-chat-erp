@@ -115,6 +115,10 @@ export function createResolvePendingPicksTool(deps: {
                     companyId: deps.companyId,
                     customerId: deps.customerId,
                     body: { items: validItems, address: null },
+                    turn: {
+                        slots: deps.turnState.inboundSlots,
+                        currentDraft: deps.turnState.currentDraft,
+                    },
                     catalogPolicy,
                 });
                 deps.turnState.currentDraft = mergePreparedDraftIntoCurrent(

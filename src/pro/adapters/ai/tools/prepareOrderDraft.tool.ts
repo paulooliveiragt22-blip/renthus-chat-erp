@@ -5,8 +5,6 @@ import type { OrderDraftPort } from "@/src/pro/ports/orderDraft.port";
 import type { PrepareDraftToolTelemetryPayload } from "@/src/types/contracts";
 import { getOrCreateCustomer } from "@/lib/chatbot/db/orders";
 import { normalizePrepareDraftAnthropicInput } from "@/src/pro/tools/normalizePrepareDraftAnthropicInput";
-import { extractAddressLineFromText } from "@/src/pro/tools/parseAddressLoosePt";
-import { sanitizePreparePaymentAgainstUserText } from "@/src/pro/pipeline/sanitizePreparePayment";
 import {
     mergePreparedDraftIntoCurrent,
     unionAllowlistWithDraftIds,
@@ -96,11 +94,7 @@ export function createPrepareOrderDraftTool(deps: {
                     ],
                 };
             }
-            const toolInput = sanitizePreparePaymentAgainstUserText(
-                normalizePrepareDraftAnthropicInput(raw as Record<string, unknown>),
-                deps.userText,
-                deps.turnState.currentDraft
-            );
+            const toolInput = normalizePrepareDraftAnthropicInput(raw as Record<string, unknown>);
 
             let effectiveCustomerId = deps.customerId;
             if (!effectiveCustomerId) {
@@ -125,18 +119,6 @@ export function createPrepareOrderDraftTool(deps: {
                 Boolean(toolInput.useSavedAddress) ||
                 Boolean(toolInput.addressRaw?.trim()) ||
                 hasStructuredAddress;
-            /**
-             * Endereço veio na mesma frase do pedido e o modelo não repassou nada: recorte
-             * determinístico do texto do cliente. Sem isso o servidor ignorava o endereço
-             * digitado, perguntava Entrega/Retirada e ainda oferecia endereço salvo antigo.
-             */
-            const addressFromUserText =
-                !modelSentAddress && !deps.turnState.currentDraft?.address?.logradouro
-                    ? extractAddressLineFromText(deps.userText)
-                    : null;
-            const preparedInput = addressFromUserText
-                ? { ...toolInput, addressRaw: addressFromUserText }
-                : toolInput;
 
             const allowedEmbalagemIds = unionAllowlistWithDraftIds(
                 deps.turnState.allowlistIds,
@@ -150,11 +132,20 @@ export function createPrepareOrderDraftTool(deps: {
             const prepared = await deps.orderDraft.prepareFromToolInput({
                 companyId: deps.companyId,
                 customerId: effectiveCustomerId,
-                body: preparedInput,
+                body: toolInput,
+                turn: {
+                    slots: deps.turnState.inboundSlots,
+                    currentDraft: deps.turnState.currentDraft,
+                },
                 catalogPolicy,
             });
 
-            const hasAddressPayload = modelSentAddress || Boolean(addressFromUserText);
+            /**
+             * Endereço pode ter entrado pelo envelope do turno (ADR 0012) mesmo sem o
+             * modelo repassar nada — a telemetria reflete o que o prepare recebeu.
+             */
+            const hasAddressPayload =
+                modelSentAddress || Boolean(deps.turnState.inboundSlots.addressLine);
 
             const nextDraft = mergePreparedDraftIntoCurrent(deps.turnState.currentDraft, prepared.draft);
             deps.turnState.currentDraft = nextDraft;

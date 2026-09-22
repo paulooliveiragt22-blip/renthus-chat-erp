@@ -2,7 +2,13 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { prepareOrderDraftFromTool } from "../../src/pro/tools/prepareOrderDraft";
+import { extractInboundSlots } from "../../src/pro/domain/inboundSlots/extractInboundSlots";
 import type { PrepareDraftToolInput } from "@/src/types/contracts";
+
+/** ADR 0012: pagamento só passa com respaldo no texto do cliente ou no rascunho. */
+function turnSaying(userText: string) {
+    return { slots: extractInboundSlots(userText), currentDraft: null };
+}
 
 const COMPANY_ID = "00000000-0000-0000-0000-000000000001";
 const PACK_ID = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb";
@@ -92,7 +98,8 @@ describe("prepareOrderDraftFromTool / blocked (motivo tipado)", () => {
             fakeAdmin(),
             COMPANY_ID,
             null,
-            baseInput({ items: [] })
+            baseInput({ items: [] }),
+            turnSaying("pix")
         );
         assert.equal(res.ok, false);
         assert.equal(res.blocked?.code, "MISSING_ITEMS");
@@ -103,7 +110,8 @@ describe("prepareOrderDraftFromTool / blocked (motivo tipado)", () => {
             fakeAdmin(),
             COMPANY_ID,
             null,
-            baseInput({ paymentMethod: null })
+            baseInput({ paymentMethod: null }),
+            turnSaying("")
         );
         assert.equal(res.ok, false);
         assert.equal(res.blocked?.code, "PAYMENT_MISSING");
@@ -114,7 +122,8 @@ describe("prepareOrderDraftFromTool / blocked (motivo tipado)", () => {
             fakeAdmin(),
             COMPANY_ID,
             null,
-            baseInput({ paymentMethod: "cash", changeFor: 20 }) // total = R$ 50, troco = R$ 20
+            baseInput({ paymentMethod: "cash", changeFor: 20 }), // total = R$ 50, troco = R$ 20
+            turnSaying("dinheiro, troco pra 20")
         );
         assert.equal(res.ok, false);
         assert.equal(res.blocked?.code, "INVALID_CHANGE_FOR");
@@ -130,7 +139,8 @@ describe("prepareOrderDraftFromTool / blocked (motivo tipado)", () => {
             fakeAdmin(),
             COMPANY_ID,
             null,
-            baseInput({ paymentMethod: "cash", changeFor: 100 })
+            baseInput({ paymentMethod: "cash", changeFor: 100 }),
+            turnSaying("dinheiro, troco pra 100")
         );
         assert.equal(res.ok, true);
         assert.equal(res.blocked, null);
@@ -141,7 +151,8 @@ describe("prepareOrderDraftFromTool / blocked (motivo tipado)", () => {
             fakeAdmin(),
             COMPANY_ID,
             null,
-            baseInput({ paymentMethod: "cash", changeFor: null })
+            baseInput({ paymentMethod: "cash", changeFor: null }),
+            turnSaying("dinheiro")
         );
         assert.equal(res.ok, true);
         assert.equal(res.blocked, null);
@@ -152,14 +163,21 @@ describe("prepareOrderDraftFromTool / blocked (motivo tipado)", () => {
             fakeAdmin(),
             COMPANY_ID,
             null,
-            baseInput({ paymentMethod: "pix", changeFor: 1 })
+            baseInput({ paymentMethod: "pix", changeFor: 1 }),
+            turnSaying("pix")
         );
         assert.equal(res.ok, true);
         assert.equal(res.blocked, null);
     });
 
     it("tudo ok → blocked:null e ok:true", async () => {
-        const res = await prepareOrderDraftFromTool(fakeAdmin(), COMPANY_ID, null, baseInput());
+        const res = await prepareOrderDraftFromTool(
+            fakeAdmin(),
+            COMPANY_ID,
+            null,
+            baseInput(),
+            turnSaying("pix")
+        );
         assert.equal(res.ok, true);
         assert.equal(res.blocked, null);
         assert.equal(res.draft?.grandTotal, 50);

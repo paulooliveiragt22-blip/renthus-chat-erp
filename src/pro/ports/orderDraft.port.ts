@@ -1,5 +1,8 @@
 import type { OrderDraft, PrepareDraftToolInput } from "@/src/types/contracts";
-import type { PrepareOrderDraftCatalogPolicy } from "@/src/pro/tools/prepareOrderDraft";
+import type {
+    PrepareOrderDraftCatalogPolicy,
+    PrepareTurnContext,
+} from "@/src/pro/tools/prepareOrderDraft";
 
 /**
  * Motivo único (prioritário) do bloqueio, com payload tipado — substitui o antigo
@@ -34,6 +37,8 @@ export interface OrderDraftPort {
         companyId: string;
         customerId: string | null;
         body: PrepareDraftToolInput;
+        /** Obrigatório (ADR 0012): slots do inbound + rascunho vigente. */
+        turn: PrepareTurnContext;
         catalogPolicy?: PrepareOrderDraftCatalogPolicy;
     }): Promise<PrepareOrderDraftResult>;
 }

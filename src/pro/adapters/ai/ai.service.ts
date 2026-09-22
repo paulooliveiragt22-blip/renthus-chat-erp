@@ -28,7 +28,8 @@ import { SupabaseOrderDraftAdapter } from "@/src/pro/adapters/supabase/orderDraf
 import { NoopSessionMemoryAdapter } from "@/src/pro/adapters/ai/sessionMemory.llm";
 import { LlmOrderLinesExtractAdapter, FakeOrderLinesExtractAdapter } from "@/src/pro/adapters/ai/orderLinesExtract.llm";
 import { TOOL_FAILED_MAX_STEPS_MESSAGE_PT_BR } from "@/lib/chatbot/aiOrderModePolicy";
-import { extractCandidatePendingTermsFromUserText, isLikelyPickOrShortReply } from "@/src/pro/domain/orderWorklist/extractCandidateTerms";
+import { isLikelyPickOrShortReply } from "@/src/pro/domain/orderWorklist/extractCandidateTerms";
+import { extractInboundSlots } from "@/src/pro/domain/inboundSlots/extractInboundSlots";
 import {
     listLinesByStatus,
     markLineInDraft,
@@ -505,6 +506,7 @@ export async function applySearchFallbackPrepareIfQtyKnown(params: {
         companyId: params.companyId,
         customerId: params.customerId,
         body: { items: [{ produtoEmbalagemId: embId, quantity: qty }], address: null },
+        turn: { slots: turnState.inboundSlots, currentDraft: turnState.currentDraft },
         catalogPolicy: { kind: "search_allowlist", allowedEmbalagemIds },
     });
     turnState.prepareInvokedThisTurn = true;
@@ -734,6 +736,7 @@ export class AiServiceAdapter implements AiService {
             typeof (input.context as { pickResolveTurn?: unknown }).pickResolveTurn === "boolean"
                 ? Boolean((input.context as { pickResolveTurn?: boolean }).pickResolveTurn)
                 : undefined;
+        const inboundSlots = input.inboundSlots ?? extractInboundSlots(input.userText);
         const turnState: TurnState = createInitialTurnState({
             allowlistIds: session.searchProdutoEmbalagemIds ?? [],
             lastSearchPicks: session.lastSearchPicks ?? [],
@@ -742,6 +745,7 @@ export class AiServiceAdapter implements AiService {
             pendingOrderMentions: session.pendingOrderMentions ?? [],
             orderWorklist: session.orderWorklist,
             pendingPickGroups: session.pendingPickGroups ?? [],
+            inboundSlots,
             ...(pickResolveTurn !== undefined ? { pickResolveTurn } : {}),
         });
         const allowlistAtStart = [...turnState.allowlistIds];
@@ -758,9 +762,7 @@ export class AiServiceAdapter implements AiService {
         );
 
         const infoOnly = isInfoOnlyAi(input);
-        const lexicalOrderTerms = extractCandidatePendingTermsFromUserText(input.userText).map(
-            (t) => ({ rawTerm: t.rawTerm, quantity: t.quantity })
-        );
+        const lexicalOrderTerms = inboundSlots.orderLines;
         const intentForOrderGates = resolveIntentForOrderGates({
             intent: input.intentDecision.intent,
             lexicalOrderLineCount: lexicalOrderTerms.length,
@@ -815,6 +817,7 @@ export class AiServiceAdapter implements AiService {
                     searchProdutoEmbalagemIds: turnState.allowlistIds,
                 },
                 packagingContextText: input.userText,
+                inboundSlots,
             });
             turnState.orderWorklist = batch.state.orderWorklist ?? turnState.orderWorklist;
             turnState.pendingPickGroups = batch.state.pendingPickGroups ?? [];

@@ -2,6 +2,10 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { prepareOrderDraftFromTool } from "../../src/pro/tools/prepareOrderDraft";
+import { extractInboundSlots } from "../../src/pro/domain/inboundSlots/extractInboundSlots";
+
+/** ADR 0012: prepare exige o envelope do inbound do turno. */
+const TURN_PIX = { slots: extractInboundSlots("pix"), currentDraft: null };
 import { resolvePendingPickGroupsFromFreeText } from "../../src/pro/pipeline/pendingPickGroups";
 import { parseProductPickIndex, PICK_EMB_PREFIX } from "../../src/pro/pipeline/productPickText";
 import type { PendingPickGroup } from "../../src/types/contracts";
@@ -146,6 +150,7 @@ describe("C2.3 pending pick → prepare allowlist-safe", () => {
                 address: null,
                 paymentMethod: "pix",
             },
+            TURN_PIX,
             { kind: "search_allowlist", allowedEmbalagemIds: allow }
         );
         assert.equal(ok.ok || (ok.draft?.items.length ?? 0) > 0 || ok.errors.every((e) => !/não consta/i.test(e)), true);
@@ -159,6 +164,7 @@ describe("C2.3 pending pick → prepare allowlist-safe", () => {
                 address: null,
                 paymentMethod: "pix",
             },
+            TURN_PIX,
             { kind: "search_allowlist", allowedEmbalagemIds: allow }
         );
         assert.equal(bad.ok, false);

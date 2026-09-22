@@ -1,6 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { CatalogPort } from "@/src/pro/ports/catalog.port";
-import type { ProSessionState } from "@/src/types/contracts";
+import type { InboundSlots, ProSessionState } from "@/src/types/contracts";
 import {
     fetchCatalogRowsForAi,
     finalizeSearchProdutosForAi,
@@ -49,6 +49,8 @@ export async function searchPendingWorklistLinesParallel(params: {
     customerId: string | null;
     state: ProSessionState;
     packagingContextText: string;
+    /** Envelope do inbound (ADR 0012) repassado ao coalesce prepare. */
+    inboundSlots: InboundSlots;
     maxLines?: number;
 }): Promise<SearchPendingWorklistLinesResult> {
     const maxLines = Math.min(
@@ -194,6 +196,7 @@ export async function searchPendingWorklistLinesParallel(params: {
         allowlistIds,
         draft,
         hits: uniqueHits,
+        inboundSlots: params.inboundSlots,
     });
     worklist = coalesced.worklist;
     allowlistIds = coalesced.allowlistIds;

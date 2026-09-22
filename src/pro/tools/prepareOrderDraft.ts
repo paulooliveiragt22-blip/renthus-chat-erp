@@ -2,9 +2,11 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type {
     DraftAddress,
     DraftItem,
+    InboundSlots,
     OrderDraft,
     PrepareDraftToolInput,
 } from "@/src/types/contracts";
+import { resolvePrepareInput } from "@/src/pro/domain/inboundSlots/resolvePrepareInput";
 import {
     buildAiAddressFromSavedClienteRow,
     resolveDefaultAddressForCustomer,
@@ -188,14 +190,30 @@ function buildAddressText(addr: DraftAddress, bairroLabel: string): string {
         .join(", ");
 }
 
+/**
+ * Contexto do turno exigido em **todo** prepare (ADR 0012 D2): o que o cliente disse
+ * agora (`slots`) e o rascunho vigente. Sem isso, cada call site montava sua própria
+ * visão parcial e perdia endereço/pagamento em silêncio.
+ */
+export type PrepareTurnContext = {
+    slots: InboundSlots;
+    currentDraft: OrderDraft | null;
+};
+
 export async function prepareOrderDraftFromTool(
     admin: SupabaseClient,
     companyId: string,
     customerId: string | null,
-    body: PrepareDraftToolInput,
+    rawBody: PrepareDraftToolInput,
+    turn: PrepareTurnContext,
     catalogPolicy: PrepareOrderDraftCatalogPolicy = { kind: "unrestricted" }
 ): Promise<PrepareOrderDraftResult> {
     const errors: string[] = [];
+    const body = resolvePrepareInput({
+        input: rawBody,
+        currentDraft: turn.currentDraft,
+        slots: turn.slots,
+    }).input;
 
     if (!body.items?.length) errors.push("Inclua pelo menos um item com produto_embalagem_id e quantity.");
 
