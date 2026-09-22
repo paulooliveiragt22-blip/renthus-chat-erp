@@ -2,6 +2,10 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { prepareOrderDraftFromTool } from "../../src/pro/tools/prepareOrderDraft";
+import { extractInboundSlots } from "../../src/pro/domain/inboundSlots/extractInboundSlots";
+
+/** ADR 0012: prepare exige o envelope do inbound do turno. */
+const TURN_PIX = { slots: extractInboundSlots("pix"), currentDraft: null };
 
 function stubAdminForAllowlistTests(
     viewChatProdutosMaybeSingle: () => Promise<{ data: unknown }> = async () => ({ data: null })
@@ -80,6 +84,7 @@ describe("prepareOrderDraftFromTool / search_allowlist", () => {
                 changeFor: null,
                 readyForConfirmation: false,
             },
+            TURN_PIX,
             {
                 kind: "search_allowlist",
                 allowedEmbalagemIds: [
@@ -115,6 +120,7 @@ describe("prepareOrderDraftFromTool / search_allowlist", () => {
                 changeFor: null,
                 readyForConfirmation: false,
             },
+            TURN_PIX,
             { kind: "search_allowlist", allowedEmbalagemIds: ["bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"] }
         );
         assert.equal(res.ok, false);
@@ -138,6 +144,7 @@ describe("prepareOrderDraftFromTool / search_allowlist", () => {
                 changeFor: null,
                 readyForConfirmation: false,
             },
+            TURN_PIX,
             { kind: "search_allowlist", allowedEmbalagemIds: [] }
         );
         assert.equal(res.ok, false);
@@ -161,6 +168,7 @@ describe("prepareOrderDraftFromTool / search_allowlist", () => {
                 changeFor: null,
                 readyForConfirmation: false,
             },
+            TURN_PIX,
             { kind: "search_allowlist", allowedEmbalagemIds: [sole] }
         );
         assert.equal(res.ok, false);

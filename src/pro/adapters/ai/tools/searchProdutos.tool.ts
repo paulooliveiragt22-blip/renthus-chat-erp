@@ -91,6 +91,7 @@ export function createSearchProdutosTool(deps: {
                     lineId: matched.id,
                     query,
                     result,
+                    inboundSlots: deps.turnState.inboundSlots,
                 });
                 deps.turnState.orderWorklist = applied.worklist;
                 deps.turnState.pendingPickGroups = applied.pendingPickGroups;

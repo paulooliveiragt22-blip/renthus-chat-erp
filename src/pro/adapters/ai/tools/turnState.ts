@@ -1,8 +1,14 @@
-import type { OrderDraft, OrderWorklist, PendingPickGroup } from "@/src/types/contracts";
+import type {
+    InboundSlots,
+    OrderDraft,
+    OrderWorklist,
+    PendingPickGroup,
+} from "@/src/types/contracts";
 import {
     createEmptyOrderWorklist,
     hydrateWorklistFromLegacyMentions,
 } from "@/src/pro/domain/orderWorklist/orderWorklist";
+import { EMPTY_INBOUND_SLOTS } from "@/src/pro/domain/inboundSlots/extractInboundSlots";
 
 /**
  * Estado do turno compartilhado entre as tools de um mesmo `generateText()` (Fase 3 da
@@ -67,6 +73,11 @@ export type TurnState = {
      * Post-process junta com strip físico do draft.
      */
     pendingOutOfStockOffer: { names: string[] } | null;
+    /**
+     * Envelope do inbound deste turno (ADR 0012) — o que o cliente disse, já recortado
+     * do texto. Lido por toda tool que chama `prepare`; nenhuma tool escreve.
+     */
+    inboundSlots: InboundSlots;
 };
 
 export function createInitialTurnState(seed: {
@@ -74,6 +85,7 @@ export function createInitialTurnState(seed: {
     lastSearchPicks: readonly SearchPickSummary[];
     emptySearchStreak: number;
     currentDraft: OrderDraft | null;
+    inboundSlots?: InboundSlots;
     /** @deprecated Hydrate one-shot → worklist; não usar como fila ativa. */
     pendingOrderMentions?: readonly string[];
     orderWorklist?: OrderWorklist | null;
@@ -114,5 +126,6 @@ export function createInitialTurnState(seed: {
         matchingMetrics: { prepareBlockedAllowlist: 0, searchHitsZero: 0 },
         pickResolveTurn: seed.pickResolveTurn === true,
         pendingOutOfStockOffer: null,
+        inboundSlots: seed.inboundSlots ?? EMPTY_INBOUND_SLOTS,
     };
 }

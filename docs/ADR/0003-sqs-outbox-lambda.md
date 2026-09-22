@@ -13,6 +13,12 @@ Contrato operacional de **alvo Lambda** (aprovado owner 2026-09-02 — Fase 15):
 - Provisioned Concurrency=1 fica **somente** nesse alias (nunca em `$LATEST`)
 - Deploy: publish version → apontar alias `live` → PC permanece no alias
 - ESM em `$LATEST` com PC no `:live` é **config inválida** (PC ocioso; cold start no tráfego real)
+- `update-alias` **não** pode mandar `--routing-config` quando o alias tem PC: a AWS responde
+  `InvalidParameterValueException: Alias with weights can not be used with Provisioned Concurrency`
+  e o alias fica na versão antiga (deploy "OK" que não sobe código — visto 2026-09-22).
+  `deploy-workers.ps1` só passa `--routing-config` se o alias já tiver `AdditionalVersionWeights`.
+  Verificação pós-deploy obrigatória: `aws lambda get-alias --name live` (FunctionVersion = versão
+  publicada) + `aws lambda get-provisioned-concurrency-config --qualifier live` (`Status=READY`).
 
 A tentativa da Fase 14 de usar `company_id` no inbound foi **revertida 2026-09-02**
 (não resolveu latência; piorou isolamento multi-cliente). Mantidos como evolução válida:

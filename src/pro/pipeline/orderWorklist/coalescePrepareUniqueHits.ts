@@ -1,5 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { OrderDraft, OrderWorklist } from "@/src/types/contracts";
+import type { InboundSlots, OrderDraft, OrderWorklist } from "@/src/types/contracts";
 import {
     mapLine,
     markLineInDraft,
@@ -24,6 +24,10 @@ export type UniquePrepareHit = {
  *
  * Falha real (sem itens no draft) → lines voltam a `pending_search` e
  * **descontam** 1 attempt (busca tinha achado o SKU; prepare que falhou).
+ *
+ * Endereço/pagamento vêm do envelope do turno (ADR 0012): este caminho monta o
+ * carrinho sem passar pela tool, então antes derrubava o que o cliente tinha dito
+ * na mesma frase ("... aqui na rua X 850, bairro Y. pagamento no pix").
  */
 export async function coalescePrepareUniqueHits(params: {
     admin: SupabaseClient;
@@ -33,6 +37,8 @@ export async function coalescePrepareUniqueHits(params: {
     allowlistIds: string[];
     draft: OrderDraft | null;
     hits: readonly UniquePrepareHit[];
+    /** Envelope do inbound (ADR 0012) — endereço/pagamento ditos na mesma mensagem. */
+    inboundSlots: InboundSlots;
 }): Promise<{
     worklist: OrderWorklist;
     allowlistIds: string[];
@@ -91,6 +97,7 @@ export async function coalescePrepareUniqueHits(params: {
                 })),
                 address: null,
             },
+            { slots: params.inboundSlots, currentDraft: params.draft },
             {
                 kind: "search_allowlist",
                 allowedEmbalagemIds: allowlistIds,

@@ -1,6 +1,7 @@
 import type { AiService, AiServiceResult } from "../../services/ai/ai.types";
 import type { LoggerPort } from "../../ports/logger.port";
 import type {
+    InboundSlots,
     IntentDecision,
     OutboundMessage,
     PipelineContext,
@@ -37,6 +38,8 @@ export async function aiStage(params: {
     logger?: LoggerPort;
     preferPrepareToolChoiceFirst?: boolean;
     skipForcePrepareAfterPick?: boolean;
+    /** Envelope do inbound calculado 1× no pipeline (ADR 0012). */
+    inboundSlots?: InboundSlots;
 }): Promise<AiStageResult> {
     const {
         aiService,
@@ -46,11 +49,13 @@ export async function aiStage(params: {
         logger,
         preferPrepareToolChoiceFirst,
         skipForcePrepareAfterPick,
+        inboundSlots,
     } = params;
 
     const raw = await aiService.run({
         context,
         userText,
+        inboundSlots,
         intentDecision: decision,
         draft: context.session.draft,
         history: context.session.aiHistory,

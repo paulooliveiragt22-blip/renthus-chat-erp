@@ -2,9 +2,9 @@
 
 Documento de decisão e checklist para o time executar. Alinhado ao código atual (`processInboundMessage`, `chatbot_queue`, motor em `lib/chatbot/`).
 
-**Ordem de leitura:** princípios → **arquitetura por horizonte (Hobby / médio prazo / escala)** → **pedido PRO / cérebro IA** → fases 0–3 → evidências / riscos → [`REFACTOR_STRATEGY_PRO_ORDER_AND_IA.md`](./REFACTOR_STRATEGY_PRO_ORDER_AND_IA.md) (histórico de refatoração) → [`ADR/0005-pro-agent-calibration-pillars.md`](./ADR/0005-pro-agent-calibration-pillars.md) + [`PLANO_CALIBRACAO_AGENTE_PRO.md`](./PLANO_CALIBRACAO_AGENTE_PRO.md) (**calibração / fortalecimento vigente**) → [`ADR/0011-pro-order-worklist-typed-lines.md`](./ADR/0011-pro-order-worklist-typed-lines.md) (**coleta multi-item / OrderWorklist**).
+**Ordem de leitura:** princípios → **arquitetura por horizonte (Hobby / médio prazo / escala)** → **pedido PRO / cérebro IA** → fases 0–3 → evidências / riscos → [`REFACTOR_STRATEGY_PRO_ORDER_AND_IA.md`](./REFACTOR_STRATEGY_PRO_ORDER_AND_IA.md) (histórico de refatoração) → [`ADR/0005-pro-agent-calibration-pillars.md`](./ADR/0005-pro-agent-calibration-pillars.md) + [`PLANO_CALIBRACAO_AGENTE_PRO.md`](./PLANO_CALIBRACAO_AGENTE_PRO.md) (**calibração / fortalecimento vigente**) → [`ADR/0011-pro-order-worklist-typed-lines.md`](./ADR/0011-pro-order-worklist-typed-lines.md) (**coleta multi-item / OrderWorklist**) → [`ADR/0012-inbound-slot-envelope.md`](./ADR/0012-inbound-slot-envelope.md) (**envelope de slots do inbound**).
 
-> **Calibração do agente (vigente 2026-09-03):** quatro pilares (gates → matching → prompts → avaliação) e cronologia C0–C5 em [`PLANO_CALIBRACAO_AGENTE_PRO.md`](./PLANO_CALIBRACAO_AGENTE_PRO.md). Decisão: [`ADR-0005`](./ADR/0005-pro-agent-calibration-pillars.md). Coleta multi-item: [`ADR-0011`](./ADR/0011-pro-order-worklist-typed-lines.md) (`OrderWorklist` + `awaiting_qty`). Transporte: [`ADR-0003`](./ADR/0003-sqs-outbox-lambda.md).
+> **Calibração do agente (vigente 2026-09-03):** quatro pilares (gates → matching → prompts → avaliação) e cronologia C0–C5 em [`PLANO_CALIBRACAO_AGENTE_PRO.md`](./PLANO_CALIBRACAO_AGENTE_PRO.md). Decisão: [`ADR-0005`](./ADR/0005-pro-agent-calibration-pillars.md). Coleta multi-item: [`ADR-0011`](./ADR/0011-pro-order-worklist-typed-lines.md) (`OrderWorklist` + `awaiting_qty`). Slots de endereço/pagamento/troco/modalidade: [`ADR-0012`](./ADR/0012-inbound-slot-envelope.md) (`InboundSlots` obrigatório em todo `prepare`). Transporte: [`ADR-0003`](./ADR/0003-sqs-outbox-lambda.md).
 >
 > **Plano de limpeza (histórico):** [`PLANO_LIMPEZA_AGENTE_IA.md`](./PLANO_LIMPEZA_AGENTE_IA.md) — Starter removido, replay/harness e handover (`applyProHandover`) em grande parte **feitos**; não usar o P0 de handover desse doc como bug ainda aberto.
 
@@ -249,6 +249,7 @@ Decisão de UX/estado para PRO V2: o orquestrador deve resolver os passos de che
 
 - **Saudação contextual:** no início da conversa, distinguir primeiro acesso vs cliente recorrente e mostrar botões (`Cardápio`, `Meu pedido`, `Falar com atendente`).
 - **Mensagem inicial já completa (itens + endereço + pagamento):** servidor monta o draft; endereço completo infere **entrega**; cidade/UF da loja (ViaCEP por rua se der); **resumo** Confirmar/Corrigir/Adicionar; Confirmar **mantém** PIX/cartão já ditos e fecha (ou pede troco se dinheiro).
+- **Origem dos slots ([`ADR-0012`](./ADR/0012-inbound-slot-envelope.md)):** `extractInboundSlots(userText)` roda 1× por turno (pura, sem LLM) e é **parâmetro obrigatório** dos oito call sites de `prepare` — inclusive o batch multi-item (`coalescePrepareUniqueHits`), que antes mandava `address: null` e derrubava endereço/PIX da mensagem completa. Precedência: botão/pick > draft > envelope; valor que a LLM inventou sem respaldo é descartado. Perda de slot emite `pro_pipeline.slot_dropped`. Endereço salvo com placeholder (`S/N`, `(completar)`) não conta como completo.
 - **Pagamento:** botões interativos (`PIX`, `Cartão`, `Dinheiro`) só se ainda não veio na mensagem. Se `Dinheiro`, pedir `Troco pra quanto?` e persistir no draft.
 - **Endereço:** cliente informa **rua, número e bairro**; cidade/UF completados pela empresa (`companies` / `service_city`) e CEP via ViaCEP/BrasilAPI — **não** Google Places.
 - **Resumo final:** card único do servidor com itens, **taxa**, total e botões `Confirmar` / `Corrigir` / `Adicionar produtos` (não depender da IA para R$). Clarificação de produto: só botões/lista do servidor; “Opção 2” mapeia para a embalagem.
@@ -401,6 +402,8 @@ Critério de produto: **dez** valores estáveis em `ProPipelineTelemetryReason` 
 
 Rejeições de máquina de estados **internas** (`canTransition` → `invalid_state_transition`) **não** usam este tipo; não entram em `tags.reason` do catálogo acima.
 
+**Fora do catálogo `tags.reason` (contadores próprios, tag `slot`):** `pro_pipeline.slot_dropped` e `pro_pipeline.slot_conflict` ([`ADR-0012`](./ADR/0012-inbound-slot-envelope.md) D5) — o primeiro sinaliza slot presente no texto do cliente e ausente do rascunho ao fim do turno (regressão de extração); o segundo, LLM divergindo do envelope. Alerta recomendado: qualquer `slot_dropped` sustentado na janela é bug, não ruído.
+
 ---
 
 ## Venda ativa — Fase 1: recuperação de carrinho (dentro da janela de 24h)
@@ -480,6 +483,7 @@ Manter fronteiras claras sem microserviço:
 - Busca catálogo: `src/pro/tools/searchProdutos.ts` + RPC `rpc_search_chat_produtos` (fuzzy/`pg_trgm`, migração `20260805080000_…`) + cache TTL `catalogSearchCache.ts`
 - Clarificação de produto: `catalogProductHintFromPicks` (`src/pro/pipeline/catalogProductHint.ts`) — hint ao cliente vem do catálogo (`productName`/stem do label), não do texto digitado; swap/edição segue a mesma regra
 - Tools PRO (ex-`lib/chatbot/pro`): `src/pro/tools/` — prepare draft, hints, allowlist, parsers de qty/endereço
+- Slots do inbound: `src/pro/domain/inboundSlots/` (`extractInboundSlots` puro + `resolvePrepareInput`), obrigatório em `prepareOrderDraftFromTool` / `OrderDraftPort`; auditoria estática em `tests/pro/prepareCallSitesAudit.test.ts` — [`ADR/0012`](./ADR/0012-inbound-slot-envelope.md)
 - Replay: `npm run replay -- <companyId> <threadId>` (dump); `--run` dry-run; `--extract-diff` é **harness offline** (`src/pro/replay/`, baseline `tests/fixtures/replay/extraction-baseline.v1.json`) — **não** faz parte do hot path
 - Pedido PRO (hot path): agent loop + tools (`AiServiceAdapter`, `src/pro/adapters/ai/ai.service.ts`, Vercel AI SDK); intent de linguagem livre via classificador quando há crédito — regex de oi/status/pedido só no degradado (IA off / sem crédito / limite de turnos)
 - Ports CA: `CompanyPolicyPort`, `OrderHintsPort` (+ session/llm/metrics); `admin` residual só identity/handover/prepare-pick/trace

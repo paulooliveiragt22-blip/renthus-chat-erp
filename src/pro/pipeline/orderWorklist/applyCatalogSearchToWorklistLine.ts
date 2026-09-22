@@ -1,5 +1,10 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { OrderDraft, OrderWorklist, PendingPickGroup } from "@/src/types/contracts";
+import type {
+    InboundSlots,
+    OrderDraft,
+    OrderWorklist,
+    PendingPickGroup,
+} from "@/src/types/contracts";
 import type { SearchProdutosForAiResult } from "@/src/pro/adapters/ai/tools/searchProdutosForAi";
 import { applySearchResultToLine } from "@/src/pro/pipeline/orderWorklist/applySearchResultToLine";
 import { coalescePrepareUniqueHits } from "@/src/pro/pipeline/orderWorklist/coalescePrepareUniqueHits";
@@ -18,6 +23,8 @@ export async function applyCatalogSearchToWorklistLine(params: {
     lineId: string;
     query: string;
     result: SearchProdutosForAiResult;
+    /** Envelope do inbound (ADR 0012) repassado ao coalesce prepare. */
+    inboundSlots: InboundSlots;
 }): Promise<{
     worklist: OrderWorklist;
     pendingPickGroups: PendingPickGroup[];
@@ -52,6 +59,7 @@ export async function applyCatalogSearchToWorklistLine(params: {
         allowlistIds: applied.allowlistIds,
         draft: params.draft,
         hits: [applied.uniquePrepareCandidate],
+        inboundSlots: params.inboundSlots,
     });
 
     return {

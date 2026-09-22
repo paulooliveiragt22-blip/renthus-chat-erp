@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createEmptyOrderWorklist } from "../../src/pro/domain/orderWorklist/orderWorklist";
 import { coalescePrepareUniqueHits } from "../../src/pro/pipeline/orderWorklist/coalescePrepareUniqueHits";
+import { EMPTY_INBOUND_SLOTS } from "../../src/pro/domain/inboundSlots/extractInboundSlots";
 
 const COMPANY = "00000000-0000-0000-0000-0000000000c1";
 const EMB_A = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
@@ -136,6 +137,7 @@ describe("coalescePrepareUniqueHits", () => {
                 { lineId: "a", produtoEmbalagemId: EMB_A, quantity: 2 },
                 { lineId: "b", produtoEmbalagemId: EMB_B, quantity: 3 },
             ],
+            inboundSlots: EMPTY_INBOUND_SLOTS,
         });
         assert.equal(res.prepareCallCount, 1);
         assert.equal(res.preparedLineIds.length, 2);
@@ -156,6 +158,7 @@ describe("coalescePrepareUniqueHits", () => {
                 { lineId: "a", produtoEmbalagemId: EMB_A, quantity: 2 },
                 { lineId: "b", produtoEmbalagemId: EMB_B, quantity: 3 },
             ],
+            inboundSlots: EMPTY_INBOUND_SLOTS,
         });
         assert.equal(res.prepareCallCount, 1);
         assert.deepEqual(res.preparedLineIds, []);
@@ -174,6 +177,7 @@ describe("coalescePrepareUniqueHits", () => {
             allowlistIds: [],
             draft: null,
             hits: [],
+            inboundSlots: EMPTY_INBOUND_SLOTS,
         });
         assert.equal(res.prepareCallCount, 0);
     });
