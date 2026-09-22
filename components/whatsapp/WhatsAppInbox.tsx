@@ -40,7 +40,7 @@ import type {
     ThreadHandoverInfo,
     Usage,
 } from "@/lib/whatsapp/types";
-import CartEditModal from "./CartEditModal";
+import CartDrawer from "./CartDrawer";
 import OrderSummaryModal from "./OrderSummaryModal";
 import { getInitials, normalizeBrazilToE164 } from "@/lib/whatsapp/phone";
 import {
@@ -235,7 +235,7 @@ export default function WhatsAppInbox({ initialPhone }: { initialPhone?: string 
     const [pendingConfirmation,    setPendingConfirmation]    = useState<PendingOrderConfirmation | null>(null);
     const [cancelingConfirmation,  setCancelingConfirmation]  = useState(false);
     // Modal de montar/editar carrinho (produtos, endereço, pagamento) dentro do Inbox
-    const [cartModalOpen, setCartModalOpen] = useState(false);
+    const [cartDrawerOpen, setCartDrawerOpen] = useState(false);
     // Modal de detalhe (read-only) de um pedido antigo — deep link da seção "Últimos pedidos"
     const [viewOrderId, setViewOrderId] = useState<string | null>(null);
 
@@ -1334,6 +1334,23 @@ export default function WhatsAppInbox({ initialPhone }: { initialPhone?: string 
                         }}
                     />
                 )}
+                {/* ── GAVETA: montar/editar carrinho (não bloqueia a conversa) ── */}
+                {selectedThreadId && selectedThread && (
+                    <CartDrawer
+                        open={cartDrawerOpen}
+                        onOpenChange={setCartDrawerOpen}
+                        threadId={selectedThreadId}
+                        customerName={customerProfile?.name || selectedThread.profile_name || null}
+                        customerPhone={selectedThread.phone_e164 ?? null}
+                        initialCart={activeCart}
+                        onSent={() => {
+                            void loadActiveCart(selectedThreadId);
+                            // Enviar resumo / finalizar religa o bot: recarrega pra refletir o toggle.
+                            void loadThreads(selectedThreadId);
+                        }}
+                    />
+                )}
+
                 <MessageComposer
                     disabled={!selectedThread}
                     threadId={selectedThreadId}
@@ -1354,29 +1371,11 @@ export default function WhatsAppInbox({ initialPhone }: { initialPhone?: string 
                     handover={handoverInfo}
                     cartCopied={cartCopied}
                     onCopyCartSummary={copyCartSummary}
-                    onOpenCartEditor={() => setCartModalOpen(true)}
+                    onOpenCartEditor={() => setCartDrawerOpen(true)}
                     pendingConfirmation={pendingConfirmation}
                     onCancelConfirmation={cancelPendingConfirmation}
                     cancelingConfirmation={cancelingConfirmation}
                     onViewOrder={(id) => setViewOrderId(id)}
-                />
-            )}
-
-            {/* ── MODAL: montar/editar carrinho (produtos, endereço, pagamento) ── */}
-            {selectedThreadId && (
-                <CartEditModal
-                    open={cartModalOpen}
-                    onClose={() => setCartModalOpen(false)}
-                    threadId={selectedThreadId}
-                    customerName={customerProfile?.name || selectedThread?.profile_name || null}
-                    customerPhone={selectedThread?.phone_e164 ?? null}
-                    initialCart={activeCart}
-                    onSent={() => {
-                        setCartModalOpen(false);
-                        void loadActiveCart(selectedThreadId);
-                        // Enviar resumo / finalizar religa o bot: recarrega pra refletir o toggle.
-                        void loadThreads(selectedThreadId);
-                    }}
                 />
             )}
 

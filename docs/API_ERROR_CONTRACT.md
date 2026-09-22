@@ -80,8 +80,8 @@ envelope novo.
 - `app/api/whatsapp/threads/[threadId]/orders/route.ts`
 - `lib/security/cronAuth.ts` (usado por `app/api/billing/charge/route.ts` e outros crons)
 
-Client atualizado pra ler o novo formato: `components/whatsapp/CartEditModal.tsx`
-(`json?.error?.message` em vez de `json?.error`).
+Client atualizado pra ler o novo formato: `components/whatsapp/CartDrawer.tsx`
+(`json?.error?.message` em vez de `json?.error`; era `CartEditModal.tsx` antes da gaveta).
 
 ## Não migrado ainda (fora do escopo deste piloto)
 
