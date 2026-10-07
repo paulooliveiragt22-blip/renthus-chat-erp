@@ -69,6 +69,20 @@ export interface ActiveCart {
     updatedAt:     string | null;
 }
 
+/** Endereço cadastrado do cliente (`enderecos_cliente`) exposto pro inbox. */
+export interface SavedCustomerAddress {
+    id:          string;
+    apelido:     string;
+    logradouro:  string;
+    numero:      string;
+    complemento: string;
+    bairro:      string;
+    cidade:      string;
+    estado:      string;
+    cep:         string;
+    isPrincipal: boolean;
+}
+
 export interface ThreadHandoverInfo {
     reason: string | null;
     since:  string;

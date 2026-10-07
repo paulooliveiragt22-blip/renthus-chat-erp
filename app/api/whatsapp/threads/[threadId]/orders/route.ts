@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireCapability } from "@/lib/workspace/rbac/requireCapability";
-import { normalizeBrazilToE164 } from "@/lib/whatsapp/phone";
+import { resolveThreadCustomers } from "@/lib/whatsapp/resolveThreadCustomers";
 import { jsonAccessError, jsonError, jsonInternalError } from "@/lib/api/errors";
 
 export const runtime = "nodejs";
@@ -57,39 +57,19 @@ export async function GET(req: Request, { params }: { params: Promise<{ threadId
     if (!phone) return NextResponse.json({ customer: null, orders: [] });
 
     /**
-     * `customers.phone` não tem um formato único no banco: há registros em E.164
-     * completo (+5566992285005), sem código de país (6692285005) e sem o "9" de
-     * celular (6692285005) — cadastros antigos do PDV/admin gravam o que foi digitado,
-     * sem normalizar. Um match exato (`.eq("phone", phone)`) perde cliente com
-     * histórico real sempre que o formato salvo divergir do `phone_e164` da thread.
-     * Buscamos candidatos pelos últimos 8 dígitos (parte fixa do número local em
-     * qualquer formato) e confirmamos com `normalizeBrazilToE164` — mais tolerante,
-     * e cobre também o caso de existir mais de um cadastro duplicado pro mesmo
-     * telefone com grafias diferentes (agregamos o histórico de todos).
+     * Cadastros duplicados pro mesmo telefone (formatos diferentes de `phone`)
+     * entram todos: agregamos o histórico de compra de todos eles.
      */
-    const digits = phone.replace(/\D/g, "");
-    const last8 = digits.slice(-8);
-    const targetE164 = normalizeBrazilToE164(phone);
-
-    const { data: candidates, error: custErr } = await admin
-        .from("customers")
-        .select("id, name, phone")
-        .eq("company_id", companyId)
-        .not("phone", "is", null)
-        .ilike("phone", `%${last8}`);
-    if (custErr) return jsonInternalError(custErr, { route: "whatsapp/threads/:id/orders:GET", step: "customers" });
-
-    const matches = (candidates ?? []).filter(
-        (c) => c.phone && normalizeBrazilToE164(String(c.phone)) === targetE164
-    );
-    if (matches.length === 0) return NextResponse.json({ customer: null, orders: [] });
-
-    const customerIds = [...new Set(matches.map((c) => String(c.id)))];
-    // Entre cadastros duplicados, prefere um nome real ao genérico "Cliente WhatsApp".
-    const preferredName =
-        matches.find((c) => c.name && !/^cliente\s*whatsapp$/i.test(String(c.name)))?.name ??
-        matches[0]?.name ??
-        null;
+    let customerIds: string[];
+    let preferredName: string | null;
+    try {
+        const matched = await resolveThreadCustomers(admin, companyId, phone);
+        customerIds = matched.customerIds;
+        preferredName = matched.preferredName;
+    } catch (err) {
+        return jsonInternalError(err, { route: "whatsapp/threads/:id/orders:GET", step: "customers" });
+    }
+    if (customerIds.length === 0) return NextResponse.json({ customer: null, orders: [] });
 
     const url = new URL(req.url);
     const displayLimit = Math.min(Math.max(Number(url.searchParams.get("limit") ?? "8") || 8, 1), 30);
@@ -120,7 +100,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ threadId
 
     const customer = {
         id: customerIds[0],
-        name: (preferredName as string | null) ?? null,
+        name: preferredName,
         phone,
         totalSpent: orders.reduce((s, o) => s + o.total_amount, 0),
         orderCount: orders.length,
