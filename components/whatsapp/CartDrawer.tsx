@@ -29,8 +29,20 @@ import {
     formatBRLInput,
 } from "@/lib/orders/helpers";
 import type { CartItem, DraftQty, Variant } from "@/lib/orders/types";
-import type { ActiveCart } from "@/lib/whatsapp/types";
-import { ChevronDown, ChevronUp, Search, ShoppingCart } from "lucide-react";
+import type { ActiveCart, SavedCustomerAddress } from "@/lib/whatsapp/types";
+import type { CepLookupResult } from "@/lib/address/cepLookup";
+import {
+    applyCepLookup,
+    cepDigits,
+    describeSavedAddress,
+    EMPTY_ADDRESS_FORM,
+    formatCepInput,
+    isAddressFormComplete,
+    savedAddressToForm,
+    withServiceAreaDefaults,
+    type AddressForm,
+} from "@/lib/whatsapp/savedAddress";
+import { ChevronDown, ChevronUp, Loader2, Search, ShoppingCart } from "lucide-react";
 import {
     Select,
     SelectContent,
@@ -41,26 +53,16 @@ import {
 
 type DrawerPaymentMethod = "pix" | "cash" | "card";
 
-type AddressForm = {
-    logradouro: string;
-    numero: string;
-    complemento: string;
-    bairro: string;
-    cidade: string;
-    estado: string;
-    cep: string;
-};
+type ServiceArea = { cidade: string; estado: string };
 
-const EMPTY_ADDRESS: AddressForm = {
-    logradouro: "", numero: "", complemento: "", bairro: "", cidade: "", estado: "", cep: "",
-};
-
+const NEW_ADDRESS = "__new__";
 const PANEL_ID = "whatsapp-cart-drawer";
 
 const inputCls =
     "w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-transparent dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-50 dark:placeholder:text-zinc-500";
 const sectionCls = "rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900";
-const labelCls = "mb-3 text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400";
+const labelTextCls = "text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400";
+const labelCls = `mb-3 ${labelTextCls}`;
 
 function asCurrency(n: number): number {
     return Number((n || 0).toFixed(2));
@@ -85,7 +87,11 @@ export default function CartDrawer({
     onSent: () => void;
 }>) {
     const [cart, setCart] = useState<CartItem[]>([]);
-    const [addr, setAddr] = useState<AddressForm>(EMPTY_ADDRESS);
+    const [addr, setAddr] = useState<AddressForm>(EMPTY_ADDRESS_FORM);
+    const [savedAddresses, setSavedAddresses] = useState<SavedCustomerAddress[]>([]);
+    const [selectedAddressId, setSelectedAddressId] = useState<string>(NEW_ADDRESS);
+    const [serviceArea, setServiceArea] = useState<ServiceArea>({ cidade: "", estado: "" });
+    const [cepStatus, setCepStatus] = useState<"idle" | "loading" | "not_found">("idle");
     const [paymentMethod, setPaymentMethod] = useState<DrawerPaymentMethod>("pix");
     const [changeFor, setChangeFor] = useState("0,00");
     const [deliveryFeeEnabled, setDeliveryFeeEnabled] = useState(false);
@@ -106,6 +112,8 @@ export default function CartDrawer({
         setQ("");
         setResults([]);
         setDraftQty({});
+        setCepStatus("idle");
+        setSelectedAddressId(NEW_ADDRESS);
 
         if (initialCart) {
             setCart(
@@ -137,12 +145,99 @@ export default function CartDrawer({
             setDeliveryFee(formatBRL(fee));
         } else {
             setCart([]);
-            setAddr(EMPTY_ADDRESS);
+            setAddr(EMPTY_ADDRESS_FORM);
             setPaymentMethod("pix");
             setDeliveryFeeEnabled(false);
             setDeliveryFee("0,00");
         }
     }, [open, initialCart, threadId]);
+
+    /**
+     * Endereços do cadastro + cidade/UF que a empresa atende. Sem endereço vindo
+     * do bot, já entra o principal do cliente preenchido (e editável).
+     */
+    useEffect(() => {
+        if (!open) return;
+        const ac = new AbortController();
+        let stale = false;
+
+        (async () => {
+            setSavedAddresses([]);
+            try {
+                const res = await fetch(`/api/whatsapp/threads/${threadId}/addresses`, {
+                    cache: "no-store",
+                    credentials: "include",
+                    signal: ac.signal,
+                });
+                if (!res.ok || stale) return;
+                const json = (await res.json().catch(() => ({}))) as {
+                    addresses?: SavedCustomerAddress[];
+                    defaults?: ServiceArea;
+                };
+                if (stale) return;
+
+                const list = json.addresses ?? [];
+                const defaults: ServiceArea = {
+                    cidade: json.defaults?.cidade ?? "",
+                    estado: json.defaults?.estado ?? "",
+                };
+                setSavedAddresses(list);
+                setServiceArea(defaults);
+
+                const principal = list.find((a) => a.isPrincipal) ?? list[0];
+                if (!initialCart?.address && principal) {
+                    setSelectedAddressId(principal.id);
+                    setAddr(savedAddressToForm(principal, defaults));
+                    return;
+                }
+                setAddr((prev) => withServiceAreaDefaults(prev, defaults));
+            } catch {
+                /* rede caiu: segue com o formulário manual */
+            }
+        })();
+
+        return () => {
+            stale = true;
+            ac.abort();
+        };
+    }, [open, threadId, initialCart]);
+
+    function pickSavedAddress(id: string) {
+        setSelectedAddressId(id);
+        setCepStatus("idle");
+        if (id === NEW_ADDRESS) {
+            setAddr(withServiceAreaDefaults(EMPTY_ADDRESS_FORM, serviceArea));
+            return;
+        }
+        const found = savedAddresses.find((a) => a.id === id);
+        if (found) setAddr(savedAddressToForm(found, serviceArea));
+    }
+
+    /** Digitou o CEP inteiro → ViaCEP (proxy server-side, com fallback BrasilAPI). */
+    async function onCepChange(raw: string) {
+        const masked = formatCepInput(raw);
+        setAddr((prev) => ({ ...prev, cep: masked }));
+        setCepStatus("idle");
+
+        const digits = cepDigits(masked);
+        if (digits.length !== 8) return;
+
+        setCepStatus("loading");
+        try {
+            const res = await fetch(`/api/address/cep?cep=${digits}`, {
+                cache: "no-store",
+                credentials: "include",
+            });
+            if (!res.ok) { setCepStatus("not_found"); return; }
+            const lookup = (await res.json()) as CepLookupResult;
+            setAddr((prev) => applyCepLookup(prev, lookup));
+            setCepStatus("idle");
+            // Endereço deixou de ser o salvo escolhido.
+            setSelectedAddressId(NEW_ADDRESS);
+        } catch {
+            setCepStatus("not_found");
+        }
+    }
 
     function getDraft(id: string): DraftQty {
         return draftQty[id] ?? { unit: "", box: "" };
@@ -197,7 +292,7 @@ export default function CartDrawer({
     async function submitCart(action: "send-confirmation" | "finalize") {
         setMsg(null);
         if (cart.length === 0) { setMsg("Adicione pelo menos um item ao carrinho."); return; }
-        if (!addr.logradouro.trim() || !addr.numero.trim() || !addr.bairro.trim() || !addr.cidade.trim() || addr.estado.trim().length < 2) {
+        if (!isAddressFormComplete(addr)) {
             setMsg("Preencha o endereço completo (rua, número, bairro, cidade e UF).");
             return;
         }
@@ -308,16 +403,62 @@ export default function CartDrawer({
 
                     {/* ── Endereço ── */}
                     <div className={`${sectionCls} lg:col-span-2`}>
-                        <div className={labelCls}>Endereço de entrega</div>
+                        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                            <span className={labelTextCls}>Endereço de entrega</span>
+                            {savedAddresses.length > 0 && (
+                                <div className="flex min-w-0 items-center gap-2">
+                                    <label htmlFor="cart-saved-address" className="shrink-0 text-xs text-zinc-500 dark:text-zinc-400">
+                                        Salvos
+                                    </label>
+                                    <Select value={selectedAddressId} onValueChange={pickSavedAddress}>
+                                        <SelectTrigger id="cart-saved-address" className="h-8 w-[16rem] max-w-full text-xs">
+                                            <SelectValue />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            <SelectItem value={NEW_ADDRESS}>Novo endereço</SelectItem>
+                                            {savedAddresses.map((a) => (
+                                                <SelectItem key={a.id} value={a.id}>
+                                                    <span className="truncate">
+                                                        {a.apelido}
+                                                        {a.isPrincipal ? " (principal)" : ""} · {describeSavedAddress(a)}
+                                                    </span>
+                                                </SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
+                                </div>
+                            )}
+                        </div>
                         <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
-                            <input placeholder="Logradouro *" value={addr.logradouro} onChange={(e) => setAddr((p) => ({ ...p, logradouro: e.target.value }))} className={`${inputCls} sm:col-span-2`} />
+                            <div className="relative">
+                                <input
+                                    placeholder="CEP"
+                                    value={addr.cep}
+                                    onChange={(e) => void onCepChange(e.target.value)}
+                                    className={`${inputCls} pr-9`}
+                                    inputMode="numeric"
+                                    aria-describedby="cart-cep-hint"
+                                />
+                                {cepStatus === "loading" && (
+                                    <Loader2 className="absolute right-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 animate-spin text-zinc-400" aria-hidden="true" />
+                                )}
+                            </div>
+                            <input placeholder="Logradouro *" value={addr.logradouro} onChange={(e) => setAddr((p) => ({ ...p, logradouro: e.target.value }))} className={`${inputCls} sm:col-span-2 lg:col-span-3`} />
                             <input placeholder="Número *" value={addr.numero} onChange={(e) => setAddr((p) => ({ ...p, numero: e.target.value }))} className={inputCls} />
                             <input placeholder="Complemento" value={addr.complemento} onChange={(e) => setAddr((p) => ({ ...p, complemento: e.target.value }))} className={inputCls} />
                             <input placeholder="Bairro *" value={addr.bairro} onChange={(e) => setAddr((p) => ({ ...p, bairro: e.target.value }))} className={inputCls} />
-                            <input placeholder="CEP" value={addr.cep} onChange={(e) => setAddr((p) => ({ ...p, cep: e.target.value }))} className={inputCls} />
-                            <input placeholder="Cidade *" value={addr.cidade} onChange={(e) => setAddr((p) => ({ ...p, cidade: e.target.value }))} className={inputCls} />
-                            <input placeholder="UF *" value={addr.estado} onChange={(e) => setAddr((p) => ({ ...p, estado: e.target.value.toUpperCase().slice(0, 2) }))} className={inputCls} />
+                            <div className="grid grid-cols-[1fr_4.5rem] gap-2">
+                                <input placeholder="Cidade *" value={addr.cidade} onChange={(e) => setAddr((p) => ({ ...p, cidade: e.target.value }))} className={inputCls} />
+                                <input placeholder="UF *" value={addr.estado} onChange={(e) => setAddr((p) => ({ ...p, estado: e.target.value.toUpperCase().slice(0, 2) }))} className={inputCls} maxLength={2} />
+                            </div>
                         </div>
+                        <p id="cart-cep-hint" aria-live="polite" className="mt-2 text-[11px] text-zinc-400 dark:text-zinc-500">
+                            {cepStatus === "loading"
+                                ? "Buscando CEP..."
+                                : cepStatus === "not_found"
+                                    ? "CEP não encontrado — preencha o endereço na mão."
+                                    : "Digite o CEP para preencher rua, bairro, cidade e UF automaticamente."}
+                        </p>
                     </div>
 
                     {/* ── Pagamento ── */}

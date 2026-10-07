@@ -63,6 +63,7 @@
     "lib/meta/metaAppCredentials.ts",
     "src/domain/contracts/embeddedSignup.ts",
     "lib/whatsapp/upsertWhatsappThread.ts",
+    "lib/whatsapp/savedAddress.ts",
     "lib/whatsapp/channelCredentials.ts",
     "lib/platform/**/*.ts",
     "lib/agent/**/*.ts",
