@@ -6,7 +6,7 @@ import type {
     ProPipelineTelemetryReason,
     ProSessionState,
 } from "@/src/types/contracts";
-import { buildOrderHintsPayload } from "@/src/pro/tools/orderHints";
+import { buildOrderHintsPayload, loadCustomerFavoriteLinesSafe } from "@/src/pro/tools/orderHints";
 import {
     buildAiLimitExceededOutbound,
     buildInfoOnlyOrderBlockedText,
@@ -18,7 +18,12 @@ import {
     type AiOrderModePolicy,
 } from "@/lib/chatbot/aiOrderModePolicy";
 import { buildAiDegradedOutbound } from "@/lib/chatbot/aiCapabilityProfile";
+import { isDraftBelowMinimumOrder } from "./orderDraftGate";
+import type { GapFillSuggestion } from "./minimumGapFill";
 import { MATCHING_METRICS } from "./matchingMetrics";
+import { resolveCatalogOfferFollowUp } from "./catalogOfferFollowUp";
+import { extractPartySizeRequest } from "./partySizeRequest";
+import { formatPartySizeReply, loadPartySizeOffers } from "./partySizeOffers";
 import type { LoggerPort } from "../ports/logger.port";
 import { buildPipelineContext, policiesFromAiCapability, DEFAULT_PRO_POLICIES, type PipelineDependencies } from "./context";
 import type { MetricsPort } from "../ports/metrics.port";
@@ -289,6 +294,23 @@ export async function runProPipeline(
     const acceptedPayments = deps.admin
         ? await loadAcceptedCustomerPayments(deps.admin, input.tenant.companyId)
         : DEFAULT_ACCEPTED_CUSTOMER_PAYMENTS;
+    const minimumGapFillers: GapFillSuggestion[] =
+        deps.admin &&
+        input.tenant.phoneE164.trim() &&
+        sessionWithCustomer.draft &&
+        isDraftBelowMinimumOrder(sessionWithCustomer.draft)
+            ? (
+                  await loadCustomerFavoriteLinesSafe(
+                      deps.admin,
+                      input.tenant.companyId,
+                      input.tenant.phoneE164
+                  )
+              ).map((line) => ({
+                  produtoEmbalagemId: line.produto_embalagem_id,
+                  label: line.label,
+                  price: line.price,
+              }))
+            : [];
     const storeHours: StoreHours = deps.admin
         ? await loadStoreHours(deps.admin, input.tenant.companyId)
         : EMPTY_STORE_HOURS;
@@ -539,6 +561,119 @@ export async function runProPipeline(
     /** ADR 0011 — não force-search no mesmo turno após pick (botão ou free-text). */
     let pickResolveTurnForAi = productPickApplied;
     const inboundTextForPipeline = pickApplied.syntheticUserText ?? input.inboundText;
+
+    const partyRequest = extractPartySizeRequest(inboundTextForPipeline);
+    if (partyRequest && deps.admin && !isInfoOnlyMode(aiPolicy) && !productPickApplied) {
+        try {
+            const offers = await loadPartySizeOffers({
+                admin: deps.admin,
+                companyId: input.tenant.companyId,
+                request: partyRequest,
+            });
+            const synced = withResolvedSlotStep({
+                ...stateAfterPick,
+                ...(offers.length
+                    ? {
+                          lastSearchPicks: offers.map((o) => ({
+                              embalagemId: o.embalagemId,
+                              label: o.label,
+                              price: o.price ?? null,
+                              productName: o.productName ?? null,
+                          })),
+                          searchProdutoEmbalagemIds: [
+                              ...new Set([
+                                  ...(stateAfterPick.searchProdutoEmbalagemIds ?? []),
+                                  ...offers.map((o) => o.embalagemId),
+                              ]),
+                          ],
+                      }
+                    : {}),
+            });
+            const partyOutbound: OutboundMessage[] = [
+                {
+                    kind: "text",
+                    text: formatPartySizeReply(partyRequest.people, offers, partyRequest.productHint),
+                },
+            ];
+            await emitTurn({ state: synced, outbound: partyOutbound });
+            const metrics: PipelineMetric[] = [
+                { name: "pro_pipeline.party_size_offer", value: 1, tags: { hits: String(offers.length) } },
+                { name: "pro_pipeline.outbound_count", value: partyOutbound.length },
+            ];
+            flushPipelineRunMetrics(
+                deps.metrics,
+                input.tenant,
+                metrics,
+                new Set(["pro_pipeline.outbound_count"]),
+                context.policies.aiProvider
+            );
+            return {
+                nextState: synced,
+                outbound: partyOutbound,
+                sideEffects: [],
+                metrics,
+            };
+        } catch (err) {
+            deps.logger?.warn("pro_pipeline.party_size_offer_failed", {
+                companyId: input.tenant.companyId,
+                threadId: input.tenant.threadId,
+                message: err instanceof Error ? err.message : String(err),
+            });
+        }
+    }
+
+    const offerFollow =
+        !productPickApplied && (stateAfterPick.pendingPickGroups?.length ?? 0) === 0
+            ? resolveCatalogOfferFollowUp(inboundTextForPipeline, stateAfterPick.lastSearchPicks)
+            : null;
+    if (offerFollow && deps.admin && !isInfoOnlyMode(aiPolicy)) {
+        try {
+            const offerPrep = await serverPrepareAfterProductPick({
+                admin: deps.admin,
+                companyId: input.tenant.companyId,
+                customerId: stateAfterPick.customerId,
+                state: { ...stateAfterPick, pendingClarifyQuantity: offerFollow.quantity },
+                pickedEmbalagemId: offerFollow.embalagemId,
+                inboundSlots,
+            });
+            if (offerPrep.preparedOk && (offerPrep.state.draft?.items.length ?? 0) > 0) {
+                const synced = withResolvedSlotStep(offerPrep.state);
+                const offerOutbound = offerPrep.clarificationOutbound.length
+                    ? offerPrep.clarificationOutbound
+                    : checkoutPostProcessForQuickAction({
+                          state: synced,
+                          outbound: [],
+                          fulfillmentPolicy,
+                          acceptedPayments,
+                          gapFillers: minimumGapFillers,
+                      });
+                await emitTurn({ state: synced, outbound: offerOutbound });
+                const metrics: PipelineMetric[] = [
+                    { name: "pro_pipeline.catalog_offer_followup", value: 1 },
+                    { name: "pro_pipeline.outbound_count", value: offerOutbound.length },
+                ];
+                flushPipelineRunMetrics(
+                    deps.metrics,
+                    input.tenant,
+                    metrics,
+                    new Set(["pro_pipeline.outbound_count"]),
+                    context.policies.aiProvider
+                );
+                return {
+                    nextState: synced,
+                    outbound: offerOutbound,
+                    sideEffects: [],
+                    metrics,
+                };
+            }
+        } catch (err) {
+            deps.logger?.warn("pro_pipeline.catalog_offer_followup_failed", {
+                companyId: input.tenant.companyId,
+                threadId: input.tenant.threadId,
+                message: err instanceof Error ? err.message : String(err),
+            });
+        }
+    }
 
     /** Pick determinístico: prepare no servidor antes da IA (corta 1–2 RTTs de modelo). */
     let serverPreparedOnPick = false;
@@ -877,6 +1012,7 @@ export async function runProPipeline(
             outbound: quickOutbound,
             fulfillmentPolicy,
             acceptedPayments,
+            gapFillers: minimumGapFillers,
         });
         await emitTurn({
             state: syncedQuick,

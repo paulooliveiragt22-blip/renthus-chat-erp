@@ -9,6 +9,10 @@ import { buildUniquePickButtons } from "../pickButtonTitles";
 import { catalogProductHintFromPicks } from "../catalogProductHint";
 import { isDraftBelowMinimumOrder } from "../orderDraftGate";
 import {
+    appendGapFillersToMinimumMessage,
+    type GapFillSuggestion,
+} from "../minimumGapFill";
+import {
     acknowledgeCartReview,
     isAddressStructurallyComplete,
     isCartReviewHoldStep,
@@ -1287,11 +1291,23 @@ export function checkoutPostProcess(params: {
     };
 }
 
+function withGapFillers(
+    outbound: OutboundMessage[],
+    state: ProSessionState,
+    gapFillers: readonly GapFillSuggestion[] | undefined
+): OutboundMessage[] {
+    if (!gapFillers?.length) return outbound;
+    const draftIds = (state.draft?.items ?? []).map((i) => i.produtoEmbalagemId);
+    return appendGapFillersToMinimumMessage(outbound, gapFillers, draftIds);
+}
+
 export function checkoutPostProcessForQuickAction(params: {
     state: ProSessionState;
     outbound: OutboundMessage[];
     fulfillmentPolicy?: FulfillmentPolicy;
     acceptedPayments?: AcceptedCustomerPayments;
+    /** Favoritos reais para fechar o pedido mínimo. Opcional. */
+    gapFillers?: readonly GapFillSuggestion[];
 }): OutboundMessage[] {
     const policy = params.fulfillmentPolicy ?? DEFAULT_FULFILLMENT_POLICY;
     const accepted = params.acceptedPayments ?? DEFAULT_ACCEPTED_CUSTOMER_PAYMENTS;
@@ -1305,12 +1321,33 @@ export function checkoutPostProcessForQuickAction(params: {
         (state.step === "pro_awaiting_confirmation" || isCartReviewHoldStep(state.step)) &&
         state.draft
     ) {
-        return keepOnlyFinalConfirmationCard([...params.outbound, ...cards], state.draft, {
-            hidePayment: isCartReviewHoldStep(state.step),
-        });
+        return withGapFillers(
+            keepOnlyFinalConfirmationCard([...params.outbound, ...cards], state.draft, {
+                hidePayment: isCartReviewHoldStep(state.step),
+            }),
+            state,
+            params.gapFillers
+        );
     }
-    return prioritizeInteractiveFirst([
+    const composed = prioritizeInteractiveFirst([
         ...params.outbound,
         ...cardsNotAlreadyPresent(params.outbound, cards),
     ]);
+    /**
+     * Abaixo do mínimo o slot fica em coleta e não há card de resumo/pagamento.
+     * Confirmar endereço (e qualquer quick action vazia) não pode terminar em silêncio.
+     */
+    if (
+        composed.length === 0 &&
+        state.draft &&
+        state.deliveryAddressUiConfirmed === true &&
+        isDraftBelowMinimumOrder(state.draft)
+    ) {
+        return withGapFillers(
+            [buildMinimumOrderShortfallMessage(state.draft)],
+            state,
+            params.gapFillers
+        );
+    }
+    return withGapFillers(composed, state, params.gapFillers);
 }

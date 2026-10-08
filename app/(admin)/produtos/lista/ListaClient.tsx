@@ -37,6 +37,8 @@ type FormItem = {
     detalhes: string;
     /** Como é feito / info extra (DB: produto_embalagens.informacoes) */
     informacoes: string;
+    /** Porções: serve até N pessoas (DB: produto_embalagens.serve_ate). Vazio = não informado. */
+    serve_ate: string;
     fator_conversao: number;
     preco_venda: string;
     preco_custo: string;
@@ -842,6 +844,7 @@ export default function ProdutosListaPage() {
             descricao: siblingName,
             detalhes: "",
             informacoes: "",
+            serve_ate: "",
             fator_conversao: 1,
             preco_venda: "0,00",
             preco_custo: "0,00",
@@ -1017,6 +1020,7 @@ export default function ProdutosListaPage() {
                         descricao: String(it.descricao ?? ""),
                         detalhes: String(it.detalhes ?? ""),
                         informacoes: String(it.informacoes ?? ""),
+                        serve_ate: it.serve_ate != null && it.serve_ate !== "" ? String(it.serve_ate) : "",
                         fator_conversao: fator,
                         preco_venda: it.preco_venda != null ? formatBRLInput(String(Math.round(Number(it.preco_venda) * 100))) : "0,00",
                         preco_custo: it.preco_custo != null ? formatBRLInput(String(Math.round(Number(it.preco_custo) * 100))) : "0,00",
@@ -1102,6 +1106,10 @@ export default function ProdutosListaPage() {
                         descricao: it.descricao.trim().toUpperCase() || null,
                         detalhes: it.detalhes.trim() || null,
                         informacoes: it.informacoes.trim() || null,
+                        serve_ate: (() => {
+                            const n = Number(String(it.serve_ate ?? "").replaceAll(/\D/g, ""));
+                            return Number.isFinite(n) && n >= 1 && n <= 99 ? Math.floor(n) : null;
+                        })(),
                         fator_conversao: fator,
                         preco_venda: brlToNumber(it.preco_venda),
                         preco_custo: brlToNumber(it.preco_custo) || null,
@@ -1206,6 +1214,7 @@ export default function ProdutosListaPage() {
                                 descricao: String(it.descricao ?? ""),
                                 detalhes: String(it.detalhes ?? ""),
                                 informacoes: String(it.informacoes ?? ""),
+                                serve_ate: it.serve_ate != null && it.serve_ate !== "" ? String(it.serve_ate) : "",
                                 fator_conversao: fator,
                                 preco_venda:
                                     it.preco_venda != null
@@ -1320,6 +1329,10 @@ export default function ProdutosListaPage() {
                         descricao: it.descricao.trim().toUpperCase() || null,
                         detalhes: it.detalhes.trim() || null,
                         informacoes: it.informacoes.trim() || null,
+                        serve_ate: (() => {
+                            const n = Number(String(it.serve_ate ?? "").replaceAll(/\D/g, ""));
+                            return Number.isFinite(n) && n >= 1 && n <= 99 ? Math.floor(n) : null;
+                        })(),
                         fator_conversao: fator,
                         preco_venda: brlToNumber(it.preco_venda),
                         preco_custo: brlToNumber(it.preco_custo) || null,
@@ -1910,6 +1923,23 @@ export default function ProdutosListaPage() {
                                                                 />
                                                             </div>
                                                             <div>
+                                                                <label className="mb-0.5 block text-[10px] font-semibold text-zinc-500">
+                                                                    Serve até <span className="font-normal text-zinc-400">(pessoas)</span>
+                                                                </label>
+                                                                <input
+                                                                    value={it.serve_ate}
+                                                                    onChange={(e) =>
+                                                                        updateFormItem(vol.id, it.id, {
+                                                                            serve_ate: e.target.value.replaceAll(/\D/g, "").slice(0, 2),
+                                                                        })
+                                                                    }
+                                                                    inputMode="numeric"
+                                                                    placeholder="Ex.: 4"
+                                                                    className={`${inputCls} py-1.5 text-xs`}
+                                                                    title="O bot usa isto em recomendações do tipo pizza para 4 pessoas"
+                                                                />
+                                                            </div>
+                                                            <div>
                                                                 <label className="mb-0.5 block text-[10px] font-semibold text-zinc-500">Código</label>
                                                                 <div className="flex gap-1">
                                                                     <input value={it.codigo_interno} onChange={(e) => updateFormItem(vol.id, it.id, { codigo_interno: e.target.value })} placeholder="INT-1000" className={`${inputCls} py-1.5 text-xs`} />
@@ -2294,6 +2324,23 @@ export default function ProdutosListaPage() {
                                                                     rows={2}
                                                                     className={`${inputCls} py-1.5 text-xs`}
                                                                     title="Info extra do prato/produto — não confundir com ingredientes"
+                                                                />
+                                                            </div>
+                                                            <div>
+                                                                <label className="mb-0.5 block text-[10px] font-semibold text-zinc-500">
+                                                                    Serve até <span className="font-normal text-zinc-400">(pessoas)</span>
+                                                                </label>
+                                                                <input
+                                                                    value={it.serve_ate}
+                                                                    onChange={(e) =>
+                                                                        updateFormItem(vol.id, it.id, {
+                                                                            serve_ate: e.target.value.replaceAll(/\D/g, "").slice(0, 2),
+                                                                        })
+                                                                    }
+                                                                    inputMode="numeric"
+                                                                    placeholder="Ex.: 4"
+                                                                    className={`${inputCls} py-1.5 text-xs`}
+                                                                    title="O bot usa isto em recomendações do tipo pizza para 4 pessoas"
                                                                 />
                                                             </div>
                                                             <div>

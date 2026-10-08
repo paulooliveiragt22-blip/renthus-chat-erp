@@ -16,6 +16,7 @@ type VolumeItemBody = {
     descricao?: string | null;
     detalhes?: string | null;
     informacoes?: string | null;
+    serve_ate?: number | null;
     fator_conversao?: number;
     preco_venda?: number;
     preco_custo?: number | null;
@@ -181,6 +182,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
             fator_conversao: it.fator_conversao ?? 1,
             detalhes: it.detalhes ?? null,
             informacoes: it.informacoes ?? null,
+            serve_ate: it.serve_ate ?? null,
         }))
     );
     if (detalheItems.length) {

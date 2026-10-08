@@ -107,6 +107,63 @@ describe("applyQuickAction — pedido mínimo não atingido", () => {
         assert.ok(!out.some((m) => m.kind === "buttons" && m.buttons?.some((b) => b.id === "pro_pay_pix")));
     });
 
+    it("pro_confirm_saved_address abaixo do mínimo: confirma o endereço e avisa o faltante", () => {
+        const draft = minimalDraft({
+            fulfillmentType: "delivery",
+            deliveryMinOrder: 50,
+            grandTotal: 20,
+            totalItems: 20,
+        });
+        const r = applyQuickAction(
+            "pro_confirm_saved_address",
+            state({
+                step: "pro_collecting_order",
+                draft,
+                deliveryAddressUiConfirmed: false,
+                proposedAddressId: "addr-1",
+                pendingAddressPickOptions: [{ id: "addr-2", label: "Trampo" }],
+            })
+        );
+        assert.equal(r.handled, true);
+        assert.equal(r.actionTag, "pro_confirm_saved_address");
+        assert.equal(r.state.deliveryAddressUiConfirmed, true);
+        assert.equal(r.state.proposedAddressId, null);
+        assert.equal(r.state.step, "pro_collecting_order");
+        const out = checkoutPostProcessForQuickAction({ state: r.state, outbound: r.outbound });
+        assert.ok(
+            out.some(
+                (m) =>
+                    m.kind === "text" &&
+                    /m.nimo/u.test(String(m.text)) &&
+                    String(m.text).includes("20") &&
+                    String(m.text).includes("50")
+            )
+        );
+        assert.ok(!out.some((m) => m.kind === "buttons" && m.buttons?.some((b) => b.id === "pro_confirm_order")));
+    });
+
+    it("pro_confirm_saved_address no mínimo: segue para o resumo com Confirmar", () => {
+        const draft = minimalDraft({
+            fulfillmentType: "delivery",
+            deliveryMinOrder: 50,
+            grandTotal: 50,
+            totalItems: 50,
+        });
+        const r = applyQuickAction(
+            "pro_confirm_saved_address",
+            state({
+                step: "pro_collecting_order",
+                draft,
+                deliveryAddressUiConfirmed: false,
+                proposedAddressId: "addr-1",
+                pendingAddressPickOptions: [{ id: "addr-2", label: "Trampo" }],
+            })
+        );
+        assert.equal(r.state.deliveryAddressUiConfirmed, true);
+        const out = checkoutPostProcessForQuickAction({ state: r.state, outbound: r.outbound });
+        assert.ok(out.some((m) => m.kind === "buttons" && m.buttons?.some((b) => b.id === "pro_confirm_order")));
+    });
+
     it("strict gate: abaixo do mínimo não trava texto livre (passo não chega a awaiting_payment_method)", () => {
         const s = withResolvedSlotStep(
             state({

@@ -122,7 +122,7 @@ type FavoriteRpcRow = { id: string; name?: string; description?: string; price?:
  * Favoritos são opcionais: falha do RPC (ex. 400 em produção) não deve quebrar get_order_hints
  * nem gerar resposta HTTP de erro — seguimos sem favorite_lines.
  */
-async function loadCustomerFavoriteLinesSafe(
+export async function loadCustomerFavoriteLinesSafe(
     admin: SupabaseClient,
     companyId: string,
     phoneE164: string

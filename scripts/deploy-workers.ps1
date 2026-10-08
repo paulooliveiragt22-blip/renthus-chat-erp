@@ -469,8 +469,13 @@ function Ensure-EventSource {
         [string]$FunctionNameOrArn,
         [string]$QueueArn,
         [int]$BatchSize,
-        [int]$MaxConcurrency = 0
+        [int]$MaxConcurrency = 0,
+        [int]$MinPollers = 0,
+        [int]$MaxPollers = 0
     )
+    if ($MinPollers -gt 0 -and $MaxConcurrency -gt 0) {
+        throw "ESM: ProvisionedPollerConfig e MaximumConcurrency sao exclusivos ($QueueArn)"
+    }
     # List by queue ARN so we find mapping even when retargeting $LATEST -> :live
     $list = Invoke-AwsJson @("lambda", "list-event-source-mappings", "--event-source-arn", $QueueArn)
     $existing = $list.EventSourceMappings | Select-Object -First 1
@@ -478,6 +483,13 @@ function Ensure-EventSource {
     $scalingJson = $null
     if ($MaxConcurrency -gt 0) {
         $scalingJson = (@{ MaximumConcurrency = $MaxConcurrency } | ConvertTo-Json -Compress)
+    }
+    $pollerJson = $null
+    if ($MinPollers -gt 0) {
+        $pollerJson = (@{
+            MinimumPollers = $MinPollers
+            MaximumPollers = $MaxPollers
+        } | ConvertTo-Json -Compress)
     }
 
     # NOTA (Fase 7 - ADR-0003): SQS FIFO nao suporta batching window nem bisect.
@@ -497,6 +509,11 @@ function Ensure-EventSource {
             [System.IO.File]::WriteAllText($scFile, $scalingJson, [System.Text.UTF8Encoding]::new($false))
             $args += @("--scaling-config", ("file://" + ($scFile -replace "\\", "/")))
         }
+        if ($pollerJson) {
+            $ppFile = Join-Path $env:TEMP "renthus-provisioned-pollers.json"
+            [System.IO.File]::WriteAllText($ppFile, $pollerJson, [System.Text.UTF8Encoding]::new($false))
+            $args += @("--provisioned-poller-config", ("file://" + ($ppFile -replace "\\", "/")))
+        }
         Invoke-AwsRaw $args
         return
     }
@@ -514,6 +531,11 @@ function Ensure-EventSource {
         [System.IO.File]::WriteAllText($scFile, $scalingJson, [System.Text.UTF8Encoding]::new($false))
         $args += @("--scaling-config", ("file://" + ($scFile -replace "\\", "/")))
     }
+    if ($pollerJson) {
+        $ppFile = Join-Path $env:TEMP "renthus-provisioned-pollers.json"
+        [System.IO.File]::WriteAllText($ppFile, $pollerJson, [System.Text.UTF8Encoding]::new($false))
+        $args += @("--provisioned-poller-config", ("file://" + ($ppFile -replace "\\", "/")))
+    }
     Invoke-AwsRaw $args
 }
 
@@ -528,9 +550,11 @@ Invoke-AwsRaw @(
     "--attributes", ("VisibilityTimeout=" + $inboundTimeoutSec)
 ) | Out-Null
 
-#   inbound: BatchSize=1 (FIFO ordem), MaxConcurrency=10
+#   inbound: BatchSize=1 (FIFO). Pollers dedicados (min 2) — sem isso o ESM
+#   só acorda no keep-warm de 1 min e a resposta espera ~60s.
+#   ProvisionedPollerConfig e MaximumConcurrency sao exclusivos.
 #   outbound: BatchSize=10, MaxConcurrency=20
-Ensure-EventSource -FunctionNameOrArn $InboundLiveArn -QueueArn $inArn  -BatchSize 1  -MaxConcurrency 10
+Ensure-EventSource -FunctionNameOrArn $InboundLiveArn -QueueArn $inArn -BatchSize 1 -MinPollers 2 -MaxPollers 4
 Ensure-EventSource -FunctionNameOrArn $OutboundFn     -QueueArn $outArn -BatchSize 10 -MaxConcurrency 20
 
 Write-Host ""
