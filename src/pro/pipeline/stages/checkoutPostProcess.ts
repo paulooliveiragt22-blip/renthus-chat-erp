@@ -9,7 +9,8 @@ import { buildUniquePickButtons } from "../pickButtonTitles";
 import { catalogProductHintFromPicks } from "../catalogProductHint";
 import { isDraftBelowMinimumOrder } from "../orderDraftGate";
 import {
-    appendGapFillersToMinimumMessage,
+    applyMinimumOrderNotice,
+    minimumOrderShortfallText,
     type GapFillSuggestion,
 } from "../minimumGapFill";
 import {
@@ -141,22 +142,15 @@ function normalizeInboundAction(text: string): string {
         .replaceAll(/\p{Diacritic}/gu, "");
 }
 
-function brl(value: number): string {
-    return value.toFixed(2).replace(".", ",");
-}
-
 /**
  * Resposta determinística (sem IA) quando o rascunho não bate o pedido mínimo — usada nos
  * quick actions de pagamento, que mexem no draft direto sem passar pelo `prepare_order_draft`.
  */
 function buildMinimumOrderShortfallMessage(draft: OrderDraft): OutboundMessage {
     const min = draft.deliveryMinOrder ?? 0;
-    const missing = Math.max(0, min - draft.grandTotal);
     return {
         kind: "text",
-        text:
-            `Seu pedido está em R$ ${brl(draft.grandTotal)} e o mínimo para entrega é R$ ${brl(min)} ` +
-            `(faltam R$ ${brl(missing)}). Me diga o que mais você quer adicionar.`,
+        text: minimumOrderShortfallText(draft.grandTotal, min, [], draft.items.map((i) => i.produtoEmbalagemId)),
     };
 }
 
@@ -1032,6 +1026,10 @@ export function checkoutPostProcess(params: {
     intentNewAddress?: boolean;
     fulfillmentPolicy?: FulfillmentPolicy;
     acceptedPayments?: AcceptedCustomerPayments;
+    /** Mesma marca+embalagem, ou acompanhamento do cadastro. Vazio = pedir outro produto. */
+    gapFillers?: readonly GapFillSuggestion[];
+    /** Mínimo da loja quando o rascunho ainda não tem endereço. */
+    storeMinOrder?: number | null;
 }): { state: ProSessionState; outbound: OutboundMessage[]; checkoutTurnKind: CheckoutTurnOutcomeKind } {
     const policy = params.fulfillmentPolicy ?? DEFAULT_FULFILLMENT_POLICY;
     const accepted = params.acceptedPayments ?? DEFAULT_ACCEPTED_CUSTOMER_PAYMENTS;
@@ -1284,21 +1282,20 @@ export function checkoutPostProcess(params: {
         if (clarify) outbound.push(clarify);
     }
 
+    const skipMinimumNotice =
+        turnOutcome.kind === "clarify_pending_picks" ||
+        turnOutcome.kind === "clarify_product_picks" ||
+        turnOutcome.kind === "offer_out_of_stock" ||
+        turnOutcome.kind === "empty_search_hint";
+    const noticed = skipMinimumNotice
+        ? outbound
+        : applyMinimumOrderNotice(outbound, nextState.draft, params.gapFillers, params.storeMinOrder);
+
     return {
         state: nextState,
-        outbound: prioritizeInteractiveFirst(outbound),
+        outbound: prioritizeInteractiveFirst(noticed),
         checkoutTurnKind: turnOutcome.kind,
     };
-}
-
-function withGapFillers(
-    outbound: OutboundMessage[],
-    state: ProSessionState,
-    gapFillers: readonly GapFillSuggestion[] | undefined
-): OutboundMessage[] {
-    if (!gapFillers?.length) return outbound;
-    const draftIds = (state.draft?.items ?? []).map((i) => i.produtoEmbalagemId);
-    return appendGapFillersToMinimumMessage(outbound, gapFillers, draftIds);
 }
 
 export function checkoutPostProcessForQuickAction(params: {
@@ -1306,48 +1303,39 @@ export function checkoutPostProcessForQuickAction(params: {
     outbound: OutboundMessage[];
     fulfillmentPolicy?: FulfillmentPolicy;
     acceptedPayments?: AcceptedCustomerPayments;
-    /** Favoritos reais para fechar o pedido mínimo. Opcional. */
+    /** Mesma marca+embalagem, ou acompanhamento do cadastro. Vazio = pedir outro produto. */
     gapFillers?: readonly GapFillSuggestion[];
+    /** Mínimo da loja quando o rascunho ainda não tem endereço. */
+    storeMinOrder?: number | null;
 }): OutboundMessage[] {
     const policy = params.fulfillmentPolicy ?? DEFAULT_FULFILLMENT_POLICY;
     const accepted = params.acceptedPayments ?? DEFAULT_ACCEPTED_CUSTOMER_PAYMENTS;
     const state = withResolvedSlotStep(params.state);
     if (state.checkoutEditHold) {
-        // Corrigir / Adicionar: não reenviar resumo de confirmação nesta volta.
-        return prioritizeInteractiveFirst([...params.outbound]);
+        return applyMinimumOrderNotice(
+            prioritizeInteractiveFirst([...params.outbound]),
+            state.draft,
+            params.gapFillers,
+            params.storeMinOrder
+        );
     }
     const cards = checkoutButtonsForState(state, policy, accepted);
     if (
         (state.step === "pro_awaiting_confirmation" || isCartReviewHoldStep(state.step)) &&
         state.draft
     ) {
-        return withGapFillers(
+        return applyMinimumOrderNotice(
             keepOnlyFinalConfirmationCard([...params.outbound, ...cards], state.draft, {
                 hidePayment: isCartReviewHoldStep(state.step),
             }),
-            state,
-            params.gapFillers
+            state.draft,
+            params.gapFillers,
+            params.storeMinOrder
         );
     }
     const composed = prioritizeInteractiveFirst([
         ...params.outbound,
         ...cardsNotAlreadyPresent(params.outbound, cards),
     ]);
-    /**
-     * Abaixo do mínimo o slot fica em coleta e não há card de resumo/pagamento.
-     * Confirmar endereço (e qualquer quick action vazia) não pode terminar em silêncio.
-     */
-    if (
-        composed.length === 0 &&
-        state.draft &&
-        state.deliveryAddressUiConfirmed === true &&
-        isDraftBelowMinimumOrder(state.draft)
-    ) {
-        return withGapFillers(
-            [buildMinimumOrderShortfallMessage(state.draft)],
-            state,
-            params.gapFillers
-        );
-    }
-    return withGapFillers(composed, state, params.gapFillers);
+    return applyMinimumOrderNotice(composed, state.draft, params.gapFillers, params.storeMinOrder);
 }

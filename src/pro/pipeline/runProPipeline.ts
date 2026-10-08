@@ -6,7 +6,7 @@ import type {
     ProPipelineTelemetryReason,
     ProSessionState,
 } from "@/src/types/contracts";
-import { buildOrderHintsPayload, loadCustomerFavoriteLinesSafe } from "@/src/pro/tools/orderHints";
+import { buildOrderHintsPayload } from "@/src/pro/tools/orderHints";
 import {
     buildAiLimitExceededOutbound,
     buildInfoOnlyOrderBlockedText,
@@ -18,8 +18,9 @@ import {
     type AiOrderModePolicy,
 } from "@/lib/chatbot/aiOrderModePolicy";
 import { buildAiDegradedOutbound } from "@/lib/chatbot/aiCapabilityProfile";
-import { isDraftBelowMinimumOrder } from "./orderDraftGate";
-import type { GapFillSuggestion } from "./minimumGapFill";
+import { resolveDeliveryForNeighborhood } from "@/lib/delivery/policy";
+import { loadMinimumGapSuggestions } from "./loadMinimumGapSuggestions";
+import { resolveMinimumOrderAmount, type GapFillSuggestion } from "./minimumGapFill";
 import { MATCHING_METRICS } from "./matchingMetrics";
 import { resolveCatalogOfferFollowUp } from "./catalogOfferFollowUp";
 import { extractPartySizeRequest } from "./partySizeRequest";
@@ -294,23 +295,70 @@ export async function runProPipeline(
     const acceptedPayments = deps.admin
         ? await loadAcceptedCustomerPayments(deps.admin, input.tenant.companyId)
         : DEFAULT_ACCEPTED_CUSTOMER_PAYMENTS;
-    const minimumGapFillers: GapFillSuggestion[] =
-        deps.admin &&
-        input.tenant.phoneE164.trim() &&
-        sessionWithCustomer.draft &&
-        isDraftBelowMinimumOrder(sessionWithCustomer.draft)
-            ? (
-                  await loadCustomerFavoriteLinesSafe(
-                      deps.admin,
-                      input.tenant.companyId,
-                      input.tenant.phoneE164
-                  )
-              ).map((line) => ({
-                  produtoEmbalagemId: line.produto_embalagem_id,
-                  label: line.label,
-                  price: line.price,
-              }))
-            : [];
+    let cachedStoreMin: number | null | undefined;
+    const loadStoreDeliveryMin = async (): Promise<number | null> => {
+        if (cachedStoreMin !== undefined) return cachedStoreMin;
+        if (!deps.admin) {
+            cachedStoreMin = null;
+            return null;
+        }
+        try {
+            const resolved = await resolveDeliveryForNeighborhood(deps.admin, input.tenant.companyId, "");
+            cachedStoreMin =
+                resolved.min_order != null && resolved.min_order > 0 ? resolved.min_order : null;
+        } catch (err) {
+            cachedStoreMin = null;
+            deps.logger?.warn("pro_pipeline.store_min_order_failed", {
+                companyId: input.tenant.companyId,
+                threadId: input.tenant.threadId,
+                message: err instanceof Error ? err.message : String(err),
+            });
+        }
+        return cachedStoreMin;
+    };
+    const minimumCheckoutContext = async (
+        state: ProSessionState
+    ): Promise<{ gapFillers: GapFillSuggestion[]; storeMinOrder: number | null }> => {
+        const storeMinOrder = await loadStoreDeliveryMin();
+        const draft = state.draft;
+        const min = draft ? resolveMinimumOrderAmount(draft, storeMinOrder) : null;
+        if (!deps.admin || !draft || draft.items.length === 0 || min == null || draft.grandTotal >= min) {
+            return { gapFillers: [], storeMinOrder };
+        }
+        try {
+            const gapFillers = await loadMinimumGapSuggestions({
+                admin: deps.admin,
+                companyId: input.tenant.companyId,
+                items: draft.items.map((item) => ({
+                    produtoEmbalagemId: item.produtoEmbalagemId,
+                    productName: item.productName,
+                    sigla: item.siglaComercial ?? null,
+                })),
+            });
+            return { gapFillers, storeMinOrder };
+        } catch (err) {
+            deps.logger?.warn("pro_pipeline.minimum_gap_failed", {
+                companyId: input.tenant.companyId,
+                threadId: input.tenant.threadId,
+                message: err instanceof Error ? err.message : String(err),
+            });
+            return { gapFillers: [], storeMinOrder };
+        }
+    };
+    const withMinimumCheckout = async (
+        state: ProSessionState,
+        outbound: OutboundMessage[]
+    ): Promise<OutboundMessage[]> => {
+        const ctx = await minimumCheckoutContext(state);
+        return checkoutPostProcessForQuickAction({
+            state,
+            outbound,
+            fulfillmentPolicy,
+            acceptedPayments,
+            gapFillers: ctx.gapFillers,
+            storeMinOrder: ctx.storeMinOrder,
+        });
+    };
     const storeHours: StoreHours = deps.admin
         ? await loadStoreHours(deps.admin, input.tenant.companyId)
         : EMPTY_STORE_HOURS;
@@ -448,12 +496,7 @@ export async function runProPipeline(
     );
     if (strictGate) {
         const syncedQuick = withResolvedSlotStep(strictGate.state);
-        const quickOutbound = checkoutPostProcessForQuickAction({
-            state: syncedQuick,
-            outbound: strictGate.outbound,
-            fulfillmentPolicy,
-            acceptedPayments,
-        });
+        const quickOutbound = await withMinimumCheckout(syncedQuick, strictGate.outbound);
         await emitTurn({
             state: syncedQuick,
             outbound: quickOutbound,
@@ -510,12 +553,7 @@ export async function runProPipeline(
             });
             const synced = withResolvedSlotStep(addrPrep.state);
             const finalOutbound = addrPrep.preparedOk
-                ? checkoutPostProcessForQuickAction({
-                      state: synced,
-                      outbound: [],
-                      fulfillmentPolicy,
-            acceptedPayments,
-                  })
+                ? await withMinimumCheckout(synced, [])
                 : addrPrep.outbound;
             await emitTurn({ state: synced, outbound: finalOutbound });
             const metrics: PipelineMetric[] = [
@@ -640,13 +678,7 @@ export async function runProPipeline(
                 const synced = withResolvedSlotStep(offerPrep.state);
                 const offerOutbound = offerPrep.clarificationOutbound.length
                     ? offerPrep.clarificationOutbound
-                    : checkoutPostProcessForQuickAction({
-                          state: synced,
-                          outbound: [],
-                          fulfillmentPolicy,
-                          acceptedPayments,
-                          gapFillers: minimumGapFillers,
-                      });
+                    : await withMinimumCheckout(synced, []);
                 await emitTurn({ state: synced, outbound: offerOutbound });
                 const metrics: PipelineMetric[] = [
                     { name: "pro_pipeline.catalog_offer_followup", value: 1 },
@@ -776,12 +808,7 @@ export async function runProPipeline(
                         metrics,
                     };
                     } else {
-                    const finalOutbound: OutboundMessage[] = checkoutPostProcessForQuickAction({
-                                  state: finalState,
-                                  outbound: [],
-                                  fulfillmentPolicy,
-                                  acceptedPayments,
-                              });
+                    const finalOutbound: OutboundMessage[] = await withMinimumCheckout(finalState, []);
                     await emitTurn({
                         state: finalState,
                         outbound: finalOutbound,
@@ -853,12 +880,7 @@ export async function runProPipeline(
                 });
                 const synced = withResolvedSlotStep(addrPrep.state);
                 const finalOutbound = addrPrep.preparedOk
-                    ? checkoutPostProcessForQuickAction({
-                          state: synced,
-                          outbound: [],
-                          fulfillmentPolicy,
-                          acceptedPayments,
-                      })
+                    ? await withMinimumCheckout(synced, [])
                     : addrPrep.outbound;
                 await emitTurn({ state: synced, outbound: finalOutbound });
                 const metrics: PipelineMetric[] = [
@@ -963,22 +985,10 @@ export async function runProPipeline(
                 persist.outcome === "order_create_failed"
                     ? persist.state
                     : withResolvedSlotStep(persist.state);
+            const persistCards = await withMinimumCheckout(persistState, []);
             quickOutbound = persist.outboundText
-                ? [
-                      { kind: "text" as const, text: persist.outboundText },
-                      ...checkoutPostProcessForQuickAction({
-                          state: persistState,
-                          outbound: [],
-                          fulfillmentPolicy,
-                          acceptedPayments,
-                      }),
-                  ]
-                : checkoutPostProcessForQuickAction({
-                      state: persistState,
-                      outbound: [],
-                      fulfillmentPolicy,
-                      acceptedPayments,
-                  });
+                ? [{ kind: "text" as const, text: persist.outboundText }, ...persistCards]
+                : persistCards;
             await emitTurn({
                 state: persistState,
                 outbound: quickOutbound,
@@ -1007,13 +1017,7 @@ export async function runProPipeline(
             };
         }
 
-        quickOutbound = checkoutPostProcessForQuickAction({
-            state: syncedQuick,
-            outbound: quickOutbound,
-            fulfillmentPolicy,
-            acceptedPayments,
-            gapFillers: minimumGapFillers,
-        });
+        quickOutbound = await withMinimumCheckout(syncedQuick, quickOutbound);
         await emitTurn({
             state: syncedQuick,
             outbound: quickOutbound,
@@ -1076,12 +1080,15 @@ export async function runProPipeline(
                     ...stateAfterPick,
                     checkoutEditHold: false,
                 });
+                const pendingCtx = await minimumCheckoutContext(synced);
                 const finalOutbound = checkoutPostProcess({
                     state: synced,
                     outbound: pendingResolve.outbound,
                     mode: "ai",
                     fulfillmentPolicy,
                     acceptedPayments,
+                    gapFillers: pendingCtx.gapFillers,
+                    storeMinOrder: pendingCtx.storeMinOrder,
                     webMenuUrl: input.webMenuUrl,
                     checkoutHandoffUrl: await resolveCheckoutHandoffUrl(
                         deps,
@@ -1368,12 +1375,7 @@ export async function runProPipeline(
                 : withResolvedSlotStep(preOrder.state);
         const outbound: OutboundMessage[] = [
             { kind: "text", text: preOrder.outboundText },
-            ...checkoutPostProcessForQuickAction({
-                state: syncedPre,
-                outbound: [],
-                fulfillmentPolicy,
-            acceptedPayments,
-            }),
+            ...(await withMinimumCheckout(syncedPre, [])),
         ];
         await emitTurn({
             state: syncedPre,
@@ -1634,6 +1636,9 @@ export async function runProPipeline(
     });
     const skipCheckoutUi =
         aiLimitExceeded || aiDegradedThisTurn || aiServiceErrorCode === "TOOL_FAILED";
+    const checkoutCtx = skipCheckoutUi
+        ? { gapFillers: [] as GapFillSuggestion[], storeMinOrder: null }
+        : await minimumCheckoutContext(nextState);
     const checkout = skipCheckoutUi
         ? { state: nextState, outbound, checkoutTurnKind: "none" as const }
         : checkoutPostProcess({
@@ -1647,6 +1652,8 @@ export async function runProPipeline(
               intentNewAddress: false,
               fulfillmentPolicy,
               acceptedPayments,
+              gapFillers: checkoutCtx.gapFillers,
+              storeMinOrder: checkoutCtx.storeMinOrder,
           });
     nextState = checkout.state;
     const finalOutbound = checkout.outbound;

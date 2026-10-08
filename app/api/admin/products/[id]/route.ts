@@ -178,7 +178,9 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 
     const detalheItems = volumes.flatMap((vol) =>
         (vol.items ?? []).map((it) => ({
+            id: it.id ?? null,
             id_sigla_comercial: it.id_sigla_comercial,
+            descricao: it.descricao ?? null,
             fator_conversao: it.fator_conversao ?? 1,
             detalhes: it.detalhes ?? null,
             informacoes: it.informacoes ?? null,

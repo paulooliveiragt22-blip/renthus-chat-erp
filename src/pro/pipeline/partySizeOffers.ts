@@ -44,15 +44,18 @@ export async function loadPartySizeOffers(params: {
     companyId: string;
     request: PartySizeRequest;
 }): Promise<CatalogOfferPick[]> {
-    const { data, error } = await params.admin
+    const hint = params.request.productHint?.trim().toLowerCase().replaceAll(/[^a-z0-9]/g, "") || null;
+    let query = params.admin
         .from("view_chat_produtos")
         .select("id, display_name, product_name, preco_venda, serve_ate")
         .eq("company_id", params.companyId)
-        .not("serve_ate", "is", null)
-        .limit(80);
+        .not("serve_ate", "is", null);
+    if (hint) {
+        query = query.or(`product_name.ilike.%${hint}%,display_name.ilike.%${hint}%`);
+    }
+    const { data, error } = await query.limit(80);
     if (error || !data) return [];
     let rows = data as ServeRow[];
-    const hint = params.request.productHint?.trim().toLowerCase();
     if (hint) {
         rows = rows.filter((r) => {
             const blob = `${r.product_name ?? ""} ${r.display_name ?? ""}`.toLowerCase();

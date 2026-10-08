@@ -51,6 +51,7 @@ export async function GET() {
 }
 
 type VolumeItemBody = {
+    id?: string | null;
     id_sigla_comercial?: string;
     descricao?: string | null;
     detalhes?: string | null;
@@ -127,7 +128,9 @@ export async function POST(req: NextRequest) {
 
         const detalheItems = volumes.flatMap((vol) =>
             (vol.items ?? []).map((it) => ({
+                id: it.id ?? null,
                 id_sigla_comercial: it.id_sigla_comercial,
+                descricao: it.descricao ?? null,
                 fator_conversao: it.fator_conversao ?? 1,
                 detalhes: it.detalhes ?? null,
                 informacoes: it.informacoes ?? null,
