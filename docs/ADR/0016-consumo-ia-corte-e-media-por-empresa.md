@@ -143,6 +143,14 @@ O padrão é o do billing já aceito: a regra mora na RPC, o pipeline e a tela s
 
 ---
 
+## Emenda — aviso em 10% e recarga no mesmo piso (2026-10-15)
+
+Aprovado pelo dono: avisar o lojista quando o saldo chegar em 10%, e disparar a recarga automática nesse mesmo ponto. Com a recarga automática ligada, o aviso não sai.
+
+O piso é `included_budget_cents / 10` (`fn_ai_low_credit_threshold_cents`): 10% do crédito incluso do mês, que já é 10% do preço do plano. Market = 449 centavos (R$ 4,49). Não é 10% do preço cheio (isso seria o crédito inteiro e a recarga sairia no primeiro débito). O saldo comparado é o total restante (incluso + pack − reserva).
+
+`rpc_note_ai_low_credit` reivindica `low_credit_notice_period_end = included_period_end` uma vez por ciclo, só com `auto_recharge_enabled = false`. O push Web (`fireCompanyAlertPush`) abre `/configuracoes?tab=chatbot`. A fila `ai_recharge_jobs` usa o mesmo piso no lugar dos R$ 0,50. A UI do lojista mostra pedidos restantes (saldo ÷ custo médio), não tokens.
+
 ## Fora deste ADR
 
 - Mudar os 10% do plano, o preço dos packs ou ligar de novo a auto-recarga da Ferrester por causa desta média.
