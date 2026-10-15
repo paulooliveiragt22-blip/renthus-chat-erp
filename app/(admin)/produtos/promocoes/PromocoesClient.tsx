@@ -15,6 +15,7 @@ type EmbHit = {
     details: string | null;
     sigla: string | null;
     fator: number;
+    imageUrl: string | null;
 };
 type ComboItem = {
     produto_embalagem_id: string;
@@ -371,6 +372,7 @@ function ComboDialog(props: {
             details: null,
             sigla: i.sigla ?? null,
             fator: 1,
+            imageUrl: null,
             quantidade: Number(i.quantidade) || 1,
             precoUnitario: formatBrlInput(
                 i.preco_alocado != null && Number(i.quantidade) > 0
@@ -437,6 +439,7 @@ function ComboDialog(props: {
                             details: null,
                             sigla: r.sigla_comercial ? String(r.sigla_comercial) : null,
                             fator: Number(r.fator_conversao ?? 1),
+                            imageUrl: null,
                         }))
                 );
             })();
@@ -603,6 +606,7 @@ function PromoPreview(props: {
     savedName: string | null;
     savedImage: string | null;
     fotoUrl: string | null;
+    catalogImage: string | null;
 }) {
     const hit = props.hits.find((h) => h.id === props.alvoId) ?? null;
     const combo = props.combos.find((c) => c.id === props.alvoId) ?? null;
@@ -615,8 +619,9 @@ function PromoPreview(props: {
         : hit?.details ?? null;
     const pack = props.alvoKind === "emb" && hit ? formatMenuPackLabel(hit.sigla, hit.fator) : "";
     const amount = parseBrl(props.preco);
-    const catalog = props.alvoKind === "combo" ? Number(combo?.preco ?? 0) : Number(hit?.price ?? 0);
-    const imageUrl = props.fotoUrl || props.savedImage || (props.alvoKind === "combo" ? combo?.image_path : null) || null;
+    const catalogPrice = props.alvoKind === "combo" ? Number(combo?.preco ?? 0) : Number(hit?.price ?? 0);
+    const catalogImage = props.alvoKind === "combo" ? combo?.image_path : hit?.imageUrl || props.catalogImage;
+    const imageUrl = props.fotoUrl || props.savedImage || catalogImage || null;
     return (
         <div>
             <p className="mb-2 text-xs font-semibold text-zinc-700 dark:text-zinc-300">Prévia no cardápio</p>
@@ -624,7 +629,7 @@ function PromoPreview(props: {
                 name={name}
                 description={description}
                 packLabel={pack || null}
-                listPriceLabel={catalog > amount && catalog > 0 ? brl(catalog) : null}
+                listPriceLabel={catalogPrice > amount && catalogPrice > 0 ? brl(catalogPrice) : null}
                 priceLabel={amount > 0 ? brl(amount) : null}
                 imageUrl={imageUrl}
             />
@@ -650,6 +655,7 @@ function PromoDialog(props: {
     const [preco, setPreco] = useState("");
     const [foto, setFoto] = useState<File | null>(null);
     const [fotoUrl, setFotoUrl] = useState<string | null>(null);
+    const [catalogImage, setCatalogImage] = useState<string | null>(null);
     const [err, setErr] = useState<string | null>(null);
     const [busy, setBusy] = useState(false);
 
@@ -662,6 +668,32 @@ function PromoDialog(props: {
         setFotoUrl(url);
         return () => URL.revokeObjectURL(url);
     }, [foto]);
+
+    useEffect(() => {
+        if (!props.open || alvoKind !== "emb" || !alvoId) {
+            setCatalogImage(null);
+            return;
+        }
+        const known = hits.find((hit) => hit.id === alvoId)?.imageUrl;
+        if (known) {
+            setCatalogImage(known);
+            return;
+        }
+        let cancelled = false;
+        void (async () => {
+            const res = await fetch(
+                `/api/admin/pdv/products?ids=${encodeURIComponent(alvoId)}&withImages=1&limit=1`,
+                { credentials: "include" }
+            );
+            const json = await res.json().catch(() => ({}));
+            const row = Array.isArray(json.rows) ? json.rows[0] : null;
+            const url = row && typeof row.image_url === "string" ? row.image_url : null;
+            if (!cancelled) setCatalogImage(url);
+        })();
+        return () => {
+            cancelled = true;
+        };
+    }, [props.open, alvoKind, alvoId, hits]);
 
     useEffect(() => {
         if (!props.open) return;
@@ -691,7 +723,7 @@ function PromoDialog(props: {
         if (query.length < 2) return;
         const t = setTimeout(() => {
             void (async () => {
-                const res = await fetch(`/api/admin/pdv/products?q=${encodeURIComponent(query)}&limit=8`, {
+                const res = await fetch(`/api/admin/pdv/products?q=${encodeURIComponent(query)}&limit=8&withImages=1`, {
                     credentials: "include",
                 });
                 const json = await res.json().catch(() => ({}));
@@ -707,6 +739,7 @@ function PromoDialog(props: {
                             preco_venda?: number;
                             sigla_comercial?: string | null;
                             fator_conversao?: number;
+                            image_url?: string | null;
                         }) => ({
                             id: String(r.id),
                             label: buildPackDisplayName({
@@ -717,6 +750,7 @@ function PromoDialog(props: {
                             details: r.product_details ? String(r.product_details) : null,
                             sigla: r.sigla_comercial ? String(r.sigla_comercial) : null,
                             fator: Number(r.fator_conversao ?? 1),
+                            imageUrl: r.image_url ? String(r.image_url) : null,
                         }))
                 );
             })();
@@ -789,6 +823,7 @@ function PromoDialog(props: {
                     savedName={props.promo?.alvos?.[0]?.nome ?? null}
                     savedImage={props.promo?.image_path ?? null}
                     fotoUrl={fotoUrl}
+                    catalogImage={catalogImage}
                 />
                 <label className={fieldLabel}>
                     Nome

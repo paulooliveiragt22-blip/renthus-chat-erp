@@ -18,6 +18,49 @@ const PDV_SELECT =
 
 const DEFAULT_LIMIT = 60;
 const MAX_LIMIT = 120;
+const PACK_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function parsePackIds(raw: string | null): string[] {
+    if (!raw) return [];
+    return raw
+        .split(",")
+        .map((part) => part.trim())
+        .filter((part) => PACK_ID.test(part))
+        .slice(0, 12);
+}
+
+/** Foto da embalagem, senão a foto principal do produto. */
+async function attachPackImages(
+    admin: SupabaseClient,
+    rows: Record<string, unknown>[]
+): Promise<Record<string, unknown>[]> {
+    const productIds = [...new Set(rows.map((row) => String(row.produto_id ?? "")).filter(Boolean))];
+    if (productIds.length === 0) return rows;
+    const { data, error } = await admin
+        .from("product_images")
+        .select("product_id, produto_embalagem_id, url, thumbnail_url, is_primary, created_at")
+        .in("product_id", productIds)
+        .order("is_primary", { ascending: false })
+        .order("created_at", { ascending: false });
+    if (error || !data) return rows;
+    const byPack = new Map<string, string>();
+    const byProduct = new Map<string, string>();
+    for (const img of data) {
+        const url = String(img.url || img.thumbnail_url || "").trim();
+        if (!url) continue;
+        const packId = img.produto_embalagem_id ? String(img.produto_embalagem_id) : "";
+        const productId = String(img.product_id ?? "");
+        if (packId) {
+            if (!byPack.has(packId)) byPack.set(packId, url);
+        } else if (productId && !byProduct.has(productId)) {
+            byProduct.set(productId, url);
+        }
+    }
+    return rows.map((row) => ({
+        ...row,
+        image_url: byPack.get(String(row.id ?? "")) ?? byProduct.get(String(row.produto_id ?? "")) ?? null,
+    }));
+}
 
 async function findExactPackByCode(
     admin: SupabaseClient,
@@ -175,6 +218,21 @@ export async function GET(req: NextRequest) {
     const qRaw = String(req.nextUrl.searchParams.get("q") ?? "").trim();
     const category = String(req.nextUrl.searchParams.get("category") ?? "").trim();
     const limit = parseLimit(req.nextUrl.searchParams.get("limit"));
+    const withImages = req.nextUrl.searchParams.get("withImages") === "1";
+    const packIds = parsePackIds(req.nextUrl.searchParams.get("ids"));
+
+    if (packIds.length > 0) {
+        const { data, error } = await admin
+            .from("view_pdv_produtos")
+            .select(PDV_SELECT)
+            .eq("company_id", companyId)
+            .in("id", packIds)
+            .limit(packIds.length);
+        if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+        const priced = await withEffectivePrices(admin, companyId, (data ?? []) as Record<string, unknown>[]);
+        const rows = withImages ? await attachPackImages(admin, priced) : priced;
+        return NextResponse.json({ rows });
+    }
 
     // Bipagem via ?q= com padrão de scan → trata como code
     if (qRaw && looksLikeScanCode(qRaw)) {
@@ -213,7 +271,8 @@ export async function GET(req: NextRequest) {
         .limit(limit);
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-    const rows = await withEffectivePrices(admin, companyId, (data ?? []) as Record<string, unknown>[]);
+    const priced = await withEffectivePrices(admin, companyId, (data ?? []) as Record<string, unknown>[]);
+    const rows = withImages ? await attachPackImages(admin, priced) : priced;
     const combos = await comboRowsForPdv(admin, companyId, qRaw, category);
     return NextResponse.json({ rows: [...combos, ...rows].slice(0, limit) });
 }
