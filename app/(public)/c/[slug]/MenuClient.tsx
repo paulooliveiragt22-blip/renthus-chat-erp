@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { ChevronDown, MapPin, Search, X } from "lucide-react";
+import { ChevronDown, ChevronLeft, ChevronRight, MapPin, Search, X } from "lucide-react";
 import type {
+    PublicMenuBanner,
     PublicMenuCartLine,
     PublicMenuCategory,
     PublicMenuItem,
@@ -23,6 +24,94 @@ import MyOrdersDrawer from "./MyOrdersDrawer";
 
 function formatBRL(n: number): string {
     return n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+}
+
+function PromoArt({ name, price }: { name: string; price: string | null }) {
+    return (
+        <div className="flex h-full w-full flex-col justify-end bg-gradient-to-r from-orange-600 to-zinc-900 p-4 sm:p-5">
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-orange-100">Promoção</p>
+            <p className="line-clamp-2 text-lg font-bold text-white sm:text-xl">{name}</p>
+            {price ? <p className="text-sm font-semibold text-orange-50">{price}</p> : null}
+        </div>
+    );
+}
+
+function PromoStrip({ banners }: { banners: PublicMenuBanner[] }) {
+    const [index, setIndex] = useState(0);
+    const [animate, setAnimate] = useState(true);
+    const [paused, setPaused] = useState(false);
+    const count = banners.length;
+    const slides = count > 1 ? [...banners, banners[0]!] : banners;
+
+    useEffect(() => {
+        if (count < 2 || paused) return;
+        const id = window.setInterval(() => setIndex((n) => n + 1), 4000);
+        return () => window.clearInterval(id);
+    }, [count, paused]);
+
+    useEffect(() => {
+        if (count < 2 || index !== count) return;
+        const id = window.setTimeout(() => {
+            setAnimate(false);
+            setIndex(0);
+        }, 500);
+        return () => window.clearTimeout(id);
+    }, [index, count]);
+
+    useEffect(() => {
+        if (animate || index !== 0) return;
+        const id = window.setTimeout(() => setAnimate(true), 40);
+        return () => window.clearTimeout(id);
+    }, [animate, index]);
+
+    if (count === 0) return null;
+
+    function go(next: number) {
+        setAnimate(true);
+        setIndex((next + count) % count);
+    }
+
+    return (
+        <section
+            className="relative mt-3 overflow-hidden rounded-2xl"
+            aria-roledescription="carrossel"
+            aria-label="Promoções"
+            onMouseEnter={() => setPaused(true)}
+            onMouseLeave={() => setPaused(false)}
+            onFocus={() => setPaused(true)}
+            onBlur={() => setPaused(false)}
+        >
+            <div
+                className={`flex ${animate ? "transition-transform duration-500" : ""}`}
+                style={{ transform: `translateX(-${index * 100}%)` }}
+            >
+                {slides.map((banner, i) => (
+                    <button
+                        key={`${banner.id}-${i}`}
+                        type="button"
+                        className="h-28 w-full shrink-0 sm:h-36"
+                        onClick={() => document.getElementById("cat-__promos__")?.scrollIntoView({ behavior: "smooth", block: "start" })}
+                    >
+                        {banner.imageUrl ? (
+                            <img src={banner.imageUrl} alt={banner.name} className="h-full w-full object-cover" />
+                        ) : (
+                            <PromoArt name={banner.name} price={banner.price != null ? formatBRL(banner.price) : null} />
+                        )}
+                    </button>
+                ))}
+            </div>
+            {count > 1 ? (
+                <>
+                    <button type="button" aria-label="Promoção anterior" className="absolute left-2 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full bg-black/40 text-white" onClick={() => go(index - 1)}>
+                        <ChevronLeft className="h-4 w-4" />
+                    </button>
+                    <button type="button" aria-label="Próxima promoção" className="absolute right-2 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full bg-black/40 text-white" onClick={() => go(index + 1)}>
+                        <ChevronRight className="h-4 w-4" />
+                    </button>
+                </>
+            ) : null}
+        </section>
+    );
 }
 
 function ProductThumb({ src, alt }: { src: string | null; alt: string }) {
@@ -494,6 +583,7 @@ export default function MenuClient({ menu }: { menu: PublicMenuResponse }) {
                                 ))}
                             </nav>
                         )}
+                        <PromoStrip banners={menu.banners ?? []} />
                     </div>
                 </div>
             )}

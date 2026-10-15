@@ -1,7 +1,7 @@
 import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { PublicMenuResult } from "@/src/types/contracts.public-menu";
+import type { PublicMenuBanner, PublicMenuResult } from "@/src/types/contracts.public-menu";
 import { parsePublicMenuRpcPayload } from "./parsePublicMenu";
 import { parseMenuSlug } from "./slug";
 import { loadFulfillmentPolicy } from "@/lib/delivery/fulfillment";
@@ -52,10 +52,33 @@ export async function loadPublicMenuBySlug(
     const acceptedPayments = listEnabledCustomerPayments(
         acceptedCustomerPaymentsFromCompanySettings(settings)
     );
+    const { data: promoRows, error: promoErr } = await admin
+        .from("v_sec_promocoes")
+        .select("id, nome, ends_at, image_path, alvos, status")
+        .eq("company_id", companyId)
+        .eq("status", "ativa")
+        .order("ends_at", { ascending: true })
+        .limit(5);
+    const banners: PublicMenuBanner[] = promoErr
+        ? []
+        : (promoRows ?? []).map((row) => {
+            const alvos = Array.isArray(row.alvos) ? row.alvos : [];
+            const first = alvos[0] as { preco_promocional?: number } | undefined;
+            const price = first?.preco_promocional == null ? null : Number(first.preco_promocional);
+            return {
+                id: String(row.id),
+                name: String(row.nome ?? "Promoção"),
+                price: Number.isFinite(price) ? price : null,
+                endsAt: String(row.ends_at),
+                imageUrl: row.image_path ? String(row.image_path) : null,
+            };
+        });
+
     return {
         ok: true,
         menu: {
             ...parsed.menu,
+            banners,
             store: {
                 ...parsed.menu.store,
                 deliveriesEnabled: policy.deliveriesEnabled,

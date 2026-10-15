@@ -1,6 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
+import { Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 
@@ -24,6 +26,7 @@ type ComboRow = {
     preco: number | null;
     preco_efetivo: number | null;
     modo_preco: string | null;
+    image_path?: string | null;
     itens: ComboItem[];
 };
 type PromoAlvo = {
@@ -39,6 +42,7 @@ type PromoRow = {
     ends_at: string;
     paused: boolean;
     status: string;
+    image_path?: string | null;
     alvos: PromoAlvo[];
 };
 
@@ -55,8 +59,79 @@ const hitBtn =
 const listCard =
     "divide-y divide-zinc-200 overflow-hidden rounded-xl border border-zinc-200 bg-white dark:divide-zinc-800 dark:border-zinc-800 dark:bg-zinc-900";
 
+type DraftLine = EmbHit & { quantidade: number; precoUnitario: string };
+
+function parseBrl(masked: string): number {
+    return Number(masked.replace(/\D/g, "") || "0") / 100;
+}
+
+function formatBrlInput(n: number): string {
+    return n.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function maskBrl(raw: string): string {
+    return formatBrlInput(parseBrl(raw));
+}
+
+function sumLines(lines: DraftLine[]): number {
+    return Math.round(lines.reduce((s, l) => s + parseBrl(l.precoUnitario) * l.quantidade, 0) * 100) / 100;
+}
+
+/** Prévia do rateio. O valor gravado sai de rpc_precificar_combo. */
+function previewRateio(parts: number[], alvo: number): number[] {
+    const cents = parts.map((p) => Math.round(p * 100));
+    const target = Math.round(alvo * 100);
+    const sum = cents.reduce((a, b) => a + b, 0);
+    if (sum <= 0 || target <= 0) return parts.map(() => 0);
+    const alloc = cents.map((c) => Math.floor((target * c) / sum));
+    let remain = target - alloc.reduce((a, b) => a + b, 0);
+    let maxIdx = 0;
+    for (let i = 1; i < cents.length; i += 1) {
+        if (cents[i] > cents[maxIdx]) maxIdx = i;
+    }
+    alloc[maxIdx] += remain;
+    return alloc.map((c) => c / 100);
+}
+
+function MoneyField(props: {
+    label: string;
+    value: string;
+    onChange: (masked: string) => void;
+    disabled?: boolean;
+}) {
+    return (
+        <label className={fieldLabel}>
+            {props.label}
+            <span className="mt-1 flex items-center rounded-lg border border-border bg-zinc-50 dark:bg-zinc-800">
+                <span className="pl-3 text-sm text-zinc-500 dark:text-zinc-400">R$</span>
+                <input
+                    className="w-full bg-transparent px-2 py-2 text-sm text-foreground outline-none disabled:opacity-50"
+                    inputMode="numeric"
+                    value={props.value}
+                    disabled={props.disabled}
+                    onChange={(e) => props.onChange(maskBrl(e.target.value))}
+                />
+            </span>
+        </label>
+    );
+}
+
 function cuiabaIso(local: string): string {
     return new Date(`${local}:00-04:00`).toISOString();
+}
+
+function toDatetimeLocal(iso: string): string {
+    const parts = new Intl.DateTimeFormat("en-CA", {
+        timeZone: "America/Cuiaba",
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+        hourCycle: "h23",
+    }).formatToParts(new Date(iso));
+    const get = (t: string) => parts.find((p) => p.type === t)?.value ?? "";
+    return `${get("year")}-${get("month")}-${get("day")}T${get("hour")}:${get("minute")}`;
 }
 
 export default function PromocoesClient() {
@@ -65,6 +140,8 @@ export default function PromocoesClient() {
     const [msg, setMsg] = useState<string | null>(null);
     const [openCombo, setOpenCombo] = useState(false);
     const [openPromo, setOpenPromo] = useState(false);
+    const [editCombo, setEditCombo] = useState<ComboRow | null>(null);
+    const [editPromo, setEditPromo] = useState<PromoRow | null>(null);
     const [recalcId, setRecalcId] = useState<string | null>(null);
 
     async function recalcular(c: ComboRow) {
@@ -125,8 +202,8 @@ export default function PromocoesClient() {
                     </p>
                 </div>
                 <div className="flex gap-2">
-                    <Button type="button" onClick={() => setOpenCombo(true)}>Novo combo</Button>
-                    <Button type="button" variant="outline" onClick={() => setOpenPromo(true)}>Nova promoção</Button>
+                    <Button type="button" onClick={() => { setEditCombo(null); setOpenCombo(true); }}>Novo combo</Button>
+                    <Button type="button" variant="outline" onClick={() => { setEditPromo(null); setOpenPromo(true); }}>Nova promoção</Button>
                 </div>
             </header>
             {msg ? <p className="text-sm text-zinc-700 dark:text-zinc-300">{msg}</p> : null}
@@ -143,12 +220,21 @@ export default function PromocoesClient() {
                                 <li key={c.id} className="flex flex-col gap-1 px-4 py-3">
                                     <div className="flex flex-wrap items-baseline justify-between gap-2">
                                         <p className="font-medium text-zinc-900 dark:text-zinc-100">{c.nome}</p>
-                                        <p className="text-sm text-zinc-700 dark:text-zinc-300">
-                                            {c.preco != null ? brl(Number(c.preco)) : "Sem preço"}
-                                            {c.preco_efetivo != null && c.preco != null && Number(c.preco_efetivo) < Number(c.preco)
-                                                ? ` · promoção ${brl(Number(c.preco_efetivo))}`
-                                                : ""}
-                                        </p>
+                                        <div className="flex items-center gap-3">
+                                            <p className="text-sm text-zinc-700 dark:text-zinc-300">
+                                                {c.preco != null ? brl(Number(c.preco)) : "Sem preço"}
+                                                {c.preco_efetivo != null && c.preco != null && Number(c.preco_efetivo) < Number(c.preco)
+                                                    ? ` · promoção ${brl(Number(c.preco_efetivo))}`
+                                                    : ""}
+                                            </p>
+                                            <button
+                                                type="button"
+                                                className="text-xs font-semibold text-zinc-700 underline-offset-2 hover:underline dark:text-zinc-200"
+                                                onClick={() => { setEditCombo(c); setOpenCombo(true); }}
+                                            >
+                                                Editar
+                                            </button>
+                                        </div>
                                     </div>
                                     <p className="text-xs text-zinc-500 dark:text-zinc-400">
                                         {(c.itens ?? []).map((i) => `${i.quantidade}× ${i.nome ?? "Item"}`).join(" · ") || "Sem itens"}
@@ -187,7 +273,16 @@ export default function PromocoesClient() {
                             <li key={p.id} className="px-4 py-3">
                                 <div className="flex flex-wrap items-baseline justify-between gap-2">
                                     <p className="font-medium text-zinc-900 dark:text-zinc-100">{p.nome}</p>
-                                    <p className="text-xs uppercase tracking-wide text-zinc-500 dark:text-zinc-400">{p.status}</p>
+                                    <div className="flex items-center gap-3">
+                                        <p className="text-xs uppercase tracking-wide text-zinc-500 dark:text-zinc-400">{p.status}</p>
+                                        <button
+                                            type="button"
+                                            className="text-xs font-semibold text-zinc-700 underline-offset-2 hover:underline dark:text-zinc-200"
+                                            onClick={() => { setEditPromo(p); setOpenPromo(true); }}
+                                        >
+                                            Editar
+                                        </button>
+                                    </div>
                                 </div>
                                 <p className="text-xs text-zinc-500 dark:text-zinc-400">
                                     {new Date(p.starts_at).toLocaleString("pt-BR", { timeZone: "America/Cuiaba" })}
@@ -204,7 +299,8 @@ export default function PromocoesClient() {
 
             <ComboDialog
                 open={openCombo}
-                onOpenChange={setOpenCombo}
+                combo={editCombo}
+                onOpenChange={(open) => { setOpenCombo(open); if (!open) setEditCombo(null); }}
                 onSaved={async (text) => {
                     setMsg(text);
                     setOpenCombo(false);
@@ -213,8 +309,10 @@ export default function PromocoesClient() {
             />
             <PromoDialog
                 open={openPromo}
+                promo={editPromo}
+                atLimit={promos.filter((p) => p.status !== "expirada").length >= 5}
                 combos={combos.filter((c) => c.preco != null)}
-                onOpenChange={setOpenPromo}
+                onOpenChange={(open) => { setOpenPromo(open); if (!open) setEditPromo(null); }}
                 onSaved={async (text) => {
                     setMsg(text);
                     setOpenPromo(false);
@@ -227,118 +325,81 @@ export default function PromocoesClient() {
 
 function ComboDialog(props: {
     open: boolean;
+    combo: ComboRow | null;
     onOpenChange: (open: boolean) => void;
     onSaved: (msg: string) => Promise<void>;
 }) {
     const [nome, setNome] = useState("");
     const [q, setQ] = useState("");
     const [hits, setHits] = useState<EmbHit[]>([]);
-    const [lines, setLines] = useState<Array<EmbHit & { quantidade: number; precoUnitario: string }>>([]);
-    const [modo, setModo] = useState<"pro_rata" | "manual">("pro_rata");
+    const [lines, setLines] = useState<DraftLine[]>([]);
+    const [modo, setModo] = useState<"pro_rata" | "manual">("manual");
     const [preco, setPreco] = useState("");
     const [busy, setBusy] = useState(false);
     const [err, setErr] = useState<string | null>(null);
     const [showOnMenu, setShowOnMenu] = useState(true);
-    const [categories, setCategories] = useState<Array<{ id: string; name: string }>>([]);
-    const [unSiglaId, setUnSiglaId] = useState("");
-    const [novoNome, setNovoNome] = useState("");
-    const [novoCat, setNovoCat] = useState("");
-    const [novoPreco, setNovoPreco] = useState("");
-    const [novoNoMenu, setNovoNoMenu] = useState(false);
+    const [foto, setFoto] = useState<File | null>(null);
 
     useEffect(() => {
         if (!props.open) return;
-        void (async () => {
-            const [catRes, metaRes] = await Promise.all([
-                fetch("/api/admin/products/categories", { credentials: "include" }),
-                fetch("/api/admin/products", { credentials: "include" }),
-            ]);
-            const catJson = await catRes.json().catch(() => ({}));
-            const metaJson = await metaRes.json().catch(() => ({}));
-            const cats = Array.isArray(catJson.categories) ? catJson.categories : [];
-            setCategories(cats.map((c: { id?: string; name?: string }) => ({ id: String(c.id), name: String(c.name ?? "") })));
-            const siglas = Array.isArray(metaJson.siglas) ? metaJson.siglas : [];
-            const un = siglas.find((s: { sigla?: string }) => String(s.sigla ?? "").toUpperCase() === "UN");
-            setUnSiglaId(un ? String(un.id) : "");
-        })();
-    }, [props.open]);
+        const c = props.combo;
+        setErr(null);
+        setFoto(null);
+        setQ("");
+        setHits([]);
+        if (!c) {
+            setNome("");
+            setLines([]);
+            setPreco("");
+            setModo("manual");
+            setShowOnMenu(true);
+            return;
+        }
+        const next = (c.itens ?? []).map((i) => ({
+            id: i.produto_embalagem_id,
+            label: `${i.nome ?? "Item"} (${i.sigla ?? "UN"})`,
+            price: Number(i.preco_venda_atual ?? 0),
+            quantidade: Number(i.quantidade) || 1,
+            precoUnitario: formatBrlInput(
+                i.preco_alocado != null && Number(i.quantidade) > 0
+                    ? Number(i.preco_alocado) / Number(i.quantidade)
+                    : Number(i.preco_venda_atual ?? 0)
+            ),
+        }));
+        setNome(c.nome);
+        setShowOnMenu(c.show_on_menu);
+        setLines(next);
+        setPreco(c.preco != null ? formatBrlInput(Number(c.preco)) : formatBrlInput(sumLines(next)));
+        setModo(c.modo_preco === "pro_rata" ? "pro_rata" : "manual");
+    }, [props.open, props.combo]);
+
+    function syncFromUnits(next: DraftLine[]) {
+        setLines(next);
+        setModo("manual");
+        setPreco(formatBrlInput(sumLines(next)));
+    }
+
+    function applyComboTotal(masked: string, current = lines) {
+        setPreco(masked);
+        setModo("pro_rata");
+        const total = parseBrl(masked);
+        const parts = current.map((l) => Math.round(l.price * l.quantidade * 100) / 100);
+        const catalog = parts.reduce((a, b) => a + b, 0);
+        if (total <= 0 || current.length === 0 || parts.some((p) => p <= 0) || total > catalog + 0.001) return;
+        const shares = previewRateio(parts, total);
+        setLines(current.map((l, i) => ({
+            ...l,
+            precoUnitario: formatBrlInput(shares[i] / l.quantidade),
+        })));
+    }
 
     function addLine(hit: EmbHit) {
         if (lines.some((l) => l.id === hit.id)) return;
-        setLines((prev) => [...prev, { ...hit, quantidade: 1, precoUnitario: String(hit.price) }]);
+        syncFromUnits([...lines, { ...hit, quantidade: 1, precoUnitario: formatBrlInput(hit.price) }]);
     }
 
-    async function createProduct() {
-        setBusy(true);
-        setErr(null);
-        try {
-            const price = Number(novoPreco.replace(",", "."));
-            if (!novoNome.trim() || !novoCat || !unSiglaId || !(price > 0)) {
-                setErr("Informe nome, categoria e um preço maior que zero. A sigla UN precisa existir na empresa.");
-                return;
-            }
-            const created = await fetch("/api/admin/products", {
-                method: "POST",
-                credentials: "include",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                    name: novoNome.trim(),
-                    category_id: novoCat,
-                    is_active: true,
-                    vender_com_estoque_zero: true,
-                    volumes: [{
-                        estoque_atual: 0,
-                        estoque_minimo: 0,
-                        items: [{
-                            id_sigla_comercial: unSiglaId,
-                            fator_conversao: 1,
-                            preco_venda: price,
-                            descricao: novoNome.trim(),
-                        }],
-                    }],
-                }),
-            });
-            const createdJson = await created.json().catch(() => ({}));
-            if (!created.ok) {
-                setErr(createdJson.error || "Não cadastrou o produto.");
-                return;
-            }
-            const productId = String(createdJson.product_id ?? "");
-            if (productId && !novoNoMenu) {
-                const vis = await fetch("/api/admin/products/menu-visibility", {
-                    method: "POST",
-                    credentials: "include",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ productId, showOnMenu: false }),
-                });
-                if (!vis.ok) {
-                    const visJson = await vis.json().catch(() => ({}));
-                    setErr(visJson.error || "Produto criado, mas não saiu do cardápio.");
-                }
-            }
-            const search = await fetch(`/api/admin/pdv/products?q=${encodeURIComponent(novoNome.trim())}&limit=12`, {
-                credentials: "include",
-            });
-            const searchJson = await search.json().catch(() => ({}));
-            const rows = Array.isArray(searchJson.rows) ? searchJson.rows : [];
-            const wanted = novoNome.trim().toUpperCase();
-            const row = rows.find((r: { product_name?: string; sigla_comercial?: string }) =>
-                String(r.product_name ?? "").toUpperCase() === wanted && String(r.sigla_comercial ?? "") !== "KIT"
-            );
-            if (!row?.id) {
-                setErr("Produto criado. Busque o nome acima para incluir no combo.");
-                return;
-            }
-            addLine({
-                id: String(row.id),
-                label: `${row.product_name ?? novoNome} (${row.sigla_comercial ?? "UN"})`,
-                price: Number(row.preco_venda ?? price),
-            });
-            setNovoNome("");
-            setNovoPreco("");
-        } finally {
-            setBusy(false);
-        }
+    function removeLine(id: string) {
+        syncFromUnits(lines.filter((l) => l.id !== id));
     }
 
     useEffect(() => {
@@ -377,8 +438,10 @@ function ComboDialog(props: {
                 credentials: "include",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
+                    id: props.combo?.id,
                     nome,
                     show_on_menu: showOnMenu,
+                    image_path: props.combo?.image_path ?? null,
                     itens: lines.map((l) => ({ produto_embalagem_id: l.id, quantidade: l.quantidade })),
                 }),
             });
@@ -387,27 +450,40 @@ function ComboDialog(props: {
                 setErr(createdJson.error || "Não salvou o combo.");
                 return;
             }
+            const comboId = String(createdJson.id ?? props.combo?.id ?? "");
+            if (foto && comboId) {
+                const form = new FormData();
+                form.append("kind", "combo");
+                form.append("id", comboId);
+                form.append("file", foto);
+                const up = await fetch("/api/admin/catalog-image", { method: "POST", credentials: "include", body: form });
+                if (!up.ok) {
+                    const upJson = await up.json().catch(() => ({}));
+                    setErr(upJson.error || "Combo salvo, mas a foto não entrou.");
+                    return;
+                }
+            }
             const priced = await fetch("/api/admin/combos/preco", {
                 method: "POST",
                 credentials: "include",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
-                    combo_id: createdJson.id,
+                    combo_id: comboId,
                     modo,
-                    preco: modo === "pro_rata" ? Number(preco.replace(",", ".")) : undefined,
-                    is_active: true,
+                    preco: modo === "pro_rata" ? parseBrl(preco) : undefined,
+                    is_active: props.combo?.is_active ?? true,
                     itens: lines.map((l) => ({
                         produto_embalagem_id: l.id,
-                        preco_unitario: Number(l.precoUnitario.replace(",", ".")),
+                        preco_unitario: parseBrl(l.precoUnitario),
                     })),
                 }),
             });
             const pricedJson = await priced.json().catch(() => ({}));
             if (!priced.ok) {
-                setErr(pricedJson.error || "O combo foi criado sem preço.");
+                setErr(pricedJson.error || "O combo foi salvo sem preço.");
                 return;
             }
-            await props.onSaved("Combo salvo.");
+            await props.onSaved(props.combo ? "Combo atualizado." : "Combo salvo.");
         } finally {
             setBusy(false);
         }
@@ -416,11 +492,23 @@ function ComboDialog(props: {
     return (
         <Dialog open={props.open} onOpenChange={props.onOpenChange}>
             <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-lg">
-                <DialogTitle>Novo combo</DialogTitle>
+                <DialogTitle>{props.combo ? "Editar combo" : "Novo combo"}</DialogTitle>
                 <label className={fieldLabel}>
                     Nome
                     <input className={`mt-1 ${fieldInput}`} value={nome} onChange={(e) => setNome(e.target.value)} />
                 </label>
+                <label className={fieldLabel}>
+                    Foto do combo
+                    <input
+                        type="file"
+                        accept="image/jpeg,image/png,image/webp"
+                        className={`mt-1 ${fieldInput}`}
+                        onChange={(e) => setFoto(e.target.files?.[0] ?? null)}
+                    />
+                </label>
+                {props.combo?.image_path && !foto ? (
+                    <img src={props.combo.image_path} alt="" className="h-16 w-16 rounded-lg object-cover" />
+                ) : null}
                 <label className={choiceLabel}>
                     <input type="checkbox" checked={showOnMenu} onChange={(e) => setShowOnMenu(e.target.checked)} />
                     Mostrar no cardápio
@@ -432,74 +520,56 @@ function ComboDialog(props: {
                 <ul className="mt-2 flex flex-col gap-1">
                     {hits.map((h) => (
                         <li key={h.id}>
-                            <button
-                                type="button"
-                                className={hitBtn}
-                                onClick={() => addLine(h)}
-                            >
+                            <button type="button" className={hitBtn} onClick={() => addLine(h)}>
                                 {h.label} · {brl(h.price)}
                             </button>
                         </li>
                     ))}
                 </ul>
-                <fieldset className="mt-4 flex flex-col gap-2 rounded-lg border border-zinc-200 p-3 dark:border-zinc-700">
-                    <legend className={`px-1 ${fieldLabel}`}>Ou cadastrar produto novo</legend>
-                    <input className={fieldInput} placeholder="Nome" value={novoNome} onChange={(e) => setNovoNome(e.target.value)} />
-                    <select className={fieldInput} value={novoCat} onChange={(e) => setNovoCat(e.target.value)} aria-label="Categoria do produto novo">
-                        <option value="">Categoria</option>
-                        {categories.map((c) => (
-                            <option key={c.id} value={c.id}>{c.name}</option>
-                        ))}
-                    </select>
-                    <input className={fieldInput} placeholder="Preço de venda" value={novoPreco} onChange={(e) => setNovoPreco(e.target.value)} />
-                    <label className={choiceLabel}>
-                        <input type="checkbox" checked={novoNoMenu} onChange={(e) => setNovoNoMenu(e.target.checked)} />
-                        Mostrar este produto sozinho no cardápio
-                    </label>
-                    <Button type="button" variant="outline" disabled={busy} onClick={() => void createProduct()}>
-                        Cadastrar e incluir no combo
-                    </Button>
-                </fieldset>
+                <Link href="/produtos/lista?novo=1" className="text-sm font-semibold text-zinc-700 underline-offset-2 hover:underline dark:text-zinc-200">
+                    Adicionar novo produto
+                </Link>
                 <ul className="mt-3 flex flex-col gap-2">
                     {lines.map((l) => (
-                        <li key={l.id} className="grid grid-cols-[minmax(0,1fr)_4rem_6rem] items-center gap-2 text-sm text-foreground">
-                            <span className="truncate">{l.label}</span>
-                            <input
-                                aria-label={`Quantidade de ${l.label}`}
-                                className={fieldInput}
-                                inputMode="numeric"
-                                value={l.quantidade}
-                                onChange={(e) => {
-                                    const quantidade = Math.max(1, Number(e.target.value) || 1);
-                                    setLines((prev) => prev.map((x) => (x.id === l.id ? { ...x, quantidade } : x)));
+                        <li key={l.id} className="grid grid-cols-[minmax(0,1fr)_4.5rem_6.5rem_auto] items-end gap-2 text-sm text-foreground">
+                            <span className="truncate pb-2">{l.label}</span>
+                            <label className="text-[11px] font-semibold text-zinc-500 dark:text-zinc-400">
+                                Qtd
+                                <input
+                                    aria-label={`Quantidade de ${l.label}`}
+                                    className={fieldInput}
+                                    inputMode="numeric"
+                                    value={l.quantidade}
+                                    onChange={(e) => {
+                                        const quantidade = Math.max(1, Number(e.target.value) || 1);
+                                        syncFromUnits(lines.map((x) => (x.id === l.id ? { ...x, quantidade } : x)));
+                                    }}
+                                />
+                            </label>
+                            <MoneyField
+                                label="Unitário"
+                                value={l.precoUnitario}
+                                onChange={(masked) => {
+                                    syncFromUnits(lines.map((x) => (x.id === l.id ? { ...x, precoUnitario: masked } : x)));
                                 }}
                             />
-                            <input
-                                aria-label={`Preço unitário de ${l.label}`}
-                                className={fieldInput}
-                                value={l.precoUnitario}
-                                onChange={(e) => setLines((prev) => prev.map((x) => (x.id === l.id ? { ...x, precoUnitario: e.target.value } : x)))}
-                                disabled={modo !== "manual"}
-                            />
+                            <button
+                                type="button"
+                                aria-label={`Remover ${l.label}`}
+                                className="mb-1 rounded-md p-2 text-zinc-500 hover:bg-zinc-100 hover:text-red-700 dark:hover:bg-zinc-800 dark:hover:text-red-400"
+                                onClick={() => removeLine(l.id)}
+                            >
+                                <Trash2 className="h-4 w-4" />
+                            </button>
                         </li>
                     ))}
                 </ul>
-                <fieldset className="mt-3 flex gap-4">
-                    <label className={choiceLabel}>
-                        <input type="radio" name="modo" checked={modo === "pro_rata"} onChange={() => setModo("pro_rata")} />
-                        Pro rata
-                    </label>
-                    <label className={choiceLabel}>
-                        <input type="radio" name="modo" checked={modo === "manual"} onChange={() => setModo("manual")} />
-                        Preço de cada item
-                    </label>
-                </fieldset>
-                {modo === "pro_rata" ? (
-                    <label className={fieldLabel}>
-                        Valor do combo
-                        <input className={`mt-1 ${fieldInput}`} value={preco} onChange={(e) => setPreco(e.target.value)} />
-                    </label>
-                ) : null}
+                <MoneyField label="Valor do combo" value={preco} onChange={(masked) => applyComboTotal(masked)} />
+                <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                    {modo === "pro_rata"
+                        ? "O valor do combo reparte o preço entre os produtos."
+                        : "A soma dos produtos atualiza o valor do combo."}
+                </p>
                 {err ? <p className="mt-2 text-sm text-red-700 dark:text-red-400">{err}</p> : null}
                 <Button type="button" className="mt-4" disabled={busy || lines.length === 0} onClick={() => void save()}>
                     {busy ? "Salvando…" : "Salvar combo"}
@@ -511,6 +581,8 @@ function ComboDialog(props: {
 
 function PromoDialog(props: {
     open: boolean;
+    promo: PromoRow | null;
+    atLimit: boolean;
     combos: ComboRow[];
     onOpenChange: (open: boolean) => void;
     onSaved: (msg: string) => Promise<void>;
@@ -523,8 +595,32 @@ function PromoDialog(props: {
     const [alvoId, setAlvoId] = useState("");
     const [alvoKind, setAlvoKind] = useState<"emb" | "combo">("emb");
     const [preco, setPreco] = useState("");
+    const [foto, setFoto] = useState<File | null>(null);
     const [err, setErr] = useState<string | null>(null);
     const [busy, setBusy] = useState(false);
+
+    useEffect(() => {
+        if (!props.open) return;
+        const p = props.promo;
+        setFoto(null);
+        setErr(null);
+        if (!p) {
+            setNome("");
+            setStarts("");
+            setEnds("");
+            setAlvoId("");
+            setAlvoKind("emb");
+            setPreco("");
+            return;
+        }
+        setNome(p.nome);
+        setStarts(toDatetimeLocal(p.starts_at));
+        setEnds(toDatetimeLocal(p.ends_at));
+        const alvo = p.alvos?.[0];
+        setAlvoKind(alvo?.combo_id ? "combo" : "emb");
+        setAlvoId(alvo?.combo_id ?? alvo?.produto_embalagem_id ?? "");
+        setPreco(alvo ? formatBrlInput(Number(alvo.preco_promocional)) : "");
+    }, [props.open, props.promo]);
 
     useEffect(() => {
         const query = q.trim();
@@ -555,17 +651,18 @@ function PromoDialog(props: {
         setErr(null);
         try {
             const alvo = alvoKind === "combo"
-                ? { combo_id: alvoId, preco_promocional: Number(preco.replace(",", ".")) }
-                : { produto_embalagem_id: alvoId, preco_promocional: Number(preco.replace(",", ".")) };
+                ? { combo_id: alvoId, preco_promocional: parseBrl(preco) }
+                : { produto_embalagem_id: alvoId, preco_promocional: parseBrl(preco) };
             const res = await fetch("/api/admin/promocoes", {
                 method: "POST",
                 credentials: "include",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
+                    id: props.promo?.id,
                     nome,
                     starts_at: cuiabaIso(starts),
                     ends_at: cuiabaIso(ends),
-                    paused: false,
+                    paused: props.promo?.paused ?? false,
                     alvos: [alvo],
                 }),
             });
@@ -574,7 +671,20 @@ function PromoDialog(props: {
                 setErr(json.error || "Não salvou a promoção.");
                 return;
             }
-            await props.onSaved("Promoção salva.");
+            const promoId = String(json.id ?? props.promo?.id ?? "");
+            if (foto && promoId) {
+                const form = new FormData();
+                form.append("kind", "promo");
+                form.append("id", promoId);
+                form.append("file", foto);
+                const up = await fetch("/api/admin/catalog-image", { method: "POST", credentials: "include", body: form });
+                if (!up.ok) {
+                    const upJson = await up.json().catch(() => ({}));
+                    setErr(upJson.error || "Promoção salva, mas a arte não entrou.");
+                    return;
+                }
+            }
+            await props.onSaved(props.promo ? "Promoção atualizada." : "Promoção salva.");
         } finally {
             setBusy(false);
         }
@@ -583,11 +693,27 @@ function PromoDialog(props: {
     return (
         <Dialog open={props.open} onOpenChange={props.onOpenChange}>
             <DialogContent className="sm:max-w-lg">
-                <DialogTitle>Nova promoção</DialogTitle>
-                <p className="text-xs text-zinc-500 dark:text-zinc-400">Início e fim no horário de Cuiabá.</p>
+                <DialogTitle>{props.promo ? "Editar promoção" : "Nova promoção"}</DialogTitle>
+                {!props.promo && props.atLimit ? (
+                    <p className="text-sm text-amber-800 dark:text-amber-200">
+                        Esta loja já tem 5 promoções em aberto. Edite ou espere uma expirar.
+                    </p>
+                ) : null}
+                <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                    Início e fim no horário de Cuiabá. Sem arte, o cardápio monta uma faixa com o nome e o preço.
+                </p>
                 <label className={fieldLabel}>
                     Nome
                     <input className={`mt-1 ${fieldInput}`} value={nome} onChange={(e) => setNome(e.target.value)} />
+                </label>
+                <label className={fieldLabel}>
+                    Arte da promoção
+                    <input
+                        type="file"
+                        accept="image/jpeg,image/png,image/webp"
+                        className={`mt-1 ${fieldInput}`}
+                        onChange={(e) => setFoto(e.target.files?.[0] ?? null)}
+                    />
                 </label>
                 <div className="mt-3 grid grid-cols-2 gap-2">
                     <label className={fieldLabel}>
@@ -630,12 +756,12 @@ function PromoDialog(props: {
                         </ul>
                     </>
                 )}
-                <label className={fieldLabel}>
-                    Preço promocional
-                    <input className={`mt-1 ${fieldInput}`} value={preco} onChange={(e) => setPreco(e.target.value)} />
-                </label>
+                <MoneyField label="Preço promocional" value={preco} onChange={setPreco} />
+                <Link href="/produtos/lista?novo=1" className="text-sm font-semibold text-zinc-700 underline-offset-2 hover:underline dark:text-zinc-200">
+                    Adicionar novo produto
+                </Link>
                 {err ? <p className="mt-2 text-sm text-red-700 dark:text-red-400">{err}</p> : null}
-                <Button type="button" className="mt-4" disabled={busy || !alvoId} onClick={() => void save()}>
+                <Button type="button" className="mt-4" disabled={busy || !alvoId || (!props.promo && props.atLimit)} onClick={() => void save()}>
                     {busy ? "Salvando…" : "Salvar promoção"}
                 </Button>
             </DialogContent>

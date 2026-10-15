@@ -2,6 +2,7 @@
 "use client";
 import React, { useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useWorkspace } from "@/lib/workspace/useWorkspace";
 import {
     Camera, CheckCircle2, Loader2, Pencil, Plus, RefreshCw,
@@ -553,6 +554,9 @@ function ProductFlagsSticky({
 
 export default function ProdutosListaPage() {
     const { currentCompanyId: companyId } = useWorkspace();
+    const searchParams = useSearchParams();
+    const router = useRouter();
+    const openedNovo = useRef(false);
 
     const [rows,       setRows]       = useState<Row[]>([]);
     const [categories, setCategories] = useState<Category[]>([]);
@@ -1078,6 +1082,13 @@ export default function ProdutosListaPage() {
         setCreateImageFile(null);
         setOpenCreate(true);
     }
+
+    useEffect(() => {
+        if (openedNovo.current || searchParams.get("novo") !== "1") return;
+        openedNovo.current = true;
+        openNew();
+        router.replace("/produtos/lista", { scroll: false });
+    }, [searchParams, router]);
 
     // ── save edit ─────────────────────────────────────────────────────────────
 

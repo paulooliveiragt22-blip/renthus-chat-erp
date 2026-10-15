@@ -231,6 +231,7 @@ export function parsePublicMenuRpcPayload(raw: unknown): PublicMenuResult {
     const menu: PublicMenuResponse = {
         store,
         categories,
+        banners: [],
         itemCount: items.length + combos.length,
         generatedAt: new Date().toISOString(),
     };

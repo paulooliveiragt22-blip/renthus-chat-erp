@@ -77,9 +77,18 @@ export interface PublicMenuCategory {
     items: PublicMenuItem[];
 }
 
+export interface PublicMenuBanner {
+    id: string;
+    name: string;
+    price: number | null;
+    endsAt: string;
+    imageUrl: string | null;
+}
+
 export interface PublicMenuResponse {
     store: PublicMenuStore;
     categories: PublicMenuCategory[];
+    banners: PublicMenuBanner[];
     itemCount: number;
     generatedAt: string;
 }
