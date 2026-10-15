@@ -5,6 +5,7 @@ import { extractPartySizeRequest } from "../../src/pro/pipeline/partySizeRequest
 import { formatPartySizeReply } from "../../src/pro/pipeline/partySizeOffers";
 import {
     applyMinimumOrderNotice,
+    deliveryAdvanceBlockedByMinimum,
     pickMinimumGapSuggestions,
 } from "../../src/pro/pipeline/minimumGapFill";
 import type { OrderDraft } from "../../src/types/contracts";
@@ -152,15 +153,38 @@ describe("sugestão para completar o mínimo", () => {
         assert.match(text, /50,00/);
     });
 
-    it("o aviso vem depois do texto do pedido", () => {
+    it("abaixo do mínimo a resposta é só o aviso, sem cartão de endereço", () => {
         const out = applyMinimumOrderNotice(
-            [{ kind: "text", text: "Anotei 1 SKOL LATA (CX c/15)." }],
+            [
+                { kind: "text", text: "Anotei 1 SKOL LATA (CX c/15)." },
+                {
+                    kind: "buttons",
+                    text: "O endereço de entrega é Casa?",
+                    buttons: [{ id: "pro_confirm_saved_address", title: "Confirmar" }],
+                },
+            ],
             shortDraft(20, 50),
             [{ produtoEmbalagemId: "skol-cx-2", label: "SKOL LONG NECK (CX c/12)", price: 48 }],
             null
         );
-        assert.match(String(out[0]?.text), /Anotei/);
-        assert.match(String(out[1]?.text), /Para completar/);
-        assert.match(String(out[1]?.text), /SKOL LONG NECK/);
+        assert.equal(out.length, 1);
+        assert.equal(out[0]?.kind, "text");
+        assert.match(String(out[0]?.text), /Para completar/);
+        assert.match(String(out[0]?.text), /SKOL LONG NECK/);
+        assert.equal(String(out[0]?.text).includes("endereço"), false);
+    });
+
+    it("mínimo da loja segura a entrega antes de existir endereço no rascunho", () => {
+        const draft = { ...shortDraft(20, null), deliveryMinOrder: null };
+        assert.equal(deliveryAdvanceBlockedByMinimum(draft, 50), true);
+        assert.equal(deliveryAdvanceBlockedByMinimum({ ...draft, grandTotal: 50 }, 50), false);
+        assert.equal(
+            deliveryAdvanceBlockedByMinimum({ ...draft, fulfillmentType: "pickup" }, 50),
+            false
+        );
+        assert.equal(
+            deliveryAdvanceBlockedByMinimum({ ...draft, fulfillmentType: undefined }, 50),
+            false
+        );
     });
 });

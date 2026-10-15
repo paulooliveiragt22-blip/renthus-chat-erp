@@ -65,6 +65,16 @@ describe("ProIntentClassifierService", () => {
         assert.equal(out.reasonCode, "button_id_match");
     });
 
+    it("manda o cardápio durante o pedido vira catalog_intent, não continuação", async () => {
+        const svc = new ProIntentClassifierService();
+        const out = await svc.classify({
+            context: baseContext(),
+            userText: "Manda o cardápio pra mim",
+        });
+        assert.equal(out.intent, "catalog_intent");
+        assert.equal(out.reasonCode, "regex_match");
+    });
+
     it("resposta numerica curta em pedido activo mantém order_intent (sem menu inicial)", async () => {
         const prev = process.env.ANTHROPIC_API_KEY;
         delete process.env.ANTHROPIC_API_KEY;

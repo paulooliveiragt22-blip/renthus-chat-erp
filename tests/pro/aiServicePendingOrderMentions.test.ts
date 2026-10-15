@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { MockLanguageModelV3 } from "ai/test";
-import type { SupabaseClient } from "@supabase/supabase-js";
 import { AiServiceAdapter } from "../../src/pro/adapters/ai/ai.service";
+import { aiWalletTestAdmin } from "./aiWalletAdminStub";
 import type { CatalogPort } from "../../src/pro/ports/catalog.port";
 import type { OrderDraftPort } from "../../src/pro/ports/orderDraft.port";
 import type { AiServiceInput, OrderWorklist, PipelineContext } from "../../src/types/contracts";
@@ -111,7 +111,7 @@ describe("AiServiceAdapter — orderWorklist pending_search (item citado e não 
             },
         });
 
-        const svc = new AiServiceAdapter({} as SupabaseClient, {
+        const svc = new AiServiceAdapter(aiWalletTestAdmin(), {
             model,
             catalog: catalogEmpty(),
             orderDraft: untouchableOrderDraft(),
@@ -152,7 +152,7 @@ describe("AiServiceAdapter — orderWorklist pending_search (item citado e não 
             },
         });
 
-        const svc = new AiServiceAdapter({} as SupabaseClient, {
+        const svc = new AiServiceAdapter(aiWalletTestAdmin(), {
             model,
             catalog: catalogEmpty(),
             orderDraft: untouchableOrderDraft(),
@@ -207,7 +207,7 @@ describe("AiServiceAdapter — orderWorklist pending_search (item citado e não 
             },
         });
 
-        const svc = new AiServiceAdapter({} as SupabaseClient, {
+        const svc = new AiServiceAdapter(aiWalletTestAdmin(), {
             model,
             catalog: catalogEmpty(),
             orderDraft: untouchableOrderDraft(),
@@ -258,7 +258,7 @@ describe("AiServiceAdapter — orderWorklist pending_search (item citado e não 
             },
         });
 
-        const svc = new AiServiceAdapter({} as SupabaseClient, {
+        const svc = new AiServiceAdapter(aiWalletTestAdmin(), {
             model,
             catalog: catalogEmpty(),
             orderDraft: untouchableOrderDraft(),

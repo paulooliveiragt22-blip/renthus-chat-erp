@@ -62,6 +62,20 @@ describe("routeStage F5 web menu", () => {
         assert.equal(cta?.ctaUrl?.url, webMenuOrdersUrl);
     });
 
+    it("frase livre de cardápio envia o botão, mesmo com intenção de pedido", () => {
+        const out = routeStage({
+            state: idle(),
+            decision: decision("order_intent"),
+            inboundText: "Manda o cardápio pra mim",
+            tenant,
+            webMenuUrl,
+        });
+        assert.equal(out.mode, "direct_reply");
+        const cta = out.outbound.find((m) => m.kind === "cta_url");
+        assert.equal(cta?.ctaUrl?.displayText, "Abrir cardápio");
+        assert.equal(String(cta?.ctaUrl?.bodyText ?? "").includes("http"), false);
+    });
+
     it("catálogo (btn_catalog) envia CTA do cardápio", () => {
         const out = routeStage({
             state: idle(),

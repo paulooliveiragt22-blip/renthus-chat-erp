@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 import { trimRawPayloadForApi } from "../../lib/whatsapp/trimRawPayloadForApi";
 import {
     AI_WALLET_MAX_SINGLE_DEBIT_CENTS,
+    aiTurnAllowed,
     clampAiDebitCents,
 } from "../../lib/billing/aiWallet";
 import { wrapUserInboundForLlm } from "../../src/pro/adapters/ai/userInboundGuard";
@@ -46,6 +47,15 @@ describe("clampAiDebitCents (B13)", () => {
             clampAiDebitCents(AI_WALLET_MAX_SINGLE_DEBIT_CENTS + 1),
             AI_WALLET_MAX_SINGLE_DEBIT_CENTS
         );
+    });
+});
+
+describe("aiTurnAllowed", () => {
+    it("recusa saldo zero e saldo menor que o último débito", () => {
+        assert.equal(aiTurnAllowed(0, 0), false);
+        assert.equal(aiTurnAllowed(7, 0), true);
+        assert.equal(aiTurnAllowed(6, 7), false);
+        assert.equal(aiTurnAllowed(7, 7), true);
     });
 });
 

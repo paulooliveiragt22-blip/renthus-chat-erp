@@ -85,7 +85,7 @@ import {
     runLlmWithResilience,
     type CircuitStateChangeEvent,
 } from "@/lib/chatbot/llmResilience";
-import { debitFromAnthropicUsage } from "@/lib/billing/aiWallet";
+import { beginAiTurn, debitFromAnthropicUsage, releaseAiTurn } from "@/lib/billing/aiWallet";
 import { wrapUserInboundForLlm } from "./userInboundGuard";
 import { budgetAiHistoryForLlm } from "./aiHistoryBudget";
 import {
@@ -1045,8 +1045,27 @@ export class AiServiceAdapter implements AiService {
                     ? ({ type: "tool" as const, toolName: "prepare_order_draft" as const })
                     : undefined;
             const maxSteps = Math.max(2, input.limits.maxToolRounds + 5);
+            const threadId = input.context.tenant.threadId;
+            const turnKey = `${input.context.tenant.messageId}:pro_ai`;
+            const begun = await beginAiTurn(this.admin, companyId, turnKey, 1);
+            if (!begun.allowed) {
+                return {
+                    action: "error",
+                    replyText: "",
+                    updatedDraft: input.draft,
+                    updatedHistory: input.history,
+                    updatedSearchProdutoEmbalagemIds: turnState.allowlistIds,
+                    updatedOrderWorklist: turnState.orderWorklist,
+                    updatedPendingPickGroups: turnState.pendingPickGroups,
+                    signals: { toolRoundsUsed: 0, intentMarker: "unknown" },
+                    errorCode: "AI_WALLET_EMPTY",
+                };
+            }
+            let aiStep = 0;
 
-            const result = await runLlmWithResilience(
+            const result = await (async () => {
+            try {
+            return await runLlmWithResilience(
                 provider,
                 () =>
                 generateText({
@@ -1248,6 +1267,8 @@ export class AiServiceAdapter implements AiService {
                                 outputTokens,
                             });
                         }
+                        const stepKey = `${turnKey}:step:${aiStep}`;
+                        aiStep += 1;
                         await debitFromAnthropicUsage(
                             this.admin,
                             companyId,
@@ -1259,6 +1280,9 @@ export class AiServiceAdapter implements AiService {
                                 no_cache_input_tokens: noCacheInputTokens,
                             },
                             {
+                                turn_key: turnKey,
+                                step_key: stepKey,
+                                thread_id: threadId,
                                 source: "pro_ai_service",
                                 provider,
                                 model: modelId,
@@ -1298,6 +1322,12 @@ export class AiServiceAdapter implements AiService {
                 }),
                 { onCircuitStateChange: this.onCircuitStateChange, companyId }
             );
+            } finally {
+                await releaseAiTurn(this.admin, companyId, turnKey).catch((e: unknown) => {
+                    console.warn("[ai.service] falha ao soltar reserva", e);
+                });
+            }
+            })();
 
             const finalRespondCall = result.toolCalls.find((c) => c.toolName === "respond_to_customer");
             if (!finalRespondCall) {

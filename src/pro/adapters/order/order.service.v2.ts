@@ -450,6 +450,16 @@ export class OrderServiceV2Adapter implements OrderService {
             });
         }
 
+        if (orderSource === "ai_chat_pro_v2" && tenant.threadId) {
+            const { attributeAiOrderUsage } = await import("@/lib/billing/aiWallet");
+            await attributeAiOrderUsage(
+                this.admin,
+                tenant.companyId,
+                String(orderId),
+                tenant.threadId
+            );
+        }
+
         const code = `#${String(orderId).replaceAll("-", "").slice(-6).toUpperCase()}`;
         const customerMessage = buildOrderCustomerMessage({
             orderCode: code,

@@ -10,6 +10,7 @@ import {
     listCustomerCards,
 } from "@/lib/billing/pagarme";
 import { fulfillPayment } from "@/lib/billing/fulfillPayment";
+import { setAiWalletAutorecharge } from "@/lib/billing/aiWallet";
 import { billingLog } from "@/lib/billing/billingLog";
 
 type Admin = ReturnType<typeof createAdminClient>;
@@ -153,13 +154,10 @@ export async function processAiRechargeJobs(admin: Admin): Promise<ProcessAiRech
                 })
                 .eq("id", job.id);
 
-            await admin
-                .from("company_ai_wallets")
-                .update({
-                    auto_recharge_last_error: null,
-                    updated_at: new Date().toISOString(),
-                })
-                .eq("company_id", job.company_id);
+            await setAiWalletAutorecharge(admin, job.company_id, {
+                lastError: null,
+                updateError: true,
+            });
 
             result.paid++;
             billingLog("ai_recharge", "paid", {
@@ -183,13 +181,10 @@ export async function processAiRechargeJobs(admin: Admin): Promise<ProcessAiRech
                 })
                 .eq("id", job.id);
 
-            await admin
-                .from("company_ai_wallets")
-                .update({
-                    auto_recharge_last_error: msg.slice(0, 500),
-                    updated_at: new Date().toISOString(),
-                })
-                .eq("company_id", job.company_id);
+            await setAiWalletAutorecharge(admin, job.company_id, {
+                lastError: msg.slice(0, 500),
+                updateError: true,
+            }).catch(() => {});
 
             billingLog("ai_recharge", "failed", {
                 company_id: job.company_id,

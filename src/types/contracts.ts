@@ -17,6 +17,7 @@ export type Intent =
     | "order_intent"
     | "status_intent"
     | "human_intent"
+    | "catalog_intent"
     | "faq"
     | "greeting"
     | "unknown";
@@ -623,7 +624,7 @@ export interface AiServiceResult {
             searchHitsZero: number;
         };
     };
-    errorCode?: "AI_TIMEOUT" | "AI_RATE_LIMIT" | "AI_PROVIDER_ERROR" | "TOOL_FAILED";
+    errorCode?: "AI_TIMEOUT" | "AI_RATE_LIMIT" | "AI_PROVIDER_ERROR" | "AI_WALLET_EMPTY" | "TOOL_FAILED";
 }
 
 export interface OrderServiceInput {

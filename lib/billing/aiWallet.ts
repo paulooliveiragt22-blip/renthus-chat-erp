@@ -1,6 +1,6 @@
 /**
  * Carteira de crédito IA: incluso 10% do plano/mês + packs prepaid.
- * Debita texto (LLM) e STT (áudio). Sem saldo: trava a IA (perfil degradado).
+ * Saldo só muda pelas RPCs (ADR 0016). Sem saldo que cubra o último débito, a IA não inicia.
  *
  * Preços STT: ver `lib/billing/sttPricing.ts` (OpenAI estimated $/min).
  */
@@ -8,14 +8,12 @@
 import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { loadAiIncludedBudget } from "@/lib/billing/loadCommercialPlanPricing";
 import {
     estimateSttCostBrlCents,
     normalizeSttDurationSec,
     sttUsdPerMinute,
 } from "@/lib/billing/sttPricing";
 import { estimateLlmCostBrlCents, usdBrlRateFromEnv } from "@/lib/billing/llmPricing";
-import { isUniqueViolation } from "@/lib/billing/isUniqueViolation";
 
 export {
     estimateSttCostBrlCents,
@@ -39,12 +37,6 @@ export function clampAiDebitCents(costCents: number): number {
     return Math.min(Math.floor(costCents), AI_WALLET_MAX_SINGLE_DEBIT_CENTS);
 }
 
-function yearMonthUtc(d = new Date()): string {
-    const y = d.getUTCFullYear();
-    const m = d.getUTCMonth() + 1;
-    return `${y}-${String(m).padStart(2, "0")}`;
-}
-
 /** @deprecated Use `estimateLlmCostBrlCents(model, …)`. Mantido: Haiku 4.5. */
 export function estimateHaikuCostBrlCents(inputTokens: number, outputTokens: number): number {
     return estimateLlmCostBrlCents("claude-haiku-4-5", inputTokens, outputTokens);
@@ -57,171 +49,151 @@ export type AiWalletSnapshot = {
     prepaidBalanceCents: number;
     remainingIncludedCents: number;
     remainingTotalCents: number;
+    reservedCents: number;
+    lastDebitCents: number;
     autoRechargeEnabled: boolean;
     autoRechargePackCents: number | null;
+    /** Fim do mês de crédito incluso. O que sobrar não passa para o mês seguinte. */
+    includedPeriodEnd: string | null;
 };
+
+export type AiOrderUsageAverage = {
+    orderCount: number;
+    avgCalls: number;
+    avgInputTokens: number;
+    avgOutputTokens: number;
+    avgCostCents: number;
+};
+
+export type AiTurnBegin = {
+    allowed: boolean;
+    reused: boolean;
+    reason: string | null;
+};
+
+function num(value: unknown): number {
+    const n = Number(value);
+    return Number.isFinite(n) ? n : 0;
+}
+
+function asRecord(data: unknown): Record<string, unknown> {
+    if (data && typeof data === "object" && !Array.isArray(data)) {
+        return data as Record<string, unknown>;
+    }
+    throw new Error("rpc_ai_wallet_empty");
+}
+
+function mapSnapshot(data: unknown): AiWalletSnapshot {
+    const row = asRecord(data);
+    return {
+        periodYm: String(row.period_ym ?? ""),
+        includedBudgetCents: num(row.included_budget_cents),
+        includedSpentCents: num(row.included_spent_cents),
+        prepaidBalanceCents: num(row.prepaid_balance_cents),
+        remainingIncludedCents: num(row.remaining_included_cents),
+        remainingTotalCents: num(row.remaining_total_cents),
+        reservedCents: num(row.reserved_cents),
+        lastDebitCents: num(row.last_debit_cents),
+        autoRechargeEnabled: Boolean(row.auto_recharge_enabled),
+        autoRechargePackCents:
+            row.auto_recharge_pack_cents == null ? null : num(row.auto_recharge_pack_cents),
+        includedPeriodEnd:
+            row.included_period_end == null || row.included_period_end === ""
+                ? null
+                : String(row.included_period_end),
+    };
+}
+
+/** Disponível para o próximo turno. Espelha `rpc_begin_ai_turn`. */
+export function aiTurnAllowed(remainingTotalCents: number, lastDebitCents: number): boolean {
+    if (remainingTotalCents <= 0) return false;
+    if (lastDebitCents > 0 && remainingTotalCents < lastDebitCents) return false;
+    return true;
+}
+
+async function rpcJson(
+    admin: SupabaseClient,
+    fn: string,
+    args: Record<string, unknown>
+): Promise<Record<string, unknown>> {
+    const { data, error } = await admin.rpc(fn, args);
+    if (error) throw new Error(error.message);
+    return asRecord(data);
+}
 
 export async function ensureAiWallet(
     admin: SupabaseClient,
     companyId: string
 ): Promise<AiWalletSnapshot> {
-    const ym = yearMonthUtc();
-    const budget = await loadAiIncludedBudget(admin, companyId);
-
-    const { data: row } = await admin
-        .from("company_ai_wallets")
-        .select("*")
-        .eq("company_id", companyId)
-        .maybeSingle();
-
-    if (!row) {
-        await admin.from("company_ai_wallets").upsert({
-            company_id: companyId,
-            period_ym: ym,
-            included_budget_cents: budget,
-            included_spent_cents: 0,
-            prepaid_balance_cents: 0,
-            updated_at: new Date().toISOString(),
-        });
-        return {
-            periodYm: ym,
-            includedBudgetCents: budget,
-            includedSpentCents: 0,
-            prepaidBalanceCents: 0,
-            remainingIncludedCents: budget,
-            remainingTotalCents: budget,
-            autoRechargeEnabled: false,
-            autoRechargePackCents: null,
-        };
-    }
-
-    let includedBudget = Number(row.included_budget_cents ?? budget);
-    let includedSpent = Number(row.included_spent_cents ?? 0);
-    let prepaid = Number(row.prepaid_balance_cents ?? 0);
-    let periodYm = String(row.period_ym ?? ym);
-
-    if (periodYm !== ym) {
-        includedBudget = budget;
-        includedSpent = 0;
-        periodYm = ym;
-        await admin
-            .from("company_ai_wallets")
-            .update({
-                period_ym: ym,
-                included_budget_cents: budget,
-                included_spent_cents: 0,
-                updated_at: new Date().toISOString(),
-            })
-            .eq("company_id", companyId);
-        await admin.from("company_ai_ledger").insert({
-            company_id: companyId,
-            kind: "period_reset",
-            amount_cents: budget,
-            meta: { period_ym: ym },
-        });
-    } else if (includedBudget !== budget) {
-        includedBudget = budget;
-        await admin
-            .from("company_ai_wallets")
-            .update({
-                included_budget_cents: budget,
-                updated_at: new Date().toISOString(),
-            })
-            .eq("company_id", companyId);
-    }
-
-    const remainingIncluded = Math.max(0, includedBudget - includedSpent);
-    return {
-        periodYm,
-        includedBudgetCents: includedBudget,
-        includedSpentCents: includedSpent,
-        prepaidBalanceCents: prepaid,
-        remainingIncludedCents: remainingIncluded,
-        remainingTotalCents: remainingIncluded + prepaid,
-        autoRechargeEnabled: Boolean(row.auto_recharge_enabled),
-        autoRechargePackCents:
-            row.auto_recharge_pack_cents == null ? null : Number(row.auto_recharge_pack_cents),
-    };
+    const row = await rpcJson(admin, "rpc_ensure_ai_wallet", { p_company_id: companyId });
+    return mapSnapshot(row);
 }
 
 export async function canUseAi(admin: SupabaseClient, companyId: string): Promise<boolean> {
     const snap = await ensureAiWallet(admin, companyId);
-    if (snap.remainingTotalCents > 0) return true;
-    const { enqueueAiRechargeIfNeeded } = await import("@/lib/billing/enqueueAiRecharge");
-    void enqueueAiRechargeIfNeeded(admin, companyId).catch(() => {});
-    return false;
+    if (!aiTurnAllowed(snap.remainingTotalCents, snap.lastDebitCents)) {
+        const { enqueueAiRechargeIfNeeded } = await import("@/lib/billing/enqueueAiRecharge");
+        void enqueueAiRechargeIfNeeded(admin, companyId).catch(() => {});
+        return false;
+    }
+    return true;
 }
 
-/**
- * @deprecated Auto-recarga via outbox (ai_recharge_jobs + cron). Não chamar inline.
- */
-export async function tryAutoRechargeAiWallet(
-    admin: SupabaseClient,
-    companyId: string
-): Promise<boolean> {
-    const { enqueueAiRechargeIfNeeded } = await import("@/lib/billing/enqueueAiRecharge");
-    return enqueueAiRechargeIfNeeded(admin, companyId);
-}
-
-/** Debita incluso primeiro; depois prepaid. Retorna false se não houver saldo. */
-export async function debitAiUsage(
+export async function beginAiTurn(
     admin: SupabaseClient,
     companyId: string,
+    idempotencyKey: string,
+    holdCents = 1
+): Promise<AiTurnBegin> {
+    const row = await rpcJson(admin, "rpc_begin_ai_turn", {
+        p_company_id: companyId,
+        p_hold_cents: Math.max(1, Math.floor(holdCents)),
+        p_idempotency_key: idempotencyKey,
+    });
+    return {
+        allowed: Boolean(row.allowed),
+        reused: Boolean(row.reused),
+        reason: row.reason == null ? null : String(row.reason),
+    };
+}
+
+export async function releaseAiTurn(
+    admin: SupabaseClient,
+    companyId: string,
+    turnKey: string
+): Promise<void> {
+    await rpcJson(admin, "rpc_release_ai_turn", {
+        p_company_id: companyId,
+        p_idempotency_key: turnKey,
+    });
+}
+
+export async function settleAiTurn(
+    admin: SupabaseClient,
+    companyId: string,
+    turnKey: string,
+    idempotencyKey: string,
     costCents: number,
     meta?: Record<string, unknown>
 ): Promise<boolean> {
     const capped = clampAiDebitCents(costCents);
-    if (capped <= 0) return true;
-    if (capped < Math.floor(costCents)) {
-        console.warn("[aiWallet] débito limitado pelo teto B13", {
-            companyId,
-            requested: Math.floor(costCents),
-            capped,
-        });
+    const row = await rpcJson(admin, "rpc_settle_ai_turn", {
+        p_company_id: companyId,
+        p_turn_key: turnKey,
+        p_idempotency_key: idempotencyKey,
+        p_cost_cents: capped,
+        p_meta: meta ?? {},
+    });
+    if (row.ok === false) {
+        console.warn("[aiWallet] liquidação recusada", { companyId, reason: row.reason });
+        return false;
     }
-    const snap = await ensureAiWallet(admin, companyId);
-    if (snap.remainingTotalCents < capped) return false;
-
-    let left = capped;
-    let includedSpent = snap.includedSpentCents;
-    let prepaid = snap.prepaidBalanceCents;
-    const fromIncluded = Math.min(left, snap.remainingIncludedCents);
-    if (fromIncluded > 0) {
-        includedSpent += fromIncluded;
-        left -= fromIncluded;
-        await admin.from("company_ai_ledger").insert({
-            company_id: companyId,
-            kind: "included_debit",
-            amount_cents: -fromIncluded,
-            meta: meta ?? {},
-        });
-    }
-    if (left > 0) {
-        prepaid -= left;
-        await admin.from("company_ai_ledger").insert({
-            company_id: companyId,
-            kind: "prepaid_debit",
-            amount_cents: -left,
-            meta: meta ?? {},
-        });
-    }
-
-    await admin
-        .from("company_ai_wallets")
-        .update({
-            included_spent_cents: includedSpent,
-            prepaid_balance_cents: Math.max(0, prepaid),
-            updated_at: new Date().toISOString(),
-        })
-        .eq("company_id", companyId);
-
-    const remTotal =
-        Math.max(0, snap.includedBudgetCents - includedSpent) + Math.max(0, prepaid);
-    if (remTotal <= 50) {
+    const charged = num(row.charged_cents);
+    const remHint = row.exhausted === true || (capped > 0 && charged < capped);
+    if (remHint) {
         const { enqueueAiRechargeIfNeeded } = await import("@/lib/billing/enqueueAiRecharge");
         void enqueueAiRechargeIfNeeded(admin, companyId).catch(() => {});
     }
-
     return true;
 }
 
@@ -231,58 +203,71 @@ export async function creditAiPack(
     packCents: 1000 | 2000 | 5000,
     meta?: Record<string, unknown>
 ): Promise<AiWalletSnapshot> {
-    await ensureAiWallet(admin, companyId);
-
     const orderId =
-        meta &&
-        typeof meta.pagarme_order_id === "string" &&
-        meta.pagarme_order_id.trim()
+        meta && typeof meta.pagarme_order_id === "string" && meta.pagarme_order_id.trim()
             ? meta.pagarme_order_id.trim()
             : null;
-    if (orderId) {
-        const { data: dup } = await admin
-            .from("company_ai_ledger")
-            .select("id")
-            .eq("company_id", companyId)
-            .eq("kind", "pack_credit")
-            .filter("meta->>pagarme_order_id", "eq", orderId)
-            .maybeSingle();
-        if (dup?.id) {
-            return ensureAiWallet(admin, companyId);
-        }
-    }
-
-    const { data } = await admin
-        .from("company_ai_wallets")
-        .select("prepaid_balance_cents")
-        .eq("company_id", companyId)
-        .maybeSingle();
-    const next = Number(data?.prepaid_balance_cents ?? 0) + packCents;
-    await admin
-        .from("company_ai_wallets")
-        .update({
-            prepaid_balance_cents: next,
-            updated_at: new Date().toISOString(),
-        })
-        .eq("company_id", companyId);
-
-    const { error: ledgerErr } = await admin.from("company_ai_ledger").insert({
-        company_id: companyId,
-        kind: "pack_credit",
-        amount_cents: packCents,
-        meta: { pack_cents: packCents, ...(meta ?? {}) },
+    const row = await rpcJson(admin, "rpc_credit_ai_pack", {
+        p_company_id: companyId,
+        p_pack_cents: packCents,
+        p_pagarme_order_id: orderId,
+        p_meta: meta ?? {},
     });
-    if (ledgerErr && !isUniqueViolation(ledgerErr)) {
-        throw new Error(ledgerErr.message);
+    return mapSnapshot(row);
+}
+
+export async function setAiWalletAutorecharge(
+    admin: SupabaseClient,
+    companyId: string,
+    patch: {
+        enabled?: boolean;
+        packCents?: 1000 | 2000 | 5000 | null;
+        lastError?: string | null;
+        updateEnabled?: boolean;
+        updatePack?: boolean;
+        updateError?: boolean;
     }
-    await admin
-        .from("company_ai_wallets")
-        .update({
-            auto_recharge_last_error: null,
-            updated_at: new Date().toISOString(),
-        })
-        .eq("company_id", companyId);
-    return ensureAiWallet(admin, companyId);
+): Promise<AiWalletSnapshot> {
+    const row = await rpcJson(admin, "rpc_set_ai_wallet_autorecharge", {
+        p_company_id: companyId,
+        p_enabled: patch.enabled ?? null,
+        p_pack_cents: patch.packCents ?? null,
+        p_update_enabled: Boolean(patch.updateEnabled),
+        p_update_pack: Boolean(patch.updatePack),
+        p_last_error: patch.lastError ?? null,
+        p_update_error: Boolean(patch.updateError),
+    });
+    return mapSnapshot(row);
+}
+
+export async function attributeAiOrderUsage(
+    admin: SupabaseClient,
+    companyId: string,
+    orderId: string,
+    threadId: string
+): Promise<void> {
+    const { error } = await admin.rpc("rpc_attribute_ai_order_usage", {
+        p_company_id: companyId,
+        p_order_id: orderId,
+        p_thread_id: threadId,
+    });
+    if (error) {
+        console.warn("[aiWallet] falha ao atribuir uso do pedido", error.message);
+    }
+}
+
+export async function loadAiOrderAverage(
+    admin: SupabaseClient,
+    companyId: string
+): Promise<AiOrderUsageAverage> {
+    const row = await rpcJson(admin, "rpc_ai_order_usage_average", { p_company_id: companyId });
+    return {
+        orderCount: num(row.order_count),
+        avgCalls: num(row.avg_calls),
+        avgInputTokens: num(row.avg_input_tokens),
+        avgOutputTokens: num(row.avg_output_tokens),
+        avgCostCents: num(row.avg_cost_cents),
+    };
 }
 
 export function isAiEnabledInBotConfig(config: Record<string, unknown> | null | undefined): boolean {
@@ -313,16 +298,13 @@ export function buildHighValueConfirmMessage(itemsTotal: number, amountBrl: numb
 type AnthropicUsageLike = {
     input_tokens?: number | null;
     output_tokens?: number | null;
-    /** Preferir noCache quando AI SDK expõe inputTokenDetails. */
     cache_read_tokens?: number | null;
     cache_write_tokens?: number | null;
     no_cache_input_tokens?: number | null;
 };
 
 /**
- * Debita carteira a partir do `usage` LLM (Anthropic ou OpenAI via adapter).
- * Prefira passar `model` em `meta` (ou 4º arg) — sem modelo usa fallback caro.
- * Com cache Anthropic: aplica multiplicadores read 0.1× / write 1.25× no input.
+ * Liquida um passo já reservado por `beginAiTurn` (a chave do turno é `meta.turn_key`).
  */
 export async function debitFromAnthropicUsage(
     admin: SupabaseClient,
@@ -331,39 +313,34 @@ export async function debitFromAnthropicUsage(
     meta?: Record<string, unknown>
 ): Promise<void> {
     if (!companyId || !usage) return;
+    const turnKey = typeof meta?.turn_key === "string" ? meta.turn_key : "";
+    const stepKey = typeof meta?.step_key === "string" ? meta.step_key : "";
+    if (!turnKey || !stepKey) {
+        console.warn("[aiWallet] débito LLM sem reserva", { companyId });
+        return;
+    }
     const inputTokens = Number(usage.input_tokens ?? 0);
     const outputTokens = Number(usage.output_tokens ?? 0);
-    const cacheReadTokens = Number(
-        usage.cache_read_tokens ?? meta?.cache_read_tokens ?? 0
-    );
-    const cacheWriteTokens = Number(
-        usage.cache_write_tokens ?? meta?.cache_write_tokens ?? 0
-    );
+    const cacheReadTokens = Number(usage.cache_read_tokens ?? meta?.cache_read_tokens ?? 0);
+    const cacheWriteTokens = Number(usage.cache_write_tokens ?? meta?.cache_write_tokens ?? 0);
     const noCacheInputTokens =
         usage.no_cache_input_tokens != null
             ? Number(usage.no_cache_input_tokens)
             : meta?.no_cache_input_tokens != null
               ? Number(meta.no_cache_input_tokens)
               : undefined;
-    if (
-        inputTokens <= 0 &&
-        outputTokens <= 0 &&
-        cacheReadTokens <= 0 &&
-        cacheWriteTokens <= 0
-    ) {
+    if (inputTokens <= 0 && outputTokens <= 0 && cacheReadTokens <= 0 && cacheWriteTokens <= 0) {
         return;
     }
     const model =
-        typeof meta?.model === "string" && meta.model.trim()
-            ? meta.model.trim()
-            : null;
+        typeof meta?.model === "string" && meta.model.trim() ? meta.model.trim() : null;
     const cost = estimateLlmCostBrlCents(model, inputTokens, outputTokens, usdBrlRateFromEnv(), {
         noCacheInputTokens,
         cacheReadTokens,
         cacheWriteTokens,
     });
     try {
-        await debitAiUsage(admin, companyId, cost, {
+        await settleAiTurn(admin, companyId, turnKey, stepKey, cost, {
             kind: "llm",
             model: model ?? "unknown",
             input_tokens: inputTokens,
@@ -373,9 +350,7 @@ export async function debitFromAnthropicUsage(
                 ? {
                       cache_read_tokens: cacheReadTokens,
                       cache_write_tokens: cacheWriteTokens,
-                      ...(noCacheInputTokens != null
-                          ? { no_cache_input_tokens: noCacheInputTokens }
-                          : {}),
+                      ...(noCacheInputTokens != null ? { no_cache_input_tokens: noCacheInputTokens } : {}),
                   }
                 : {}),
         });
@@ -390,10 +365,7 @@ export type SttUsageLike = {
     byteLength?: number;
 };
 
-/**
- * Debita carteira pelo STT (áudio → texto). Best-effort.
- * Retorna false se não houver saldo (chamador deve ter checado `canUseAi` antes).
- */
+/** Liquida STT já reservado. `meta.turn_key` e `meta.step_key` são obrigatórios. */
 export async function debitFromSttUsage(
     admin: SupabaseClient,
     companyId: string,
@@ -401,10 +373,13 @@ export async function debitFromSttUsage(
     meta?: Record<string, unknown>
 ): Promise<boolean> {
     if (!companyId || !usage) return true;
+    const turnKey = typeof meta?.turn_key === "string" ? meta.turn_key : "";
+    const stepKey = typeof meta?.step_key === "string" ? meta.step_key : "";
+    if (!turnKey || !stepKey) return false;
     const durationSec = normalizeSttDurationSec(usage.durationSec);
     const cost = estimateSttCostBrlCents(usage.model, durationSec);
     try {
-        return await debitAiUsage(admin, companyId, cost, {
+        return await settleAiTurn(admin, companyId, turnKey, stepKey, cost, {
             kind: "stt",
             model: usage.model,
             duration_sec: durationSec,

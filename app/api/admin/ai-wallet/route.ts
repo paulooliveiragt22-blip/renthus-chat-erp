@@ -8,6 +8,8 @@ import { requireCompanyAccess } from "@/lib/workspace/requireCompanyAccess";
 import {
     creditAiPack,
     ensureAiWallet,
+    loadAiOrderAverage,
+    setAiWalletAutorecharge,
 } from "@/lib/billing/aiWallet";
 
 export const runtime = "nodejs";
@@ -17,8 +19,11 @@ export async function GET() {
     if (!ctx.ok) return NextResponse.json({ error: ctx.error }, { status: ctx.status });
 
     try {
-        const wallet = await ensureAiWallet(ctx.admin, ctx.companyId);
-        return NextResponse.json({ ok: true, wallet });
+        const [wallet, orderAverage] = await Promise.all([
+            ensureAiWallet(ctx.admin, ctx.companyId),
+            loadAiOrderAverage(ctx.admin, ctx.companyId),
+        ]);
+        return NextResponse.json({ ok: true, wallet, orderAverage });
     } catch (e: unknown) {
         const msg = e instanceof Error ? e.message : String(e);
         return NextResponse.json({ error: msg }, { status: 500 });
@@ -44,21 +49,12 @@ export async function PATCH(req: Request) {
             return NextResponse.json({ ok: true, wallet, credited: body.creditPackCents });
         }
 
-        await ensureAiWallet(ctx.admin, ctx.companyId);
-        const patch: Record<string, unknown> = { updated_at: new Date().toISOString() };
-        if (body.autoRechargeEnabled !== undefined) {
-            patch.auto_recharge_enabled = Boolean(body.autoRechargeEnabled);
-        }
-        if (body.autoRechargePackCents !== undefined) {
-            patch.auto_recharge_pack_cents = body.autoRechargePackCents;
-        }
-        const { error } = await ctx.admin
-            .from("company_ai_wallets")
-            .update(patch)
-            .eq("company_id", ctx.companyId);
-        if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-
-        const wallet = await ensureAiWallet(ctx.admin, ctx.companyId);
+        const wallet = await setAiWalletAutorecharge(ctx.admin, ctx.companyId, {
+            enabled: body.autoRechargeEnabled,
+            packCents: body.autoRechargePackCents,
+            updateEnabled: body.autoRechargeEnabled !== undefined,
+            updatePack: body.autoRechargePackCents !== undefined,
+        });
         return NextResponse.json({ ok: true, wallet });
     } catch (e: unknown) {
         const msg = e instanceof Error ? e.message : String(e);

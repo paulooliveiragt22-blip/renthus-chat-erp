@@ -339,18 +339,6 @@ async function processSingleInboundMessage(params: {
     const profileName: string | null = contact?.profile?.name ?? null;
     let bodyText = extractMessageText(msg, msgType);
 
-    // Áudio / nota de voz → STT (Whisper) quando configurado
-    if (!bodyText.trim() && (msgType === "audio" || msgType === "voice")) {
-        const transcribed = await tryTranscribeInboundAudio({
-            msg,
-            msgType,
-            waConfig,
-            companyId: channel.company_id,
-            admin,
-        });
-        if (transcribed) bodyText = transcribed;
-    }
-
     const threadId = await upsertWhatsappThread({
         admin,
         companyId: channel.company_id,
@@ -359,6 +347,19 @@ async function processSingleInboundMessage(params: {
         profileName,
     });
     if (!threadId) return;
+
+    // Áudio / nota de voz → STT (Whisper) quando configurado. A thread já existe para a reserva.
+    if (!bodyText.trim() && (msgType === "audio" || msgType === "voice")) {
+        const transcribed = await tryTranscribeInboundAudio({
+            msg,
+            msgType,
+            waConfig,
+            companyId: channel.company_id,
+            threadId,
+            admin,
+        });
+        if (transcribed) bodyText = transcribed;
+    }
 
     const inserted = await insertInboundMessage({
         admin,

@@ -73,6 +73,20 @@ export function resolveMinimumOrderAmount(
 }
 
 /**
+ * Entrega com itens abaixo do mínimo (do rascunho ou da loja, se o endereço ainda não entrou).
+ * Enquanto isto for verdade, o turno não oferece endereço, resumo nem pagamento.
+ */
+export function deliveryAdvanceBlockedByMinimum(
+    draft: OrderDraft | null | undefined,
+    storeMinOrder: number | null | undefined
+): boolean {
+    if (!draft || draft.fulfillmentType !== "delivery" || draft.items.length === 0) return false;
+    const min = resolveMinimumOrderAmount(draft, storeMinOrder);
+    if (min == null) return false;
+    return draft.grandTotal < min;
+}
+
+/**
  * 1) mesma marca e mesma embalagem (sigla) do que já está no pedido
  * 2) senão, acompanhamentos ligados a essas embalagens no cadastro
  * 3) senão, lista vazia — a frase pede outro produto, sem citar item
@@ -149,8 +163,8 @@ export function minimumOrderShortfallText(
 }
 
 /**
- * Coloca o aviso depois do que já foi respondido neste turno.
- * Se a frase de mínimo já está no texto, troca por esta versão (com ou sem itens).
+ * Abaixo do mínimo de entrega, o turno fica só com o aviso.
+ * Endereço, resumo e pagamento esperam o total fechar.
  */
 export function applyMinimumOrderNotice(
     outbound: readonly OutboundMessage[],
@@ -158,22 +172,14 @@ export function applyMinimumOrderNotice(
     suggestions: readonly GapFillSuggestion[] | undefined,
     storeMinOrder: number | null | undefined
 ): OutboundMessage[] {
-    if (!draft || draft.items.length === 0) return [...outbound];
+    if (!draft || !deliveryAdvanceBlockedByMinimum(draft, storeMinOrder)) return [...outbound];
     const min = resolveMinimumOrderAmount(draft, storeMinOrder);
-    if (min == null || draft.grandTotal >= min) return [...outbound];
+    if (min == null) return [...outbound];
     const text = minimumOrderShortfallText(
         draft.grandTotal,
         min,
         suggestions ?? [],
         draft.items.map((i) => i.produtoEmbalagemId)
     );
-    let replaced = false;
-    const next = outbound.map((m) => {
-        if (replaced || m.kind !== "text") return m;
-        if (!/m[ií]nimo para entrega/iu.test(String(m.text ?? ""))) return m;
-        replaced = true;
-        return { ...m, text };
-    });
-    if (replaced) return next;
-    return [...next, { kind: "text" as const, text }];
+    return [{ kind: "text", text }];
 }

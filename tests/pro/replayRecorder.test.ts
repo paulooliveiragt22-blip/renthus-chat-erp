@@ -3,7 +3,6 @@ import { describe, it } from "node:test";
 import { generateText, tool } from "ai";
 import { MockLanguageModelV3 } from "ai/test";
 import { z } from "zod";
-import type { SupabaseClient } from "@supabase/supabase-js";
 import { compareOutbound } from "../../src/pro/replay/compareOutbound";
 import {
     createRecordingModel,
@@ -12,6 +11,7 @@ import {
     type LlmCassetteEntry,
 } from "../../src/pro/adapters/ai/replayRecorder";
 import { AiServiceAdapter } from "../../src/pro/adapters/ai/ai.service";
+import { aiWalletTestAdmin } from "./aiWalletAdminStub";
 import type { CatalogPort } from "../../src/pro/ports/catalog.port";
 import type { OrderDraftPort } from "../../src/pro/ports/orderDraft.port";
 import type { AiServiceInput, PipelineContext } from "../../src/types/contracts";
@@ -196,7 +196,7 @@ describe("replay de um turno completo via AiServiceAdapter (ponta a ponta)", () 
     it("reproduz respond_to_customer sem chamar rede/catálogo/prepare_order_draft", async () => {
         const cassette = respondToCustomerCassette("Oi! Bem-vindo, o que você gostaria de pedir hoje?");
         const model = createReplayModel(cassette);
-        const admin = {} as SupabaseClient;
+        const admin = aiWalletTestAdmin();
 
         const svc = new AiServiceAdapter(admin, {
             model,
@@ -221,7 +221,7 @@ describe("replay de um turno completo via AiServiceAdapter (ponta a ponta)", () 
 
     it("cassete esgotada (turno sem respond_to_customer gravado) devolve erro TOOL_FAILED, não lança", async () => {
         const model = createReplayModel([]);
-        const admin = {} as SupabaseClient;
+        const admin = aiWalletTestAdmin();
         const svc = new AiServiceAdapter(admin, {
             model,
             catalog: untouchableCatalog(),

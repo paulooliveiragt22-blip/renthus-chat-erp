@@ -40,10 +40,12 @@ Regras de dialogue (interprete linguagem NATURAL — não só "sim"/"não"):
 async function debitStructuredExtractUsage(
     admin: SupabaseClient | null | undefined,
     companyId: string | undefined,
+    threadId: string | undefined,
+    turnKey: string,
     usage: { inputTokens?: number; outputTokens?: number },
     modelId: string | undefined
 ): Promise<void> {
-    if (!admin || !companyId) return;
+    if (!admin || !companyId || !threadId || !turnKey) return;
     try {
         const { debitFromAnthropicUsage } = await import("@/lib/billing/aiWallet");
         await debitFromAnthropicUsage(
@@ -51,6 +53,9 @@ async function debitStructuredExtractUsage(
             companyId,
             { input_tokens: usage.inputTokens ?? 0, output_tokens: usage.outputTokens ?? 0 },
             {
+                turn_key: turnKey,
+                step_key: `${turnKey}:step:0`,
+                thread_id: threadId,
                 source: "pro_structured_extract",
                 provider: getConfiguredLlmProviderName(),
                 model: modelId?.trim() || "unknown",
@@ -86,6 +91,7 @@ export type ExtractSessionHint = {
 export async function extractOrderLinesStructured(params: {
     userText: string;
     companyId?: string;
+    threadId?: string;
     admin?: SupabaseClient | null;
     model?: string;
     /** Seam de teste — injeta `MockLanguageModelV3` de `ai/test` em vez de `resolveLanguageModel()`/rede. */
@@ -123,6 +129,16 @@ export async function extractOrderLinesStructured(params: {
         .filter(Boolean)
         .join("\n\n");
 
+    const threadId = params.threadId?.trim() || "";
+    const turnKey = threadId ? `${threadId}:extract:${text.slice(0, 40)}` : "";
+    let reserved = false;
+    if (params.admin && params.companyId && threadId) {
+        const { beginAiTurn } = await import("@/lib/billing/aiWallet");
+        const begun = await beginAiTurn(params.admin, params.companyId, turnKey, 1);
+        if (!begun.allowed) return null;
+        reserved = true;
+    }
+
     try {
         const result = await generateText({
             model: params.modelOverride ?? resolveLanguageModel(params.model),
@@ -133,7 +149,14 @@ export async function extractOrderLinesStructured(params: {
             abortSignal: AbortSignal.timeout(params.timeoutMs ?? 8_000),
         });
 
-        await debitStructuredExtractUsage(params.admin, params.companyId, result.usage, result.response.modelId);
+        await debitStructuredExtractUsage(
+            params.admin,
+            params.companyId,
+            threadId,
+            turnKey,
+            result.usage,
+            result.response.modelId
+        );
 
         return parseOrderLineExtractionJson(result.text);
     } catch (e) {
@@ -142,5 +165,10 @@ export async function extractOrderLinesStructured(params: {
             e instanceof Error ? e.message : e
         );
         return null;
+    } finally {
+        if (reserved && params.admin && params.companyId) {
+            const { releaseAiTurn } = await import("@/lib/billing/aiWallet");
+            await releaseAiTurn(params.admin, params.companyId, turnKey).catch(() => {});
+        }
     }
 }

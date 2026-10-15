@@ -76,7 +76,8 @@ export function makeProPipelineDependencies(
         params.companyId,
         undefined, // modelOverride: seam de teste, não usado em produção
         aiCapability?.provider,
-        aiCapability?.model
+        aiCapability?.model,
+        params.threadId
     );
     const onCircuitStateChange = (e: CircuitStateChangeEvent) =>
         applyCircuitStateChangeToMetrics(metrics, e, params.companyId);

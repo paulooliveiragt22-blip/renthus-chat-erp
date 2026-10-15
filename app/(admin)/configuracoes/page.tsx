@@ -171,15 +171,24 @@ function SectionTitle({ icon: Icon, title, desc }: { icon: React.ElementType; ti
     );
 }
 
+function formatIncludedReset(iso: string | null | undefined): string {
+    if (!iso) return "";
+    const parsed = new Date(iso);
+    if (Number.isNaN(parsed.getTime())) return "";
+    return ` (${parsed.toLocaleDateString("pt-BR")})`;
+}
+
 /** Medidor visual de crédito IA (sem R$) — estilo slider roxo. */
 function AiCreditUsageMeter({
     remainingTotalCents,
     includedBudgetCents,
     prepaidBalanceCents,
+    includedPeriodEnd,
 }: {
     remainingTotalCents: number;
     includedBudgetCents: number;
     prepaidBalanceCents: number;
+    includedPeriodEnd?: string | null;
 }) {
     const capacity = Math.max(
         includedBudgetCents + prepaidBalanceCents,
@@ -213,7 +222,53 @@ function AiCreditUsageMeter({
                 <span>1.0 cheio</span>
             </div>
             <p className="text-[11px] text-zinc-400">
-                Incluso do mês + packs. Sem crédito a IA cai para o cardápio web.
+                O crédito incluso do plano não acumula. No vencimento do mês da assinatura
+                {formatIncludedReset(includedPeriodEnd)}, o que sobrou zera e o mês começa de novo.
+                Packs comprados continuam. Sem crédito a IA cai para o cardápio web.
+            </p>
+        </div>
+    );
+}
+
+function AiOrderUsageAverage({
+    orderCount,
+    avgCalls,
+    avgInputTokens,
+    avgOutputTokens,
+    avgCostCents,
+}: {
+    orderCount: number;
+    avgCalls: number;
+    avgInputTokens: number;
+    avgOutputTokens: number;
+    avgCostCents: number;
+}) {
+    if (orderCount <= 0) {
+        return (
+            <p className="text-[11px] text-zinc-400">
+                A média aparece depois do primeiro pedido fechado pela IA nesta loja.
+            </p>
+        );
+    }
+    const cost = (avgCostCents / 100).toLocaleString("pt-BR", {
+        style: "currency",
+        currency: "BRL",
+    });
+    return (
+        <div className="flex flex-col gap-1 border-t border-zinc-100 pt-3 dark:border-zinc-800">
+            <p className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">
+                Média por pedido da IA
+            </p>
+            <p className="text-[11px] text-zinc-500 dark:text-zinc-400">
+                {avgCalls.toLocaleString("pt-BR", { maximumFractionDigits: 1 })} chamadas ·{" "}
+                {Math.round(avgInputTokens).toLocaleString("pt-BR")} tokens de entrada ·{" "}
+                {Math.round(avgOutputTokens).toLocaleString("pt-BR")} de saída · {cost}
+            </p>
+            <p className="text-[11px] text-zinc-400">
+                Média calculada com os pedidos desta loja, pelo comportamento de compra dos seus
+                clientes. Atualiza a cada pedido novo. É o gasto de IA para fechar cada pedido,
+                incluindo a conversa. Conversas que não fecham pedido debitam o crédito e não entram
+                nesta média.
             </p>
         </div>
     );
@@ -400,6 +455,14 @@ function ConfiguracoesPageContent() {
         includedBudgetCents: number;
         autoRechargeEnabled: boolean;
         autoRechargePackCents: number | null;
+        includedPeriodEnd?: string | null;
+    } | null>(null);
+    const [aiOrderAverage, setAiOrderAverage] = useState<{
+        orderCount: number;
+        avgCalls: number;
+        avgInputTokens: number;
+        avgOutputTokens: number;
+        avgCostCents: number;
     } | null>(null);
     const [aiPackLoading, setAiPackLoading] = useState<number | null>(null);
     const [aiPackPix, setAiPackPix] = useState<{
@@ -886,6 +949,7 @@ function ConfiguracoesPageContent() {
             .then((r) => r.json())
             .then((json) => {
                 if (json?.wallet) setAiWallet(json.wallet);
+                if (json?.orderAverage) setAiOrderAverage(json.orderAverage);
             })
             .catch(() => {});
     }, []);
@@ -1721,11 +1785,23 @@ function ConfiguracoesPageContent() {
                                 </div>
 
                                 {aiWallet ? (
-                                    <AiCreditUsageMeter
-                                        remainingTotalCents={aiWallet.remainingTotalCents}
-                                        includedBudgetCents={aiWallet.includedBudgetCents}
-                                        prepaidBalanceCents={aiWallet.prepaidBalanceCents}
-                                    />
+                                    <div className="flex flex-col gap-3">
+                                        <AiCreditUsageMeter
+                                            remainingTotalCents={aiWallet.remainingTotalCents}
+                                            includedBudgetCents={aiWallet.includedBudgetCents}
+                                            prepaidBalanceCents={aiWallet.prepaidBalanceCents}
+                                            includedPeriodEnd={aiWallet.includedPeriodEnd}
+                                        />
+                                        {aiOrderAverage ? (
+                                            <AiOrderUsageAverage
+                                                orderCount={aiOrderAverage.orderCount}
+                                                avgCalls={aiOrderAverage.avgCalls}
+                                                avgInputTokens={aiOrderAverage.avgInputTokens}
+                                                avgOutputTokens={aiOrderAverage.avgOutputTokens}
+                                                avgCostCents={aiOrderAverage.avgCostCents}
+                                            />
+                                        ) : null}
+                                    </div>
                                 ) : null}
                             </div>
 

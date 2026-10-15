@@ -1,6 +1,7 @@
 import { generateText, Output } from "ai";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Intent, IntentDecision, PipelineContext } from "@/src/types/contracts";
+import { messageAsksForMenu, isOrderContinuationUtterance } from "@/src/pro/pipeline/menuIntent";
 import { isOrderSessionContinuityNeeded } from "@/src/pro/pipeline/sessionOrderContext";
 import type { IntentService, IntentServiceInput } from "./intent.types";
 import { getConfiguredLlmProviderName, resolveLanguageModel } from "@/src/pro/adapters/ai/modelProvider";
@@ -16,6 +17,7 @@ const INTENT_LABELS: readonly Intent[] = [
     "order_intent",
     "status_intent",
     "human_intent",
+    "catalog_intent",
     "faq",
     "greeting",
     "unknown",
@@ -118,6 +120,17 @@ async function llmClassify(
             `Contexto da sessão (use para desambiguar respostas curtas como quantidade ou "sim"):\n${sessionBlock}\n\n` +
             `Mensagem actual do cliente a classificar:\n---\n${userText.trim()}\n---`;
 
+        const turnKey = `${context.tenant.messageId}:intent`;
+        const { beginAiTurn, releaseAiTurn } = await import("@/lib/billing/aiWallet");
+        if (admin) {
+            const begun = await beginAiTurn(admin, context.tenant.companyId, turnKey, 1);
+            if (!begun.allowed) {
+                return { intent: "unknown", confidence: "low", reasonCode: "fallback_unknown" };
+            }
+        }
+
+        const decision = await (async (): Promise<IntentDecision> => {
+        try {
         const result = await generateText({
             model: resolveLanguageModel({ provider: context.policies.aiProvider, model: context.policies.aiModel }),
             system:
@@ -125,6 +138,7 @@ async function llmClassify(
                 "If the session shows an active order (draft with items, or recent user messages about products) " +
                 "and the current message is a short reply (quantity, packaging, confirmation), prefer order_intent. " +
                 "Availability questions (tem coca?, vocês vendem X?, quanto custa?) → faq (NOT order_intent). " +
+                "Asking to see the menu, catalog, or what the store sells, in any wording → catalog_intent (NOT order_intent). " +
                 "Greetings (oi, bom dia) → greeting. Ask for human → human_intent.",
             prompt: userPayload,
             output: Output.choice({ options: [...INTENT_LABELS] }),
@@ -143,6 +157,9 @@ async function llmClassify(
                         output_tokens: result.usage.outputTokens ?? 0,
                     },
                     {
+                        turn_key: turnKey,
+                        step_key: `${turnKey}:step:0`,
+                        thread_id: context.tenant.threadId,
                         source: "pro_intent_classifier",
                         provider: context.policies.aiProvider ?? getConfiguredLlmProviderName(),
                         model: result.response.modelId?.trim() || "unknown",
@@ -152,13 +169,20 @@ async function llmClassify(
                 /* billing best-effort */
             }
         }
-
         const mapped = result.output;
         return {
             intent: mapped,
             confidence: mapped === "unknown" ? "low" : "medium",
             reasonCode: "llm_classification",
         };
+        } finally {
+            if (admin) {
+                await releaseAiTurn(admin, context.tenant.companyId, turnKey).catch(() => {});
+            }
+        }
+        })();
+
+        return decision;
     } catch {
         return { intent: "unknown", confidence: "low", reasonCode: "fallback_unknown" };
     }
@@ -201,7 +225,10 @@ export class ProIntentClassifierService implements IntentService {
         ) {
             return { intent: "order_intent", confidence: "high", reasonCode: "button_id_match" };
         }
-        if (BTN_CATALOG.has(text) || BTN_ORDER.has(text)) {
+        if (BTN_CATALOG.has(text)) {
+            return { intent: "catalog_intent", confidence: "high", reasonCode: "button_id_match" };
+        }
+        if (BTN_ORDER.has(text)) {
             return { intent: "order_intent", confidence: "high", reasonCode: "button_id_match" };
         }
         if (BTN_STATUS.has(text)) return { intent: "status_intent", confidence: "high", reasonCode: "button_id_match" };
@@ -222,10 +249,17 @@ export class ProIntentClassifierService implements IntentService {
             }
         }
 
-        // Pedido em curso: respostas curtas não reabrem menu (mesmo com LLM ligado).
+        if (messageAsksForMenu(raw)) {
+            return { intent: "catalog_intent", confidence: "high", reasonCode: "regex_match" };
+        }
+
+        // Pedido em curso: só quantidade/pick fica no pedido. O resto o modelo classifica.
         if (isOrderSessionContinuityNeeded(context.session)) {
             if (STATUS_RE.test(raw)) {
                 return { intent: "status_intent", confidence: "high", reasonCode: "active_order_session" };
+            }
+            if (HUMAN_RE.test(raw)) {
+                return { intent: "human_intent", confidence: "high", reasonCode: "regex_match" };
             }
             /**
              * "oi" com lastSearchPicks residual (sem itens no draft) não é pick —
@@ -234,11 +268,7 @@ export class ProIntentClassifierService implements IntentService {
             if (GREETING_RE.test(raw) && !(context.session.draft?.items?.length)) {
                 return { intent: "greeting", confidence: "high", reasonCode: "regex_match" };
             }
-            if (!useLlm) {
-                return { intent: "order_intent", confidence: "high", reasonCode: "active_order_session" };
-            }
-            // Curtas ("2", "uma caixa") → pedido; frases longas → LLM.
-            if (raw.length <= 48 && !HUMAN_RE.test(raw)) {
+            if (!useLlm || isOrderContinuationUtterance(raw)) {
                 return { intent: "order_intent", confidence: "high", reasonCode: "active_order_session" };
             }
             return llmClassify(context, userText, this.admin);

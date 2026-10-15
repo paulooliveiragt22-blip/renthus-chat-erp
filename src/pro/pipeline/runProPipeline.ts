@@ -1,4 +1,5 @@
 import type {
+    IntentDecision,
     OutboundMessage,
     PipelineContext,
     ProPipelineInput,
@@ -20,8 +21,13 @@ import {
 import { buildAiDegradedOutbound } from "@/lib/chatbot/aiCapabilityProfile";
 import { resolveDeliveryForNeighborhood } from "@/lib/delivery/policy";
 import { loadMinimumGapSuggestions } from "./loadMinimumGapSuggestions";
-import { resolveMinimumOrderAmount, type GapFillSuggestion } from "./minimumGapFill";
+import {
+    deliveryAdvanceBlockedByMinimum,
+    resolveMinimumOrderAmount,
+    type GapFillSuggestion,
+} from "./minimumGapFill";
 import { composeServerOwnedOutbound } from "./composeServerOwnedOutbound";
+import { inboundInterruptsOpenPick, isOrderContinuationUtterance } from "./menuIntent";
 import { MATCHING_METRICS } from "./matchingMetrics";
 import { resolveCatalogOfferFollowUp } from "./catalogOfferFollowUp";
 import { extractPartySizeRequest } from "./partySizeRequest";
@@ -365,6 +371,13 @@ export async function runProPipeline(
             gapFillers: ctx.gapFillers,
             storeMinOrder: ctx.storeMinOrder,
         });
+    };
+    /** Entrega abaixo do mínimo: não grava endereço proposto nem manda o cartão. */
+    const deliveryMinimumHoldsAddress = async (state: ProSessionState): Promise<boolean> => {
+        const draft = state.draft;
+        if (!draft || draft.fulfillmentType !== "delivery") return false;
+        const ctx = await minimumCheckoutContext(state);
+        return deliveryAdvanceBlockedByMinimum(draft, ctx.storeMinOrder);
     };
     /** Endereço aplicado sem pagamento ainda não é `ok`. O resumo canônico sai mesmo assim. */
     const outboundAfterSavedAddress = async (addrPrep: {
@@ -842,7 +855,8 @@ export async function runProPipeline(
                     if (
                         checkoutState.draft?.fulfillmentType === "delivery" &&
                         !isAddressStructurallyComplete(checkoutState.draft.address) &&
-                        deps.admin
+                        deps.admin &&
+                        !(await deliveryMinimumHoldsAddress(checkoutState))
                     ) {
                         try {
                             const offer = await serverOfferDeliveryAddressAfterFulfillment({
@@ -993,7 +1007,8 @@ export async function runProPipeline(
             quick.actionTag === "pro_fulfillment_delivery" &&
             deps.admin &&
             syncedQuick.draft &&
-            !isInfoOnlyMode(aiPolicy)
+            !isInfoOnlyMode(aiPolicy) &&
+            !(await deliveryMinimumHoldsAddress(syncedQuick))
         ) {
             try {
                 const offer = await serverOfferDeliveryAddressAfterFulfillment({
@@ -1171,7 +1186,11 @@ export async function runProPipeline(
             deliveryAddressUiConfirmed: false,
         });
         let deliveryOutbound: OutboundMessage[] = [];
-        if (!isAddressStructurallyComplete(draft.address) && deps.admin) {
+        if (
+            !isAddressStructurallyComplete(draft.address) &&
+            deps.admin &&
+            !(await deliveryMinimumHoldsAddress(synced))
+        ) {
             try {
                 const offer = await serverOfferDeliveryAddressAfterFulfillment({
                     admin: deps.admin,
@@ -1245,11 +1264,40 @@ export async function runProPipeline(
      * card de botões do servidor, gerando mensagens duplicadas/contraditórias (ver docs/PLANO_
      * MIGRACAO_VERCEL_AI_SDK.md, bug de coerência do S2).
      */
+    let preclassified: IntentDecision | null = null;
+    const openPick = (stateAfterPick.pendingPickGroups?.length ?? 0) > 0;
+    let skipOpenPick =
+        openPick &&
+        (inboundInterruptsOpenPick(inboundTextForPipeline) ||
+            looksLikeOrderStatusQuestion(inboundTextForPipeline));
+    if (
+        openPick &&
+        !skipOpenPick &&
+        llmEnabled &&
+        deps.intentService &&
+        !isOrderContinuationUtterance(inboundTextForPipeline)
+    ) {
+        preclassified = await intentStage({
+            intentService: deps.intentService,
+            context: { ...context, session: stateAfterPick },
+            userText: inboundTextForPipeline,
+        });
+        if (
+            preclassified.intent === "catalog_intent" ||
+            preclassified.intent === "status_intent" ||
+            preclassified.intent === "human_intent"
+        ) {
+            skipOpenPick = true;
+        }
+    }
+
     if (
         !productPickApplied &&
         deps.admin &&
         !isInfoOnlyMode(aiPolicy) &&
-        (stateAfterPick.pendingPickGroups?.length ?? 0) > 0
+        llmEnabled &&
+        openPick &&
+        !skipOpenPick
     ) {
         try {
             const pendingResolve = await serverResolvePendingPicksFromFreeText({
@@ -1497,11 +1545,13 @@ export async function runProPipeline(
         }
     }
 
-    const decision = await intentStage({
-        intentService: deps.intentService,
-        context: contextForStages,
-        userText: inboundTextForPipeline,
-    });
+    const decision =
+        preclassified ??
+        (await intentStage({
+            intentService: deps.intentService,
+            context: contextForStages,
+            userText: inboundTextForPipeline,
+        }));
 
     /**
      * S1 / abandono: greeting|faq|unknown sem itens no draft não deve reemitir
@@ -1816,20 +1866,23 @@ export async function runProPipeline(
      */
     if (
         aiServiceErrorCode === "AI_PROVIDER_ERROR" ||
-        aiServiceErrorCode === "AI_TIMEOUT"
+        aiServiceErrorCode === "AI_TIMEOUT" ||
+        aiServiceErrorCode === "AI_WALLET_EMPTY"
     ) {
         aiDegradedThisTurn = true;
         outbound.length = 0;
+        const degradedReason =
+            aiServiceErrorCode === "AI_WALLET_EMPTY" ? "ai_wallet_empty" : "llm_error";
         outbound.push(
             ...buildAiDegradedOutbound({
                 webMenuUrl: input.webMenuUrl,
-                reason: "llm_error",
+                reason: degradedReason,
             })
         );
         deps.metrics.increment("pro_pipeline.ai_degraded", 1, {
             companyId: input.tenant.companyId,
             tier: "degradado",
-            reason: "llm_error",
+            reason: degradedReason,
             errorCode: aiServiceErrorCode,
         });
     }
@@ -1887,7 +1940,8 @@ export async function runProPipeline(
         !aiServiceErrorCode &&
         deps.admin &&
         !isInfoOnlyMode(aiPolicy) &&
-        !finalOutbound.some((m) => m.kind === "buttons" || m.kind === "cta_url")
+        !finalOutbound.some((m) => m.kind === "buttons" || m.kind === "cta_url") &&
+        !deliveryAdvanceBlockedByMinimum(nextState.draft, checkoutCtx.storeMinOrder)
     ) {
         try {
             const offer = await serverOfferDeliveryAddressAfterFulfillment({

@@ -1,12 +1,12 @@
 /**
  * Transcreve áudio inbound WhatsApp → texto (STT) para o pipeline tratar como mensagem.
- * Debita a carteira IA por duração (OpenAI $/min → BRL centavos).
+ * Reserva a carteira antes do Whisper e liquida por duração (OpenAI $/min → BRL centavos).
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { WaConfig } from "@/lib/whatsapp/send";
 import { downloadWhatsAppMediaBytes } from "@/lib/whatsapp/downloadWaMedia";
-import { canUseAi, debitFromSttUsage } from "@/lib/billing/aiWallet";
+import { beginAiTurn, debitFromSttUsage, releaseAiTurn } from "@/lib/billing/aiWallet";
 import { createSttPort } from "@/src/pro/adapters/stt/createSttPort";
 
 export async function tryTranscribeInboundAudio(params: {
@@ -14,6 +14,7 @@ export async function tryTranscribeInboundAudio(params: {
     msgType: string;
     waConfig: WaConfig;
     companyId?: string;
+    threadId?: string;
     /** Service role — obrigatório para gate/débito da carteira. */
     admin?: SupabaseClient | null;
 }): Promise<string | null> {
@@ -24,14 +25,7 @@ export async function tryTranscribeInboundAudio(params: {
 
     const companyId = params.companyId?.trim() || "";
     const admin = params.admin ?? null;
-
-    if (companyId && admin) {
-        const ok = await canUseAi(admin, companyId);
-        if (!ok) {
-            console.info("[stt] skipped: AI wallet empty", { companyId });
-            return null;
-        }
-    }
+    const threadId = params.threadId?.trim() || "";
 
     const media =
         params.msgType === "audio"
@@ -39,6 +33,17 @@ export async function tryTranscribeInboundAudio(params: {
             : params.msg.voice ?? params.msg.audio;
     const mediaId = media?.id?.trim();
     if (!mediaId) return null;
+
+    const turnKey = threadId ? `${threadId}:stt:${mediaId}` : "";
+    let reserved = false;
+    if (companyId && admin && threadId) {
+        const begun = await beginAiTurn(admin, companyId, turnKey, 1);
+        if (!begun.allowed) {
+            console.info("[stt] skipped: AI wallet empty", { companyId });
+            return null;
+        }
+        reserved = true;
+    }
 
     try {
         const downloaded = await downloadWhatsAppMediaBytes({
@@ -58,7 +63,7 @@ export async function tryTranscribeInboundAudio(params: {
         const text = result.text.trim();
         if (!text) return null;
 
-        if (companyId && admin) {
+        if (reserved && companyId && admin) {
             const debited = await debitFromSttUsage(
                 admin,
                 companyId,
@@ -67,7 +72,13 @@ export async function tryTranscribeInboundAudio(params: {
                     durationSec: result.durationSec,
                     byteLength: result.byteLength,
                 },
-                { media_id: mediaId, provider: result.provider }
+                {
+                    turn_key: turnKey,
+                    step_key: `${turnKey}:step:0`,
+                    thread_id: threadId,
+                    media_id: mediaId,
+                    provider: result.provider,
+                }
             );
             if (!debited) {
                 console.warn("[stt] transcribed but wallet debit failed (no balance)", {
@@ -92,5 +103,9 @@ export async function tryTranscribeInboundAudio(params: {
             err instanceof Error ? err.message : err
         );
         return null;
+    } finally {
+        if (reserved && companyId && admin) {
+            await releaseAiTurn(admin, companyId, turnKey).catch(() => {});
+        }
     }
 }

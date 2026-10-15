@@ -5,12 +5,12 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, it } from "node:test";
-import type { SupabaseClient } from "@supabase/supabase-js";
 import {
     createReplayModel,
     type LlmCassetteEntry,
 } from "../../src/pro/adapters/ai/replayRecorder";
 import { AiServiceAdapter } from "../../src/pro/adapters/ai/ai.service";
+import { aiWalletTestAdmin } from "./aiWalletAdminStub";
 import type { CatalogPort } from "../../src/pro/ports/catalog.port";
 import type { OrderDraftPort } from "../../src/pro/ports/orderDraft.port";
 import type { AiServiceInput, Intent, PipelineContext } from "../../src/types/contracts";
@@ -94,7 +94,7 @@ describe("C4.2 cassette replay (nível C)", () => {
 
     it("reproduz cada cassete sem rede/catálogo/prepare", async () => {
         const fixture = loadCassettes();
-        const admin = {} as SupabaseClient;
+        const admin = aiWalletTestAdmin();
 
         for (const c of fixture.cassettes) {
             const model = createReplayModel(c.entries);

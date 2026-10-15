@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 import { MockLanguageModelV3 } from "ai/test";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { AiServiceAdapter } from "../../src/pro/adapters/ai/ai.service";
+import { aiWalletTestAdmin } from "./aiWalletAdminStub";
 import type { CatalogPort } from "../../src/pro/ports/catalog.port";
 import type { OrderDraftPort } from "../../src/pro/ports/orderDraft.port";
 import type { ChatProdutoRow } from "../../src/pro/tools/searchProdutos";
@@ -82,7 +83,7 @@ function catalogAmbiguousMarmita(): CatalogPort {
 }
 
 function fakeAdmin(): SupabaseClient {
-    return {} as unknown as SupabaseClient;
+    return aiWalletTestAdmin();
 }
 
 function untouchableOrderDraft(): OrderDraftPort {

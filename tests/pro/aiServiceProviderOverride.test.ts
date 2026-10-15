@@ -3,6 +3,7 @@ import { describe, it, afterEach } from "node:test";
 import { MockLanguageModelV3 } from "ai/test";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { AiServiceAdapter } from "../../src/pro/adapters/ai/ai.service";
+import { aiWalletTestAdmin } from "./aiWalletAdminStub";
 import type { AiServiceInput, PipelineContext } from "../../src/types/contracts";
 
 /**
@@ -39,7 +40,7 @@ function baseContext(): PipelineContext {
 }
 
 function fakeAdmin(): SupabaseClient {
-    return {} as unknown as SupabaseClient;
+    return aiWalletTestAdmin();
 }
 
 function baseInput(): AiServiceInput {

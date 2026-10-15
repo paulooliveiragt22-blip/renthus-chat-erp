@@ -63,7 +63,8 @@ export class LlmSessionMemoryAdapter implements SessionMemoryPort {
          * WhatsApp (a maioria nem aciona compactação).
          */
         private readonly providerOverride?: LlmProviderName,
-        private readonly modelNameOverride?: string
+        private readonly modelNameOverride?: string,
+        private readonly threadId?: string
     ) {}
 
     async compactIfNeeded(input: CompactHistoryInput): Promise<CompactHistoryResult> {
@@ -84,7 +85,19 @@ export class LlmSessionMemoryAdapter implements SessionMemoryPort {
         const existing = input.existingSummary?.trim() || null;
 
         let summary = extractiveHistorySummary(older, existing);
+        const turnKey = this.threadId ? `${this.threadId}:memory:${older.length}` : "";
         try {
+            if (this.admin && this.companyId && this.threadId) {
+                const { beginAiTurn } = await import("@/lib/billing/aiWallet");
+                const begun = await beginAiTurn(this.admin, this.companyId, turnKey, 1);
+                if (!begun.allowed) {
+                    return {
+                        history: recent,
+                        summary,
+                        compacted: summary !== (existing ?? null) && Boolean(summary),
+                    };
+                }
+            }
             const result = await generateText({
                 model:
                     this.modelOverride ??
@@ -112,6 +125,9 @@ export class LlmSessionMemoryAdapter implements SessionMemoryPort {
                             output_tokens: result.usage.outputTokens ?? 0,
                         },
                         {
+                            turn_key: turnKey,
+                            step_key: `${turnKey}:step:0`,
+                            thread_id: this.threadId,
                             source: "pro_session_memory_summarize",
                             provider: this.providerOverride ?? getConfiguredLlmProviderName(),
                             model: result.response.modelId?.trim() || "unknown",
@@ -131,6 +147,11 @@ export class LlmSessionMemoryAdapter implements SessionMemoryPort {
             }
         } catch {
             /** Mantém extrativo. */
+        } finally {
+            if (this.admin && this.companyId && this.threadId && turnKey) {
+                const { releaseAiTurn } = await import("@/lib/billing/aiWallet");
+                await releaseAiTurn(this.admin, this.companyId, turnKey).catch(() => {});
+            }
         }
 
         return { history: recent, summary, compacted: true };

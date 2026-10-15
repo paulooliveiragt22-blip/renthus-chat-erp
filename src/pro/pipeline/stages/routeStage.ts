@@ -5,6 +5,7 @@ import {
 } from "@/lib/chatbot/messageTemplates";
 import { withMenuSearchParams } from "@/lib/public-menu/menuUrlQuery";
 import { isWaMeOrdersPrefill } from "@/lib/public-menu/waMeIdentity";
+import { messageAsksForMenu } from "../menuIntent";
 import { isOrderSessionContinuityNeeded } from "../sessionOrderContext";
 import { canTransition } from "../proStepTransitions";
 
@@ -156,7 +157,12 @@ export function routeStage(params: {
         };
     }
 
-    if (wantsCatalogBrowse(norm) && webMenuUrl) {
+    const wantsMenu =
+        wantsCatalogBrowse(norm) ||
+        messageAsksForMenu(inboundText) ||
+        decision.intent === "catalog_intent";
+
+    if (wantsMenu && webMenuUrl) {
         return {
             mode: "direct_reply",
             state,
@@ -189,7 +195,7 @@ export function routeStage(params: {
         };
     }
 
-    if (wantsCatalogBrowse(norm)) {
+    if (wantsMenu) {
         return {
             mode: "direct_reply",
             state,
