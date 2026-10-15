@@ -28,6 +28,8 @@ import {
 } from "./minimumGapFill";
 import { composeServerOwnedOutbound } from "./composeServerOwnedOutbound";
 import { inboundInterruptsOpenPick, isOrderContinuationUtterance } from "./menuIntent";
+import { catalogOfferListKind } from "@/src/pro/tools/catalogOfferList";
+import { loadCatalogOfferReply } from "@/src/pro/tools/searchProdutos";
 import { MATCHING_METRICS } from "./matchingMetrics";
 import { resolveCatalogOfferFollowUp } from "./catalogOfferFollowUp";
 import { extractPartySizeRequest } from "./partySizeRequest";
@@ -1672,16 +1674,38 @@ export async function runProPipeline(
     }
 
     const stepBeforeRoute = pipelineState.step;
-    const routed = routeStage({
-        state: pipelineState,
-        decision,
-        inboundText: inboundTextForPipeline,
-        tenant: input.tenant,
-        webMenuUrl: input.webMenuUrl ?? null,
-        webMenuOrdersUrl: input.webMenuOrdersUrl ?? null,
-        messageTemplates: input.messageTemplates ?? null,
-        llmEnabled,
-    });
+    const offerKind = catalogOfferListKind(inboundTextForPipeline);
+    let offerListText: string | null = null;
+    if (offerKind && deps.admin) {
+        try {
+            offerListText = await loadCatalogOfferReply(
+                deps.admin,
+                input.tenant.companyId,
+                offerKind
+            );
+        } catch (err: unknown) {
+            console.warn(
+                "[pro_pipeline] catalog offer list failed",
+                err instanceof Error ? err.message : err
+            );
+        }
+    }
+    const routed = offerListText
+        ? {
+              mode: "direct_reply" as const,
+              state: pipelineState,
+              outbound: [{ kind: "text" as const, text: offerListText }],
+          }
+        : routeStage({
+              state: pipelineState,
+              decision,
+              inboundText: inboundTextForPipeline,
+              tenant: input.tenant,
+              webMenuUrl: input.webMenuUrl ?? null,
+              webMenuOrdersUrl: input.webMenuOrdersUrl ?? null,
+              messageTemplates: input.messageTemplates ?? null,
+              llmEnabled,
+          });
 
     let nextState = routed.state;
     const outbound: OutboundMessage[] = [...routed.outbound];

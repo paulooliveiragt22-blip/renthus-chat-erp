@@ -1,3 +1,5 @@
+import { catalogOfferListKind } from "@/src/pro/tools/catalogOfferList";
+
 const HUMAN_RE = /\b(?:atendente|humano|suporte|falar\s+com)\b/iu;
 
 function normalize(raw: string): string {
@@ -34,5 +36,5 @@ export function isOrderContinuationUtterance(raw: string): boolean {
 
 /** Cardápio ou atendente não podem ser reescritos como escolha de embalagem. */
 export function inboundInterruptsOpenPick(raw: string): boolean {
-    return messageAsksForMenu(raw) || HUMAN_RE.test(raw);
+    return messageAsksForMenu(raw) || HUMAN_RE.test(raw) || catalogOfferListKind(raw) != null;
 }

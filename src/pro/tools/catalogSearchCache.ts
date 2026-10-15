@@ -37,7 +37,7 @@ export function catalogSearchCacheKey(input: {
 }): string {
     const q = input.query.trim().toLowerCase();
     const hint = (input.categoryHint ?? "").trim().toLowerCase();
-    return `${input.companyId}|${q}|${hint}|${input.limit}|tagv2`;
+    return `${input.companyId}|${q}|${hint}|${input.limit}|tagv3`;
 }
 
 function redisKey(key: string): string {

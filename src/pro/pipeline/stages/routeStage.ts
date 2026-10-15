@@ -6,6 +6,7 @@ import {
 import { withMenuSearchParams } from "@/lib/public-menu/menuUrlQuery";
 import { isWaMeOrdersPrefill } from "@/lib/public-menu/waMeIdentity";
 import { messageAsksForMenu } from "../menuIntent";
+import { catalogOfferListKind } from "@/src/pro/tools/catalogOfferList";
 import { isOrderSessionContinuityNeeded } from "../sessionOrderContext";
 import { canTransition } from "../proStepTransitions";
 
@@ -158,9 +159,10 @@ export function routeStage(params: {
     }
 
     const wantsMenu =
-        wantsCatalogBrowse(norm) ||
-        messageAsksForMenu(inboundText) ||
-        decision.intent === "catalog_intent";
+        catalogOfferListKind(inboundText) == null &&
+        (wantsCatalogBrowse(norm) ||
+            messageAsksForMenu(inboundText) ||
+            decision.intent === "catalog_intent");
 
     if (wantsMenu && webMenuUrl) {
         return {

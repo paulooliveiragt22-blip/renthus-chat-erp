@@ -26,6 +26,7 @@ import {
     type TagAliasRow,
 } from "@/src/pro/tools/tagAliasMatch";
 import { loadEmbalagensByVolumeIds, type ChatProdutoRow } from "@/src/pro/tools/searchProdutos";
+import { formatCatalogOfferList, type CatalogOfferListKind } from "@/src/pro/tools/catalogOfferList";
 import type { BatchSearchContext } from "@/src/pro/pipeline/orderWorklist/batchSearchContext";
 import { habitSiglaForProductIds } from "@/src/pro/pipeline/orderWorklist/batchSearchContext";
 
@@ -117,6 +118,8 @@ export type SearchProdutosForAiResult = {
     lastSearchPicks: SearchProdutosPickSummary[];
     wasEmpty: boolean;
     pendingPickGroup: PendingPickGroup | null;
+    /** Lista pronta de promoções ou combos. O servidor manda este texto. */
+    offerListText: string | null;
 };
 
 /** Fase catálogo (I/O) — antes da disambiguação com habits coalescidos. */
@@ -127,6 +130,7 @@ export type CatalogSearchPhaseResult = {
     queryNormalized: string;
     empty: boolean;
     productIds: string[];
+    offerList?: CatalogOfferListKind | null;
 };
 
 async function resolvePackagingHabitForRows(
@@ -190,6 +194,7 @@ export async function fetchCatalogRowsForAi(
         queryNormalized: detailed.queryNormalized,
         empty: detailed.empty,
         productIds,
+        offerList: detailed.offerList ?? null,
     };
 }
 
@@ -202,7 +207,18 @@ export function finalizeSearchProdutosForAi(
     }
 ): SearchProdutosForAiResult {
     let rows = phase.rows;
-    if (rows.length >= 2) {
+    const offerListText = phase.offerList
+        ? formatCatalogOfferList(
+              phase.offerList,
+              rows.map((row) => ({
+                  name: String(row.display_name || row.product_name || "").trim(),
+                  price: Number(row.preco_venda),
+                  composition:
+                      String(row.sigla_comercial ?? "").toUpperCase() === "KIT" ? row.detalhes : null,
+              }))
+          )
+        : null;
+    if (rows.length >= 2 && !offerListText) {
         const companySiglas = opts?.companySiglas ?? deps.batchContext?.companySiglas ?? [];
         const habitSigla =
             opts?.habitSigla !== undefined
@@ -223,12 +239,14 @@ export function finalizeSearchProdutosForAi(
         toChatCatalogPublicItem(r as unknown as Record<string, unknown>)
     );
     const allowlistIds = publicItems.map((r) => r.id).filter(Boolean);
-    const lastSearchPicks: SearchProdutosPickSummary[] = publicItems.slice(0, 3).map((r) => ({
-        embalagemId: r.id,
-        label: String(r.display_name || r.product_name || "Item").slice(0, 40),
-        price: r.preco_venda,
-        productName: r.product_name,
-    }));
+    const lastSearchPicks: SearchProdutosPickSummary[] = offerListText
+        ? []
+        : publicItems.slice(0, 3).map((r) => ({
+              embalagemId: r.id,
+              label: String(r.display_name || r.product_name || "Item").slice(0, 40),
+              price: r.preco_venda,
+              productName: r.product_name,
+          }));
 
     const guidanceForModelPt =
         publicItems.length > 0
@@ -237,13 +255,21 @@ export function finalizeSearchProdutosForAi(
                   `IDs exatos desta busca (copie um literalmente): ${allowlistIds.join(", ")}.`,
                   "Não cite custo, estoque numérico, código interno, EAN nem UUID no texto ao cliente.",
                   "Só trate item como indisponível se disponivel=false no JSON; nunca deduza falta de estoque por conta própria (a loja pode vender com estoque zerado).",
-                  "descricao_ingredientes = o que acompanha; informacoes = como é feito / extras.",
+                  "descricao_ingredientes = o que acompanha, ou a composição quando for combo.",
+                  "preco_venda é o preço a cobrar. Não cite preço antigo, não diga de/por.",
+                  ...(offerListText
+                      ? [
+                            "customer_list_pt é a lista ao cliente. Use esse texto no reply_text, sem acrescentar preço antigo.",
+                        ]
+                      : []),
                   ...(phase.didYouMean.length
                       ? [
                             `did_you_mean: ${phase.didYouMean.map((d) => d.label).join(" | ")}. Ofereça essas opções se o cliente digitou errado.`,
                         ]
                       : []),
-                  ...(publicItems.length >= 2
+                  ...(offerListText
+                      ? []
+                      : publicItems.length >= 2
                       ? [
                             "Há mais de uma opção: NÃO liste preços/opções no texto — o servidor já envia a pergunta de esclarecimento ao cliente.",
                         ]
@@ -252,10 +278,13 @@ export function finalizeSearchProdutosForAi(
                               "Uma opção clara e o cliente JÁ disse a quantidade: chame prepare_order_draft com este UUID e essa quantidade. NÃO pergunte quantas unidades de novo.",
                           ]
                         : [
-                              "Uma opção clara: informe nome + preço de venda e pergunte a quantidade. Se o cliente responder só com número (ex.: 3), o servidor pode montar o rascunho — chame prepare_order_draft se ainda não houver itens.",
+                              "Uma opção clara: informe nome e preco_venda. Se for combo, cite a composição. Não cite preço antigo. Se o cliente responder só com número (ex.: 3), o servidor pode montar o rascunho — chame prepare_order_draft se ainda não houver itens.",
                           ]),
               ]
             : [
+                  ...(offerListText
+                      ? ["reply_text = customer_list_pt. Não invente promoção nem combo."]
+                      : []),
                   "Nenhum item no catálogo para este termo (busca fuzzy também vazia).",
                   "Não invente nome nem preço. Peça outro termo mais curto ou categoria; opcionalmente oriente o cardápio web.",
               ];
@@ -291,7 +320,9 @@ export function finalizeSearchProdutosForAi(
      * — não auto-prepare; clarify com aviso (smoke jamel).
      */
     const pendingPickGroup =
-        rows.length >= 2 || (packagingMismatch && rows.length >= 1)
+        offerListText
+            ? null
+            : rows.length >= 2 || (packagingMismatch && rows.length >= 1)
             ? buildPendingPickGroup(
                   productKeyFromQuery(phase.query),
                   label,
@@ -329,11 +360,13 @@ export function finalizeSearchProdutosForAi(
             query_normalized: phase.queryNormalized,
             produto_embalagem_ids_validos: allowlistIds,
             guidance_for_model_pt: guidanceForModelPt,
+            ...(offerListText ? { customer_list_pt: offerListText } : {}),
         },
         allowlistIds,
         lastSearchPicks,
         wasEmpty: phase.empty,
         pendingPickGroup,
+        offerListText,
     };
 }
 

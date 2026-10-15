@@ -28,7 +28,7 @@ export function createSearchProdutosTool(deps: {
 }) {
     return tool({
         description:
-            "Busca catálogo real da empresa. Em `query` mantenha o termo do cliente completo (ex.: 'Heineken long neck caixa'), não só a marca. A resposta inclui guidance_for_model_pt. Prefira buscar o próximo item pending_search da worklist.",
+            "Busca catálogo real da empresa. Em `query` mantenha o termo do cliente completo (ex.: 'Heineken long neck caixa'), não só a marca. Para 'o que está em promoção' use query promocoes; para 'quais combos' use query combos. A resposta inclui guidance_for_model_pt. Prefira buscar o próximo item pending_search da worklist.",
         inputSchema: z.object({
             query: z.string().describe("Termo de busca completo, como o cliente escreveu."),
             category_hint: z
@@ -66,18 +66,33 @@ export function createSearchProdutosTool(deps: {
                 }
             );
 
-            deps.turnState.emptySearchStreak = result.wasEmpty
-                ? deps.turnState.emptySearchStreak + 1
-                : 0;
-            if (result.wasEmpty) {
-                deps.turnState.matchingMetrics.searchHitsZero += 1;
-            }
             deps.turnState.searchInvokedThisTurn = true;
             deps.turnState.searchCallCount += 1;
             deps.turnState.searchedProductQueriesThisTurn = [
                 ...deps.turnState.searchedProductQueriesThisTurn,
                 query,
             ];
+            if (result.offerListText) {
+                deps.turnState.catalogOfferReply = result.offerListText;
+                deps.turnState.emptySearchStreak = 0;
+                deps.turnState.allowlistIds = unionAllowlistIds(
+                    deps.turnState.allowlistIds,
+                    result.allowlistIds
+                );
+                deps.turnState.lastSearchPicks = [];
+                return {
+                    ...result.body,
+                    worklist_pending_search: pendingSearchTermsFromWorklist(
+                        deps.turnState.orderWorklist
+                    ),
+                };
+            }
+            deps.turnState.emptySearchStreak = result.wasEmpty
+                ? deps.turnState.emptySearchStreak + 1
+                : 0;
+            if (result.wasEmpty) {
+                deps.turnState.matchingMetrics.searchHitsZero += 1;
+            }
 
             if (matched?.id) {
                 const applied = await applyCatalogSearchToWorklistLine({

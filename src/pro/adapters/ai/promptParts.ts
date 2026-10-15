@@ -17,7 +17,10 @@ const PREFETCH_ORDER_HINTS_JSON_MAX = 14_000;
 const SYSTEM_PROMPT = `${buildDeliverySpecialistSystemPreamble()}
 - Fonte de verdade: só cite produto, preço de venda e totais vindos dos JSONs das tools (search_produtos, get_order_hints, prepare_order_draft). Nunca invente.
 - NUNCA cite, invente ou peça: preço de custo, quantidade em estoque, código interno, EAN, UUID (exceto ao chamar tools internamente).
-- Campos do catálogo na tool: display_name, preco_venda, descricao_ingredientes (o que acompanha), informacoes (como é feito). Se perguntarem "o que tem nesse X", use descricao_ingredientes.
+- Campos do catálogo na tool: display_name, preco_venda, descricao_ingredientes (o que acompanha ou a composição do combo), informacoes (como é feito). Se perguntarem "o que tem nesse X", use descricao_ingredientes.
+- preco_venda já é o preço a cobrar, com promoção quando houver. Fale só esse valor. Não cite preço antigo, não diga "de" nem "de/por".
+- Combo (sigla KIT): cite a composição de descricao_ingredientes junto do nome e do preço.
+- Se o cliente perguntar o que está em promoção, chame search_produtos com query "promocoes". Se perguntar quais combos, query "combos". Se a tool devolver customer_list_pt, use esse texto no reply_text.
 - Ordem recomendada: get_order_hints cedo; search_produtos antes de cada produto novo; prepare_order_draft pode ser repetido (cliente pode mandar produto, endereço e pagamento em qualquer ordem).
 - Depois que search_produtos listou mais de uma embalagem e o cliente escolheu uma, chame prepare_order_draft na mesma sequência.
 - Regra dura: em prepare_order_draft use somente produto_embalagem_id do JSON items do último search_produtos (ou allowed_produto_embalagem_ids).
@@ -42,6 +45,7 @@ const SYSTEM_PROMPT_INFO_ONLY = `Você é o assistente PRO da loja (modo só inf
 - NÃO feche pedido, NÃO monte rascunho de pedido e NÃO peça confirmação de compra pelo WhatsApp.
 - Se o cliente quiser pedir, oriente a usar o cardápio web / menu da loja ou falar com um atendente.
 - Fonte de verdade: só cite produto, preço e estoque vindos dos JSONs das tools. Nunca invente.
+- preco_venda já é o preço a cobrar. Não cite preço antigo nem "de/por". Combo: cite descricao_ingredientes.
 - SEMPRE termine chamando a tool respond_to_customer; reply_text é a mensagem ao cliente. Use understood=false só quando não entendeu a mensagem do cliente.`;
 
 function isInfoOnlyAi(input: AiServiceInput): boolean {

@@ -1375,6 +1375,9 @@ export class AiServiceAdapter implements AiService {
             ) {
                 visibleSafe = formatPrepareErrorsForClientReply(prepErrs);
             }
+            if (turnState.catalogOfferReply) {
+                visibleSafe = turnState.catalogOfferReply;
+            }
 
             const toolRoundsUsed = Math.max(0, result.steps.length - 1);
             return await this.buildSuccess(input, visibleSafe, marker, toolRoundsUsed, updatedDraft, {
@@ -1567,11 +1570,12 @@ export class AiServiceAdapter implements AiService {
                     userText: input.userText,
                     turnState,
                 });
-                const fallbackText = buildSearchPicksFallbackReply(
-                    turnState.lastSearchPicks,
-                    turnState.pendingPickGroups,
-                    input.userText
-                );
+                const fallbackText = turnState.catalogOfferReply
+                    ?? buildSearchPicksFallbackReply(
+                        turnState.lastSearchPicks,
+                        turnState.pendingPickGroups,
+                        input.userText
+                    );
                 return await this.buildSuccess(input, fallbackText, "ok", 1, turnState.currentDraft ?? input.draft, {
                     allowlistIds: turnState.allowlistIds,
                     lastSearchPicks: turnState.lastSearchPicks,

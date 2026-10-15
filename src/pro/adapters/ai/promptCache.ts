@@ -57,7 +57,8 @@ const CACHE_FLOOR_FEW_SHOTS = `
 Ex1: Cliente: "quero 2 skol e 1 original". Servidor: worklist pending_search. Ação: search_produtos por cada termo; prepare_order_draft só com UUID do JSON; respond_to_customer curto.
 Ex2: Cliente: "a caixa". Há pending pick UN/CX. Ação: resolve_pending_picks / prepare com o UUID da CX; não reliste opções se o servidor já mandou botões.
 Ex3: Cliente: "pix". Draft com itens+endereço. Ação: prepare_order_draft payment_method=pix; não invente troco; respond_to_customer sem dizer pedido criado.
-Ex4: Cliente: "quanto custa a heineken lata?". Ação: search_produtos; cite só preco_venda/display_name do JSON; sem estoque numérico.
+Ex4: Cliente: "quanto custa a heineken lata?". Ação: search_produtos; cite só preco_venda/display_name do JSON; sem estoque numérico e sem preço antigo.
+Ex4b: Cliente: "o que está em promoção?" ou "quais combos?". Ação: search_produtos query "promocoes" ou "combos"; reply_text = customer_list_pt.
 Ex5: Cliente: "trocar a skol por brahma". Ação: search brahma; prepare aditivo/substituição com UUID permitido; não zere o carrinho.
 Ex6: Saudação sem itens. Ação: respond_to_customer breve; servidor manda botões de cardápio/atendente — não cole URL.
 Ex7: search vazio / did_you_mean. Ação: use o JSON; peça esclarecimento; não invente produto.

@@ -12,6 +12,11 @@ import {
 } from "./catalogSearchCache";
 import { applySearchRelevanceRerank } from "./searchRelevance";
 import { preferRowsMatchingTagAliases } from "./tagAliasMatch";
+import {
+    catalogOfferListKind,
+    formatCatalogOfferList,
+    type CatalogOfferListKind,
+} from "./catalogOfferList";
 
 export type ChatProdutoRow = {
     id:                   string;
@@ -43,6 +48,8 @@ export type SearchProdutosResult = {
     didYouMean: Array<{ id: string; label: string; score: number }>;
     empty: boolean;
     queryNormalized: string;
+    /** Vitrine pedida pelo cliente: promoções ativas ou combos do cardápio. */
+    offerList?: CatalogOfferListKind | null;
 };
 
 function sanitizeSearchQuery(raw: string): string {
@@ -174,6 +181,81 @@ function buildDidYouMean(query: string, rows: ChatProdutoRow[]) {
         .slice(0, 3);
 }
 
+type ComboItemJson = {
+    quantidade?: number | string;
+    nome?: string;
+};
+
+function comboComposition(itens: unknown): string | null {
+    if (!Array.isArray(itens) || itens.length === 0) return null;
+    const parts: string[] = [];
+    for (const raw of itens) {
+        if (!raw || typeof raw !== "object") continue;
+        const item = raw as ComboItemJson;
+        const qty = Number(item.quantidade);
+        const q = Number.isFinite(qty) && qty > 0 ? qty : 1;
+        const name = String(item.nome ?? "").trim() || "Item";
+        parts.push(`${q}× ${name}`);
+    }
+    return parts.length ? parts.join(" · ") : null;
+}
+
+function comboToChatRow(input: {
+    id: string;
+    nome: string;
+    preco: number;
+    disponivel: number | null;
+    descricao?: string | null;
+    itens?: unknown;
+}): ChatProdutoRow | null {
+    const nome = input.nome.trim();
+    if (!input.id || !nome || !Number.isFinite(input.preco) || input.preco <= 0) return null;
+    const ilimitado = input.disponivel == null;
+    return {
+        id: input.id,
+        product_name: nome,
+        display_name: nome,
+        descricao: null,
+        detalhes: comboComposition(input.itens),
+        informacoes: String(input.descricao ?? "").trim() || null,
+        sigla_comercial: "KIT",
+        preco_venda: input.preco,
+        volume_quantidade: null,
+        unit_type_sigla: null,
+        fator_conversao: 1,
+        product_volume_id: null,
+        category_id: null,
+        estoque_unidades: ilimitado ? 0 : Number(input.disponivel),
+        vender_com_estoque_zero: ilimitado,
+        disponivel_venda: ilimitado ? 99 : Number(input.disponivel),
+    };
+}
+
+async function loadComboExtras(
+    admin: SupabaseClient,
+    companyId: string,
+    ids: readonly string[]
+): Promise<Map<string, { descricao: string | null; itens: unknown }>> {
+    const unique = [...new Set(ids.map((id) => id.trim()).filter(Boolean))];
+    const out = new Map<string, { descricao: string | null; itens: unknown }>();
+    if (!unique.length) return out;
+    const { data, error } = await admin
+        .from("v_sec_combos")
+        .select("id, descricao, itens")
+        .eq("company_id", companyId)
+        .in("id", unique);
+    if (error || !data) return out;
+    for (const row of data) {
+        const id = String(row.id ?? "");
+        if (!id) continue;
+        out.set(id, {
+            descricao: row.descricao == null ? null : String(row.descricao),
+            itens: row.itens,
+        });
+    }
+    return out;
+}
+
 async function searchChatCombos(
     admin: SupabaseClient,
     companyId: string,
@@ -184,7 +266,7 @@ async function searchChatCombos(
         p_query: query,
     });
     if (error || !Array.isArray(data)) return [];
-    const out: ChatProdutoRow[] = [];
+    const parsed: Array<{ id: string; nome: string; preco: number; disponivel: number | null }> = [];
     for (const raw of data) {
         if (!raw || typeof raw !== "object") continue;
         const row = raw as {
@@ -197,25 +279,189 @@ async function searchChatCombos(
         const nome = String(row.nome ?? "").trim();
         const preco = Number(row.preco);
         if (!id || !nome || !Number.isFinite(preco) || preco <= 0) continue;
-        const ilimitado = row.disponivel == null;
-        out.push({
+        parsed.push({
             id,
-            product_name: nome,
-            display_name: nome,
-            descricao: "Combo",
-            sigla_comercial: "KIT",
-            preco_venda: preco,
-            volume_quantidade: null,
-            unit_type_sigla: null,
-            fator_conversao: 1,
-            product_volume_id: null,
-            category_id: null,
-            estoque_unidades: ilimitado ? 0 : Number(row.disponivel),
-            vender_com_estoque_zero: ilimitado,
-            disponivel_venda: ilimitado ? 99 : Number(row.disponivel),
+            nome,
+            preco,
+            disponivel: row.disponivel == null ? null : Number(row.disponivel),
         });
     }
+    const extras = await loadComboExtras(
+        admin,
+        companyId,
+        parsed.map((row) => row.id)
+    );
+    const out: ChatProdutoRow[] = [];
+    for (const row of parsed) {
+        const extra = extras.get(row.id);
+        const chat = comboToChatRow({
+            ...row,
+            descricao: extra?.descricao,
+            itens: extra?.itens,
+        });
+        if (chat) out.push(chat);
+    }
     return out;
+}
+
+/** Preço que o cliente paga. Não devolve o preço de catálogo. */
+async function attachEffectivePackPrices(
+    admin: SupabaseClient,
+    companyId: string,
+    rows: ChatProdutoRow[]
+): Promise<ChatProdutoRow[]> {
+    const ids = [
+        ...new Set(
+            rows
+                .filter((row) => String(row.sigla_comercial ?? "").toUpperCase() !== "KIT")
+                .map((row) => String(row.id ?? "").trim())
+                .filter(Boolean)
+        ),
+    ];
+    if (!ids.length) return rows;
+    const { data, error } = await admin
+        .from("v_sec_preco_efetivo_embalagem")
+        .select("id, preco_efetivo")
+        .eq("company_id", companyId)
+        .in("id", ids);
+    if (error || !data) return rows;
+    const byId = new Map<string, number>();
+    for (const row of data) {
+        const price = Number(row.preco_efetivo);
+        if (Number.isFinite(price) && price > 0) byId.set(String(row.id), price);
+    }
+    return rows.map((row) => {
+        const price = byId.get(String(row.id));
+        return price != null ? { ...row, preco_venda: price } : row;
+    });
+}
+
+async function listActiveComboRows(
+    admin: SupabaseClient,
+    companyId: string
+): Promise<ChatProdutoRow[]> {
+    const { data, error } = await admin
+        .from("v_sec_combos")
+        .select("id, nome, descricao, preco_efetivo, disponivel, itens")
+        .eq("company_id", companyId)
+        .eq("is_active", true)
+        .eq("show_on_menu", true)
+        .not("preco", "is", null)
+        .order("nome")
+        .limit(8);
+    if (error || !data) return [];
+    const out: ChatProdutoRow[] = [];
+    for (const row of data) {
+        const chat = comboToChatRow({
+            id: String(row.id ?? ""),
+            nome: String(row.nome ?? ""),
+            preco: Number(row.preco_efetivo),
+            disponivel: row.disponivel == null ? null : Number(row.disponivel),
+            descricao: row.descricao == null ? null : String(row.descricao),
+            itens: row.itens,
+        });
+        if (chat) out.push(chat);
+    }
+    return out;
+}
+
+async function listActivePromoRows(
+    admin: SupabaseClient,
+    companyId: string
+): Promise<ChatProdutoRow[]> {
+    const { data, error } = await admin
+        .from("v_sec_promocoes")
+        .select("alvos")
+        .eq("company_id", companyId)
+        .eq("status", "ativa")
+        .limit(5);
+    if (error || !data) return [];
+
+    const embIds: string[] = [];
+    const comboIds: string[] = [];
+    const orderedIds: string[] = [];
+    for (const promo of data) {
+        const alvos = Array.isArray(promo.alvos) ? promo.alvos : [];
+        for (const raw of alvos) {
+            if (!raw || typeof raw !== "object") continue;
+            const alvo = raw as { combo_id?: string | null; produto_embalagem_id?: string | null };
+            const comboId = String(alvo.combo_id ?? "").trim();
+            const embId = String(alvo.produto_embalagem_id ?? "").trim();
+            if (comboId) {
+                comboIds.push(comboId);
+                orderedIds.push(comboId);
+            } else if (embId) {
+                embIds.push(embId);
+                orderedIds.push(embId);
+            }
+        }
+    }
+
+    const packs = new Map<string, ChatProdutoRow>();
+    if (embIds.length) {
+        const { data: rows } = await admin
+            .from("view_chat_produtos")
+            .select(SELECT_FULL)
+            .eq("company_id", companyId)
+            .in("id", [...new Set(embIds)]);
+        const finalized = await attachEffectivePackPrices(
+            admin,
+            companyId,
+            await finalizeRows(admin, (rows ?? []) as ChatProdutoRow[])
+        );
+        for (const row of finalized) packs.set(String(row.id), row);
+    }
+
+    const combos = new Map<string, ChatProdutoRow>();
+    if (comboIds.length) {
+        const { data: rows } = await admin
+            .from("v_sec_combos")
+            .select("id, nome, descricao, preco_efetivo, disponivel, itens, is_active")
+            .eq("company_id", companyId)
+            .in("id", [...new Set(comboIds)]);
+        for (const row of rows ?? []) {
+            if (row.is_active !== true) continue;
+            const chat = comboToChatRow({
+                id: String(row.id ?? ""),
+                nome: String(row.nome ?? ""),
+                preco: Number(row.preco_efetivo),
+                disponivel: row.disponivel == null ? null : Number(row.disponivel),
+                descricao: row.descricao == null ? null : String(row.descricao),
+                itens: row.itens,
+            });
+            if (chat) combos.set(chat.id, chat);
+        }
+    }
+
+    const out: ChatProdutoRow[] = [];
+    const seen = new Set<string>();
+    for (const id of orderedIds) {
+        if (seen.has(id)) continue;
+        const row = packs.get(id) ?? combos.get(id);
+        if (!row) continue;
+        seen.add(id);
+        out.push(row);
+        if (out.length >= 8) break;
+    }
+    return out;
+}
+
+export async function loadCatalogOfferReply(
+    admin: SupabaseClient,
+    companyId: string,
+    kind: CatalogOfferListKind
+): Promise<string> {
+    const items = kind === "promos"
+        ? await listActivePromoRows(admin, companyId)
+        : await listActiveComboRows(admin, companyId);
+    return formatCatalogOfferList(
+        kind,
+        items.map((row) => ({
+            name: String(row.display_name || row.product_name || "").trim(),
+            price: Number(row.preco_venda),
+            composition: String(row.sigla_comercial ?? "").toUpperCase() === "KIT" ? row.detalhes : null,
+        }))
+    );
 }
 
 async function searchViaRpc(
@@ -279,6 +525,18 @@ async function searchViaIlikeFallback(
     return rows.slice(0, limit * 2);
 }
 
+async function withSpokenPrices(
+    admin: SupabaseClient,
+    companyId: string,
+    result: SearchProdutosResult
+): Promise<SearchProdutosResult> {
+    if (result.offerList) return result;
+    return {
+        ...result,
+        items: await attachEffectivePackPrices(admin, companyId, result.items),
+    };
+}
+
 export async function runSearchProdutosDetailed(
     admin: SupabaseClient,
     companyId: string,
@@ -287,6 +545,19 @@ export async function runSearchProdutosDetailed(
 ): Promise<SearchProdutosResult> {
     const limit = Math.min(Math.max(opts?.limit ?? 8, 1), 20);
     const q = sanitizeSearchQuery(query);
+    const listKind = catalogOfferListKind(q);
+    if (listKind) {
+        const items = listKind === "promos"
+            ? await listActivePromoRows(admin, companyId)
+            : await listActiveComboRows(admin, companyId);
+        return {
+            items,
+            didYouMean: [],
+            empty: items.length === 0,
+            queryNormalized: q,
+            offerList: listKind,
+        };
+    }
     const queryNormalized = expandSearchVariants(q)[0] ?? q;
     const cacheKey = catalogSearchCacheKey({
         companyId,
@@ -296,11 +567,11 @@ export async function runSearchProdutosDetailed(
     });
     const cached = await getCachedCatalogSearchAsync(cacheKey);
     if (cached) {
-        return {
+        return withSpokenPrices(admin, companyId, {
             ...cached,
             items: cached.items.map((r) => ({ ...r })),
             didYouMean: cached.didYouMean.map((d) => ({ ...d })),
-        };
+        });
     }
 
     if (opts?.categoryHint) {
@@ -337,7 +608,7 @@ export async function runSearchProdutosDetailed(
                     queryNormalized: hint,
                 };
                 await setCachedCatalogSearchAsync(cacheKey, result);
-                return result;
+                return withSpokenPrices(admin, companyId, result);
             }
         }
     }
@@ -365,7 +636,7 @@ export async function runSearchProdutosDetailed(
         queryNormalized,
     };
     await setCachedCatalogSearchAsync(cacheKey, result);
-    return result;
+    return withSpokenPrices(admin, companyId, result);
 }
 
 /** Compat: retorna só as linhas (handlers legados). */
@@ -405,7 +676,11 @@ export async function suggestNearCatalogMatches(
         return [];
     }
 
-    const finalized = await finalizeRows(admin, (pool.data ?? []) as ChatProdutoRow[]);
+    const finalized = await attachEffectivePackPrices(
+        admin,
+        companyId,
+        await finalizeRows(admin, (pool.data ?? []) as ChatProdutoRow[])
+    );
     const scored = finalized
         .map((r) => {
             const label = String(r.display_name || r.product_name || "").trim();

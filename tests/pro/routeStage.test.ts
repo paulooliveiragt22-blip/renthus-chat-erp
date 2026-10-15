@@ -76,6 +76,19 @@ describe("routeStage F5 web menu", () => {
         assert.equal(String(cta?.ctaUrl?.bodyText ?? "").includes("http"), false);
     });
 
+    it("pergunta de promoção não vira o link do cardápio", () => {
+        const out = routeStage({
+            state: idle(),
+            decision: decision("catalog_intent"),
+            inboundText: "o que está em promoção?",
+            tenant,
+            webMenuUrl,
+            llmEnabled: true,
+        });
+        assert.equal(out.mode, "ai");
+        assert.equal(out.outbound.some((m) => m.kind === "cta_url"), false);
+    });
+
     it("catálogo (btn_catalog) envia CTA do cardápio", () => {
         const out = routeStage({
             state: idle(),

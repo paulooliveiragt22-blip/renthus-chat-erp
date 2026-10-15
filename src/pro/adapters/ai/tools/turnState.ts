@@ -81,6 +81,8 @@ export type TurnState = {
     inboundSlots: InboundSlots;
     /** Preenchido quando o extract fecha a modalidade e a regex não casou. */
     resolvedFulfillment?: FulfillmentType | null;
+    /** Lista de promoções ou combos. Substitui a prosa do modelo neste turno. */
+    catalogOfferReply: string | null;
 };
 
 export function createInitialTurnState(seed: {
@@ -130,5 +132,6 @@ export function createInitialTurnState(seed: {
         pickResolveTurn: seed.pickResolveTurn === true,
         pendingOutOfStockOffer: null,
         inboundSlots: seed.inboundSlots ?? EMPTY_INBOUND_SLOTS,
+        catalogOfferReply: null,
     };
 }
