@@ -222,7 +222,7 @@ Implementar nesta ordem. Não marcar item sem teste (`npm test` onde houver lóg
 
 ### Fatia 1 — Schema e preço
 
-- [x] Tabelas, RLS, grants, `btree_gist`, `fn_ratear_preco`, funções de preço efetivo, RPCs de combo e promoção. Aplicado no remoto em 2026-10-14 (`db query --linked`, fora de `schema_migrations` por divergência de histórico).
+- [x] Tabelas, RLS, grants, `btree_gist`, `fn_ratear_preco`, funções de preço efetivo, RPCs de combo e promoção. SQL aplicado no remoto em 2026-10-14 (`db query --linked`). Histórico reparado em 2026-10-14: versões `20261014220000` e `20261014223000` em `supabase_migrations.schema_migrations`.
 - [x] Teste de rateio no remoto: `fn_ratear_preco(ARRAY[10,30], 20.01) = {5, 15.01}`; `fn_ratear_preco(ARRAY[10,10], 10.01) = {5.01, 5}`. Recusa de preço acima da soma está em `rpc_precificar_combo` (`combo_preco_acima_do_catalogo`).
 - [ ] Teste de janela: sobreposição recusada; fim exclusivo permite a próxima começar no mesmo instante; pausada continua ocupando a janela. A constraint `promocao_alvos_sem_sobreposicao` existe; o INSERT de prova foi bloqueado e ainda não rodou.
 

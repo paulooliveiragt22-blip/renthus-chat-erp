@@ -1,6 +1,7 @@
 // app/(admin)/produtos/lista/ListaClient.tsx
 "use client";
 import React, { useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { useWorkspace } from "@/lib/workspace/useWorkspace";
 import {
     Camera, CheckCircle2, Loader2, Pencil, Plus, RefreshCw,
@@ -1433,6 +1434,9 @@ export default function ProdutosListaPage() {
                     </p>
                 </div>
                 <div className="flex items-center gap-2">
+                    <Link href="/produtos/promocoes" className="rounded-lg border border-zinc-200 px-3 py-1.5 text-xs font-semibold text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800">
+                        Promoções
+                    </Link>
                     <button onClick={() => load()} className="flex h-8 w-8 items-center justify-center rounded-lg border border-zinc-200 text-zinc-500 hover:bg-zinc-50 dark:border-zinc-700">
                         <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
                     </button>

@@ -1,4 +1,5 @@
 import {
+  BadgePercent,
   BarChart3,
   Bike,
   BookOpen,
@@ -158,6 +159,12 @@ export const ADMIN_NAV_CATALOG: readonly AdminNavEntry[] = [
         label: "Produtos",
         href: "/produtos/lista",
         icon: ShoppingBag,
+      },
+      {
+        id: "promocoes",
+        label: "Promoções",
+        href: "/produtos/promocoes",
+        icon: BadgePercent,
       },
       {
         id: "estoque",

@@ -83,6 +83,13 @@ export const COMMAND_NAV_ITEMS: readonly CommandNavItem[] = [
     keywords: ["cardapio", "estoque produto"],
   },
   {
+    id: "nav-promocoes",
+    label: "Promoções",
+    href: "/produtos/promocoes",
+    group: "navegacao",
+    keywords: ["combo", "kit", "desconto", "oferta"],
+  },
+  {
     id: "nav-clientes",
     label: "Clientes",
     href: "/clientes",

@@ -80,6 +80,7 @@ export const ADMIN_SCREENS: ScreenRoute[] = [
     { path: "/templates", name: "Templates WA", group: "admin", expectText: /template|whatsapp|modelo/i },
     { path: "/campanhas", name: "Campanhas", group: "admin", expectText: /campanha|disparo|broadcast/i },
     { path: "/produtos/lista", name: "Produtos lista", group: "admin", expectText: /produtos|cadastr|lista/i },
+    { path: "/produtos/promocoes", name: "Promoções", group: "admin", expectText: /promo|combo/i },
     {
         path: "/produtos",
         name: "Produtos redirect",
