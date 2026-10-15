@@ -179,7 +179,7 @@ export function routeStage(params: {
 
     /**
      * Fallback quando o FAQ de status não respondeu (sem cliente ou sem pedido).
-     * Com pedido, `tryBuildOrderStatusReply` já devolveu a frase e o link.
+     * Com pedido, `tryBuildOrderStatusReply` já devolveu a frase e o botão Acompanhar.
      */
     if ((norm === "btn_status" || decision.intent === "status_intent") && ordersMenuUrl) {
         return {

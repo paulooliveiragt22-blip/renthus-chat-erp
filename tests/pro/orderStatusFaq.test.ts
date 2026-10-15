@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
     formatOrderStatusBody,
+    orderStatusMessages,
     wantsRecentOrdersList,
     type StatusOrderRow,
 } from "../../src/pro/pipeline/orderStatusFaq";
@@ -21,17 +22,25 @@ const closed: StatusOrderRow = {
 };
 
 describe("formatOrderStatusBody", () => {
-    it("cadê meu pedido: uma frase do aberto, com previsão, e o link na segunda linha", () => {
+    it("cadê meu pedido: uma frase do aberto, com previsão, sem URL no texto", () => {
         const text = formatOrderStatusBody({
             orders: [openDelivery, closed],
             list: false,
             etaMin: 40,
-            ordersMenuUrl: "https://app.example/c/loja?orders=1",
         });
-        assert.equal(
-            text,
-            "Seu pedido #E83E79 está *Em preparo*, previsão de 40 min.\n\nAcompanhe em: https://app.example/c/loja?orders=1"
-        );
+        assert.equal(text, "Seu pedido #E83E79 está *Em preparo*, previsão de 40 min.");
+        assert.equal(text?.includes("http"), false);
+    });
+
+    it("o acompanhamento vai no botão, com a URL fora do corpo", () => {
+        const url = "https://app.example/c/loja?orders=1";
+        const out = orderStatusMessages("Seu pedido #E83E79 está *Em preparo*.", url);
+        assert.equal(out[0]?.kind, "text");
+        assert.equal(out[0]?.text?.includes("http"), false);
+        assert.equal(out[1]?.kind, "cta_url");
+        assert.equal(out[1]?.ctaUrl?.displayText, "Acompanhar");
+        assert.equal(out[1]?.ctaUrl?.url, url);
+        assert.equal(out[1]?.ctaUrl?.bodyText?.includes("http"), false);
     });
 
     it("sem previsão e sem link, a frase fica só com o status", () => {

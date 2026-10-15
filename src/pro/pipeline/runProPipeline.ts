@@ -1467,9 +1467,9 @@ export async function runProPipeline(
                 userText: inboundTextForPipeline,
                 ordersMenuUrl: resolveOrdersMenuUrl(input.webMenuUrl, input.webMenuOrdersUrl),
             });
-            if (statusReply) {
+            if (statusReply?.length) {
                 const synced = withResolvedSlotStep(pipelineState);
-                const outbound: OutboundMessage[] = [{ kind: "text", text: statusReply }];
+                const outbound: OutboundMessage[] = statusReply;
                 await emitTurn({ state: synced, outbound });
                 const metrics: PipelineMetric[] = [
                     { name: "pro_pipeline.order_status_faq", value: 1 },

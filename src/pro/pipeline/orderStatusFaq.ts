@@ -9,6 +9,8 @@ import {
     publicMenuOrderCode,
     publicMenuOrderStatusLabel,
 } from "@/lib/public-menu/checkout/orderStatusLabel";
+import type { OutboundMessage } from "@/src/types/contracts";
+import { buildWebMenuCtaOutbound } from "./stages/routeStage";
 
 const STATUS_RE =
     /\b(?:status|cad[eê]|onde\s+est[aá]|acompanhar|previs[aã]o|meu\s+pedido|meus\s+pedidos)\b/iu;
@@ -61,7 +63,6 @@ export function formatOrderStatusBody(params: {
     orders: readonly StatusOrderRow[];
     list: boolean;
     etaMin: number | null;
-    ordersMenuUrl?: string | null;
 }): string | null {
     const orders = params.orders.slice(0, 3);
     if (!orders.length) return null;
@@ -84,9 +85,21 @@ export function formatOrderStatusBody(params: {
         }
     }
 
-    const url = params.ordersMenuUrl?.trim();
-    if (url) body += `\n\nAcompanhe em: ${url}`;
     return body;
+}
+
+/** Frase do pedido em texto. O cardápio de pedidos, se houver, vai no botão — a URL não entra no corpo. */
+export function orderStatusMessages(text: string, ordersMenuUrl?: string | null): OutboundMessage[] {
+    const outbound: OutboundMessage[] = [{ kind: "text", text }];
+    const url = ordersMenuUrl?.trim();
+    if (!url) return outbound;
+    outbound.push(
+        buildWebMenuCtaOutbound(url, {
+            bodyText: "Toque para acompanhar:",
+            displayText: "Acompanhar",
+        })
+    );
+    return outbound;
 }
 
 type OrderQueryRow = {
@@ -108,7 +121,7 @@ export async function tryBuildOrderStatusReply(params: {
     customerId: string | null | undefined;
     userText?: string | null;
     ordersMenuUrl?: string | null;
-}): Promise<string | null> {
+}): Promise<OutboundMessage[] | null> {
     const customerId = String(params.customerId ?? "").trim();
     if (!customerId) return null;
 
@@ -136,10 +149,7 @@ export async function tryBuildOrderStatusReply(params: {
     );
     const etaMin = needsEta ? await getCompanyDeliveryEtaMin(params.admin, params.companyId) : null;
 
-    return formatOrderStatusBody({
-        orders,
-        list,
-        etaMin,
-        ordersMenuUrl: params.ordersMenuUrl,
-    });
+    const text = formatOrderStatusBody({ orders, list, etaMin });
+    if (!text) return null;
+    return orderStatusMessages(text, params.ordersMenuUrl);
 }

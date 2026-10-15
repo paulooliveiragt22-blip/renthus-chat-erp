@@ -69,7 +69,7 @@ Estender `tryBuildOrderStatusReply` (`src/pro/pipeline/orderStatusFaq.ts`). Não
 
 - Pergunta de um pedido («cadê meu pedido», «status»): uma frase do pedido aberto mais recente — código, rótulo atual (`publicMenuOrderStatusLabel`) e previsão quando o pedido tiver `deliveryEtaMin` (ou o equivalente já gravado no pedido).
 - «Meus pedidos»: até três linhas, como hoje, com a previsão na linha do pedido aberto.
-- Segunda linha: link do cardápio de pedidos **somente** se `ordersMenuUrl` existir.
+- O cardápio de pedidos, se `ordersMenuUrl` existir, sai num botão `cta_url` (**Acompanhar**). A URL não entra no texto.
 
 `routeStage` deixa de emitir o CTA de `status_intent` / `btn_status` quando essa resposta existir. O CTA ou o texto «consulta não configurada» permanece só sem `customerId` ou sem pedido.
 
@@ -170,7 +170,7 @@ Implementar **nesta ordem**. Não marcar item sem teste e, nas fatias 1–3, sem
 ### Fatia 3 — Status — feita
 
 - [x] Uma frase do pedido aberto + previsão da loja (`companies.settings.delivery_est_minutes`) quando houver; «meus pedidos» / `btn_status` mantém até três linhas. Retirada não leva previsão de entrega. O pedido não grava ETA próprio.
-- [x] O link do cardápio vai na segunda linha da frase. `routeStage` só manda o CTA de status quando o FAQ não respondeu (sem cliente ou sem pedido).
+- [x] O cardápio de pedidos vai no botão **Acompanhar**, no mesmo formato do cardápio. `routeStage` só manda o CTA sozinho quando o FAQ não respondeu (sem cliente ou sem pedido).
 
 ### Fatia 4 — Prontidão — feita
 
