@@ -46,6 +46,15 @@ function brl(n: number): string {
     return n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
 
+const fieldLabel = "mb-1 block text-xs font-bold text-zinc-700 dark:text-zinc-300";
+const fieldInput =
+    "w-full rounded-lg border border-border bg-zinc-50 px-3 py-2 text-sm text-foreground placeholder:text-foreground-muted focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/40 dark:bg-zinc-800 dark:[color-scheme:dark] disabled:opacity-50";
+const choiceLabel = "flex items-center gap-2 text-sm text-zinc-700 dark:text-zinc-300";
+const hitBtn =
+    "w-full rounded-md px-2 py-1 text-left text-sm text-foreground hover:bg-zinc-100 dark:hover:bg-zinc-800";
+const listCard =
+    "divide-y divide-zinc-200 overflow-hidden rounded-xl border border-zinc-200 bg-white dark:divide-zinc-800 dark:border-zinc-800 dark:bg-zinc-900";
+
 function cuiabaIso(local: string): string {
     return new Date(`${local}:00-04:00`).toISOString();
 }
@@ -110,8 +119,8 @@ export default function PromocoesClient() {
         <div className="mx-auto flex w-full max-w-5xl flex-col gap-8 p-4 sm:p-6">
             <header className="flex flex-wrap items-end justify-between gap-3">
                 <div>
-                    <h1 className="text-2xl font-semibold text-zinc-900">Combos e promoções</h1>
-                    <p className="mt-1 max-w-2xl text-sm text-zinc-600">
+                    <h1 className="text-2xl font-semibold text-zinc-900 dark:text-zinc-50">Combos e promoções</h1>
+                    <p className="mt-1 max-w-2xl text-sm text-zinc-600 dark:text-zinc-400">
                         O combo existe sozinho. A promoção aplica um preço menor por um prazo e não altera o preço de catálogo.
                     </p>
                 </div>
@@ -120,35 +129,35 @@ export default function PromocoesClient() {
                     <Button type="button" variant="outline" onClick={() => setOpenPromo(true)}>Nova promoção</Button>
                 </div>
             </header>
-            {msg ? <p className="text-sm text-zinc-700">{msg}</p> : null}
+            {msg ? <p className="text-sm text-zinc-700 dark:text-zinc-300">{msg}</p> : null}
 
             <section className="flex flex-col gap-3">
-                <h2 className="text-lg font-semibold text-zinc-900">Combos</h2>
+                <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-50">Combos</h2>
                 {combos.length === 0 ? (
-                    <p className="text-sm text-zinc-500">Nenhum combo ainda.</p>
+                    <p className="text-sm text-zinc-500 dark:text-zinc-400">Nenhum combo ainda.</p>
                 ) : (
-                    <ul className="divide-y divide-zinc-200 overflow-hidden rounded-xl border border-zinc-200 bg-white">
+                    <ul className={listCard}>
                         {combos.map((c) => {
                             const drift = (c.itens ?? []).some((i) => i.divergiu);
                             return (
                                 <li key={c.id} className="flex flex-col gap-1 px-4 py-3">
                                     <div className="flex flex-wrap items-baseline justify-between gap-2">
-                                        <p className="font-medium text-zinc-900">{c.nome}</p>
-                                        <p className="text-sm text-zinc-700">
+                                        <p className="font-medium text-zinc-900 dark:text-zinc-100">{c.nome}</p>
+                                        <p className="text-sm text-zinc-700 dark:text-zinc-300">
                                             {c.preco != null ? brl(Number(c.preco)) : "Sem preço"}
                                             {c.preco_efetivo != null && c.preco != null && Number(c.preco_efetivo) < Number(c.preco)
                                                 ? ` · promoção ${brl(Number(c.preco_efetivo))}`
                                                 : ""}
                                         </p>
                                     </div>
-                                    <p className="text-xs text-zinc-500">
+                                    <p className="text-xs text-zinc-500 dark:text-zinc-400">
                                         {(c.itens ?? []).map((i) => `${i.quantidade}× ${i.nome ?? "Item"}`).join(" · ") || "Sem itens"}
                                         {c.is_active ? "" : " · inativo"}
                                         {c.show_on_menu ? "" : " · oculto no cardápio"}
                                     </p>
                                     {drift ? (
                                         <div className="flex flex-wrap items-center gap-2">
-                                            <p className="text-xs text-amber-800">
+                                            <p className="text-xs text-amber-800 dark:text-amber-200">
                                                 O preço de catálogo de um componente mudou. O combo continua no preço congelado.
                                             </p>
                                             <Button
@@ -169,18 +178,18 @@ export default function PromocoesClient() {
             </section>
 
             <section className="flex flex-col gap-3">
-                <h2 className="text-lg font-semibold text-zinc-900">Promoções</h2>
+                <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-50">Promoções</h2>
                 {promos.length === 0 ? (
-                    <p className="text-sm text-zinc-500">Nenhuma promoção ainda.</p>
+                    <p className="text-sm text-zinc-500 dark:text-zinc-400">Nenhuma promoção ainda.</p>
                 ) : (
-                    <ul className="divide-y divide-zinc-200 overflow-hidden rounded-xl border border-zinc-200 bg-white">
+                    <ul className={listCard}>
                         {promos.map((p) => (
                             <li key={p.id} className="px-4 py-3">
                                 <div className="flex flex-wrap items-baseline justify-between gap-2">
-                                    <p className="font-medium text-zinc-900">{p.nome}</p>
-                                    <p className="text-xs uppercase tracking-wide text-zinc-500">{p.status}</p>
+                                    <p className="font-medium text-zinc-900 dark:text-zinc-100">{p.nome}</p>
+                                    <p className="text-xs uppercase tracking-wide text-zinc-500 dark:text-zinc-400">{p.status}</p>
                                 </div>
-                                <p className="text-xs text-zinc-500">
+                                <p className="text-xs text-zinc-500 dark:text-zinc-400">
                                     {new Date(p.starts_at).toLocaleString("pt-BR", { timeZone: "America/Cuiaba" })}
                                     {" — "}
                                     {new Date(p.ends_at).toLocaleString("pt-BR", { timeZone: "America/Cuiaba" })}
@@ -408,24 +417,24 @@ function ComboDialog(props: {
         <Dialog open={props.open} onOpenChange={props.onOpenChange}>
             <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-lg">
                 <DialogTitle>Novo combo</DialogTitle>
-                <label className="mt-3 block text-sm text-zinc-700">
+                <label className={fieldLabel}>
                     Nome
-                    <input className="mt-1 w-full rounded-md border border-zinc-300 px-3 py-2" value={nome} onChange={(e) => setNome(e.target.value)} />
+                    <input className={`mt-1 ${fieldInput}`} value={nome} onChange={(e) => setNome(e.target.value)} />
                 </label>
-                <label className="mt-3 flex items-center gap-2 text-sm text-zinc-700">
+                <label className={choiceLabel}>
                     <input type="checkbox" checked={showOnMenu} onChange={(e) => setShowOnMenu(e.target.checked)} />
                     Mostrar no cardápio
                 </label>
-                <label className="mt-3 block text-sm text-zinc-700">
+                <label className={fieldLabel}>
                     Buscar produto já cadastrado
-                    <input className="mt-1 w-full rounded-md border border-zinc-300 px-3 py-2" value={q} onChange={(e) => setQ(e.target.value)} />
+                    <input className={`mt-1 ${fieldInput}`} value={q} onChange={(e) => setQ(e.target.value)} />
                 </label>
                 <ul className="mt-2 flex flex-col gap-1">
                     {hits.map((h) => (
                         <li key={h.id}>
                             <button
                                 type="button"
-                                className="w-full rounded-md px-2 py-1 text-left text-sm hover:bg-zinc-100"
+                                className={hitBtn}
                                 onClick={() => addLine(h)}
                             >
                                 {h.label} · {brl(h.price)}
@@ -433,17 +442,17 @@ function ComboDialog(props: {
                         </li>
                     ))}
                 </ul>
-                <fieldset className="mt-4 flex flex-col gap-2 rounded-lg border border-zinc-200 p-3">
-                    <legend className="px-1 text-sm text-zinc-700">Ou cadastrar produto novo</legend>
-                    <input className="w-full rounded-md border border-zinc-300 px-3 py-2 text-sm" placeholder="Nome" value={novoNome} onChange={(e) => setNovoNome(e.target.value)} />
-                    <select className="w-full rounded-md border border-zinc-300 px-3 py-2 text-sm" value={novoCat} onChange={(e) => setNovoCat(e.target.value)} aria-label="Categoria do produto novo">
+                <fieldset className="mt-4 flex flex-col gap-2 rounded-lg border border-zinc-200 p-3 dark:border-zinc-700">
+                    <legend className={`px-1 ${fieldLabel}`}>Ou cadastrar produto novo</legend>
+                    <input className={fieldInput} placeholder="Nome" value={novoNome} onChange={(e) => setNovoNome(e.target.value)} />
+                    <select className={fieldInput} value={novoCat} onChange={(e) => setNovoCat(e.target.value)} aria-label="Categoria do produto novo">
                         <option value="">Categoria</option>
                         {categories.map((c) => (
                             <option key={c.id} value={c.id}>{c.name}</option>
                         ))}
                     </select>
-                    <input className="w-full rounded-md border border-zinc-300 px-3 py-2 text-sm" placeholder="Preço de venda" value={novoPreco} onChange={(e) => setNovoPreco(e.target.value)} />
-                    <label className="flex items-center gap-2 text-sm text-zinc-700">
+                    <input className={fieldInput} placeholder="Preço de venda" value={novoPreco} onChange={(e) => setNovoPreco(e.target.value)} />
+                    <label className={choiceLabel}>
                         <input type="checkbox" checked={novoNoMenu} onChange={(e) => setNovoNoMenu(e.target.checked)} />
                         Mostrar este produto sozinho no cardápio
                     </label>
@@ -453,11 +462,11 @@ function ComboDialog(props: {
                 </fieldset>
                 <ul className="mt-3 flex flex-col gap-2">
                     {lines.map((l) => (
-                        <li key={l.id} className="grid grid-cols-[1fr_4rem_6rem] items-center gap-2 text-sm">
+                        <li key={l.id} className="grid grid-cols-[minmax(0,1fr)_4rem_6rem] items-center gap-2 text-sm text-foreground">
                             <span className="truncate">{l.label}</span>
                             <input
                                 aria-label={`Quantidade de ${l.label}`}
-                                className="rounded-md border border-zinc-300 px-2 py-1"
+                                className={fieldInput}
                                 inputMode="numeric"
                                 value={l.quantidade}
                                 onChange={(e) => {
@@ -467,7 +476,7 @@ function ComboDialog(props: {
                             />
                             <input
                                 aria-label={`Preço unitário de ${l.label}`}
-                                className="rounded-md border border-zinc-300 px-2 py-1"
+                                className={fieldInput}
                                 value={l.precoUnitario}
                                 onChange={(e) => setLines((prev) => prev.map((x) => (x.id === l.id ? { ...x, precoUnitario: e.target.value } : x)))}
                                 disabled={modo !== "manual"}
@@ -475,23 +484,23 @@ function ComboDialog(props: {
                         </li>
                     ))}
                 </ul>
-                <fieldset className="mt-3 flex gap-4 text-sm">
-                    <label className="flex items-center gap-2">
+                <fieldset className="mt-3 flex gap-4">
+                    <label className={choiceLabel}>
                         <input type="radio" name="modo" checked={modo === "pro_rata"} onChange={() => setModo("pro_rata")} />
                         Pro rata
                     </label>
-                    <label className="flex items-center gap-2">
+                    <label className={choiceLabel}>
                         <input type="radio" name="modo" checked={modo === "manual"} onChange={() => setModo("manual")} />
                         Preço de cada item
                     </label>
                 </fieldset>
                 {modo === "pro_rata" ? (
-                    <label className="mt-3 block text-sm text-zinc-700">
+                    <label className={fieldLabel}>
                         Valor do combo
-                        <input className="mt-1 w-full rounded-md border border-zinc-300 px-3 py-2" value={preco} onChange={(e) => setPreco(e.target.value)} />
+                        <input className={`mt-1 ${fieldInput}`} value={preco} onChange={(e) => setPreco(e.target.value)} />
                     </label>
                 ) : null}
-                {err ? <p className="mt-2 text-sm text-red-700">{err}</p> : null}
+                {err ? <p className="mt-2 text-sm text-red-700 dark:text-red-400">{err}</p> : null}
                 <Button type="button" className="mt-4" disabled={busy || lines.length === 0} onClick={() => void save()}>
                     {busy ? "Salvando…" : "Salvar combo"}
                 </Button>
@@ -575,33 +584,33 @@ function PromoDialog(props: {
         <Dialog open={props.open} onOpenChange={props.onOpenChange}>
             <DialogContent className="sm:max-w-lg">
                 <DialogTitle>Nova promoção</DialogTitle>
-                <p className="text-xs text-zinc-500">Início e fim no horário de Cuiabá.</p>
-                <label className="mt-3 block text-sm">
+                <p className="text-xs text-zinc-500 dark:text-zinc-400">Início e fim no horário de Cuiabá.</p>
+                <label className={fieldLabel}>
                     Nome
-                    <input className="mt-1 w-full rounded-md border border-zinc-300 px-3 py-2" value={nome} onChange={(e) => setNome(e.target.value)} />
+                    <input className={`mt-1 ${fieldInput}`} value={nome} onChange={(e) => setNome(e.target.value)} />
                 </label>
                 <div className="mt-3 grid grid-cols-2 gap-2">
-                    <label className="text-sm">
+                    <label className={fieldLabel}>
                         Início
-                        <input type="datetime-local" className="mt-1 w-full rounded-md border border-zinc-300 px-2 py-2" value={starts} onChange={(e) => setStarts(e.target.value)} />
+                        <input type="datetime-local" className={`mt-1 ${fieldInput}`} value={starts} onChange={(e) => setStarts(e.target.value)} />
                     </label>
-                    <label className="text-sm">
+                    <label className={fieldLabel}>
                         Fim
-                        <input type="datetime-local" className="mt-1 w-full rounded-md border border-zinc-300 px-2 py-2" value={ends} onChange={(e) => setEnds(e.target.value)} />
+                        <input type="datetime-local" className={`mt-1 ${fieldInput}`} value={ends} onChange={(e) => setEnds(e.target.value)} />
                     </label>
                 </div>
-                <fieldset className="mt-3 flex gap-4 text-sm">
-                    <label className="flex items-center gap-2">
+                <fieldset className="mt-3 flex gap-4">
+                    <label className={choiceLabel}>
                         <input type="radio" name="alvo" checked={alvoKind === "emb"} onChange={() => { setAlvoKind("emb"); setAlvoId(""); }} />
                         Produto
                     </label>
-                    <label className="flex items-center gap-2">
+                    <label className={choiceLabel}>
                         <input type="radio" name="alvo" checked={alvoKind === "combo"} onChange={() => { setAlvoKind("combo"); setAlvoId(""); }} />
                         Combo já criado
                     </label>
                 </fieldset>
                 {alvoKind === "combo" ? (
-                    <select className="mt-2 w-full rounded-md border border-zinc-300 px-3 py-2 text-sm" value={alvoId} onChange={(e) => setAlvoId(e.target.value)}>
+                    <select className={fieldInput} value={alvoId} onChange={(e) => setAlvoId(e.target.value)} aria-label="Combo da promoção">
                         <option value="">Escolha o combo</option>
                         {props.combos.map((c) => (
                             <option key={c.id} value={c.id}>{c.nome} · {c.preco != null ? brl(Number(c.preco)) : ""}</option>
@@ -609,11 +618,11 @@ function PromoDialog(props: {
                     </select>
                 ) : (
                     <>
-                        <input className="mt-2 w-full rounded-md border border-zinc-300 px-3 py-2 text-sm" placeholder="Buscar produto" value={q} onChange={(e) => setQ(e.target.value)} />
+                        <input className={fieldInput} placeholder="Buscar produto" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Buscar produto" />
                         <ul className="mt-1">
                             {hits.map((h) => (
                                 <li key={h.id}>
-                                    <button type="button" className="w-full rounded px-2 py-1 text-left text-sm hover:bg-zinc-100" onClick={() => setAlvoId(h.id)}>
+                                    <button type="button" className={hitBtn} onClick={() => setAlvoId(h.id)}>
                                         {alvoId === h.id ? "✓ " : ""}{h.label} · {brl(h.price)}
                                     </button>
                                 </li>
@@ -621,11 +630,11 @@ function PromoDialog(props: {
                         </ul>
                     </>
                 )}
-                <label className="mt-3 block text-sm">
+                <label className={fieldLabel}>
                     Preço promocional
-                    <input className="mt-1 w-full rounded-md border border-zinc-300 px-3 py-2" value={preco} onChange={(e) => setPreco(e.target.value)} />
+                    <input className={`mt-1 ${fieldInput}`} value={preco} onChange={(e) => setPreco(e.target.value)} />
                 </label>
-                {err ? <p className="mt-2 text-sm text-red-700">{err}</p> : null}
+                {err ? <p className="mt-2 text-sm text-red-700 dark:text-red-400">{err}</p> : null}
                 <Button type="button" className="mt-4" disabled={busy || !alvoId} onClick={() => void save()}>
                     {busy ? "Salvando…" : "Salvar promoção"}
                 </Button>
