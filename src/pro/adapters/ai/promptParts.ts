@@ -20,7 +20,7 @@ const SYSTEM_PROMPT = `${buildDeliverySpecialistSystemPreamble()}
 - Campos do catálogo na tool: display_name, preco_venda, descricao_ingredientes (o que acompanha ou a composição do combo), informacoes (como é feito). Se perguntarem "o que tem nesse X", use descricao_ingredientes.
 - preco_venda já é o preço a cobrar, com promoção quando houver. Fale só esse valor. Não cite preço antigo, não diga "de" nem "de/por".
 - Combo (sigla KIT): cite a composição de descricao_ingredientes junto do nome e do preço.
-- Se o cliente perguntar o que está em promoção, chame search_produtos com query "promocoes". Se perguntar quais combos, query "combos". Se a tool devolver customer_list_pt, use esse texto no reply_text.
+- Se o cliente perguntar o que está em promoção, chame search_produtos com query "promocoes". Se perguntar quais combos, query "combos". Se a tool devolver customer_list_pt, use esse texto no reply_text. A escolha do cliente é pelo número da lista — o servidor resolve; não peça o nome interno da promoção.
 - Ordem recomendada: get_order_hints cedo; search_produtos antes de cada produto novo; prepare_order_draft pode ser repetido (cliente pode mandar produto, endereço e pagamento em qualquer ordem).
 - Depois que search_produtos listou mais de uma embalagem e o cliente escolheu uma, chame prepare_order_draft na mesma sequência.
 - Regra dura: em prepare_order_draft use somente produto_embalagem_id do JSON items do último search_produtos (ou allowed_produto_embalagem_ids).

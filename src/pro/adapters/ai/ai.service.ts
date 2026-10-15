@@ -669,8 +669,14 @@ export class AiServiceAdapter implements AiService {
             pendingOutOfStockOffer?: { names: string[] } | null;
             matchingMetrics?: { prepareBlockedAllowlist: number; searchHitsZero: number };
             resolvedFulfillment?: FulfillmentType | null;
+            /** Só setar quando a tool de vitrine rodou neste turno. */
+            pendingCatalogOfferPicks?: SearchPickSummary[] | null;
         }
     ): Promise<AiServiceResult> {
+        const offerPickFields =
+            turn.pendingCatalogOfferPicks !== undefined
+                ? { pendingCatalogOfferPicks: turn.pendingCatalogOfferPicks }
+                : {};
         const nextHistoryRaw = buildNextHistory(input, replyText);
         const compacted = await this.sessionMemory.compactIfNeeded({
             history: nextHistoryRaw,
@@ -697,6 +703,7 @@ export class AiServiceAdapter implements AiService {
                 updatedAiHistorySummary: nextSummary,
                 updatedSearchProdutoEmbalagemIds: turn.allowlistIds,
                 lastSearchPicks: turn.lastSearchPicks,
+                ...offerPickFields,
                 emptySearchStreak: turn.emptySearchStreak,
                 updatedOrderWorklist: turn.orderWorklist,
                 updatedPendingPickGroups: turn.pendingPickGroups,
@@ -727,6 +734,7 @@ export class AiServiceAdapter implements AiService {
             updatedAiHistorySummary: nextSummary,
             updatedSearchProdutoEmbalagemIds: turn.allowlistIds,
             lastSearchPicks: turn.lastSearchPicks,
+            ...offerPickFields,
             emptySearchStreak: turn.emptySearchStreak,
             updatedOrderWorklist: turn.orderWorklist,
             updatedPendingPickGroups: turn.pendingPickGroups,
@@ -1383,6 +1391,9 @@ export class AiServiceAdapter implements AiService {
             return await this.buildSuccess(input, visibleSafe, marker, toolRoundsUsed, updatedDraft, {
                 allowlistIds: turnState.allowlistIds,
                 lastSearchPicks: turnState.lastSearchPicks,
+                pendingCatalogOfferPicks: turnState.catalogOfferReply
+                    ? turnState.catalogOfferPicks
+                    : undefined,
                 emptySearchStreak: turnState.emptySearchStreak,
                 addressFreeText,
                 orderWorklist: turnState.orderWorklist,
@@ -1438,6 +1449,9 @@ export class AiServiceAdapter implements AiService {
                         {
                         allowlistIds: turnState.allowlistIds,
                         lastSearchPicks: turnState.lastSearchPicks,
+                        pendingCatalogOfferPicks: turnState.catalogOfferReply
+                            ? turnState.catalogOfferPicks
+                            : undefined,
                         emptySearchStreak: turnState.emptySearchStreak,
                         addressFreeText: false,
                         orderWorklist: turnState.orderWorklist,
@@ -1493,6 +1507,9 @@ export class AiServiceAdapter implements AiService {
                     {
                         allowlistIds: turnState.allowlistIds,
                         lastSearchPicks: turnState.lastSearchPicks,
+                        pendingCatalogOfferPicks: turnState.catalogOfferReply
+                            ? turnState.catalogOfferPicks
+                            : undefined,
                         emptySearchStreak: turnState.emptySearchStreak,
                         addressFreeText: false,
                         orderWorklist: turnState.orderWorklist,
@@ -1536,6 +1553,9 @@ export class AiServiceAdapter implements AiService {
                         {
                             allowlistIds: turnState.allowlistIds,
                             lastSearchPicks: turnState.lastSearchPicks,
+                            pendingCatalogOfferPicks: turnState.catalogOfferReply
+                                ? turnState.catalogOfferPicks
+                                : undefined,
                             emptySearchStreak: turnState.emptySearchStreak,
                             addressFreeText: false,
                             orderWorklist: turnState.orderWorklist,
@@ -1579,6 +1599,9 @@ export class AiServiceAdapter implements AiService {
                 return await this.buildSuccess(input, fallbackText, "ok", 1, turnState.currentDraft ?? input.draft, {
                     allowlistIds: turnState.allowlistIds,
                     lastSearchPicks: turnState.lastSearchPicks,
+                    pendingCatalogOfferPicks: turnState.catalogOfferReply
+                        ? turnState.catalogOfferPicks
+                        : undefined,
                     emptySearchStreak: turnState.emptySearchStreak,
                     addressFreeText: false,
                     orderWorklist: turnState.orderWorklist,

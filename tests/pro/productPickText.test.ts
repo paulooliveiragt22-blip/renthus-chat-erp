@@ -33,6 +33,31 @@ describe("parseProductPickIndex", () => {
         assert.equal(parseProductPickIndex("opcao 2"), 2);
         assert.equal(parseProductPickIndex("segunda"), 2);
     });
+
+    it("respeita o tamanho da lista (promo/combo além de 3)", () => {
+        assert.equal(parseProductPickIndex("5"), null);
+        assert.equal(parseProductPickIndex("5", 5), 5);
+        assert.equal(parseProductPickIndex("6", 5), null);
+    });
+});
+
+describe("applyProductPickFromInbound catalog offer list", () => {
+    it("escolhe promoção/combo pelo número da lista", () => {
+        const s = state();
+        s.lastSearchPicks = [];
+        s.pendingCatalogOfferPicks = [
+            { embalagemId: "p1", label: "HEINEKEN LATA", price: 40 },
+            { embalagemId: "p2", label: "SKOL LATA", price: 30 },
+            { embalagemId: "p3", label: "Combo sexta", price: 50 },
+            { embalagemId: "p4", label: "ORIGINAL", price: 35 },
+            { embalagemId: "p5", label: "Combo master", price: 80 },
+        ];
+        s.searchProdutoEmbalagemIds = s.pendingCatalogOfferPicks.map((p) => p.embalagemId);
+        const r = applyProductPickFromInbound("5", s);
+        assert.equal(r.state.searchProdutoEmbalagemIds[0], "p5");
+        assert.equal(r.state.pendingCatalogOfferPicks, null);
+        assert.ok(r.syntheticUserText?.includes("Combo master"));
+    });
 });
 
 describe("applyProductPickFromInbound", () => {

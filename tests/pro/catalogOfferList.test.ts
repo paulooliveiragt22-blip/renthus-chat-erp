@@ -23,20 +23,25 @@ describe("catalogOfferListKind", () => {
 
 describe("formatCatalogOfferList", () => {
     it("lista só o preço da promoção, com a composição do combo", () => {
-        const text = formatCatalogOfferList("promos", [
-            { name: "HEINEKEN LATA", price: 40 },
-            { name: "Combo sexta", price: 50, composition: "1× SKOL · 1× HAMBURGUER" },
+        const reply = formatCatalogOfferList("promos", [
+            { id: "emb-1", name: "HEINEKEN LATA", price: 40 },
+            { id: "combo-1", name: "Combo sexta", price: 50, composition: "1× SKOL · 1× HAMBURGUER" },
         ]);
-        assert.match(text, /HEINEKEN LATA — por R\$ 40,00/);
-        assert.match(text, /Combo sexta — por R\$ 50,00/);
-        assert.match(text, /1× SKOL · 1× HAMBURGUER/);
-        assert.equal(/de\s*R\$/i.test(text), false);
-        assert.equal(text.includes("de:"), false);
+        assert.match(reply.text, /HEINEKEN LATA — por R\$ 40,00/);
+        assert.match(reply.text, /Combo sexta — por R\$ 50,00/);
+        assert.match(reply.text, /1× SKOL · 1× HAMBURGUER/);
+        assert.match(reply.text, /digite o número/);
+        assert.equal(/de\s*R\$/i.test(reply.text), false);
+        assert.equal(reply.text.includes("de:"), false);
+        assert.equal(reply.picks.length, 2);
+        assert.equal(reply.picks[0]?.embalagemId, "emb-1");
+        assert.equal(reply.picks[1]?.embalagemId, "combo-1");
     });
 
     it("diz quando não há promoção", () => {
-        const text = formatCatalogOfferList("promos", []);
-        assert.match(text, /não temos promoção ativa/);
-        assert.equal(text.includes("por R$"), false);
+        const reply = formatCatalogOfferList("promos", []);
+        assert.match(reply.text, /não temos promoção ativa/);
+        assert.equal(reply.text.includes("por R$"), false);
+        assert.equal(reply.picks.length, 0);
     });
 });

@@ -74,12 +74,13 @@ export function createSearchProdutosTool(deps: {
             ];
             if (result.offerListText) {
                 deps.turnState.catalogOfferReply = result.offerListText;
+                deps.turnState.catalogOfferPicks = result.offerPicks;
                 deps.turnState.emptySearchStreak = 0;
                 deps.turnState.allowlistIds = unionAllowlistIds(
                     deps.turnState.allowlistIds,
                     result.allowlistIds
                 );
-                deps.turnState.lastSearchPicks = [];
+                deps.turnState.lastSearchPicks = result.offerPicks;
                 return {
                     ...result.body,
                     worklist_pending_search: pendingSearchTermsFromWorklist(

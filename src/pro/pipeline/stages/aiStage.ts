@@ -141,6 +141,10 @@ export async function aiStage(params: {
         searchProdutoEmbalagemIds:
             raw?.updatedSearchProdutoEmbalagemIds ?? context.session.searchProdutoEmbalagemIds ?? [],
         lastSearchPicks: raw?.lastSearchPicks ?? context.session.lastSearchPicks,
+        pendingCatalogOfferPicks:
+            raw?.pendingCatalogOfferPicks !== undefined
+                ? raw.pendingCatalogOfferPicks
+                : context.session.pendingCatalogOfferPicks ?? null,
         emptySearchStreak:
             raw?.emptySearchStreak ?? context.session.emptySearchStreak ?? 0,
         orderWorklist: nextOrderWorklist,

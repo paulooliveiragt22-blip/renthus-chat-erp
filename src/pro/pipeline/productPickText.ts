@@ -34,34 +34,42 @@ function normalizePickText(text: string): string {
         .replaceAll(/\s+/g, " ");
 }
 
-/** Índice 1-based a partir de "2", "opcao 2", "segunda", etc. */
-export function parseProductPickIndex(text: string): number | null {
+/**
+ * Índice 1-based a partir de "2", "opcao 2", "segunda", etc.
+ * `maxIndex` = tamanho da lista na sessão (promo/combo pode passar de 3).
+ */
+export function parseProductPickIndex(text: string, maxIndex = 3): number | null {
+    const cap = Math.min(Math.max(1, Math.floor(maxIndex)), 12);
     const t = normalizePickText(text);
     if (!t) return null;
 
     if (/^\d{1,2}$/u.test(t)) {
         const n = Number(t);
-        return n >= 1 && n <= 3 ? n : null;
+        return n >= 1 && n <= cap ? n : null;
     }
 
     const mOpcao = t.match(/^(?:opcao|opcao:|op)\s*(\d{1,2})$/u);
     if (mOpcao) {
         const n = Number(mOpcao[1]);
-        return n >= 1 && n <= 3 ? n : null;
+        return n >= 1 && n <= cap ? n : null;
     }
 
     const mNumero = t.match(/^(?:numero|n[uº]?)\s*(\d{1,2})$/u);
     if (mNumero) {
         const n = Number(mNumero[1]);
-        return n >= 1 && n <= 3 ? n : null;
+        return n >= 1 && n <= cap ? n : null;
     }
 
-    if (ORDINAL[t] != null) return ORDINAL[t];
+    if (ORDINAL[t] != null) {
+        const n = ORDINAL[t]!;
+        return n >= 1 && n <= cap ? n : null;
+    }
 
     const mOrd = t.match(/^(primeira|primeira opcao|segunda|segunda opcao|terceira|terceira opcao)$/u);
     if (mOrd) {
         const key = mOrd[1]!.split(" ")[0]!;
-        return ORDINAL[key] ?? null;
+        const n = ORDINAL[key];
+        return n != null && n >= 1 && n <= cap ? n : null;
     }
 
     return null;
@@ -132,6 +140,11 @@ function applyPick(
     };
 }
 
+function clearOfferPicks(state: ProSessionState): ProSessionState {
+    if (!state.pendingCatalogOfferPicks?.length) return state;
+    return { ...state, pendingCatalogOfferPicks: null };
+}
+
 export function applyProductPickFromInbound(
     text: string,
     state: ProSessionState
@@ -140,15 +153,31 @@ export function applyProductPickFromInbound(
     if (raw.toLowerCase().startsWith(PICK_EMB_PREFIX)) {
         const embId = raw.slice(PICK_EMB_PREFIX.length).trim();
         if (!embId) return { state, syntheticUserText: null };
-        const pick = (state.lastSearchPicks ?? []).find((p) => p.embalagemId === embId);
+        const pick =
+            (state.pendingCatalogOfferPicks ?? []).find((p) => p.embalagemId === embId) ??
+            (state.lastSearchPicks ?? []).find((p) => p.embalagemId === embId);
         const label = pick?.label ?? "item";
-        return applyPick(embId, label, state);
+        const applied = applyPick(embId, label, state);
+        return { state: clearOfferPicks(applied.state), syntheticUserText: applied.syntheticUserText };
+    }
+
+    const offerPicks = state.pendingCatalogOfferPicks ?? [];
+    if (offerPicks.length >= 1) {
+        const offerIdx = parseProductPickIndex(raw, offerPicks.length);
+        if (offerIdx != null && offerIdx >= 1 && offerIdx <= offerPicks.length) {
+            const pick = offerPicks[offerIdx - 1]!;
+            const applied = applyPick(pick.embalagemId, pick.label ?? `opcao ${offerIdx}`, state);
+            return {
+                state: clearOfferPicks(applied.state),
+                syntheticUserText: applied.syntheticUserText,
+            };
+        }
     }
 
     const picks = state.lastSearchPicks ?? [];
     if (picks.length < 2) return { state, syntheticUserText: null };
 
-    const idx = parseProductPickIndex(raw);
+    const idx = parseProductPickIndex(raw, picks.length);
     if (idx == null || idx < 1 || idx > picks.length) {
         return { state, syntheticUserText: null };
     }
@@ -156,5 +185,6 @@ export function applyProductPickFromInbound(
     const pick = picks[idx - 1]!;
     const embId = pick.embalagemId;
     const label = pick.label ?? `opcao ${idx}`;
-    return applyPick(embId, label, state);
+    const applied = applyPick(embId, label, state);
+    return { state: clearOfferPicks(applied.state), syntheticUserText: applied.syntheticUserText };
 }

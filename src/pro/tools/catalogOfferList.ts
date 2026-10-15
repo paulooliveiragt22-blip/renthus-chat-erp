@@ -6,9 +6,23 @@
 export type CatalogOfferListKind = "promos" | "combos";
 
 export type CatalogOfferListRow = {
+    /** UUID da embalagem ou do combo — escolha por número na sessão. */
+    id: string;
     name: string;
     price: number;
     composition?: string | null;
+};
+
+export type CatalogOfferPick = {
+    embalagemId: string;
+    label: string;
+    price: number | null;
+    productName: string | null;
+};
+
+export type CatalogOfferReply = {
+    text: string;
+    picks: CatalogOfferPick[];
 };
 
 const EDGE =
@@ -49,12 +63,22 @@ function formatBrl(value: number): string {
 export function formatCatalogOfferList(
     kind: CatalogOfferListKind,
     rows: readonly CatalogOfferListRow[]
-): string {
-    const priced = rows.filter((row) => row.name.trim() && Number.isFinite(row.price) && row.price > 0);
+): CatalogOfferReply {
+    const priced = rows.filter(
+        (row) =>
+            String(row.id ?? "").trim() &&
+            row.name.trim() &&
+            Number.isFinite(row.price) &&
+            row.price > 0
+    );
     if (!priced.length) {
-        return kind === "promos"
-            ? "Agora não temos promoção ativa. Se quiser, me diga o produto."
-            : "Agora não temos combo no cardápio. Se quiser, me diga o produto.";
+        return {
+            text:
+                kind === "promos"
+                    ? "Agora não temos promoção ativa. Se quiser, me diga o produto."
+                    : "Agora não temos combo no cardápio. Se quiser, me diga o produto.",
+            picks: [],
+        };
     }
     const title = kind === "promos" ? "Promoções de agora:" : "Combos:";
     const lines = priced.map((row, index) => {
@@ -62,5 +86,13 @@ export function formatCatalogOfferList(
         const extra = composition ? `\n   ${composition}` : "";
         return `${index + 1}. ${row.name.trim()} — por R$ ${formatBrl(row.price)}${extra}`;
     });
-    return `${title}\n\n${lines.join("\n")}\n\nSe quiser algum, diga o nome.`;
+    return {
+        text: `${title}\n\n${lines.join("\n")}\n\nSe quiser algum, digite o número (ex.: 1).`,
+        picks: priced.map((row) => ({
+            embalagemId: String(row.id).trim(),
+            label: row.name.trim(),
+            price: row.price,
+            productName: row.name.trim(),
+        })),
+    };
 }

@@ -83,6 +83,8 @@ export type TurnState = {
     resolvedFulfillment?: FulfillmentType | null;
     /** Lista de promoções ou combos. Substitui a prosa do modelo neste turno. */
     catalogOfferReply: string | null;
+    /** Opções numeradas da vitrine (promo/combo) para o próximo turno. */
+    catalogOfferPicks: SearchPickSummary[];
 };
 
 export function createInitialTurnState(seed: {
@@ -133,5 +135,6 @@ export function createInitialTurnState(seed: {
         pendingOutOfStockOffer: null,
         inboundSlots: seed.inboundSlots ?? EMPTY_INBOUND_SLOTS,
         catalogOfferReply: null,
+        catalogOfferPicks: [],
     };
 }

@@ -16,6 +16,7 @@ import {
     catalogOfferListKind,
     formatCatalogOfferList,
     type CatalogOfferListKind,
+    type CatalogOfferReply,
 } from "./catalogOfferList";
 
 export type ChatProdutoRow = {
@@ -450,13 +451,14 @@ export async function loadCatalogOfferReply(
     admin: SupabaseClient,
     companyId: string,
     kind: CatalogOfferListKind
-): Promise<string> {
+): Promise<CatalogOfferReply> {
     const items = kind === "promos"
         ? await listActivePromoRows(admin, companyId)
         : await listActiveComboRows(admin, companyId);
     return formatCatalogOfferList(
         kind,
         items.map((row) => ({
+            id: String(row.id ?? "").trim(),
             name: String(row.display_name || row.product_name || "").trim(),
             price: Number(row.preco_venda),
             composition: String(row.sigla_comercial ?? "").toUpperCase() === "KIT" ? row.detalhes : null,

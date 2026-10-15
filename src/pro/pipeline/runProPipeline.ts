@@ -1675,10 +1675,10 @@ export async function runProPipeline(
 
     const stepBeforeRoute = pipelineState.step;
     const offerKind = catalogOfferListKind(inboundTextForPipeline);
-    let offerListText: string | null = null;
+    let offerReply: Awaited<ReturnType<typeof loadCatalogOfferReply>> | null = null;
     if (offerKind && deps.admin) {
         try {
-            offerListText = await loadCatalogOfferReply(
+            offerReply = await loadCatalogOfferReply(
                 deps.admin,
                 input.tenant.companyId,
                 offerKind
@@ -1690,11 +1690,22 @@ export async function runProPipeline(
             );
         }
     }
-    const routed = offerListText
+    const routed = offerReply
         ? {
               mode: "direct_reply" as const,
-              state: pipelineState,
-              outbound: [{ kind: "text" as const, text: offerListText }],
+              state: {
+                  ...pipelineState,
+                  pendingCatalogOfferPicks: offerReply.picks.length ? offerReply.picks : null,
+                  lastSearchPicks: offerReply.picks.length ? offerReply.picks : [],
+                  searchProdutoEmbalagemIds: [
+                      ...new Set([
+                          ...(pipelineState.searchProdutoEmbalagemIds ?? []),
+                          ...offerReply.picks.map((p) => p.embalagemId),
+                      ]),
+                  ],
+                  emptySearchStreak: 0,
+              },
+              outbound: [{ kind: "text" as const, text: offerReply.text }],
           }
         : routeStage({
               state: pipelineState,

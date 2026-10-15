@@ -312,6 +312,16 @@ export interface ProSessionState {
         productName?: string | null;
     }>;
     /**
+     * Lista numerada de promoções/combos enviada ao cliente.
+     * A escolha é só pelo número (o nome interno da promoção não aparece).
+     */
+    pendingCatalogOfferPicks?: Array<{
+        embalagemId: string;
+        label: string;
+        price?: number | null;
+        productName?: string | null;
+    }> | null;
+    /**
      * Quantidade da clarificação atual — só drain de bootstrap legado (ADR 0011 Fase 3).
      * Preferir `line.quantity` / `awaiting_qty` na worklist.
      */
@@ -594,6 +604,13 @@ export interface AiServiceResult {
         price?: number | null;
         productName?: string | null;
     }>;
+    /** Lista numerada de promo/combo (escolha por número no próximo turno). */
+    pendingCatalogOfferPicks?: Array<{
+        embalagemId: string;
+        label: string;
+        price?: number | null;
+        productName?: string | null;
+    }> | null;
     emptySearchStreak?: number;
     /**
      * @deprecated ADR 0011 — preferir `updatedOrderWorklist`.

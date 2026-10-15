@@ -120,6 +120,13 @@ export type SearchProdutosForAiResult = {
     pendingPickGroup: PendingPickGroup | null;
     /** Lista pronta de promoções ou combos. O servidor manda este texto. */
     offerListText: string | null;
+    /** Opções numeradas para o cliente escolher (1..N). */
+    offerPicks: Array<{
+        embalagemId: string;
+        label: string;
+        price: number | null;
+        productName: string | null;
+    }>;
 };
 
 /** Fase catálogo (I/O) — antes da disambiguação com habits coalescidos. */
@@ -207,10 +214,11 @@ export function finalizeSearchProdutosForAi(
     }
 ): SearchProdutosForAiResult {
     let rows = phase.rows;
-    const offerListText = phase.offerList
+    const offerReply = phase.offerList
         ? formatCatalogOfferList(
               phase.offerList,
               rows.map((row) => ({
+                  id: String(row.id ?? "").trim(),
                   name: String(row.display_name || row.product_name || "").trim(),
                   price: Number(row.preco_venda),
                   composition:
@@ -218,6 +226,8 @@ export function finalizeSearchProdutosForAi(
               }))
           )
         : null;
+    const offerListText = offerReply?.text ?? null;
+    const offerPicks = offerReply?.picks ?? [];
     if (rows.length >= 2 && !offerListText) {
         const companySiglas = opts?.companySiglas ?? deps.batchContext?.companySiglas ?? [];
         const habitSigla =
@@ -240,7 +250,7 @@ export function finalizeSearchProdutosForAi(
     );
     const allowlistIds = publicItems.map((r) => r.id).filter(Boolean);
     const lastSearchPicks: SearchProdutosPickSummary[] = offerListText
-        ? []
+        ? offerPicks
         : publicItems.slice(0, 3).map((r) => ({
               embalagemId: r.id,
               label: String(r.display_name || r.product_name || "Item").slice(0, 40),
@@ -367,6 +377,7 @@ export function finalizeSearchProdutosForAi(
         wasEmpty: phase.empty,
         pendingPickGroup,
         offerListText,
+        offerPicks,
     };
 }
 
