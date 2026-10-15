@@ -148,6 +148,39 @@ export class OrderServiceV2Adapter implements OrderService {
         draft: NonNullable<Parameters<OrderService["createFromDraft"]>[0]["draft"]>
     ): Promise<{ ok: true } | { ok: false; message: string; errorCode: OrderFailCode }> {
         for (const item of draft.items) {
+            if (item.comboId) {
+                const { data: price, error: priceErr } = await this.admin.rpc("fn_preco_efetivo_combo", {
+                    p_combo_id: item.comboId,
+                });
+                const current = Number(price);
+                if (priceErr || !Number.isFinite(current)) {
+                    return {
+                        ok: false,
+                        message: buildOrderErrorMessage("PRODUCT_NOT_FOUND"),
+                        errorCode: "PRODUCT_NOT_FOUND",
+                    };
+                }
+                if (Math.abs(current - item.unitPrice) >= 0.02) {
+                    return {
+                        ok: false,
+                        message: buildOrderErrorMessage("OUT_OF_STOCK", {
+                            hint: "O preco de um item mudou. Peca um novo resumo no chat.",
+                        }),
+                        errorCode: "OUT_OF_STOCK",
+                    };
+                }
+                const { data: disp } = await this.admin.rpc("fn_combo_disponivel", {
+                    p_combo_id: item.comboId,
+                });
+                if (disp != null && Number(disp) < item.quantity) {
+                    return {
+                        ok: false,
+                        message: buildOrderErrorMessage("OUT_OF_STOCK", { itemName: item.productName }),
+                        errorCode: "OUT_OF_STOCK",
+                    };
+                }
+                continue;
+            }
             const loaded = await loadPackRowForValidation(this.admin, companyId, item.produtoEmbalagemId);
             if (!loaded) {
                 return {
@@ -157,7 +190,11 @@ export class OrderServiceV2Adapter implements OrderService {
                 };
             }
 
-            const priceChanged = Math.abs(loaded.row.preco_venda - item.unitPrice) >= 0.02;
+            const { data: effective } = await this.admin.rpc("fn_preco_efetivo_embalagem", {
+                p_embalagem_id: item.produtoEmbalagemId,
+            });
+            const catalogNow = Number(effective ?? loaded.row.preco_venda);
+            const priceChanged = Math.abs(catalogNow - item.unitPrice) >= 0.02;
             if (priceChanged) {
                 return {
                     ok: false,
@@ -351,12 +388,15 @@ export class OrderServiceV2Adapter implements OrderService {
         const deliveryFee = isPickup ? 0 : draft.deliveryFee;
         const fulfillmentType = isPickup ? "pickup" : "delivery";
 
-        const itemsPayload = draft.items.map((item) => ({
-            product_name: item.productName,
-            produto_embalagem_id: item.produtoEmbalagemId,
-            quantity: item.quantity,
-            unit_price: item.unitPrice,
-        }));
+        const itemsPayload = draft.items.map((item) =>
+            item.comboId
+                ? { combo_id: item.comboId, quantity: item.quantity, product_name: item.productName }
+                : {
+                      product_name: item.productName,
+                      produto_embalagem_id: item.produtoEmbalagemId,
+                      quantity: item.quantity,
+                  }
+        );
 
         const { data: orderId, error: orderErr } = await this.admin.rpc("create_order_with_items", {
             p_company_id: tenant.companyId,

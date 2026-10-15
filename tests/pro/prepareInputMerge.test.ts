@@ -156,3 +156,23 @@ describe("resolvePrepareInput — pagamento e troco", () => {
         assert.equal(out.changeFor, 100);
     });
 });
+
+describe("resolvePrepareInput — modalidade", () => {
+    it("texto deste turno vence o rascunho", () => {
+        const { input: out } = resolvePrepareInput({
+            input: input(),
+            currentDraft: draftWith({ fulfillmentType: "pickup" }),
+            slots: extractInboundSlots("manda pra mim"),
+        });
+        assert.equal(out.fulfillmentType, "delivery");
+    });
+
+    it("sem menção neste turno, mantém a modalidade do rascunho", () => {
+        const { input: out } = resolvePrepareInput({
+            input: input(),
+            currentDraft: draftWith({ fulfillmentType: "pickup" }),
+            slots: extractInboundSlots("quero mais uma"),
+        });
+        assert.equal(out.fulfillmentType, "pickup");
+    });
+});

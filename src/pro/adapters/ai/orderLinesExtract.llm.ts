@@ -8,9 +8,10 @@ import {
     getConfiguredLlmProviderName,
     resolveLanguageModel,
 } from "@/src/pro/adapters/ai/modelProvider";
-import type {
+import {
     OrderLinesExtractPort,
     OrderLinesExtractResult,
+    normalizeExtractedFulfillment,
 } from "@/src/pro/ports/orderLinesExtract.port";
 
 const extractSchema = z.object({
@@ -28,13 +29,20 @@ const extractSchema = z.object({
             })
         )
         .max(15),
+    fulfillment: z
+        .enum(["delivery", "pickup"])
+        .nullish()
+        .describe(
+            "delivery se quer receber (em casa, manda pra mim, traz, deixa na porta). pickup se vai buscar ou retirar. null se não disse."
+        ),
 });
 
-const SYSTEM = `Extraia APENAS produtos que o cliente quer PEDIR nesta mensagem (PT-BR).
+const SYSTEM = `Extraia o pedido desta mensagem (PT-BR) em JSON.
 Regras:
 - raw_term = termo de busca curto (marca/produto); inclua embalagem no termo só se o cliente pediu (caixa, fardo…).
 - quantity = número de embalagens se explícito; senão null (NÃO invente 1).
-- Ignore cumprimentos, entrega, pagamento, troco, endereço.
+- Não coloque em lines cumprimento, pagamento, troco, endereço, nem o jeito de receber (pra mim, traz, retirar, entrega).
+- fulfillment = delivery se quer receber (manda pra mim, traz aqui, na minha casa, deixa na porta, entrega); pickup se vai buscar ou retirar; null se a frase não diz como receber.
 - Máximo 15 lines. Se for só pergunta sem compra, lines=[].
 - Nunca invente produto que não apareça na mensagem.`;
 
@@ -48,7 +56,7 @@ export class LlmOrderLinesExtractAdapter implements OrderLinesExtractPort {
 
     async extract(userText: string): Promise<OrderLinesExtractResult> {
         const text = String(userText ?? "").trim();
-        if (!text) return { lines: [] };
+        if (!text) return { lines: [], fulfillment: null };
 
         const result = await generateText({
             model: this.opts?.modelOverride ?? resolveLanguageModel(),
@@ -69,7 +77,10 @@ export class LlmOrderLinesExtractAdapter implements OrderLinesExtractPort {
                     ? Math.floor(l.quantity)
                     : null,
         }));
-        return { lines: lines.filter((l) => l.rawTerm.length >= 2) };
+        return {
+            lines: lines.filter((l) => l.rawTerm.length >= 2),
+            fulfillment: normalizeExtractedFulfillment(obj?.fulfillment),
+        };
     }
 }
 
@@ -88,6 +99,7 @@ export class FakeOrderLinesExtractAdapter implements OrderLinesExtractPort {
                 rawTerm: t.rawTerm,
                 quantity: t.quantity,
             })),
+            fulfillment: null,
         };
     }
 }

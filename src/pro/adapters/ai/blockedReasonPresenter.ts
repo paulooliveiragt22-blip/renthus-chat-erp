@@ -18,7 +18,7 @@ export function presentBlockedReasonForModel(reason: PrepareOrderDraftBlockedRea
         case "ADDRESS_INCOMPLETE":
             return [
                 "Há rascunho parcial com itens no servidor.",
-                "Se a loja oferece Entrega e Retirada, NÃO peça endereço ainda — o servidor envia botões Entrega / Retirar no local. Só peça rua/número/bairro/cidade/UF depois que o cliente escolher Entrega.",
+                "Se a loja oferece Entrega e Retirada e o cliente ainda não disse a modalidade, NÃO peça endereço — o servidor envia botões Entrega / Retirar no local. Se ele já pediu entrega no texto, peça rua, número e bairro.",
                 "Se a tool/fase já indicar só entrega (ou cliente já escolheu), peça ou confirme o endereço ou use saved_address_id e chame prepare_order_draft de novo.",
             ];
 

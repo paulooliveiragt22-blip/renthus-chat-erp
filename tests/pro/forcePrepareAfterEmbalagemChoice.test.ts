@@ -34,6 +34,33 @@ describe("resolveIntentForOrderGates", () => {
         );
     });
 
+    it("unknown com um produto e quantidade vira pedido", () => {
+        assert.equal(
+            resolveIntentForOrderGates({
+                intent: "unknown",
+                lexicalOrderLineCount: 0,
+                userText: "Manda pra mim duas marmitas g",
+            }),
+            "order_intent"
+        );
+        assert.equal(
+            resolveIntentForOrderGates({
+                intent: "unknown",
+                lexicalOrderLineCount: 0,
+                userText: "Rua tangará 850",
+            }),
+            "unknown"
+        );
+        assert.equal(
+            resolveIntentForOrderGates({
+                intent: "unknown",
+                lexicalOrderLineCount: 0,
+                userText: "tem marmita?",
+            }),
+            "unknown"
+        );
+    });
+
     it("faq/greeting nunca são promovidos, mesmo com 2+ termos", () => {
         assert.equal(
             resolveIntentForOrderGates({ intent: "faq", lexicalOrderLineCount: 3 }),

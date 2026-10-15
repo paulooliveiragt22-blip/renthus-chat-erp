@@ -80,6 +80,10 @@ function normalizeProV2State(raw: ProSessionState): ProSessionState {
                   }
                 : null,
         pendingSwapRemoveName: raw.pendingSwapRemoveName ?? null,
+        pendingFulfillmentType:
+            raw.pendingFulfillmentType === "delivery" || raw.pendingFulfillmentType === "pickup"
+                ? raw.pendingFulfillmentType
+                : null,
         inferredPaymentMethod: raw.inferredPaymentMethod ?? null,
         bootstrapResolvedEmbalagemIds: raw.bootstrapResolvedEmbalagemIds ?? [],
         bootstrapPendingClarifications: raw.bootstrapPendingClarifications ?? [],

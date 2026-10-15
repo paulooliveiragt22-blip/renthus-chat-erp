@@ -26,6 +26,10 @@ export default function ChannelsSettings() {
     const [conn, setConn] = useState<WaConnection | null>(null);
     const [displayPhone, setDisplayPhone] = useState("");
     const [webhookPath, setWebhookPath] = useState("/api/whatsapp/incoming");
+    const [readiness, setReadiness] = useState<{
+        ready: boolean;
+        checks: Array<{ label: string; ok: boolean }>;
+    } | null>(null);
 
     const load = useCallback(async () => {
         setLoading(true);
@@ -47,6 +51,19 @@ export default function ChannelsSettings() {
             if (json.webhookPath) setWebhookPath(json.webhookPath);
             setDisplayPhone(json.displayPhone ?? "");
             setConn(json.connection ?? null);
+            const readyRes = await fetch("/api/admin/bot-readiness", {
+                credentials: "include",
+                cache: "no-store",
+            });
+            const readyJson = (await readyRes.json().catch(() => ({}))) as {
+                ready?: boolean;
+                checks?: Array<{ label: string; ok: boolean }>;
+            };
+            if (readyRes.ok && Array.isArray(readyJson.checks)) {
+                setReadiness({ ready: readyJson.ready === true, checks: readyJson.checks });
+            } else {
+                setReadiness(null);
+            }
         } finally {
             setLoading(false);
         }
@@ -133,8 +150,13 @@ export default function ChannelsSettings() {
                             celular aparece na inbox e pausa o bot.
                         </p>
                     </div>
-                    {connected ? (
+                    {connected && readiness?.ready ? (
                         <span className="rounded-full bg-emerald-100 px-2.5 py-0.5 text-[11px] font-bold uppercase tracking-wide text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200">
+                            Pronto
+                            {conn?.is_on_biz_app ? " · celular" : ""}
+                        </span>
+                    ) : connected ? (
+                        <span className="rounded-full bg-sky-100 px-2.5 py-0.5 text-[11px] font-bold uppercase tracking-wide text-sky-800 dark:bg-sky-950 dark:text-sky-200">
                             Conectado
                             {conn?.is_on_biz_app ? " · celular" : ""}
                         </span>
@@ -192,6 +214,34 @@ export default function ChannelsSettings() {
                                 </code>
                             </p>
                         </div>
+
+                        {readiness ? (
+                            <div className="mt-4 rounded-lg border border-zinc-200 p-3 dark:border-zinc-800">
+                                <p className="text-sm font-medium text-zinc-800 dark:text-zinc-100">
+                                    Pronto para o atendimento
+                                </p>
+                                <p className="mt-1 text-xs text-zinc-500">
+                                    O canal marca Pronto quando estes itens passam. A conversa não
+                                    muda por causa desta lista.
+                                </p>
+                                <ul className="mt-3 space-y-1.5 text-sm">
+                                    {readiness.checks.map((check) => (
+                                        <li key={check.label} className="flex items-center gap-2">
+                                            <span
+                                                className={
+                                                    check.ok
+                                                        ? "text-emerald-700 dark:text-emerald-300"
+                                                        : "text-amber-700 dark:text-amber-300"
+                                                }
+                                            >
+                                                {check.ok ? "Ok" : "Falta"}
+                                            </span>
+                                            <span className="text-zinc-700 dark:text-zinc-200">{check.label}</span>
+                                        </li>
+                                    ))}
+                                </ul>
+                            </div>
+                        ) : null}
 
                         <div className="mt-4 flex flex-wrap gap-2">
                             {conn?.hasAccessToken && (

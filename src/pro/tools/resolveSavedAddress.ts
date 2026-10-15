@@ -21,6 +21,47 @@ export type ResolvedSavedAddress = {
     note: string;
 };
 
+const PLACEHOLDER_ADDRESS_TOKEN = /^(?:-|--|completar|\(completar\))$/iu;
+
+function foldAddressField(value: string | null | undefined): string {
+    return String(value ?? "")
+        .replaceAll(/\s+/gu, " ")
+        .trim()
+        .normalize("NFD")
+        .replaceAll(/\p{Diacritic}/gu, "")
+        .toLowerCase();
+}
+
+/** Vazio, `-` / `(completar)` / `completar`, ou só pontuação. */
+export function isPlaceholderAddressField(value: string | null | undefined): boolean {
+    const folded = foldAddressField(value);
+    if (!folded) return true;
+    if (PLACEHOLDER_ADDRESS_TOKEN.test(folded)) return true;
+    const alnum = folded.replaceAll(/[^\p{L}\p{N}]+/gu, "");
+    return alnum.length === 0;
+}
+
+/** `S/N` e `SN` no número, com ou sem espaços. */
+export function isSemNumero(value: string | null | undefined): boolean {
+    const compact = foldAddressField(value).replaceAll(/\s+/gu, "");
+    return compact === "s/n" || compact === "sn";
+}
+
+/**
+ * Número, bairro e cidade entregáveis. `S/N` no número vale quando bairro e cidade não são placeholder.
+ */
+export function isDeliverableAddressFields(fields: {
+    numero: string | null | undefined;
+    bairro: string | null | undefined;
+    cidade: string | null | undefined;
+}): boolean {
+    if (isPlaceholderAddressField(fields.bairro) || isPlaceholderAddressField(fields.cidade)) {
+        return false;
+    }
+    if (isSemNumero(fields.numero)) return true;
+    return !isPlaceholderAddressField(fields.numero);
+}
+
 /**
  * Monta `DraftAddress` a partir de `enderecos_cliente`.
  * Se `numero`/`bairro` vierem vazios mas `logradouro` for uma linha única (ex.: "Rua X 34 Bairro"),
@@ -44,6 +85,7 @@ export function buildAiAddressFromSavedClienteRow(row: SavedClienteEnderecoRow):
     const cidade = row.cidade ? String(row.cidade).trim() : "";
     const estado = row.estado ? String(row.estado).trim().toUpperCase().slice(0, 2) : "";
     if (!cidade || estado.length !== 2) return null;
+    if (!isDeliverableAddressFields({ numero, bairro, cidade })) return null;
     return {
         logradouro,
         numero,

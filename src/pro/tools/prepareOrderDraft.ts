@@ -389,7 +389,38 @@ export async function prepareOrderDraftFromTool(
         const { pid, qty } = planned[i]!;
         const loaded = loadedRows[i];
         if (!loaded) {
-            errors.push(`Embalagem inválida ou de outra empresa: ${pid}`);
+            const { data: combo, error: comboErr } = await admin
+                .from("v_sec_combos")
+                .select("id, nome, preco_efetivo, disponivel, is_active")
+                .eq("company_id", companyId)
+                .eq("id", pid)
+                .maybeSingle();
+            if (comboErr || !combo || combo.is_active !== true) {
+                errors.push(`Embalagem inválida ou de outra empresa: ${pid}`);
+                continue;
+            }
+            const unitPrice = Number(combo.preco_efetivo);
+            const disponivel = combo.disponivel == null ? null : Number(combo.disponivel);
+            if (!Number.isFinite(unitPrice) || unitPrice <= 0) {
+                errors.push(`Combo sem preço: ${pid}`);
+                continue;
+            }
+            if (disponivel != null && disponivel < qty) {
+                errors.push(`Estoque insuficiente para "${combo.nome}".`);
+                continue;
+            }
+            itemsOut.push({
+                produtoEmbalagemId: pid,
+                comboId: pid,
+                productName: String(combo.nome),
+                quantity: qty,
+                unitPrice,
+                fatorConversao: 1,
+                siglaComercial: "KIT",
+                productVolumeId: null,
+                estoqueUnidades: disponivel ?? 0,
+                venderComEstoqueZero: disponivel == null,
+            });
             continue;
         }
         const { row, estoque, venderComEstoqueZero } = loaded;
@@ -406,11 +437,15 @@ export async function prepareOrderDraftFromTool(
             );
             continue;
         }
+        const { data: effective } = await admin.rpc("fn_preco_efetivo_embalagem", {
+            p_embalagem_id: row.id,
+        });
+        const effectivePrice = Number(effective);
         itemsOut.push({
             produtoEmbalagemId: row.id,
             productName: row.product_name,
             quantity: qty,
-            unitPrice: row.preco_venda,
+            unitPrice: Number.isFinite(effectivePrice) && effectivePrice > 0 ? effectivePrice : row.preco_venda,
             fatorConversao: row.fator_conversao,
             siglaComercial: row.sigla_comercial,
             productVolumeId: row.product_volume_id,
@@ -443,9 +478,15 @@ export async function prepareOrderDraftFromTool(
 
     const totalItems = roundBrl(itemsOut.reduce((s, i) => s + i.unitPrice * i.quantity, 0));
     const grandTotal = roundBrl(totalItems + deliveryFee);
+    const mentionedFulfillment =
+        body.fulfillmentType === "pickup" || body.fulfillmentType === "delivery"
+            ? body.fulfillmentType
+            : null;
+    const pickupChosen = mentionedFulfillment === "pickup";
     // Só avisa pedido mínimo quando já há pelo menos uma linha de item válida no catálogo;
     // evita misturar com erros de UUID/pagamento e confundir o cliente e o modelo.
     if (
+        !pickupChosen &&
         itemsOut.length > 0 &&
         deliveryMinOrder != null &&
         grandTotal < deliveryMinOrder
@@ -469,8 +510,26 @@ export async function prepareOrderDraftFromTool(
     const outOfDeliveryZone = baseErrors.some((e) => /fora da área|fora da area/i.test(e));
     const addressUsable = Boolean(address) && !addressIncomplete && !outOfDeliveryZone;
     const belowMinimumOrder =
-        itemsOut.length > 0 && deliveryMinOrder != null && grandTotal < deliveryMinOrder;
-    const fullOk = baseErrors.length === 0 && itemsOut.length > 0 && Boolean(addressUsable) && Boolean(pm);
+        !pickupChosen &&
+        itemsOut.length > 0 &&
+        deliveryMinOrder != null &&
+        grandTotal < deliveryMinOrder;
+    const addressOk = pickupChosen || addressUsable;
+    const blockingErrors = pickupChosen
+        ? baseErrors.filter(
+              (e) =>
+                  !/endereço incompleto|endereco incompleto|fora da área|fora da area|pedido mínimo para entrega|pedido minimo para entrega/i.test(
+                      e
+                  )
+          )
+        : baseErrors;
+    const fullOk =
+        blockingErrors.length === 0 && itemsOut.length > 0 && addressOk && Boolean(pm);
+    const fulfillmentType = pickupChosen
+        ? ("pickup" as const)
+        : mentionedFulfillment === "delivery" || addressUsable
+          ? ("delivery" as const)
+          : undefined;
 
     // Draft completo OU parcial (itens válidos mesmo sem endereço/pagamento) — IA continua o fluxo.
     const draft: OrderDraft | null =
@@ -480,16 +539,20 @@ export async function prepareOrderDraftFromTool(
                   address: addressUsable ? address : null,
                   paymentMethod: pm,
                   changeFor: body.changeFor ?? null,
-                  deliveryFee: addressUsable ? deliveryFee : 0,
-                  deliveryZoneId: addressUsable ? deliveryZoneId : null,
-                  deliveryAddressText: addressUsable ? deliveryAddressText : null,
-                  deliveryMinOrder: addressUsable ? deliveryMinOrder : null,
-                  deliveryEtaMin: addressUsable ? deliveryEtaMin : null,
+                  deliveryFee: pickupChosen ? 0 : addressUsable ? deliveryFee : 0,
+                  deliveryZoneId: pickupChosen ? null : addressUsable ? deliveryZoneId : null,
+                  deliveryAddressText: pickupChosen
+                      ? "Retirada no local"
+                      : addressUsable
+                        ? deliveryAddressText
+                        : null,
+                  deliveryMinOrder: pickupChosen ? null : addressUsable ? deliveryMinOrder : null,
+                  deliveryEtaMin: pickupChosen ? null : addressUsable ? deliveryEtaMin : null,
                   totalItems,
-                  grandTotal: addressUsable ? grandTotal : totalItems,
+                  grandTotal: pickupChosen || !addressUsable ? totalItems : grandTotal,
                   pendingConfirmation: fullOk,
                   addressResolutionNote: addressUsable ? addressNote : null,
-                  fulfillmentType: addressUsable ? ("delivery" as const) : undefined,
+                  fulfillmentType,
                   ...(body.orderNotes !== undefined
                       ? { orderNotes: sanitizeOrderNotes(body.orderNotes) }
                       : {}),
@@ -501,7 +564,7 @@ export async function prepareOrderDraftFromTool(
         ? null
         : !itemsOut.length
           ? { code: "MISSING_ITEMS" }
-          : !addressUsable
+          : !addressOk
             ? outOfDeliveryZone
                 ? { code: "OUT_OF_DELIVERY_ZONE", neighborhood: address?.bairro ?? "" }
                 : { code: "ADDRESS_INCOMPLETE" }
@@ -520,7 +583,7 @@ export async function prepareOrderDraftFromTool(
     return {
         ok: fullOk,
         draft,
-        errors: fullOk ? [] : baseErrors.length ? baseErrors : ["Rascunho incompleto."],
+        errors: fullOk ? [] : blockingErrors.length ? blockingErrors : ["Rascunho incompleto."],
         blocked,
     };
 }

@@ -1,17 +1,17 @@
 import type { DraftAddress, OrderDraft, ProSessionState } from "@/src/types/contracts";
 import { isPickupDraft } from "@/lib/delivery/fulfillment";
+import { isDeliverableAddressFields } from "@/src/pro/tools/resolveSavedAddress";
 
 /** Endereço mínimo para entrega (rua, número, bairro, cidade, UF — alinhado a prepare/slots). */
 export function isAddressStructurallyComplete(address: DraftAddress | null): boolean {
     if (!address) return false;
     const uf = address.estado?.trim().toUpperCase() ?? "";
-    return Boolean(
-        address.logradouro?.trim() &&
-            address.numero?.trim() &&
-            address.bairro?.trim() &&
-            address.cidade?.trim() &&
-            uf.length === 2
-    );
+    const logradouro = address.logradouro?.trim() ?? "";
+    const numero = address.numero?.trim() ?? "";
+    const bairro = address.bairro?.trim() ?? "";
+    const cidade = address.cidade?.trim() ?? "";
+    if (!logradouro || !numero || !bairro || !cidade || uf.length !== 2) return false;
+    return isDeliverableAddressFields({ numero, bairro, cidade });
 }
 
 /** Total do rascunho abaixo do pedido mínimo de entrega (quando a política define um). */

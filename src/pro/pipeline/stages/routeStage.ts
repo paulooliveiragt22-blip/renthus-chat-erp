@@ -45,6 +45,17 @@ export function mainMenuButtons(): Array<{ id: string; title: string }> {
     ];
 }
 
+export function resolveOrdersMenuUrl(
+    webMenuUrl?: string | null,
+    webMenuOrdersUrl?: string | null
+): string | null {
+    const explicit = webMenuOrdersUrl?.trim();
+    if (explicit) return explicit;
+    const menu = webMenuUrl?.trim();
+    if (!menu) return null;
+    return withMenuSearchParams(menu, { orders: "1" });
+}
+
 export function buildWebMenuCtaOutbound(
     webMenuUrl: string,
     copy?: { bodyText?: string; displayText?: string }
@@ -100,9 +111,7 @@ export function routeStage(params: {
     } = params;
     const norm = normalizeInboundId(inboundText);
 
-    const ordersMenuUrl =
-        webMenuOrdersUrl?.trim() ||
-        (webMenuUrl ? withMenuSearchParams(webMenuUrl, { orders: "1" }) : null);
+    const ordersMenuUrl = resolveOrdersMenuUrl(webMenuUrl, webMenuOrdersUrl);
 
     function ordersCtaOutbound(): OutboundMessage[] {
         if (!ordersMenuUrl) return [];
@@ -168,6 +177,10 @@ export function routeStage(params: {
         };
     }
 
+    /**
+     * Fallback quando o FAQ de status não respondeu (sem cliente ou sem pedido).
+     * Com pedido, `tryBuildOrderStatusReply` já devolveu a frase e o link.
+     */
     if ((norm === "btn_status" || decision.intent === "status_intent") && ordersMenuUrl) {
         return {
             mode: "direct_reply",

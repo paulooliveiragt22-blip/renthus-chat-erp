@@ -45,6 +45,34 @@ describe("deliveryAddressOffer", () => {
         assert.equal(proposed?.id, "addr-trampo");
     });
 
+    it("principal com placeholder não é proposto; sem outro entregável a lista fica vazia", () => {
+        const chatbot = {
+            id: "addr-chatbot",
+            apelido: "Chatbot",
+            logradouro: "Rua turmalina",
+            numero: "S/N",
+            complemento: null,
+            bairro: "-",
+            cidade: "(completar)",
+            estado: "MT",
+            cep: null,
+            is_principal: true,
+        };
+        const onlyPlaceholder: AddressDeliveryStat[] = [
+            { address: chatbot, deliveryCount: 0, lastDeliveredAt: null },
+        ];
+        assert.equal(listCompleteSavedAddresses(onlyPlaceholder).length, 0);
+        assert.equal(pickProposedDeliveryAddress(onlyPlaceholder, []), null);
+
+        const withCasa: AddressDeliveryStat[] = [
+            { address: chatbot, deliveryCount: 0, lastDeliveredAt: null },
+            { address: casa, deliveryCount: 2, lastDeliveredAt: "2026-01-01T00:00:00Z" },
+        ];
+        const complete = listCompleteSavedAddresses(withCasa);
+        assert.deepEqual(complete.map((a) => a.id), ["addr-casa"]);
+        assert.equal(pickProposedDeliveryAddress(withCasa, complete)?.id, "addr-casa");
+    });
+
     it("mensagem: pergunta o proposto + lista numerada dos outros + Confirmar/Novo", () => {
         const out = buildDeliveryAddressOfferOutbound({
             proposed: trampo,

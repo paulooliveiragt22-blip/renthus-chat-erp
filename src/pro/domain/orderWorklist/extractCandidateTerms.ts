@@ -4,7 +4,7 @@
  * (merge no seed — evita selar só o último termo ambíguo).
  */
 
-import { parsePtQuantity } from "@/src/pro/tools/parseQtyPt";
+import { hasExplicitOrderQuantityInText, parsePtQuantity } from "@/src/pro/tools/parseQtyPt";
 import { MAX_WORKLIST_LINES } from "@/src/pro/domain/orderWorklist/orderWorklist";
 
 const FILLER_TOKENS = new Set([
@@ -163,6 +163,7 @@ function isNoiseSegment(normalized: string): boolean {
     if (!normalized || normalized.length < 2) return true;
     if (PACK_ONLY_RE.test(normalized)) return true;
     if (FULFILLMENT_OR_PAYMENT_RE.test(normalized)) return true;
+    if (isFulfillmentDestinationTerm(normalized)) return true;
     if (/^\d+$/.test(normalized)) return true;
     return false;
 }
@@ -203,6 +204,92 @@ function parseProductSegment(segment: string): LexicalCandidateTerm | null {
  * 1627, industrial. pagamento no pix" virava termo de busca com o endereço colado
  * e ainda gerava uma linha extra ("industrial. pagamento no pix").
  */
+const DEST_PREFIX_RE =
+    /^(?:pode\s+)?(?:me\s+)?(?:manda|mande|mandar|envia|envie|enviar|traz|traga|trazer)\s+(?:pra|para)\s+(?:mim|casa|c[aá]|aqui)\s+/iu;
+const DEST_TAIL_RE = /\s+(?:pra|para)\s+(?:mim|casa|c[aá]|aqui)\b[\s\S]*$/iu;
+const DEST_PLACE_TAIL_RE =
+    /\s+(?:na\s+minha\s+casa|no\s+meu\s+endere[cç]o|deixa(?:r)?\s+na\s+porta)\b[\s\S]*$/iu;
+
+/** Tira "pra mim" / "pra casa" do termo para não virar busca de produto. */
+export function stripFulfillmentDestination(raw: string): string {
+    let s = String(raw ?? "").trim();
+    if (!s) return "";
+    s = s.replace(DEST_PREFIX_RE, "");
+    s = s.replace(DEST_TAIL_RE, "");
+    s = s.replace(DEST_PLACE_TAIL_RE, "");
+    return s.trim();
+}
+
+/** "pra mim", "na minha casa", "me manda" — não é nome de produto. */
+export function isFulfillmentDestinationTerm(raw: string): boolean {
+    const n = normalizePendingTerm(raw);
+    if (!n) return false;
+    if (/^(?:pra|para)\s+(?:mim|casa|ca|aqui)$/.test(n)) return true;
+    if (/^(?:na minha casa|no meu endereco|deixa(?:r)? na porta)$/.test(n)) return true;
+    if (/^me\s+(?:manda|mande|envia|envie|traz|traga)$/.test(n)) return true;
+    if (/^(?:pode\s+)?(?:manda|mande|mandar|envia|envie|enviar|traz|traga|trazer)\s+(?:pra|para)\s+(?:mim|casa|ca|aqui)$/.test(n)) {
+        return true;
+    }
+    return false;
+}
+
+const PRODUCT_ASIDE_FILLER = new Set([
+    "quero",
+    "queria",
+    "pode",
+    "me",
+    "manda",
+    "mande",
+    "mandar",
+    "envia",
+    "envie",
+    "traz",
+    "traga",
+    "trazer",
+    "uma",
+    "um",
+    "duas",
+    "dois",
+    "por",
+    "favor",
+]);
+
+/** Sobrou nome de produto depois de tirar o destino ("Heineken" em "manda duas Heineken pra mim"). */
+export function textHasProductBesidesFulfillment(userText: string): boolean {
+    const rest = stripFulfillmentDestination(userText);
+    const tokens = normalizePendingTerm(rest)
+        .split(" ")
+        .filter((t) => t && !PRODUCT_ASIDE_FILLER.has(t) && !/^\d+$/.test(t));
+    return tokens.length > 0;
+}
+
+/** Nome de produto antes de endereço ou pagamento. "Rua X 850" não conta. */
+export function textHasProductOutsideAddress(userText: string): boolean {
+    const stripped = stripFulfillmentDestination(userText);
+    const { term } = cutAtAddressOrPaymentTail(stripped);
+    return textHasProductBesidesFulfillment(term);
+}
+
+/**
+ * Um produto com quantidade dita ("duas marmitas g", "manda pra mim 2 skol").
+ * Número de porta depois de "rua" não é quantidade de pedido.
+ */
+export function textIsQuantifiedProductOrder(userText: string): boolean {
+    const stripped = stripFulfillmentDestination(userText);
+    const { term } = cutAtAddressOrPaymentTail(stripped);
+    if (!term.trim()) return false;
+    if (!hasExplicitOrderQuantityInText(term)) return false;
+    return textHasProductBesidesFulfillment(term);
+}
+
+/** Uma linha lexical quando a frase tem um produto só. Vazio se for endereço ou multi-item. */
+export function quantifiedProductTermFromText(userText: string): LexicalCandidateTerm | null {
+    if (!textIsQuantifiedProductOrder(userText)) return null;
+    const stripped = stripFulfillmentDestination(userText);
+    const { term } = cutAtAddressOrPaymentTail(stripped);
+    return parseProductSegment(term);
+}
+
 const ADDRESS_OR_PAYMENT_CUT_RE =
     /\b(?:aqui\s+n[ao]s?|aqui\s+em|na\s+rua|no\s+bairro|rua|avenida|av\.?|alameda|travessa|estrada|rodovia|bairro|endere[cç]o|entrega(?:r)?|retirada|retirar|pagamento|pagar|pago|pix|cart[aã]o|dinheiro|cr[eé]dito|d[eé]bito|esp[eé]cie)\b/iu;
 
@@ -225,7 +312,7 @@ export function extractCandidatePendingTermsFromUserText(userText: string): Lexi
 
     const parts: LexicalCandidateTerm[] = [];
     for (const segment of segments) {
-        const { term, tailReached } = cutAtAddressOrPaymentTail(segment);
+        const { term, tailReached } = cutAtAddressOrPaymentTail(stripFulfillmentDestination(segment));
         const parsed = term ? parseProductSegment(term) : null;
         if (parsed) parts.push(parsed);
         /** Depois do endereço/pagamento o resto da frase não é mais item. */

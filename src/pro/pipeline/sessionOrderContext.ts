@@ -29,6 +29,13 @@ export function isOrderSessionContinuityNeeded(session: ProSessionState): boolea
     if ((session.pendingPickGroups?.length ?? 0) > 0) return true;
     if (worklistPreventsCheckout(session.orderWorklist, session.draft)) return true;
     if ((session.lastSearchPicks?.length ?? 0) >= 2) return true;
+    if (
+        (session.lastSearchPicks?.length ?? 0) === 1 &&
+        (session.pendingFulfillmentType === "delivery" || session.pendingFulfillmentType === "pickup") &&
+        !(session.draft?.items?.length)
+    ) {
+        return true;
+    }
     return STEPS_IMPLYING_ORDER_SESSION.has(session.step);
 }
 

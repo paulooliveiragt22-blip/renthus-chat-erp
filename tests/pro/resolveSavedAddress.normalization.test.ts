@@ -41,4 +41,53 @@ describe("buildAiAddressFromSavedClienteRow", () => {
         assert.equal(a?.numero, "10");
         assert.equal(a?.bairro, "Centro");
     });
+
+    it("S/N com bairro e cidade reais continua entregável", () => {
+        const a = buildAiAddressFromSavedClienteRow({
+            id: "addr-sn",
+            apelido: "Sitio",
+            logradouro: "Rua Turmalina",
+            numero: "S/N",
+            complemento: null,
+            bairro: "São Mateus",
+            cidade: "Sorriso",
+            estado: "MT",
+            cep: null,
+            is_principal: false,
+        });
+        assert.ok(a);
+        assert.equal(a?.numero, "S/N");
+    });
+
+    it("principal com bairro - e cidade (completar) não entra na oferta", () => {
+        const a = buildAiAddressFromSavedClienteRow({
+            id: "addr-chatbot",
+            apelido: "Chatbot",
+            logradouro: "Rua turmalina",
+            numero: "S/N",
+            complemento: null,
+            bairro: "-",
+            cidade: "(completar)",
+            estado: "MT",
+            cep: null,
+            is_principal: true,
+        });
+        assert.equal(a, null);
+    });
+
+    it("número só com pontuação não é entregável", () => {
+        const a = buildAiAddressFromSavedClienteRow({
+            id: "addr-dot",
+            apelido: null,
+            logradouro: "Rua A",
+            numero: "...",
+            complemento: null,
+            bairro: "Centro",
+            cidade: "Sorriso",
+            estado: "MT",
+            cep: null,
+            is_principal: false,
+        });
+        assert.equal(a, null);
+    });
 });

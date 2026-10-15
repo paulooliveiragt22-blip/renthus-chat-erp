@@ -19,6 +19,22 @@ import type {
 
 export type SlotConflictCode = "address" | "payment" | "change";
 
+function resolveFulfillment(params: {
+    input: PrepareDraftToolInput;
+    currentDraft: OrderDraft | null;
+    slots: InboundSlots;
+}): PrepareDraftToolInput {
+    const mentioned = params.slots.fulfillmentType;
+    if (mentioned === "delivery" || mentioned === "pickup") {
+        return { ...params.input, fulfillmentType: mentioned };
+    }
+    const fromDraft = params.currentDraft?.fulfillmentType;
+    if (fromDraft === "delivery" || fromDraft === "pickup") {
+        return { ...params.input, fulfillmentType: fromDraft };
+    }
+    return params.input;
+}
+
 function trimmed(value: unknown): string {
     return String(value ?? "").trim();
 }
@@ -147,5 +163,10 @@ export function resolvePrepareInput(params: {
         slots: params.slots,
         conflicts,
     });
-    return { input: withPayment, conflicts };
+    const withFulfillment = resolveFulfillment({
+        input: withPayment,
+        currentDraft: params.currentDraft,
+        slots: params.slots,
+    });
+    return { input: withFulfillment, conflicts };
 }

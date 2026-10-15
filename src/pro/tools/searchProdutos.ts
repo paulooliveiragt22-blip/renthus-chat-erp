@@ -174,6 +174,50 @@ function buildDidYouMean(query: string, rows: ChatProdutoRow[]) {
         .slice(0, 3);
 }
 
+async function searchChatCombos(
+    admin: SupabaseClient,
+    companyId: string,
+    query: string
+): Promise<ChatProdutoRow[]> {
+    const { data, error } = await admin.rpc("rpc_search_chat_combos", {
+        p_company_id: companyId,
+        p_query: query,
+    });
+    if (error || !Array.isArray(data)) return [];
+    const out: ChatProdutoRow[] = [];
+    for (const raw of data) {
+        if (!raw || typeof raw !== "object") continue;
+        const row = raw as {
+            id?: string;
+            nome?: string;
+            preco?: number | string;
+            disponivel?: number | null;
+        };
+        const id = String(row.id ?? "");
+        const nome = String(row.nome ?? "").trim();
+        const preco = Number(row.preco);
+        if (!id || !nome || !Number.isFinite(preco) || preco <= 0) continue;
+        const ilimitado = row.disponivel == null;
+        out.push({
+            id,
+            product_name: nome,
+            display_name: nome,
+            descricao: "Combo",
+            sigla_comercial: "KIT",
+            preco_venda: preco,
+            volume_quantidade: null,
+            unit_type_sigla: null,
+            fator_conversao: 1,
+            product_volume_id: null,
+            category_id: null,
+            estoque_unidades: ilimitado ? 0 : Number(row.disponivel),
+            vender_com_estoque_zero: ilimitado,
+            disponivel_venda: ilimitado ? 99 : Number(row.disponivel),
+        });
+    }
+    return out;
+}
+
 async function searchViaRpc(
     admin: SupabaseClient,
     companyId: string,
@@ -312,7 +356,8 @@ export async function runSearchProdutosDetailed(
     const finalized = await finalizeRows(admin, rows);
     const tagNarrowed = preferRowsMatchingTagAliases(finalized, q);
     const ranked = applySearchRelevanceRerank(q, tagNarrowed);
-    const items = ranked.slice(0, limit);
+    const comboRows = await searchChatCombos(admin, companyId, q);
+    const items = [...comboRows, ...ranked].slice(0, limit);
     const result: SearchProdutosResult = {
         items,
         didYouMean: buildDidYouMean(q, items),

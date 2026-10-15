@@ -115,7 +115,7 @@ Legenda: `[ ]` pendente · `[x]` feito · `[-]` N/A · `[~]` decisão só (sem c
 
 ### C2 — Matching e dados (P0.1, P0.2)
 
-- [-] **C2.1** Checklist dados loja piloto (ops: sigla, volume, fator, preço, estoque, EAN/código) — fora do hot path de código
+- [-] **C2.1** Checklist dados loja piloto (ops: sigla, volume, fator, preço, estoque, EAN/código) — fora do hot path de código. A leitura que marca o canal «pronto» (preço, estoque, sigla, zona com taxa, horário, endereço da loja) é a fatia 4 de [`ADR/0013`](./ADR/0013-pro-sellable-attendant.md), view `v_sec_bot_readiness` + Canais. Volume, fator e EAN continuam ops; não são gate dessa view.
 - [x] **C2.2** Fixtures B: corpus versionado `matching-corpus.v1` (≥15 casos)
 - [x] **C2.3** Pending picks → prepare allowlist-safe (texto / opção / hábito)
 - [x] **C2.4** Métricas: `prepare_blocked_allowlist`, `search_hits_zero`, `pending_pick_abandon`

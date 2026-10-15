@@ -76,6 +76,8 @@ export interface DraftItem {
     siglaComercial?: string | null;
     productVolumeId: string | null;
     estoqueUnidades: number;
+    /** Quando preenchido, a linha é um combo. `produtoEmbalagemId` repete esse id na allowlist. */
+    comboId?: string | null;
     /**
      * Espelho de `products.vender_com_estoque_zero` no momento do prepare.
      * Default `true` (pode vender zerado) quando ausente — alinhado ao banco.
@@ -128,6 +130,11 @@ export interface PrepareDraftToolInput {
     readyForConfirmation?: boolean;
     /** Observação do pedido (texto livre do cliente). Ausente = não alterar. */
     orderNotes?: string | null;
+    /**
+     * Modalidade já resolvida neste turno (envelope ou rascunho).
+     * Ausente = `prepare` só infere entrega quando o endereço fecha.
+     */
+    fulfillmentType?: FulfillmentType | null;
 }
 
 /**
@@ -145,7 +152,7 @@ export interface InboundSlots {
     address: { logradouro: string; numero: string; bairro: string } | null;
     paymentMethod: PaymentMethod | null;
     changeFor: number | null;
-    /** Só menção explícita em texto livre ("vou buscar", "pode entregar"). */
+    /** Menção explícita em texto livre ("vou buscar", "manda pra mim", "pode entregar"). */
     fulfillmentType: FulfillmentType | null;
     /** Espelho lexical das linhas; canônico segue sendo a `OrderWorklist` (ADR 0011). */
     orderLines: Array<{ rawTerm: string; quantity: number | null }>;
@@ -252,6 +259,11 @@ export interface ProSessionState {
      * pergunta Sim (adicionar outro) / Não (seguir com o carrinho restante).
      */
     pendingOutOfStockOffer?: { names: string[] } | null;
+    /**
+     * Entrega ou retirada dita enquanto o rascunho ainda não tinha item
+     * (ex.: "manda duas Heineken pra mim" e a lista pede o número).
+     */
+    pendingFulfillmentType?: FulfillmentType | null;
     /**
      * Troca em andamento: ao confirmar pick, remover do draft itens cujo nome casa com este hint
      * (ex.: "salgadinho") antes de acrescentar o SKU novo.
@@ -593,6 +605,8 @@ export interface AiServiceResult {
     updatedPendingPickGroups?: PendingPickGroup[];
     /** Ver `ProSessionState.pendingOutOfStockOffer`. */
     updatedPendingOutOfStockOffer?: { names: string[] } | null;
+    /** Modalidade fechada pelo extract neste turno. Ausente = não mexer no pending da sessão. */
+    updatedPendingFulfillmentType?: "delivery" | "pickup";
     signals: {
         toolRoundsUsed: number;
         /** Heurística a partir do sufixo da resposta do modelo (não é payload de WhatsApp). */

@@ -62,6 +62,7 @@ function fakeAdmin(): SupabaseClient {
                 },
             };
         },
+        rpc: async () => ({ data: null, error: null }),
     } as unknown as SupabaseClient;
 }
 

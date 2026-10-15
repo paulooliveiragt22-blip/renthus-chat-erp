@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
     hasPersistedDraftAndCustomer,
+    isAddressStructurallyComplete,
     isDraftBelowMinimumOrder,
     isDraftStructurallyCompleteForFinalize,
 } from "../../src/pro/pipeline/orderDraftGate";
@@ -58,6 +59,26 @@ describe("orderDraftGate (R1)", () => {
         assert.equal(isDraftStructurallyCompleteForFinalize(minimalDraft({ paymentMethod: null })), false);
         assert.equal(
             isDraftStructurallyCompleteForFinalize(minimalDraft({ fulfillmentType: null })),
+            false
+        );
+    });
+
+    it("placeholder no bairro ou na cidade não fecha o endereço", () => {
+        const base = minimalDraft().address!;
+        assert.equal(
+            isAddressStructurallyComplete({ ...base, numero: "S/N" }),
+            true
+        );
+        assert.equal(
+            isAddressStructurallyComplete({ ...base, bairro: "-", cidade: "(completar)" }),
+            false
+        );
+        assert.equal(
+            isDraftStructurallyCompleteForFinalize(
+                minimalDraft({
+                    address: { ...base, bairro: "-", cidade: "(completar)" },
+                })
+            ),
             false
         );
     });

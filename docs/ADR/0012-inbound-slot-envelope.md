@@ -1,6 +1,6 @@
 # ADR 0012 — Agente PRO: envelope de slots do inbound (interpretação única por turno)
 
-**Status:** aceito (2026-09-22) — Fase 1 implementada e publicada (workers `renthus-inbound-worker:live` v76, 2026-09-22); smoke de produção pendente
+**Status:** aceito (2026-09-22) — Fase 1 implementada e publicada (workers `renthus-inbound-worker:live` v76, 2026-09-22); smoke de produção pendente. **D7 (placeholder) afinado e no código** via [`ADR/0013`](./0013-pro-sellable-attendant.md) D2: `S/N` com bairro e cidade reais continua válido; sem apagar `enderecos_cliente`.
 **Data:** 2026-09-22
 **Aprovação do dono:** 2026-09-22 (estrutura aprovada; fases 1–3 abaixo)
 **Escopo técnico:** como itens, endereço, pagamento, troco e modalidade saem do texto do cliente e chegam ao `OrderDraft` — uma interpretação canônica por turno, obrigatória em todo caminho de `prepare`.
@@ -107,9 +107,11 @@ Teste de auditoria estática no padrão já usado em `tests/workspace/rbacPermis
 
 ### D7 — Placeholder deixa de ser endereço válido
 
-`isAddressStructurallyComplete` e `buildAiAddressFromSavedClienteRow` passam a rejeitar valores de preenchimento (`s/n`, `sn`, `-`, `--`, `(completar)`, `completar`, `x`, `.`) em `numero`, `bairro`, `cidade` e `estado`. Consequência desejada: endereço salvo corrompido **não** é oferecido nem aceito; o fluxo pede rua, número e bairro como se não houvesse salvo.
+**Afinado por [`ADR/0013`](./0013-pro-sellable-attendant.md) D2 (2026-10-14).** A lista original abaixo rejeitava `s/n` e `sn`. O dono manteve `S/N` / `SN` em `numero` quando bairro e cidade não são placeholder.
 
-Limpeza dos registros já gravados em `enderecos_cliente` é item de dado, tratado na Fase 3 com lista revisada pelo dono antes de qualquer `delete`.
+`isAddressStructurallyComplete` e `buildAiAddressFromSavedClienteRow` passam a rejeitar, no mesmo predicado, `-`, `--`, `(completar)`, `completar` e valor só de pontuação em `numero`, `bairro` ou `cidade`. Endereço salvo que falhar **não** é oferecido; se nenhum restar, o fluxo pede rua, número e bairro.
+
+Limpeza (`DELETE` / reescrita) de `enderecos_cliente` **não** entra na fatia de venda. O cadastro incompleto permanece no banco.
 
 ### D8 — Custo e latência: o envelope substitui chamada de modelo, não soma
 
@@ -256,9 +258,11 @@ docs/ADR/0012-inbound-slot-envelope.md         # este arquivo
 
 ### Fase 3 — Dados
 
-- [ ] D7: placeholder rejeitado em `isAddressStructurallyComplete` e `buildAiAddressFromSavedClienteRow` + testes.
-- [ ] Levantamento de `enderecos_cliente` com placeholder (lista ao dono **antes** de qualquer escrita).
-- [ ] Limpeza aprovada aplicada via RPC/migration, conforme decisão do dono.
+Substituída, para a regra de oferta, pela fatia 2 de [`ADR/0013`](./0013-pro-sellable-attendant.md). Não executar a limpeza abaixo junto com essa fatia.
+
+- [x] D7 afinado: predicado único rejeita `-` / `(completar)` / só pontuação; `S/N` com bairro e cidade reais passa. Ver ADR 0013 D2 (fatia 2).
+- [ ] Levantamento de `enderecos_cliente` com placeholder — **fora** da fatia de venda; só se o dono pedir limpeza.
+- [ ] Limpeza aprovada aplicada via RPC/migration — **fora** da fatia de venda.
 
 ---
 
@@ -267,7 +271,7 @@ docs/ADR/0012-inbound-slot-envelope.md         # este arquivo
 1. Mensagem com itens + endereço + forma de pagamento num único texto: carrinho monta com endereço, modalidade **entrega** inferida e pagamento retido; o resumo aparece direto, sem card Entrega/Retirar e sem repergunta de pagamento.
 2. Mesma mensagem **sem** endereço: fluxo pede rua, número e bairro (cidade/UF da loja), pagamento informado continua retido.
 3. Mesma mensagem **sem** pagamento: endereço entra, resumo aparece, botões de pagamento depois do Confirmar.
-4. Cliente com endereço salvo contendo placeholder: oferta não aparece; bot pede endereço.
+4. Cliente com endereço salvo contendo placeholder (`-`, `(completar)`, só pontuação): oferta não aparece; bot pede endereço. `S/N` com bairro e cidade reais continua oferecido — regra afinada em [`ADR/0013`](./0013-pro-sellable-attendant.md) D2. **Ainda não implementado.**
 5. Turno de pick (`1`, `caixa`) ou de botão não reaplica endereço/pagamento de mensagem anterior (D4).
 6. Modelo que "inventa" PIX ou endereço sem o cliente ter dito: valor descartado, `slot_conflict` emitido.
 

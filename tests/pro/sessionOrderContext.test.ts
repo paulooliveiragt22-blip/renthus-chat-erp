@@ -34,6 +34,28 @@ describe("sessionOrderContext clarify soft-reset", () => {
         );
     });
 
+    it("um pick com entrega escolhida e rascunho vazio continua o pedido", () => {
+        assert.equal(
+            isOrderSessionContinuityNeeded(
+                base({
+                    step: "pro_idle",
+                    pendingFulfillmentType: "delivery",
+                    lastSearchPicks: [{ embalagemId: "a", label: "MARMITA G" }],
+                })
+            ),
+            true
+        );
+        assert.equal(
+            isOrderSessionContinuityNeeded(
+                base({
+                    step: "pro_idle",
+                    lastSearchPicks: [{ embalagemId: "a", label: "MARMITA G" }],
+                })
+            ),
+            false
+        );
+    });
+
     it("clearStaleClarifyUiIfNoDraft zera picks residuais", () => {
         const out = clearStaleClarifyUiIfNoDraft(
             base({

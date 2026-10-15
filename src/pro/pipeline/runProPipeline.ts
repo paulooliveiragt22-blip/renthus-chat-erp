@@ -21,6 +21,7 @@ import { buildAiDegradedOutbound } from "@/lib/chatbot/aiCapabilityProfile";
 import { resolveDeliveryForNeighborhood } from "@/lib/delivery/policy";
 import { loadMinimumGapSuggestions } from "./loadMinimumGapSuggestions";
 import { resolveMinimumOrderAmount, type GapFillSuggestion } from "./minimumGapFill";
+import { composeServerOwnedOutbound } from "./composeServerOwnedOutbound";
 import { MATCHING_METRICS } from "./matchingMetrics";
 import { resolveCatalogOfferFollowUp } from "./catalogOfferFollowUp";
 import { extractPartySizeRequest } from "./partySizeRequest";
@@ -34,7 +35,7 @@ import { intentStage } from "./stages/intentStage";
 import { loadState } from "./stages/loadState";
 import { orderStage } from "./stages/orderStage";
 import { persistAndEmit } from "./stages/persistAndEmit";
-import { routeStage } from "./stages/routeStage";
+import { resolveOrdersMenuUrl, routeStage } from "./stages/routeStage";
 import {
     applyProductPickFromButton,
     applyQuickAction,
@@ -54,7 +55,11 @@ import {
     withResolvedSlotStep,
     withResolvedSlotStepUnlessAwaitingConfirmation,
 } from "./orderSlotStep";
-import { extractInboundSlots } from "@/src/pro/domain/inboundSlots/extractInboundSlots";
+import {
+    extractInboundSlots,
+    isFulfillmentOnlyInbound,
+    nextPendingFulfillment,
+} from "@/src/pro/domain/inboundSlots/extractInboundSlots";
 import { enrichProSessionCustomerFromPhone } from "./enrichCustomerFromPhone";
 import { handleAwaitingPhoneTurn } from "./handleAwaitingPhone";
 import { clearStaleClarifyUiIfNoDraft, isOrderSessionContinuityNeeded } from "./sessionOrderContext";
@@ -89,6 +94,8 @@ import { serverOfferDeliveryAddressAfterFulfillment } from "./serverOfferDeliver
 import { parseAddressOfferIndex } from "./deliveryAddressOffer";
 import { isDraftStructurallyCompleteForFinalize } from "./orderDraftGate";
 import {
+    applyPickupTotals,
+    assertFulfillmentAllowed,
     DEFAULT_FULFILLMENT_POLICY,
     loadFulfillmentPolicy,
     type FulfillmentPolicy,
@@ -359,6 +366,15 @@ export async function runProPipeline(
             storeMinOrder: ctx.storeMinOrder,
         });
     };
+    /** Endereço aplicado sem pagamento ainda não é `ok`. O resumo canônico sai mesmo assim. */
+    const outboundAfterSavedAddress = async (addrPrep: {
+        preparedOk: boolean;
+        outbound: OutboundMessage[];
+        state: ProSessionState;
+    }, synced: ProSessionState): Promise<OutboundMessage[]> => {
+        if (!addrPrep.preparedOk && addrPrep.outbound.length > 0) return addrPrep.outbound;
+        return withMinimumCheckout(synced, []);
+    };
     const storeHours: StoreHours = deps.admin
         ? await loadStoreHours(deps.admin, input.tenant.companyId)
         : EMPTY_STORE_HOURS;
@@ -552,9 +568,7 @@ export async function runProPipeline(
                 inboundSlots,
             });
             const synced = withResolvedSlotStep(addrPrep.state);
-            const finalOutbound = addrPrep.preparedOk
-                ? await withMinimumCheckout(synced, [])
-                : addrPrep.outbound;
+            const finalOutbound = await outboundAfterSavedAddress(addrPrep, synced);
             await emitTurn({ state: synced, outbound: finalOutbound });
             const metrics: PipelineMetric[] = [
                 {
@@ -595,6 +609,15 @@ export async function runProPipeline(
 
     const pickApplied = applyProductPickFromButton(input.inboundText, stateBeforePick);
     let stateAfterPick = pickApplied.state;
+    const pendingFulfillment = nextPendingFulfillment({
+        mentioned: inboundSlots.fulfillmentType,
+        remembered: stateAfterPick.pendingFulfillmentType,
+        draftFulfillment: stateAfterPick.draft?.fulfillmentType,
+    });
+    stateAfterPick = { ...stateAfterPick, pendingFulfillmentType: pendingFulfillment };
+    const slotsForPrepare: typeof inboundSlots = pendingFulfillment
+        ? { ...inboundSlots, fulfillmentType: pendingFulfillment }
+        : inboundSlots;
     const productPickApplied = Boolean(pickApplied.syntheticUserText);
     /** ADR 0011 — não force-search no mesmo turno após pick (botão ou free-text). */
     let pickResolveTurnForAi = productPickApplied;
@@ -726,7 +749,7 @@ export async function runProPipeline(
                     customerId: stateAfterPick.customerId,
                     state: stateAfterPick,
                     pickedEmbalagemId: pickedId,
-                    inboundSlots,
+                    inboundSlots: slotsForPrepare,
                 });
                 stateAfterPick = serverPrep.state;
                 serverPreparedOnPick = Boolean(serverPrep.state.draft?.items?.length);
@@ -808,9 +831,52 @@ export async function runProPipeline(
                         metrics,
                     };
                     } else {
-                    const finalOutbound: OutboundMessage[] = await withMinimumCheckout(finalState, []);
+                    let checkoutState = withResolvedSlotStep({
+                        ...stateAfterPick,
+                        checkoutEditHold: false,
+                        pendingFulfillmentType: stateAfterPick.draft?.fulfillmentType
+                            ? null
+                            : stateAfterPick.pendingFulfillmentType,
+                    });
+                    let pickOutbound: OutboundMessage[] = [];
+                    if (
+                        checkoutState.draft?.fulfillmentType === "delivery" &&
+                        !isAddressStructurallyComplete(checkoutState.draft.address) &&
+                        deps.admin
+                    ) {
+                        try {
+                            const offer = await serverOfferDeliveryAddressAfterFulfillment({
+                                admin: deps.admin,
+                                companyId: input.tenant.companyId,
+                                customerId: checkoutState.customerId,
+                                state: checkoutState,
+                                inboundSlots: slotsForPrepare,
+                            });
+                            checkoutState = withResolvedSlotStep({
+                                ...offer.state,
+                                pendingFulfillmentType: null,
+                            });
+                            pickOutbound = offer.outbound;
+                        } catch (err) {
+                            deps.logger?.warn("pro_pipeline.delivery_address_offer_failed", {
+                                companyId: input.tenant.companyId,
+                                threadId: input.tenant.threadId,
+                                message: err instanceof Error ? err.message : String(err),
+                            });
+                            pickOutbound = [
+                                {
+                                    kind: "text",
+                                    text: "Combinado: entrega. Me envia o endereço: rua, número e bairro.",
+                                },
+                            ];
+                        }
+                    }
+                    const finalOutbound: OutboundMessage[] = await withMinimumCheckout(
+                        checkoutState,
+                        pickOutbound
+                    );
                     await emitTurn({
-                        state: finalState,
+                        state: checkoutState,
                         outbound: finalOutbound,
                     });
                     const metrics: PipelineMetric[] = [
@@ -833,7 +899,7 @@ export async function runProPipeline(
                         new Set(["pro_pipeline.outbound_count"])
                     );
                     return {
-                        nextState: finalState,
+                        nextState: checkoutState,
                         outbound: finalOutbound,
                         sideEffects: [],
                         metrics,
@@ -879,9 +945,7 @@ export async function runProPipeline(
                     inboundSlots,
                 });
                 const synced = withResolvedSlotStep(addrPrep.state);
-                const finalOutbound = addrPrep.preparedOk
-                    ? await withMinimumCheckout(synced, [])
-                    : addrPrep.outbound;
+                const finalOutbound = await outboundAfterSavedAddress(addrPrep, synced);
                 await emitTurn({ state: synced, outbound: finalOutbound });
                 const metrics: PipelineMetric[] = [
                     {
@@ -1038,6 +1102,140 @@ export async function runProPipeline(
             outbound: quickOutbound,
             sideEffects: [],
             metrics,
+        };
+    }
+
+    /**
+     * "Manda pra mim" / "vou buscar" com carrinho já montado: mesma saída do botão,
+     * sem passar pela IA e sem o card Entrega/Retirar.
+     */
+    if (
+        isFulfillmentOnlyInbound(inboundSlots, input.inboundText) &&
+        inboundSlots.fulfillmentType &&
+        !isInfoOnlyMode(aiPolicy) &&
+        (stateAfterPick.draft?.items.length ?? 0) > 0 &&
+        (stateAfterPick.pendingPickGroups?.length ?? 0) === 0 &&
+        (stateAfterPick.lastSearchPicks?.length ?? 0) < 2
+    ) {
+        const type = inboundSlots.fulfillmentType;
+        const allowed = assertFulfillmentAllowed(fulfillmentPolicy, type);
+        if (!allowed.ok) {
+            const msg =
+                allowed.error === "pickup_disabled"
+                    ? "No momento não estamos aceitando retirada no local. Posso enviar por entrega."
+                    : "No momento não estamos fazendo entregas. Você pode retirar no local.";
+            const denied = [{ kind: "text" as const, text: msg }];
+            await emitTurn({ state: stateAfterPick, outbound: denied });
+            const metrics: PipelineMetric[] = [
+                { name: "pro_pipeline.fulfillment_mention", value: 1, tags: { type, ok: "0" } },
+                { name: "pro_pipeline.outbound_count", value: denied.length },
+            ];
+            flushPipelineRunMetrics(
+                deps.metrics,
+                input.tenant,
+                metrics,
+                new Set(["pro_pipeline.outbound_count"]),
+                context.policies.aiProvider
+            );
+            return { nextState: stateAfterPick, outbound: denied, sideEffects: [], metrics };
+        }
+
+        const draft = stateAfterPick.draft!;
+        if (type === "pickup") {
+            const synced = withResolvedSlotStep({
+                ...stateAfterPick,
+                draft: applyPickupTotals({ ...draft, fulfillmentType: "pickup" }),
+                deliveryAddressUiConfirmed: true,
+            });
+            const pickupOutbound = await withMinimumCheckout(synced, [
+                { kind: "text", text: "Combinado: retirada no local, sem taxa de entrega." },
+            ]);
+            await emitTurn({ state: synced, outbound: pickupOutbound });
+            const metrics: PipelineMetric[] = [
+                { name: "pro_pipeline.fulfillment_mention", value: 1, tags: { type: "pickup", ok: "1" } },
+                { name: "pro_pipeline.outbound_count", value: pickupOutbound.length },
+            ];
+            flushPipelineRunMetrics(
+                deps.metrics,
+                input.tenant,
+                metrics,
+                new Set(["pro_pipeline.outbound_count"]),
+                context.policies.aiProvider
+            );
+            return { nextState: synced, outbound: pickupOutbound, sideEffects: [], metrics };
+        }
+
+        let synced = withResolvedSlotStep({
+            ...stateAfterPick,
+            draft: { ...draft, fulfillmentType: "delivery" as const },
+            deliveryAddressUiConfirmed: false,
+        });
+        let deliveryOutbound: OutboundMessage[] = [];
+        if (!isAddressStructurallyComplete(draft.address) && deps.admin) {
+            try {
+                const offer = await serverOfferDeliveryAddressAfterFulfillment({
+                    admin: deps.admin,
+                    companyId: input.tenant.companyId,
+                    customerId: synced.customerId,
+                    state: synced,
+                    inboundSlots,
+                });
+                synced = withResolvedSlotStep(offer.state);
+                deliveryOutbound = offer.outbound;
+            } catch (err) {
+                deps.logger?.warn("pro_pipeline.delivery_address_offer_failed", {
+                    companyId: input.tenant.companyId,
+                    threadId: input.tenant.threadId,
+                    message: err instanceof Error ? err.message : String(err),
+                });
+                deliveryOutbound = [
+                    {
+                        kind: "text",
+                        text: "Combinado: entrega. Me envia o endereço: rua, número e bairro.",
+                    },
+                ];
+            }
+        } else if (!isAddressStructurallyComplete(draft.address)) {
+            deliveryOutbound = [
+                {
+                    kind: "text",
+                    text: "Combinado: entrega. Me envia o endereço: rua, número e bairro.",
+                },
+            ];
+        }
+        deliveryOutbound = await withMinimumCheckout(synced, deliveryOutbound);
+        await emitTurn({ state: synced, outbound: deliveryOutbound });
+        const metrics: PipelineMetric[] = [
+            { name: "pro_pipeline.fulfillment_mention", value: 1, tags: { type: "delivery", ok: "1" } },
+            { name: "pro_pipeline.outbound_count", value: deliveryOutbound.length },
+        ];
+        flushPipelineRunMetrics(
+            deps.metrics,
+            input.tenant,
+            metrics,
+            new Set(["pro_pipeline.outbound_count"]),
+            context.policies.aiProvider
+        );
+        return { nextState: synced, outbound: deliveryOutbound, sideEffects: [], metrics };
+    }
+
+    if (
+        pendingFulfillment &&
+        stateAfterPick.draft?.items.length &&
+        !isInfoOnlyMode(aiPolicy) &&
+        assertFulfillmentAllowed(fulfillmentPolicy, pendingFulfillment).ok &&
+        stateAfterPick.draft.fulfillmentType !== pendingFulfillment
+    ) {
+        const type = pendingFulfillment;
+        stateAfterPick = {
+            ...stateAfterPick,
+            draft:
+                type === "pickup"
+                    ? applyPickupTotals({ ...stateAfterPick.draft, fulfillmentType: "pickup" })
+                    : { ...stateAfterPick.draft, fulfillmentType: "delivery" },
+            deliveryAddressUiConfirmed:
+                type === "pickup" ? true : stateAfterPick.deliveryAddressUiConfirmed,
+            pendingFulfillmentType: null,
         };
     }
 
@@ -1266,6 +1464,8 @@ export async function runProPipeline(
                 admin: deps.admin,
                 companyId: input.tenant.companyId,
                 customerId: pipelineState.customerId,
+                userText: inboundTextForPipeline,
+                ordersMenuUrl: resolveOrdersMenuUrl(input.webMenuUrl, input.webMenuOrdersUrl),
             });
             if (statusReply) {
                 const synced = withResolvedSlotStep(pipelineState);
@@ -1444,6 +1644,10 @@ export async function runProPipeline(
     let addressFreeTextSignaled = false;
     let matchingPrepareBlocked = 0;
     let matchingSearchHitsZero = 0;
+    let replaceUnfulfilledHoldingReply = false;
+    let aiModelMessages = new Set<OutboundMessage>();
+    let fulfillmentBeforeAi: "delivery" | "pickup" | null =
+        nextState.draft?.fulfillmentType ?? null;
     /** Sem crédito / IA off: menu/status/handover ok; pedido por IA bloqueado (D6). */
     let aiDegradedThisTurn = false;
     if (routed.mode === "ai" && !llmEnabled) {
@@ -1533,7 +1737,7 @@ export async function runProPipeline(
                 decision,
                 userText: inboundTextForPipeline,
                 logger: deps.logger,
-                inboundSlots,
+                inboundSlots: slotsForPrepare,
                 /**
                  * tool_choice=prepare no step 0 só após pick aplicado neste turno.
                  * Allowlist/picks só da sessão + qty NÃO forçam prepare (SKU stale → TOOL_FAILED).
@@ -1541,6 +1745,13 @@ export async function runProPipeline(
                 preferPrepareToolChoiceFirst: productPickApplied && !serverPreparedOnPick,
                 skipForcePrepareAfterPick: serverPreparedOnPick,
             });
+            const catalogBeforeAi = {
+                items: nextState.draft?.items.length ?? 0,
+                picks: nextState.lastSearchPicks?.length ?? 0,
+                groups: nextState.pendingPickGroups?.length ?? 0,
+                allow: nextState.searchProdutoEmbalagemIds?.length ?? 0,
+            };
+            fulfillmentBeforeAi = nextState.draft?.fulfillmentType ?? null;
             invalidAiSanitized = ai.invalidAiSanitized;
             aiServiceErrorCode = ai.aiResult.errorCode;
             aiToolRoundsUsed = Number(ai.aiResult.signals.toolRoundsUsed ?? 0) || 0;
@@ -1551,6 +1762,10 @@ export async function runProPipeline(
                 Number(ai.aiResult.signals.matchingMetrics?.searchHitsZero ?? 0) || 0;
             nextState = bumpAiTurnCount(ai.state, aiPolicy, nowMs);
             outbound.push(...ai.outbound);
+            aiModelMessages = new Set(ai.outbound);
+            const draftItemAdded =
+                (nextState.draft?.items.length ?? 0) > catalogBeforeAi.items;
+            replaceUnfulfilledHoldingReply = !aiServiceErrorCode && !draftItemAdded;
             logSessionDraftSnapshot(deps.logger, "pro_pipeline.post_ai_session", input.tenant, nextState, {
                 intent: decision.intent,
                 inboundSample: inboundTextForPipeline.trim().slice(0, 120),
@@ -1654,9 +1869,55 @@ export async function runProPipeline(
               acceptedPayments,
               gapFillers: checkoutCtx.gapFillers,
               storeMinOrder: checkoutCtx.storeMinOrder,
+              replaceUnfulfilledHoldingReply,
+              modelOutbound: [...aiModelMessages],
           });
     nextState = checkout.state;
-    const finalOutbound = checkout.outbound;
+    let finalOutbound = checkout.outbound;
+
+    if (
+        (inboundSlots.fulfillmentType === "delivery" ||
+            pendingFulfillment === "delivery" ||
+            nextState.pendingFulfillmentType === "delivery" ||
+            (fulfillmentBeforeAi !== "delivery" && nextState.draft?.fulfillmentType === "delivery")) &&
+        nextState.draft?.items.length &&
+        nextState.draft.fulfillmentType === "delivery" &&
+        !isAddressStructurallyComplete(nextState.draft.address) &&
+        !aiDegradedThisTurn &&
+        !aiServiceErrorCode &&
+        deps.admin &&
+        !isInfoOnlyMode(aiPolicy) &&
+        !finalOutbound.some((m) => m.kind === "buttons" || m.kind === "cta_url")
+    ) {
+        try {
+            const offer = await serverOfferDeliveryAddressAfterFulfillment({
+                admin: deps.admin,
+                companyId: input.tenant.companyId,
+                customerId: nextState.customerId,
+                state: nextState,
+                inboundSlots,
+            });
+            nextState = withResolvedSlotStep({ ...offer.state, pendingFulfillmentType: null });
+            const alreadyAsksAddress = finalOutbound.some(
+                (m) => m.kind === "text" && /endere[cç]o/i.test(m.text ?? "")
+            );
+            if (offer.offered || !alreadyAsksAddress) {
+                finalOutbound = [...finalOutbound, ...offer.outbound];
+            }
+        } catch (err) {
+            deps.logger?.warn("pro_pipeline.delivery_address_offer_failed", {
+                companyId: input.tenant.companyId,
+                threadId: input.tenant.threadId,
+                message: err instanceof Error ? err.message : String(err),
+            });
+        }
+    }
+
+    finalOutbound = composeServerOwnedOutbound({
+        messages: finalOutbound,
+        modelMessages: aiModelMessages,
+        replaceUnfulfilledHolding: replaceUnfulfilledHoldingReply,
+    });
 
     logSessionDraftSnapshot(deps.logger, "pro_pipeline.pre_persist_session", input.tenant, nextState, {
         intent: decision.intent,

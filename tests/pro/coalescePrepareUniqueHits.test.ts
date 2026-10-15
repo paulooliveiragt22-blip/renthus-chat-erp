@@ -94,6 +94,7 @@ function fakeAdminWithPacks(packs: Record<string, { name: string; price: number 
             };
             return chain;
         },
+        rpc: async () => ({ data: null, error: null }),
     } as unknown as SupabaseClient;
 }
 
@@ -117,6 +118,7 @@ function fakeAdminEmpty(): SupabaseClient {
                 },
             };
         },
+        rpc: async () => ({ data: null, error: null }),
     } as unknown as SupabaseClient;
 }
 

@@ -22,7 +22,7 @@ const SYSTEM_PROMPT = `${buildDeliverySpecialistSystemPreamble()}
 - Depois que search_produtos listou mais de uma embalagem e o cliente escolheu uma, chame prepare_order_draft na mesma sequência.
 - Regra dura: em prepare_order_draft use somente produto_embalagem_id do JSON items do último search_produtos (ou allowed_produto_embalagem_ids).
 - Nunca use slug textual: só UUID (campo id / produto_embalagem_id).
-- Após prepare_order_draft com itens: NÃO diga "pedido montado" nem peça endereço/pagamento na prosa — o servidor envia botões Entrega/Retirar (se ambos ligados), depois endereço e pagamento. Só confirme o que a tool/fase indicar.
+- Após prepare_order_draft com itens: NÃO diga "pedido montado" nem peça o clique em Entrega/Retirar se o cliente já disse a modalidade (entrega, manda pra mim, vou buscar). Sem modalidade, o servidor envia esses botões; com entrega já dita, peça o endereço só se a fase pedir.
 - NUNCA invente payment_method nem change_for: só se o cliente disse pix/dinheiro/cartão ou troco. Sem pagamento no draft: o servidor manda botões — não invente na prosa.
 - Se o cliente quer TROCAR/SUBSTITUIR um item: search_produtos do produto NOVO, depois prepare_order_draft com o UUID permitido. Não use bootstrap/extract paralelo — só tools.
 - Se o cliente quiser acrescentar itens, chame prepare_order_draft com a quantidade. Não afirme "pedido confirmado" — só o botão Confirmar + RPC fecham.
@@ -118,10 +118,8 @@ export function buildStableSystemPrompt(input: AiServiceInput): string {
     const addressConfirmBlock = isInfoOnlyAi(input)
         ? ""
         : "\n\n--- Confirmação de endereço de entrega ---\n" +
-          "Em get_order_hints, saved_addresses pode trazer most_used_address_id (mais entregas) e last_used_address_id (pedido mais recente), quando diferentes.\n" +
-          "- Se o cliente perguntar ou mencionar entrega em endereço diferente do cadastrado (ex.: \"pode ser em outro endereço\", \"é no mesmo de sempre?\"): responda em texto livre, SEM listar opções nem pedir botão, usando exatamente este modelo (troque {endereco} pelo endereço real de most_used_address_id — logradouro, número e bairro): \"Tenho {endereco} cadastrado aqui. A entrega será nele? Se for em outro endereço, me envia por favor.\" Chame respond_to_customer com address_free_text=true.\n" +
-          "- Se NÃO houve pergunta do cliente sobre endereço e most_used_address_id e last_used_address_id vierem diferentes: NÃO pergunte por escrito qual endereço usar — o servidor já mostra botões com as duas opções. Não repita a pergunta em texto nem cite os dois endereços na prosa.\n" +
-          "- Se houver só um endereço salvo (ou most_used_address_id e last_used_address_id iguais/ausentes): siga o fluxo normal (pode confirmar ou usar saved_address_id diretamente).\n" +
+          "O servidor envia o cartão canônico: um endereço proposto e a lista dos outros, com Confirmar e Novo. Não liste endereços e não grave saved_address_id por conta própria.\n" +
+          "- Se o cliente perguntar de um endereço diferente do cadastrado: responda em texto livre, sem listar opções, neste modelo (troque {endereco} pelo logradouro, número e bairro de most_used_address_id): \"Tenho {endereco} cadastrado aqui. A entrega será nele? Se for em outro endereço, me envia por favor.\" Chame respond_to_customer com address_free_text=true.\n" +
           "--- Fim confirmação de endereço ---\n";
     return base + addressConfirmBlock;
 }

@@ -20,7 +20,8 @@ Este ADR **fixixa decisões**; cronologia e checkboxes: [`PLANO_CALIBRACAO_AGENT
 | [`CHATBOT_PROD.md`](../CHATBOT_PROD.md) | Decisões canónicas de produto + cérebro PRO + env | **Mais atual** p/ motor IA + cutover SQS |
 | [`ADR/0003-sqs-outbox-lambda.md`](./0003-sqs-outbox-lambda.md) | Transporte outbox → SQS → Lambda | **Canónico** fila |
 | [`ADR/0011-pro-order-worklist-typed-lines.md`](./0011-pro-order-worklist-typed-lines.md) | OrderWorklist tipada multi-item + awaiting_qty | **Canónico** coleta de linhas (aceito 2026-09-07) |
-| [`ADR/0012-inbound-slot-envelope.md`](./0012-inbound-slot-envelope.md) | Envelope de slots do inbound (endereço/pagamento/troco/modalidade) obrigatório em todo `prepare` | **Canónico** extração de slots não-item (aceito 2026-09-22) |
+| [`ADR/0012-inbound-slot-envelope.md`](./0012-inbound-slot-envelope.md) | Envelope de slots do inbound (endereço/pagamento/troco/modalidade) obrigatório em todo `prepare` | **Canónico** extração de slots não-item (aceito 2026-09-22). D7 de placeholder afinado pelo 0013 |
+| [`ADR/0013-pro-sellable-attendant.md`](./0013-pro-sellable-attendant.md) | Boca do servidor, endereço entregável, status em uma frase, prontidão da loja | **Canónico** do que falta para vender (aceito 2026-10-14). Fatias 1 a 4 no código |
 | [`PRO_ORDER_SLOT_MACHINE.md`](../PRO_ORDER_SLOT_MACHINE.md) | Slots draft ↔ `ProStep` | Atual p/ gates checkout |
 | [`REFACTOR_STRATEGY_PRO_ORDER_AND_IA.md`](../REFACTOR_STRATEGY_PRO_ORDER_AND_IA.md) | Histórico R0–R4 | **Não** é plano de calibração |
 | [`PLANO_LIMPEZA_AGENTE_IA.md`](../PLANO_LIMPEZA_AGENTE_IA.md) | Corte Starter / replay / handover | Em grande parte feito |

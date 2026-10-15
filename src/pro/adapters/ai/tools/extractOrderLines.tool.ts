@@ -12,8 +12,12 @@ import {
 import {
     filterExtractedTermsAppearingInUserText,
     mergeExtractedWithLexicalFallback,
+    dropFulfillmentDestinationLines,
 } from "@/src/pro/pipeline/orderWorklist/seedWorklistFromExtract";
 import { extractCandidatePendingTermsFromUserText } from "@/src/pro/domain/orderWorklist/extractCandidateTerms";
+import { fulfillmentToApplyWhenRegexMisses } from "@/src/pro/domain/inboundSlots/extractInboundSlots";
+import { normalizeExtractedFulfillment } from "@/src/pro/ports/orderLinesExtract.port";
+import { applyPickupTotals } from "@/lib/delivery/fulfillment";
 import type { OrderLinesExtractPort } from "@/src/pro/ports/orderLinesExtract.port";
 import type { TurnState } from "./turnState";
 
@@ -45,12 +49,33 @@ export function createExtractOrderLinesTool(deps: {
                 appearing,
                 extractCandidatePendingTermsFromUserText(deps.userText)
             );
-            const next = sealWorklistFromExtract({
-                previous: prev,
-                userText: deps.userText,
-                extracted: withLexical,
-            });
+            const next = dropFulfillmentDestinationLines(
+                sealWorklistFromExtract({
+                    previous: prev,
+                    userText: deps.userText,
+                    extracted: withLexical,
+                })
+            );
             deps.turnState.orderWorklist = next;
+            const applied = fulfillmentToApplyWhenRegexMisses({
+                regex: deps.turnState.inboundSlots.fulfillmentType ?? null,
+                extracted: normalizeExtractedFulfillment(extracted.fulfillment),
+                draftFulfillment: deps.turnState.currentDraft?.fulfillmentType,
+            });
+            if (applied && !deps.turnState.resolvedFulfillment) {
+                deps.turnState.resolvedFulfillment = applied;
+                deps.turnState.inboundSlots = {
+                    ...deps.turnState.inboundSlots,
+                    fulfillmentType: applied,
+                };
+                const draft = deps.turnState.currentDraft;
+                if (draft?.items.length) {
+                    deps.turnState.currentDraft =
+                        applied === "pickup"
+                            ? applyPickupTotals({ ...draft, fulfillmentType: "pickup" })
+                            : { ...draft, fulfillmentType: "delivery" };
+                }
+            }
             return {
                 ok: true,
                 line_count: next.lines.length,

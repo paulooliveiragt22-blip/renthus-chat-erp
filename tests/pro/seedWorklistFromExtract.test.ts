@@ -2,9 +2,11 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
     mergeExtractedWithLexicalFallback,
+    seedOrderTurnFromExtract,
     seedWorklistFromExtract,
 } from "../../src/pro/pipeline/orderWorklist/seedWorklistFromExtract";
 import { extractCandidatePendingTermsFromUserText } from "../../src/pro/domain/orderWorklist/extractCandidateTerms";
+import { sealWorklistFromExtract } from "../../src/pro/domain/orderWorklist/orderWorklist";
 import type { OrderLinesExtractPort } from "../../src/pro/ports/orderLinesExtract.port";
 
 describe("mergeExtractedWithLexicalFallback", () => {
@@ -99,5 +101,94 @@ describe("seedWorklistFromExtract — partial LLM + lexical", () => {
         assert.ok(terms.some((t) => t.includes("skol")), JSON.stringify(terms));
         assert.ok(terms.some((t) => t.includes("whisk")), JSON.stringify(terms));
         assert.ok(wl.lines.length >= 3);
+    });
+});
+
+describe("seedWorklistFromExtract — destino de entrega", () => {
+    it("não sela 'pra mim' como produto", async () => {
+        const userText = "Manda pra mim duas marmitas g";
+        const extractPort: OrderLinesExtractPort = {
+            async extract() {
+                return {
+                    lines: [
+                        { rawTerm: "pra mim", quantity: null },
+                        { rawTerm: "marmitas g", quantity: 2 },
+                    ],
+                };
+            },
+        };
+        const wl = await seedWorklistFromExtract({
+            previous: null,
+            userText,
+            extractPort,
+            fallbackExtracted: extractCandidatePendingTermsFromUserText(userText),
+        });
+        const terms = wl.lines.map((l) => l.rawTerm.toLowerCase());
+        assert.equal(terms.some((t) => t.includes("pra mim")), false, JSON.stringify(terms));
+        assert.ok(terms.some((t) => t.includes("marmita")), JSON.stringify(terms));
+    });
+
+    it("mesma frase de novo: apaga 'pra mim' que já estava not_found", async () => {
+        const userText = "Manda pra mim duas marmitas g";
+        const previous = sealWorklistFromExtract({
+            previous: null,
+            userText,
+            extracted: [
+                { rawTerm: "pra mim", quantity: null },
+                { rawTerm: "marmitas g", quantity: 2 },
+            ],
+        });
+        previous.lines = previous.lines.map((l) =>
+            l.rawTerm === "pra mim" ? { ...l, status: "not_found" as const, searchAttempts: 3 } : l
+        );
+        const extractPort: OrderLinesExtractPort = {
+            async extract() {
+                return { lines: [{ rawTerm: "marmitas g", quantity: 2 }] };
+            },
+        };
+        const wl = await seedWorklistFromExtract({
+            previous,
+            userText,
+            extractPort,
+        });
+        const terms = wl.lines.map((l) => l.rawTerm.toLowerCase());
+        assert.equal(terms.some((t) => t.includes("pra mim")), false, JSON.stringify(terms));
+        assert.ok(terms.some((t) => t.includes("marmita")), JSON.stringify(terms));
+    });
+
+    it("devolve a modalidade do extract sem colocar pra mim na worklist", async () => {
+        const userText = "deixa as duas marmitas g na porta";
+        const seeded = await seedOrderTurnFromExtract({
+            previous: null,
+            userText,
+            extractPort: {
+                async extract() {
+                    return {
+                        lines: [
+                            { rawTerm: "pra mim", quantity: null },
+                            { rawTerm: "marmitas g", quantity: 2 },
+                        ],
+                        fulfillment: "delivery",
+                    };
+                },
+            },
+        });
+        assert.equal(seeded.fulfillment, "delivery");
+        const terms = seeded.worklist.lines.map((l) => l.rawTerm.toLowerCase());
+        assert.equal(terms.some((t) => t.includes("pra mim")), false, JSON.stringify(terms));
+        assert.ok(terms.some((t) => t.includes("marmita")), JSON.stringify(terms));
+    });
+
+    it("endereço sozinho não sela o que o extrator devolver", async () => {
+        const wl = await seedWorklistFromExtract({
+            previous: null,
+            userText: "Rua tangará 850",
+            extractPort: {
+                async extract() {
+                    return { lines: [{ rawTerm: "tangara", quantity: 1 }], fulfillment: null };
+                },
+            },
+        });
+        assert.equal(wl.lines.length, 0);
     });
 });

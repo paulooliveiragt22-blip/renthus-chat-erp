@@ -86,22 +86,22 @@ function hintsWithTwoCandidates(): Record<string, unknown> {
     };
 }
 
-describe("checkoutPostProcess — botões de escolha de endereço", () => {
-    it("2 candidatos diferentes (mais usado vs último pedido) → mostra botões", () => {
+describe("checkoutPostProcess — oferta de endereço fica no cartão canônico", () => {
+    it("mais usado diferente do último pedido não cria o cartão de duas opções", () => {
         const out = checkoutPostProcess({
             state: state(),
             outbound: [{ kind: "text", text: "Show." }],
             mode: "ai",
             orderHints: hintsWithTwoCandidates(),
         });
-        const buttons = out.outbound.find((m) => m.kind === "buttons");
-        assert.ok(buttons, "esperava mensagem de botões de endereço");
-        assert.equal(buttons!.buttons?.length, 3);
-        assert.ok(buttons!.buttons?.some((b) => b.id === "pro_pick_address:addr-primary"));
-        assert.ok(buttons!.buttons?.some((b) => b.id === "pro_pick_address:addr-secondary"));
-        assert.ok(buttons!.buttons?.some((b) => b.id === "pro_new_address_flow"));
-        // Rótulo customizado (apelido != "Principal") aparece no botão.
-        assert.ok(buttons!.buttons?.some((b) => b.title === "Trabalho"));
+        assert.ok(
+            !out.outbound.some(
+                (m) =>
+                    m.kind === "buttons" &&
+                    m.buttons?.some((b) => b.id.startsWith("pro_pick_address:"))
+            )
+        );
+        assert.ok(!out.outbound.some((m) => /Encontrei mais de um endereço/u.test(m.text ?? "")));
     });
 
     it("ADDR_FREE_TEXT sinalizado pela IA → não mostra botões", () => {

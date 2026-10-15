@@ -10,7 +10,7 @@
 
 import type { FulfillmentType, InboundSlots, PaymentMethod } from "@/src/types/contracts";
 import { hashUserTextForSeal } from "@/src/pro/domain/orderWorklist/orderWorklist";
-import { extractCandidatePendingTermsFromUserText } from "@/src/pro/domain/orderWorklist/extractCandidateTerms";
+import { extractCandidatePendingTermsFromUserText, textHasProductBesidesFulfillment } from "@/src/pro/domain/orderWorklist/extractCandidateTerms";
 import {
     extractAddressLineFromText,
     tryParseAddressOneLine,
@@ -31,8 +31,20 @@ export const EMPTY_INBOUND_SLOTS: InboundSlots = Object.freeze({
 }) as InboundSlots;
 
 const PICKUP_RE =
-    /\b(?:vou\s+(?:buscar|retirar|pegar)|passo\s+(?:a[ií]|para\s+(?:buscar|pegar))|retirar|retirada|retiro|busco)\b/u;
-const DELIVERY_RE = /\b(?:entrega|entregar|entregue|delivery)\b/u;
+    /\b(?:vou\s+(?:buscar|retirar|pegar)|passo\s+(?:ai|para\s+(?:buscar|pegar))|retirar|retirada|retiro|busco|eu\s+pego|sem\s+entrega|nao\s+(?:precisa|preciso|quero)\s+entregar|nao\s+quero\s+entrega)\b/u;
+const DELIVERY_RE = /\b(?:entrega|entregar|entregue|delivery|pra\s+entrega|quero\s+receber)\b/u;
+/**
+ * Destino de entrega. "manda 2 skol" e "me manda uma coca" ficam de fora:
+ * aí "manda" é verbo de pedido, não modalidade.
+ */
+const DELIVERY_SEND_RE =
+    /\b(?:pode\s+)?(?:manda|mande|mandar|envia|envie|enviar|traz|traga|trazer)\s+(?:pra|para)\s+(?:mim|ca|casa|aqui)\b/u;
+const DELIVERY_ME_VERB_RE =
+    /\bme\s+(?:manda|mande|envia|envie|traz|traga)\b(?!\s+(?:um|uma|uns|umas|\d+|o|a|os|as)\b)/u;
+const DELIVERY_PLACE_RE =
+    /\b(?:na\s+minha\s+casa|no\s+meu\s+endereco|deixa(?:r)?\s+na\s+porta)\b/u;
+/** "Manda duas Heineken pra mim" — o produto fica entre o verbo e o destino. */
+const DELIVERY_DEST_TAIL_RE = /\b(?:pra|para)\s+(?:mim|casa|ca|aqui)\b/u;
 
 /** "troco pra 100", "troco de R$ 50" — exige a palavra troco (não inventa valor). */
 const CHANGE_FOR_RE = /\btroco\s*(?:pra|para|de|em)?\s*(?:r?\$)?\s*([\d.,]+)/u;
@@ -51,8 +63,68 @@ export function detectFulfillmentMentionFromText(text: string): FulfillmentType 
     const t = normalize(text);
     if (!t) return null;
     if (PICKUP_RE.test(t)) return "pickup";
-    if (DELIVERY_RE.test(t)) return "delivery";
+    if (
+        DELIVERY_RE.test(t) ||
+        DELIVERY_SEND_RE.test(t) ||
+        DELIVERY_ME_VERB_RE.test(t) ||
+        DELIVERY_PLACE_RE.test(t) ||
+        DELIVERY_DEST_TAIL_RE.test(t)
+    ) {
+        return "delivery";
+    }
     return null;
+}
+
+/**
+ * Modalidade dita antes do rascunho existir (lista UN/CX). Fica na sessão até
+ * o draft receber item; menção deste turno vence; draft já preenchido zera.
+ */
+export function nextPendingFulfillment(params: {
+    mentioned: FulfillmentType | null;
+    remembered: FulfillmentType | null | undefined;
+    draftFulfillment: FulfillmentType | null | undefined;
+}): FulfillmentType | null {
+    if (params.mentioned === "delivery" || params.mentioned === "pickup") return params.mentioned;
+    if (params.draftFulfillment === "delivery" || params.draftFulfillment === "pickup") return null;
+    if (params.remembered === "delivery" || params.remembered === "pickup") return params.remembered;
+    return null;
+}
+
+/** Regex deste turno vence. O extract só preenche quando a regex não casou. */
+export function resolveTurnFulfillment(params: {
+    regex: FulfillmentType | null;
+    extracted: FulfillmentType | null;
+}): FulfillmentType | null {
+    if (params.regex === "delivery" || params.regex === "pickup") return params.regex;
+    if (params.extracted === "delivery" || params.extracted === "pickup") return params.extracted;
+    return null;
+}
+
+/**
+ * O que gravar quando a regex não casou. Não troca uma modalidade que o rascunho já tem.
+ */
+export function fulfillmentToApplyWhenRegexMisses(params: {
+    regex: FulfillmentType | null;
+    extracted: FulfillmentType | null;
+    draftFulfillment: FulfillmentType | null | undefined;
+}): FulfillmentType | null {
+    if (params.regex === "delivery" || params.regex === "pickup") return null;
+    if (params.draftFulfillment === "delivery" || params.draftFulfillment === "pickup") return null;
+    return resolveTurnFulfillment({ regex: null, extracted: params.extracted });
+}
+export function isFulfillmentOnlyInbound(slots: InboundSlots, userText = ""): boolean {
+    if (
+        slots.fulfillmentType == null ||
+        slots.orderLines.length > 0 ||
+        slots.address != null ||
+        slots.addressLine != null ||
+        slots.paymentMethod != null ||
+        slots.changeFor != null
+    ) {
+        return false;
+    }
+    if (userText && textHasProductBesidesFulfillment(userText)) return false;
+    return true;
 }
 
 /**

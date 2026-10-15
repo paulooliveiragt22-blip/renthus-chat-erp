@@ -13,6 +13,7 @@ import type {
     AiServiceInput,
     AiServiceResult,
     AiTurn,
+    FulfillmentType,
     OrderDraft,
     OrderWorklist,
     PendingPickGroup,
@@ -28,8 +29,12 @@ import { SupabaseOrderDraftAdapter } from "@/src/pro/adapters/supabase/orderDraf
 import { NoopSessionMemoryAdapter } from "@/src/pro/adapters/ai/sessionMemory.llm";
 import { LlmOrderLinesExtractAdapter, FakeOrderLinesExtractAdapter } from "@/src/pro/adapters/ai/orderLinesExtract.llm";
 import { TOOL_FAILED_MAX_STEPS_MESSAGE_PT_BR } from "@/lib/chatbot/aiOrderModePolicy";
-import { isLikelyPickOrShortReply } from "@/src/pro/domain/orderWorklist/extractCandidateTerms";
-import { extractInboundSlots } from "@/src/pro/domain/inboundSlots/extractInboundSlots";
+import {
+    isLikelyPickOrShortReply,
+    quantifiedProductTermFromText,
+    textIsQuantifiedProductOrder,
+} from "@/src/pro/domain/orderWorklist/extractCandidateTerms";
+import { extractInboundSlots, fulfillmentToApplyWhenRegexMisses } from "@/src/pro/domain/inboundSlots/extractInboundSlots";
 import {
     listLinesByStatus,
     markLineInDraft,
@@ -37,7 +42,8 @@ import {
     pendingSearchTermsFromWorklist,
     reconcileWorklistLinesWithDraft,
 } from "@/src/pro/domain/orderWorklist/orderWorklist";
-import { seedWorklistFromExtract } from "@/src/pro/pipeline/orderWorklist/seedWorklistFromExtract";
+import { seedOrderTurnFromExtract } from "@/src/pro/pipeline/orderWorklist/seedWorklistFromExtract";
+import { applyPickupTotals } from "@/lib/delivery/fulfillment";
 import { searchPendingWorklistLinesParallel } from "@/src/pro/pipeline/orderWorklist/searchPendingWorklistLinesParallel";
 import { pendingPickGroupsAlignedWithWorklist } from "@/src/pro/pipeline/orderWorklist/syncPendingPickGroupsFromWorklist";
 import {
@@ -271,19 +277,19 @@ function isInfoOnlyAi(input: AiServiceInput): boolean {
 
 /**
  * `unknown` vem de `defer_to_agent`: o classificador não gasta LLM e delega ao loop.
- * Sem tratar isso como pedido, uma frase multi-item ("manda 2 caixas de X e 3 de Y")
- * fica sem worklist e sem force-prepare — o turno morre na narração ("agora deixa eu
- * procurar...") e o cliente não recebe mais nada. O detector lexical de linhas é
- * determinístico (sem custo de LLM), então só promove o que já é claramente pedido.
+ * Sem tratar isso como pedido, a worklist não sela e o turno morre na narração.
+ * Promove frase multi-item ou um produto com quantidade ("manda pra mim duas marmitas g").
+ * "Rua X 850" e pergunta sem quantidade ficam de fora.
  */
 export function resolveIntentForOrderGates(params: {
     intent: string;
     lexicalOrderLineCount: number;
+    userText?: string;
 }): string {
-    if (params.intent === "unknown" && params.lexicalOrderLineCount >= 2) {
-        return "order_intent";
-    }
-    return params.intent;
+    if (params.intent !== "unknown") return params.intent;
+    if (params.lexicalOrderLineCount >= 2) return "order_intent";
+    if (params.userText && textIsQuantifiedProductOrder(params.userText)) return "order_intent";
+    return "unknown";
 }
 
 /** Evita contradicao: modelo fala em “erro” mas o draft (BD/tools) ja tem itens validos. */
@@ -662,6 +668,7 @@ export class AiServiceAdapter implements AiService {
             pendingPickGroups: PendingPickGroup[];
             pendingOutOfStockOffer?: { names: string[] } | null;
             matchingMetrics?: { prepareBlockedAllowlist: number; searchHitsZero: number };
+            resolvedFulfillment?: FulfillmentType | null;
         }
     ): Promise<AiServiceResult> {
         const nextHistoryRaw = buildNextHistory(input, replyText);
@@ -694,6 +701,9 @@ export class AiServiceAdapter implements AiService {
                 updatedOrderWorklist: turn.orderWorklist,
                 updatedPendingPickGroups: turn.pendingPickGroups,
                 updatedPendingOutOfStockOffer: turn.pendingOutOfStockOffer ?? null,
+                ...(turn.resolvedFulfillment
+                    ? { updatedPendingFulfillmentType: turn.resolvedFulfillment }
+                    : {}),
                 signals: {
                     toolRoundsUsed,
                     intentMarker: marker,
@@ -721,6 +731,9 @@ export class AiServiceAdapter implements AiService {
             updatedOrderWorklist: turn.orderWorklist,
             updatedPendingPickGroups: turn.pendingPickGroups,
             updatedPendingOutOfStockOffer: turn.pendingOutOfStockOffer ?? null,
+            ...(turn.resolvedFulfillment
+                ? { updatedPendingFulfillmentType: turn.resolvedFulfillment }
+                : {}),
             signals: {
                 toolRoundsUsed,
                 intentMarker: marker,
@@ -766,7 +779,14 @@ export class AiServiceAdapter implements AiService {
         const intentForOrderGates = resolveIntentForOrderGates({
             intent: input.intentDecision.intent,
             lexicalOrderLineCount: lexicalOrderTerms.length,
+            userText: input.userText,
         });
+        const singleProductTerm =
+            input.intentDecision.intent === "unknown" &&
+            intentForOrderGates === "order_intent" &&
+            lexicalOrderTerms.length === 0
+                ? quantifiedProductTermFromText(input.userText)
+                : null;
         /**
          * Reseed/enrich em order_intent (mesmo com lines ativas), exceto reply curta de pick.
          * Seal same-hash só enriquece — não apaga progresso (ADR 0011).
@@ -776,12 +796,31 @@ export class AiServiceAdapter implements AiService {
             intentForOrderGates === "order_intent" &&
             !isLikelyPickOrShortReply(input.userText)
         ) {
-            turnState.orderWorklist = await seedWorklistFromExtract({
+            const seeded = await seedOrderTurnFromExtract({
                 previous: turnState.orderWorklist,
                 userText: input.userText,
                 extractPort: this.orderLinesExtract,
-                fallbackExtracted: lexicalOrderTerms,
+                fallbackExtracted: singleProductTerm
+                    ? [...lexicalOrderTerms, singleProductTerm]
+                    : lexicalOrderTerms,
             });
+            turnState.orderWorklist = seeded.worklist;
+            const applied = fulfillmentToApplyWhenRegexMisses({
+                regex: turnState.inboundSlots.fulfillmentType ?? null,
+                extracted: seeded.fulfillment,
+                draftFulfillment: turnState.currentDraft?.fulfillmentType,
+            });
+            if (applied) {
+                turnState.resolvedFulfillment = applied;
+                turnState.inboundSlots = { ...turnState.inboundSlots, fulfillmentType: applied };
+                const draft = turnState.currentDraft;
+                if (draft?.items.length) {
+                    turnState.currentDraft =
+                        applied === "pickup"
+                            ? applyPickupTotals({ ...draft, fulfillmentType: "pickup" })
+                            : { ...draft, fulfillmentType: "delivery" };
+                }
+            }
         }
         turnState.orderWorklist = reconcileWorklistLinesWithDraft(
             turnState.orderWorklist,
@@ -804,31 +843,39 @@ export class AiServiceAdapter implements AiService {
             listLinesByStatus(turnState.orderWorklist, "ambiguous").length === 0 &&
             listLinesByStatus(turnState.orderWorklist, "pending_search").length > 0
         ) {
-            const batch = await searchPendingWorklistLinesParallel({
-                admin: this.admin,
-                catalog: this.catalog,
-                companyId: input.context.tenant.companyId,
-                customerId: input.context.session.customerId,
-                state: {
-                    ...session,
-                    draft: turnState.currentDraft,
-                    orderWorklist: turnState.orderWorklist,
-                    pendingPickGroups: turnState.pendingPickGroups,
-                    searchProdutoEmbalagemIds: turnState.allowlistIds,
-                },
-                packagingContextText: input.userText,
-                inboundSlots,
-            });
-            turnState.orderWorklist = batch.state.orderWorklist ?? turnState.orderWorklist;
-            turnState.pendingPickGroups = batch.state.pendingPickGroups ?? [];
-            turnState.allowlistIds = batch.state.searchProdutoEmbalagemIds ?? turnState.allowlistIds;
-            turnState.currentDraft = batch.state.draft ?? turnState.currentDraft;
-            if (batch.state.pendingOutOfStockOffer?.names?.length) {
-                turnState.pendingOutOfStockOffer = batch.state.pendingOutOfStockOffer;
+            let batch: Awaited<ReturnType<typeof searchPendingWorklistLinesParallel>> | null = null;
+            try {
+                batch = await searchPendingWorklistLinesParallel({
+                    admin: this.admin,
+                    catalog: this.catalog,
+                    companyId: input.context.tenant.companyId,
+                    customerId: input.context.session.customerId,
+                    state: {
+                        ...session,
+                        draft: turnState.currentDraft,
+                        orderWorklist: turnState.orderWorklist,
+                        pendingPickGroups: turnState.pendingPickGroups,
+                        searchProdutoEmbalagemIds: turnState.allowlistIds,
+                    },
+                    packagingContextText: input.userText,
+                    inboundSlots,
+                });
+            } catch {
+                // Busca antecipada falhou: o turno segue e o modelo ainda pode responder.
+                batch = null;
             }
-            if (batch.searchedLineIds.length > 0) {
-                turnState.searchInvokedThisTurn = true;
-                turnState.searchCallCount += batch.searchedLineIds.length;
+            if (batch) {
+                turnState.orderWorklist = batch.state.orderWorklist ?? turnState.orderWorklist;
+                turnState.pendingPickGroups = batch.state.pendingPickGroups ?? [];
+                turnState.allowlistIds = batch.state.searchProdutoEmbalagemIds ?? turnState.allowlistIds;
+                turnState.currentDraft = batch.state.draft ?? turnState.currentDraft;
+                if (batch.state.pendingOutOfStockOffer?.names?.length) {
+                    turnState.pendingOutOfStockOffer = batch.state.pendingOutOfStockOffer;
+                }
+                if (batch.searchedLineIds.length > 0) {
+                    turnState.searchInvokedThisTurn = true;
+                    turnState.searchCallCount += batch.searchedLineIds.length;
+                }
             }
         }
         turnState.pendingPickGroups = pendingPickGroupsAlignedWithWorklist(
@@ -1308,6 +1355,7 @@ export class AiServiceAdapter implements AiService {
                 orderWorklist: turnState.orderWorklist,
                 pendingPickGroups: turnState.pendingPickGroups,
                 pendingOutOfStockOffer: turnState.pendingOutOfStockOffer,
+                resolvedFulfillment: turnState.resolvedFulfillment ?? null,
                 matchingMetrics: { ...turnState.matchingMetrics },
             });
         } catch (error) {
@@ -1362,6 +1410,7 @@ export class AiServiceAdapter implements AiService {
                         orderWorklist: turnState.orderWorklist,
                         pendingPickGroups: turnState.pendingPickGroups,
                 pendingOutOfStockOffer: turnState.pendingOutOfStockOffer,
+                resolvedFulfillment: turnState.resolvedFulfillment ?? null,
                     });
                 }
                 return {
@@ -1416,6 +1465,7 @@ export class AiServiceAdapter implements AiService {
                         orderWorklist: turnState.orderWorklist,
                         pendingPickGroups: turnState.pendingPickGroups,
                 pendingOutOfStockOffer: turnState.pendingOutOfStockOffer,
+                resolvedFulfillment: turnState.resolvedFulfillment ?? null,
                     }
                 );
             }
@@ -1458,6 +1508,7 @@ export class AiServiceAdapter implements AiService {
                             orderWorklist: turnState.orderWorklist,
                             pendingPickGroups: turnState.pendingPickGroups,
                 pendingOutOfStockOffer: turnState.pendingOutOfStockOffer,
+                resolvedFulfillment: turnState.resolvedFulfillment ?? null,
                         }
                     );
                 }
@@ -1499,6 +1550,7 @@ export class AiServiceAdapter implements AiService {
                     orderWorklist: turnState.orderWorklist,
                     pendingPickGroups: turnState.pendingPickGroups,
                 pendingOutOfStockOffer: turnState.pendingOutOfStockOffer,
+                resolvedFulfillment: turnState.resolvedFulfillment ?? null,
                 });
             }
             return this.buildProviderError(input, 0, turnState.allowlistIds);

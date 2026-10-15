@@ -152,6 +152,9 @@ export async function aiStage(params: {
             raw?.updatedPendingOutOfStockOffer !== undefined
                 ? raw.updatedPendingOutOfStockOffer
                 : context.session.pendingOutOfStockOffer ?? null,
+        ...(raw?.updatedPendingFulfillmentType
+            ? { pendingFulfillmentType: raw.updatedPendingFulfillmentType }
+            : {}),
     };
 
     const outbound: OutboundMessage[] = [{ kind: "text", text: aiResult.replyText }];

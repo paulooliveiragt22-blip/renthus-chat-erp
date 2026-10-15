@@ -98,7 +98,7 @@ Isto **não substitui** a máquina de slots: slots governam **passo + botões**;
 
 - **Feito (2026-08):** após IA, `aiStage` = `applyAiStateTransition` (só escalate/streak) + `withResolvedSlotStep` (draft manda). `request_confirmation` da IA **não** salta para `pro_awaiting_confirmation`.
 - Métrica `pro_pipeline.slot` com tag `step` em cada run do pipeline.
-- **Em curso (2026-09-22):** envelope de slots do inbound obrigatório em todo `prepare` ([`ADR/0012`](./ADR/0012-inbound-slot-envelope.md), §4.1) — Fase 1 núcleo, Fase 2 métricas `slot_dropped`/`slot_conflict`, Fase 3 placeholder + limpeza de `enderecos_cliente`.
+- **Em curso (2026-09-22):** envelope de slots do inbound obrigatório em todo `prepare` ([`ADR/0012`](./ADR/0012-inbound-slot-envelope.md), §4.1) — Fase 1 núcleo feita; Fase 2 métricas `slot_dropped`/`slot_conflict` aberta. Placeholder na oferta e a boca única do turno saíram da Fase 3 deste ADR e estão em [`ADR/0013`](./ADR/0013-pro-sellable-attendant.md) (aprovado 2026-10-14, sem código). Sem limpeza de `enderecos_cliente` nessa fatia.
 - Ainda aberto: testes E2E multi-turno com ordem trocada; STT (`speechToText.port.ts`) segue com port próprio (não migrado ao Vercel AI SDK).
 
 ---

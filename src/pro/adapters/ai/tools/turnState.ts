@@ -1,4 +1,5 @@
 import type {
+    FulfillmentType,
     InboundSlots,
     OrderDraft,
     OrderWorklist,
@@ -78,6 +79,8 @@ export type TurnState = {
      * do texto. Lido por toda tool que chama `prepare`; nenhuma tool escreve.
      */
     inboundSlots: InboundSlots;
+    /** Preenchido quando o extract fecha a modalidade e a regex não casou. */
+    resolvedFulfillment?: FulfillmentType | null;
 };
 
 export function createInitialTurnState(seed: {

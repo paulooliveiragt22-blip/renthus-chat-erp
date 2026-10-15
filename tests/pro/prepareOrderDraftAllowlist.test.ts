@@ -63,6 +63,7 @@ function stubAdminForAllowlistTests(
                 },
             };
         },
+        rpc: async () => ({ data: null, error: null }),
     } as unknown as SupabaseClient;
 }
 

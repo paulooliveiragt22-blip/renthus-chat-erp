@@ -3,6 +3,10 @@ import { describe, it } from "node:test";
 import {
     EMPTY_INBOUND_SLOTS,
     extractInboundSlots,
+    isFulfillmentOnlyInbound,
+    nextPendingFulfillment,
+    fulfillmentToApplyWhenRegexMisses,
+    resolveTurnFulfillment,
     parseChangeForFromText,
 } from "../../src/pro/domain/inboundSlots/extractInboundSlots";
 
@@ -43,6 +47,99 @@ describe("extractInboundSlots", () => {
         assert.equal(extractInboundSlots("não quero entrega, vou buscar").fulfillmentType, "pickup");
         assert.equal(extractInboundSlots("pode entregar por favor").fulfillmentType, "delivery");
         assert.equal(extractInboundSlots("quero 2 skol").fulfillmentType, null);
+        assert.equal(extractInboundSlots("manda pra mim").fulfillmentType, "delivery");
+        assert.equal(extractInboundSlots("me manda").fulfillmentType, "delivery");
+        assert.equal(extractInboundSlots("pode mandar pra cá").fulfillmentType, "delivery");
+        assert.equal(extractInboundSlots("na minha casa").fulfillmentType, "delivery");
+        assert.equal(extractInboundSlots("me manda uma coca").fulfillmentType, null);
+        assert.equal(extractInboundSlots("manda 2 skol").fulfillmentType, null);
+        assert.equal(extractInboundSlots("Manda duas Heineken pra mim").fulfillmentType, "delivery");
+        assert.equal(extractInboundSlots("manda uma g pra mim").fulfillmentType, "delivery");
+        assert.equal(extractInboundSlots("eu pego").fulfillmentType, "pickup");
+        assert.equal(extractInboundSlots("sem entrega").fulfillmentType, "pickup");
+    });
+
+    it("só modalidade: manda pra mim não é item nem endereço", () => {
+        const slots = extractInboundSlots("manda pra mim");
+        assert.equal(isFulfillmentOnlyInbound(slots, "manda pra mim"), true);
+        assert.equal(
+            isFulfillmentOnlyInbound(
+                extractInboundSlots("quero 2 skol e manda pra mim"),
+                "quero 2 skol e manda pra mim"
+            ),
+            false
+        );
+        assert.equal(extractInboundSlots("quero 2 skol e manda pra mim").fulfillmentType, "delivery");
+        assert.equal(
+            isFulfillmentOnlyInbound(
+                extractInboundSlots("Manda duas Heineken pra mim"),
+                "Manda duas Heineken pra mim"
+            ),
+            false
+        );
+    });
+
+    it("modalidade lembrada sobrevive à lista e some quando o rascunho já tem", () => {
+        assert.equal(
+            nextPendingFulfillment({
+                mentioned: null,
+                remembered: "delivery",
+                draftFulfillment: null,
+            }),
+            "delivery"
+        );
+        assert.equal(
+            nextPendingFulfillment({
+                mentioned: null,
+                remembered: "delivery",
+                draftFulfillment: "delivery",
+            }),
+            null
+        );
+        assert.equal(
+            nextPendingFulfillment({
+                mentioned: "pickup",
+                remembered: "delivery",
+                draftFulfillment: null,
+            }),
+            "pickup"
+        );
+    });
+
+    it("regex vence o extract; extract só entra quando a regex não casou", () => {
+        assert.equal(
+            resolveTurnFulfillment({ regex: "delivery", extracted: "pickup" }),
+            "delivery"
+        );
+        assert.equal(
+            resolveTurnFulfillment({ regex: null, extracted: "pickup" }),
+            "pickup"
+        );
+        assert.equal(resolveTurnFulfillment({ regex: null, extracted: null }), null);
+        assert.equal(
+            fulfillmentToApplyWhenRegexMisses({
+                regex: "delivery",
+                extracted: "pickup",
+                draftFulfillment: null,
+            }),
+            null
+        );
+        assert.equal(
+            fulfillmentToApplyWhenRegexMisses({
+                regex: null,
+                extracted: "delivery",
+                draftFulfillment: null,
+            }),
+            "delivery"
+        );
+        assert.equal(
+            fulfillmentToApplyWhenRegexMisses({
+                regex: null,
+                extracted: "delivery",
+                draftFulfillment: "pickup",
+            }),
+            null
+        );
     });
 
     it("selo: mesmo texto, mesmo hash; texto diferente, hash diferente", () => {

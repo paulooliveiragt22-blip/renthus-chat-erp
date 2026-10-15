@@ -13,6 +13,7 @@ import {
     minimumOrderShortfallText,
     type GapFillSuggestion,
 } from "../minimumGapFill";
+import { composeServerOwnedOutbound } from "../composeServerOwnedOutbound";
 import {
     acknowledgeCartReview,
     isAddressStructurallyComplete,
@@ -63,6 +64,8 @@ import {
     scrubOutboundForServerPaymentUi,
 } from "@/src/pro/tools/checkoutPhasePolicy";
 import { listLinesByStatus, reconcileWorklistLinesWithDraft } from "@/src/pro/domain/orderWorklist/orderWorklist";
+import { isFulfillmentDestinationTerm } from "@/src/pro/domain/orderWorklist/extractCandidateTerms";
+import { dropFulfillmentDestinationLines } from "@/src/pro/pipeline/orderWorklist/seedWorklistFromExtract";
 import { appendAbrirCardapioCta } from "@/lib/chatbot/aiOrderModePolicy";
 import {
     buildOutOfStockOfferButtons,
@@ -152,71 +155,6 @@ function buildMinimumOrderShortfallMessage(draft: OrderDraft): OutboundMessage {
         kind: "text",
         text: minimumOrderShortfallText(draft.grandTotal, min, [], draft.items.map((i) => i.produtoEmbalagemId)),
     };
-}
-
-type SavedAddressHint = {
-    id: string;
-    apelido?: string | null;
-    logradouro?: string | null;
-    numero?: string | null;
-    complemento?: string | null;
-    bairro?: string | null;
-    cidade?: string | null;
-    estado?: string | null;
-    cep?: string | null;
-    is_principal?: boolean | null;
-};
-
-/** Rótulo curto de botão (≤20 chars, WhatsApp): apelido customizado, senão papel genérico. */
-function addressChoiceButtonLabel(row: SavedAddressHint, fallback: string): string {
-    const apelido = String(row.apelido ?? "").trim();
-    const isCustom = apelido.length > 0 && apelido.toLowerCase() !== "principal";
-    return (isCustom ? apelido : fallback).slice(0, 20);
-}
-
-function addressChoiceShortLine(row: SavedAddressHint): string {
-    const street = [row.logradouro, row.numero].filter(Boolean).join(", ");
-    return row.bairro ? `${street} - ${row.bairro}` : street;
-}
-
-/** Botões: endereço mais usado (mais entregas) vs. do pedido mais recente, quando diferem. */
-export function buildAddressChoiceButtons(
-    primary: SavedAddressHint,
-    secondary: SavedAddressHint
-): OutboundMessage {
-    const labelA = addressChoiceButtonLabel(primary, "Endereço usual");
-    let labelB = addressChoiceButtonLabel(secondary, "Último pedido");
-    if (labelB.toLowerCase() === labelA.toLowerCase()) labelB = "Último pedido";
-    return {
-        kind: "buttons",
-        text:
-            "Encontrei mais de um endereço seu. Pra qual entregamos este pedido?\n\n" +
-            `${labelA}: ${addressChoiceShortLine(primary)}\n` +
-            `${labelB}: ${addressChoiceShortLine(secondary)}\n\n` +
-            "Ou me envie um novo endereço.",
-        buttons: [
-            { id: `${PICK_ADDRESS_PREFIX}${primary.id}`, title: labelA },
-            { id: `${PICK_ADDRESS_PREFIX}${secondary.id}`, title: labelB },
-            { id: "pro_new_address_flow", title: "Outro endereço" },
-        ],
-    };
-}
-
-/** Extrai os 2 candidatos (most_used vs last_used) do payload de `get_order_hints`, quando diferentes. */
-function extractAddressChoiceCandidates(
-    orderHints: Record<string, unknown> | null | undefined
-): { primary: SavedAddressHint; secondary: SavedAddressHint } | null {
-    const list = Array.isArray(orderHints?.saved_addresses)
-        ? (orderHints!.saved_addresses as SavedAddressHint[])
-        : [];
-    if (list.length < 2) return null;
-    const primaryId = String(orderHints?.most_used_address_id ?? "").trim();
-    const secondaryId = String(orderHints?.last_used_address_id ?? "").trim();
-    if (!primaryId || !secondaryId || primaryId === secondaryId) return null;
-    const primary = list.find((a) => a.id === primaryId);
-    const secondary = list.find((a) => a.id === secondaryId);
-    if (!primary || !secondary) return null;
-    return { primary, secondary };
 }
 
 function buildConfirmationActionButtons(
@@ -1030,6 +968,16 @@ export function checkoutPostProcess(params: {
     gapFillers?: readonly GapFillSuggestion[];
     /** Mínimo da loja quando o rascunho ainda não tem endereço. */
     storeMinOrder?: number | null;
+    /**
+     * Turno de IA sem busca e sem item novo. Frase de espera ("um momento")
+     * vira pergunta curta em vez de encerrar o atendimento.
+     */
+    replaceUnfulfilledHoldingReply?: boolean;
+    /**
+     * Bolhas do modelo neste turno. Com cartão do servidor, elas saem.
+     * Omitido: nada é tratado como prosa do modelo (caminho sem IA).
+     */
+    modelOutbound?: readonly OutboundMessage[];
 }): { state: ProSessionState; outbound: OutboundMessage[]; checkoutTurnKind: CheckoutTurnOutcomeKind } {
     const policy = params.fulfillmentPolicy ?? DEFAULT_FULFILLMENT_POLICY;
     const accepted = params.acceptedPayments ?? DEFAULT_ACCEPTED_CUSTOMER_PAYMENTS;
@@ -1078,6 +1026,13 @@ export function checkoutPostProcess(params: {
         }
     }
 
+    const modelMessages = new Set(params.modelOutbound ?? []);
+    const sealServerOwned = (messages: readonly OutboundMessage[]): OutboundMessage[] =>
+        composeServerOwnedOutbound({
+            messages,
+            modelMessages,
+            replaceUnfulfilledHolding: params.replaceUnfulfilledHoldingReply === true,
+        });
     const outbound = [...params.outbound];
 
     if (isFulfillmentUnavailable(policy) && nextState.draft && nextState.draft.items.length > 0) {
@@ -1206,9 +1161,15 @@ export function checkoutPostProcess(params: {
     }
 
     /** Item(ns) not_found na worklist — oferecer cardápio junto da mensagem. */
-    const notFoundTerms = listLinesByStatus(nextState.orderWorklist, "not_found").map(
-        (l) => l.rawTerm
-    );
+    if (nextState.orderWorklist) {
+        nextState = {
+            ...nextState,
+            orderWorklist: dropFulfillmentDestinationLines(nextState.orderWorklist),
+        };
+    }
+    const notFoundTerms = listLinesByStatus(nextState.orderWorklist, "not_found")
+        .map((l) => l.rawTerm)
+        .filter((t) => !isFulfillmentDestinationTerm(t));
     if (notFoundTerms.length > 0 && params.webMenuUrl) {
         const alreadyMentionsCatalog = outbound.some(
             (m) =>
@@ -1227,24 +1188,6 @@ export function checkoutPostProcess(params: {
         const withMenu = appendAbrirCardapioCta(outbound, params.webMenuUrl);
         outbound.length = 0;
         outbound.push(...withMenu);
-    }
-
-    // Endereço com 2 candidatos reais (mais usado ≠ pedido mais recente): botão em vez de
-    // pergunta em texto — a IA não deve repetir isso na prosa (ver instruções do system prompt).
-    if (
-        turnOutcome.kind === "collecting" &&
-        params.mode === "ai" &&
-        !params.addressFreeTextSignaled &&
-        !skipAddressUi &&
-        !outbound.some((m) => m.kind === "buttons" || m.kind === "cta_url")
-    ) {
-        const candidates = extractAddressChoiceCandidates(params.orderHints);
-        if (
-            candidates &&
-            !(params.state.proposedAddressId || (params.state.pendingAddressPickOptions?.length ?? 0) > 0)
-        ) {
-            outbound.push(buildAddressChoiceButtons(candidates.primary, candidates.secondary));
-        }
     }
 
     nextState = withResolvedSlotStep({
@@ -1267,7 +1210,11 @@ export function checkoutPostProcess(params: {
             nextState.draft,
             { hidePayment: isCartReviewHoldStep(nextState.step) }
         );
-        return { state: nextState, outbound: composed, checkoutTurnKind: turnOutcome.kind };
+        return {
+            state: nextState,
+            outbound: sealServerOwned(composed),
+            checkoutTurnKind: turnOutcome.kind,
+        };
     }
 
     outbound.push(...cardsNotAlreadyPresent(outbound, checkoutCards));
@@ -1293,7 +1240,7 @@ export function checkoutPostProcess(params: {
 
     return {
         state: nextState,
-        outbound: prioritizeInteractiveFirst(noticed),
+        outbound: prioritizeInteractiveFirst(sealServerOwned(noticed)),
         checkoutTurnKind: turnOutcome.kind,
     };
 }

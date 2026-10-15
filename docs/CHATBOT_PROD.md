@@ -2,9 +2,9 @@
 
 Documento de decisão e checklist para o time executar. Alinhado ao código atual (`processInboundMessage`, `chatbot_queue`, motor em `lib/chatbot/`).
 
-**Ordem de leitura:** princípios → **arquitetura por horizonte (Hobby / médio prazo / escala)** → **pedido PRO / cérebro IA** → fases 0–3 → evidências / riscos → [`REFACTOR_STRATEGY_PRO_ORDER_AND_IA.md`](./REFACTOR_STRATEGY_PRO_ORDER_AND_IA.md) (histórico de refatoração) → [`ADR/0005-pro-agent-calibration-pillars.md`](./ADR/0005-pro-agent-calibration-pillars.md) + [`PLANO_CALIBRACAO_AGENTE_PRO.md`](./PLANO_CALIBRACAO_AGENTE_PRO.md) (**calibração / fortalecimento vigente**) → [`ADR/0011-pro-order-worklist-typed-lines.md`](./ADR/0011-pro-order-worklist-typed-lines.md) (**coleta multi-item / OrderWorklist**) → [`ADR/0012-inbound-slot-envelope.md`](./ADR/0012-inbound-slot-envelope.md) (**envelope de slots do inbound**).
+**Ordem de leitura:** princípios → **arquitetura por horizonte (Hobby / médio prazo / escala)** → **pedido PRO / cérebro IA** → fases 0–3 → evidências / riscos → [`REFACTOR_STRATEGY_PRO_ORDER_AND_IA.md`](./REFACTOR_STRATEGY_PRO_ORDER_AND_IA.md) (histórico de refatoração) → [`ADR/0005-pro-agent-calibration-pillars.md`](./ADR/0005-pro-agent-calibration-pillars.md) + [`PLANO_CALIBRACAO_AGENTE_PRO.md`](./PLANO_CALIBRACAO_AGENTE_PRO.md) (**calibração / fortalecimento vigente**) → [`ADR/0011-pro-order-worklist-typed-lines.md`](./ADR/0011-pro-order-worklist-typed-lines.md) (**coleta multi-item / OrderWorklist**) → [`ADR/0012-inbound-slot-envelope.md`](./ADR/0012-inbound-slot-envelope.md) (**envelope de slots do inbound**) → [`ADR/0013-pro-sellable-attendant.md`](./ADR/0013-pro-sellable-attendant.md) (**atendente vendável — aprovado, código ainda não**).
 
-> **Calibração do agente (vigente 2026-09-03):** quatro pilares (gates → matching → prompts → avaliação) e cronologia C0–C5 em [`PLANO_CALIBRACAO_AGENTE_PRO.md`](./PLANO_CALIBRACAO_AGENTE_PRO.md). Decisão: [`ADR-0005`](./ADR/0005-pro-agent-calibration-pillars.md). Coleta multi-item: [`ADR-0011`](./ADR/0011-pro-order-worklist-typed-lines.md) (`OrderWorklist` + `awaiting_qty`). Slots de endereço/pagamento/troco/modalidade: [`ADR-0012`](./ADR/0012-inbound-slot-envelope.md) (`InboundSlots` obrigatório em todo `prepare`). Transporte: [`ADR-0003`](./ADR/0003-sqs-outbox-lambda.md).
+> **Calibração do agente (vigente 2026-09-03):** quatro pilares (gates → matching → prompts → avaliação) e cronologia C0–C5 em [`PLANO_CALIBRACAO_AGENTE_PRO.md`](./PLANO_CALIBRACAO_AGENTE_PRO.md). Decisão: [`ADR-0005`](./ADR/0005-pro-agent-calibration-pillars.md). Coleta multi-item: [`ADR-0011`](./ADR/0011-pro-order-worklist-typed-lines.md) (`OrderWorklist` + `awaiting_qty`). Slots de endereço/pagamento/troco/modalidade: [`ADR-0012`](./ADR/0012-inbound-slot-envelope.md) (`InboundSlots` obrigatório em todo `prepare`). O que falta para vender a delivery: [`ADR-0013`](./ADR/0013-pro-sellable-attendant.md) (boca do servidor, endereço entregável, status em uma frase, prontidão da loja — **aprovado 2026-10-14, sem código ainda**). Transporte: [`ADR-0003`](./ADR/0003-sqs-outbox-lambda.md).
 >
 > **Plano de limpeza (histórico):** [`PLANO_LIMPEZA_AGENTE_IA.md`](./PLANO_LIMPEZA_AGENTE_IA.md) — Starter removido, replay/harness e handover (`applyProHandover`) em grande parte **feitos**; não usar o P0 de handover desse doc como bug ainda aberto.
 
@@ -240,7 +240,7 @@ Complementa a arquitetura **Webhook → fila → worker**: o transporte já desa
 
 ### O que não superestimar
 
-- Estado canónico **reduz** risco de pedido fantasma; **não** elimina texto de bolha desalinhado se a UI verbal for 100% livre no LLM.
+- Estado canónico **reduz** risco de pedido fantasma. As quatro fatias de [`ADR-0013`](./ADR/0013-pro-sellable-attendant.md) estão no código: boca do servidor, endereço entregável, status em uma frase e prontidão da loja (`v_sec_bot_readiness` + Canais). A prontidão não altera a conversa.
 - Híbrido determinístico + IA **não** reduz custo de manutenção sem **dono** do diagrama de estado e testes de transição.
 
 ### Order Finalization Orchestrator (produção)
@@ -249,7 +249,7 @@ Decisão de UX/estado para PRO V2: o orquestrador deve resolver os passos de che
 
 - **Saudação contextual:** no início da conversa, distinguir primeiro acesso vs cliente recorrente e mostrar botões (`Cardápio`, `Meu pedido`, `Falar com atendente`).
 - **Mensagem inicial já completa (itens + endereço + pagamento):** servidor monta o draft; endereço completo infere **entrega**; cidade/UF da loja (ViaCEP por rua se der); **resumo** Confirmar/Corrigir/Adicionar; Confirmar **mantém** PIX/cartão já ditos e fecha (ou pede troco se dinheiro).
-- **Origem dos slots ([`ADR-0012`](./ADR/0012-inbound-slot-envelope.md)):** `extractInboundSlots(userText)` roda 1× por turno (pura, sem LLM) e é **parâmetro obrigatório** dos oito call sites de `prepare` — inclusive o batch multi-item (`coalescePrepareUniqueHits`), que antes mandava `address: null` e derrubava endereço/PIX da mensagem completa. Precedência: botão/pick > draft > envelope; valor que a LLM inventou sem respaldo é descartado. Perda de slot emite `pro_pipeline.slot_dropped`. Endereço salvo com placeholder (`S/N`, `(completar)`) não conta como completo.
+- **Origem dos slots ([`ADR-0012`](./ADR/0012-inbound-slot-envelope.md)):** `extractInboundSlots(userText)` roda 1× por turno (pura, sem LLM) e é **parâmetro obrigatório** dos oito call sites de `prepare` — inclusive o batch multi-item (`coalescePrepareUniqueHits`), que antes mandava `address: null` e derrubava endereço/PIX da mensagem completa. Precedência: botão/pick > draft > envelope; valor que a LLM inventou sem respaldo é descartado. Perda de slot emite `pro_pipeline.slot_dropped`. Placeholder em endereço salvo (`-`, `(completar)`, só pontuação) não entra na oferta ([`ADR-0013`](./ADR/0013-pro-sellable-attendant.md) D2, `isDeliverableAddressFields`). `S/N` com bairro e cidade reais continua. O cadastro incompleto permanece no banco.
 - **Pagamento:** botões interativos (`PIX`, `Cartão`, `Dinheiro`) só se ainda não veio na mensagem. Se `Dinheiro`, pedir `Troco pra quanto?` e persistir no draft.
 - **Endereço:** cliente informa **rua, número e bairro**; cidade/UF completados pela empresa (`companies` / `service_city`) e CEP via ViaCEP/BrasilAPI — **não** Google Places.
 - **Resumo final:** card único do servidor com itens, **taxa**, total e botões `Confirmar` / `Corrigir` / `Adicionar produtos` (não depender da IA para R$). Clarificação de produto: só botões/lista do servidor; “Opção 2” mapeia para a embalagem.
@@ -278,6 +278,19 @@ Implementação actual no PRO (`runProPipeline` — único motor para plano PRO)
 | Passos no tipo | `src/types/contracts.ts` (`ProStep`) | `pro_awaiting_cart_review`, `pro_awaiting_address_confirmation`, `pro_awaiting_payment_method`, `pro_awaiting_change_amount`, etc. |
 
 **Testes:** `tests/pro/proPipeline.test.ts`, `tests/pro/orderSlotStep.test.ts`, `tests/pro/prepareDraftGuidance.test.ts`.
+
+### Atendente vendável ([`ADR-0013`](./ADR/0013-pro-sellable-attendant.md)) — aprovado 2026-10-14, sem código
+
+Quatro fatias, nesta ordem. Cada uma sozinha. A conversa não ganha modo degradado. **Fatias 1 a 4 feitas.** A view da fatia 4 está no banco. O selo Pronto em Canais depende deste build do admin.
+
+| Fatia | O quê | Onde |
+|---|---|---|
+| 1 | Se o turno já tem botão ou resumo do servidor, a prosa do modelo não sai | `composeServerOwnedOutbound` chamado em `checkoutPostProcess` |
+| 2 | Oferta de endereço ignora `-`, `(completar)` e campo só com pontuação. `S/N` com bairro e cidade reais continua | predicado único em `resolveSavedAddress` / `isAddressStructurallyComplete`. Sem apagar `enderecos_cliente` |
+| 3 | «Cadê meu pedido?» vira uma frase (código, situação, previsão quando houver). CTA do cardápio só se não houver cliente ou pedido | `orderStatusFaq.ts`; `routeStage` deixa de dono quando a frase existir |
+| 4 | Leitura `v_sec_bot_readiness` + lista em Canais (preço, estoque, sigla, zona com taxa, horário, endereço da loja). «Pronto» só com a leitura verde | depois das três primeiras. Não muda o pipeline |
+
+Fora: adicional de cozinha, cupom, pedido agendado, PIX cobrado no WhatsApp, casar apelido com endereço. Detalhe e checklist: o ADR.
 
 #### Atendente assume o carrinho (inbox) — modelo misto
 
@@ -498,6 +511,7 @@ Manter fronteiras claras sem microserviço:
 - Embedded Signup / Coexistence (C6): [`ADR/0010`](./ADR/0010-whatsapp-embedded-signup-coexistence.md). Carrinho automático **só** do inbound do cliente (`messages` → fila → PRO). Eco do WhatsApp Business do lojista (`smb_message_echoes`) é outbound humano: inbox + pausa o bot; **não** cria carrinho.
 - Refatoração pedido PRO / IA (histórico): [`REFACTOR_STRATEGY_PRO_ORDER_AND_IA.md`](./REFACTOR_STRATEGY_PRO_ORDER_AND_IA.md)
 - Calibração agente PRO (vigente): [`ADR/0005-pro-agent-calibration-pillars.md`](./ADR/0005-pro-agent-calibration-pillars.md), [`PLANO_CALIBRACAO_AGENTE_PRO.md`](./PLANO_CALIBRACAO_AGENTE_PRO.md)
+- Atendente vendável (aprovado, sem código): [`ADR/0013-pro-sellable-attendant.md`](./ADR/0013-pro-sellable-attendant.md)
 - Checklist escala: [`CHECKLIST_ARCH_PRO_SCALE.md`](./CHECKLIST_ARCH_PRO_SCALE.md)
 
 ---
@@ -506,6 +520,6 @@ Manter fronteiras claras sem microserviço:
 
 **Transporte:** outbox Postgres + SQS FIFO + Lambda ([ADR-0003](./ADR/0003-sqs-outbox-lambda.md)); idempotência forte na outbox e nos efeitos; wake HTTP / claim poll **removidos** do hot path.
 
-**Pedido PRO:** estado e gates no servidor; IA para preenchimento e linguagem; confirmação e RPCs disciplinadas — detalhe em [`REFACTOR_STRATEGY_PRO_ORDER_AND_IA.md`](./REFACTOR_STRATEGY_PRO_ORDER_AND_IA.md).
+**Pedido PRO:** estado e gates no servidor; IA para preenchimento e linguagem; confirmação e RPCs disciplinadas — detalhe em [`REFACTOR_STRATEGY_PRO_ORDER_AND_IA.md`](./REFACTOR_STRATEGY_PRO_ORDER_AND_IA.md). O que falta para vender a delivery está em [`ADR-0013`](./ADR/0013-pro-sellable-attendant.md) (aprovado, sem código).
 
 Documentar exceções em ADR se desviarem deste arquivo.
