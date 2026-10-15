@@ -32,6 +32,22 @@ export function formatPackSiglaLabel(
     return `${s}:${fator}`;
 }
 
+/** Rótulo do cardápio web. Unidade permanece `UN:1`. Caixa e fardo saem por extenso. */
+export function formatMenuPackLabel(
+    sigla: string | null | undefined,
+    fatorConversao?: number | string | null
+): string {
+    const s = String(sigla ?? "UN").trim().toUpperCase() || "UN";
+    const fator = Math.max(1, Number(fatorConversao ?? 1) || 1);
+    if (s === "UN" || s === "UND" || s === "UNID" || s === "UNIDADE") {
+        return formatPackSiglaLabel(s, fator);
+    }
+    if (s === "CX" || s === "CAIXA") return `caixa com: ${fator}`;
+    if (s === "FARD" || s === "FARDO") return `fardo com: ${fator}`;
+    if (s === "KIT") return "";
+    return formatPackSiglaLabel(s, fator);
+}
+
 export function buildPackDisplayName(input: PackDisplayNameInput): string {
     const product = String(input.productName ?? "").trim() || "Produto";
     const item = String(input.itemName ?? "").trim();

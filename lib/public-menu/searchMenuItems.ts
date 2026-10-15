@@ -4,7 +4,7 @@
  * + descrição, categoria e sigla.
  */
 
-import { formatPackSiglaLabel } from "@/lib/products/packDisplayName";
+import { formatMenuPackLabel, formatPackSiglaLabel } from "@/lib/products/packDisplayName";
 import {
     expandSearchVariants,
     normalizeSearchKey,
@@ -21,6 +21,7 @@ export function publicMenuItemHaystack(item: PublicMenuItem): string {
         item.description,
         item.categoryName,
         formatPackSiglaLabel(item.sigla, item.fatorConversao),
+        formatMenuPackLabel(item.sigla, item.fatorConversao),
     ]
         .filter((p) => Boolean(p && String(p).trim()))
         .join(" ");

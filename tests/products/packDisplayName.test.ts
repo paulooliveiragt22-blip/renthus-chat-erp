@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
     buildPackDisplayName,
+    formatMenuPackLabel,
     formatPackSiglaLabel,
 } from "../../lib/products/packDisplayName";
 
@@ -68,5 +69,20 @@ describe("formatPackSiglaLabel", () => {
     it("outras siglas no mesmo padrão", () => {
         assert.equal(formatPackSiglaLabel("FARD", 6), "FARD:6");
         assert.equal(formatPackSiglaLabel("PAC", 12), "PAC:12");
+    });
+});
+
+describe("formatMenuPackLabel", () => {
+    it("unidade permanece no padrão curto", () => {
+        assert.equal(formatMenuPackLabel("UN", 1), "UN:1");
+    });
+
+    it("caixa e fardo saem por extenso com a quantidade", () => {
+        assert.equal(formatMenuPackLabel("CX", 24), "caixa com: 24");
+        assert.equal(formatMenuPackLabel("FARD", 15), "fardo com: 15");
+    });
+
+    it("combo não mostra sigla de embalagem", () => {
+        assert.equal(formatMenuPackLabel("KIT", 1), "");
     });
 });

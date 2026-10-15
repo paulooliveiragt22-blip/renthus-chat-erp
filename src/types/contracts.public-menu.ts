@@ -79,7 +79,10 @@ export interface PublicMenuCategory {
 
 export interface PublicMenuBanner {
     id: string;
+    /** Nome do produto ou do combo, como no card do cardápio. */
     name: string;
+    description: string | null;
+    packLabel: string | null;
     price: number | null;
     endsAt: string;
     imageUrl: string | null;

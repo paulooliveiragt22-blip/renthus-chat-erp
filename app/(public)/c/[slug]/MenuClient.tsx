@@ -17,7 +17,7 @@ import {
 } from "@/lib/public-menu/menuEvents";
 import { getMenuSession, postMenuSession } from "@/lib/public-menu/clientMenuSession";
 import { formatMenuCustomerAddressLine } from "@/lib/public-menu/formatMenuAddress";
-import { formatPackSiglaLabel } from "@/lib/products/packDisplayName";
+import { formatMenuPackLabel } from "@/lib/products/packDisplayName";
 import { filterPublicMenuCategories } from "@/lib/public-menu/searchMenuItems";
 import CheckoutDrawer from "./CheckoutDrawer";
 import MyOrdersDrawer from "./MyOrdersDrawer";
@@ -26,12 +26,27 @@ function formatBRL(n: number): string {
     return n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
 
-function PromoArt({ name, price }: { name: string; price: string | null }) {
+function PromoSlide({ banner }: { banner: PublicMenuBanner }) {
     return (
-        <div className="flex h-full w-full flex-col justify-end bg-gradient-to-r from-orange-600 to-zinc-900 p-4 sm:p-5">
-            <p className="text-[11px] font-semibold uppercase tracking-wider text-orange-100">Promoção</p>
-            <p className="line-clamp-2 text-lg font-bold text-white sm:text-xl">{name}</p>
-            {price ? <p className="text-sm font-semibold text-orange-50">{price}</p> : null}
+        <div className="relative flex min-h-36 w-full flex-col justify-end">
+            {banner.imageUrl ? (
+                <img src={banner.imageUrl} alt="" className="absolute inset-0 h-full w-full object-cover" />
+            ) : (
+                <div className="absolute inset-0 bg-gradient-to-r from-orange-600 to-zinc-900" />
+            )}
+            <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/40 to-black/15" />
+            <div className="relative z-10 px-12 py-4 text-left sm:px-14">
+                <p className="text-lg font-bold leading-snug text-white sm:text-xl">{banner.name}</p>
+                {banner.description ? (
+                    <p className="mt-1 whitespace-pre-line text-sm leading-snug text-white">{banner.description}</p>
+                ) : null}
+                {banner.packLabel ? (
+                    <p className="mt-1 text-xs font-medium text-orange-100">{banner.packLabel}</p>
+                ) : null}
+                {banner.price != null ? (
+                    <p className="mt-1 text-sm font-semibold text-white">{formatBRL(banner.price)}</p>
+                ) : null}
+            </div>
         </div>
     );
 }
@@ -89,14 +104,10 @@ function PromoStrip({ banners }: { banners: PublicMenuBanner[] }) {
                     <button
                         key={`${banner.id}-${i}`}
                         type="button"
-                        className="h-28 w-full shrink-0 sm:h-36"
+                        className="w-full shrink-0 text-left"
                         onClick={() => document.getElementById("cat-__promos__")?.scrollIntoView({ behavior: "smooth", block: "start" })}
                     >
-                        {banner.imageUrl ? (
-                            <img src={banner.imageUrl} alt={banner.name} className="h-full w-full object-cover" />
-                        ) : (
-                            <PromoArt name={banner.name} price={banner.price != null ? formatBRL(banner.price) : null} />
-                        )}
+                        <PromoSlide banner={banner} />
                     </button>
                 ))}
             </div>
@@ -650,13 +661,13 @@ export default function MenuClient({ menu }: { menu: PublicMenuResponse }) {
                                                         </div>
                                                     </div>
                                                     {item.description ? (
-                                                        <p className="mt-1 line-clamp-2 text-xs text-zinc-500 sm:text-sm">
+                                                        <p className="mt-1 whitespace-pre-line text-xs text-zinc-500 sm:text-sm">
                                                             {item.description}
                                                         </p>
                                                     ) : null}
                                                     <div className="mt-2.5 flex items-center justify-between gap-2">
-                                                        <p className="text-[10px] font-medium uppercase tracking-wide text-zinc-400 sm:text-[11px]">
-                                                            {formatPackSiglaLabel(
+                                                        <p className="text-[10px] font-medium text-zinc-400 sm:text-[11px]">
+                                                            {formatMenuPackLabel(
                                                                 item.sigla,
                                                                 item.fatorConversao
                                                             )}

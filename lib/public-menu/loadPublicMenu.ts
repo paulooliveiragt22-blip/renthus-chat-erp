@@ -1,7 +1,13 @@
 import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { PublicMenuBanner, PublicMenuResult } from "@/src/types/contracts.public-menu";
+import type {
+    PublicMenuBanner,
+    PublicMenuCategory,
+    PublicMenuItem,
+    PublicMenuResult,
+} from "@/src/types/contracts.public-menu";
+import { formatMenuPackLabel } from "@/lib/products/packDisplayName";
 import { parsePublicMenuRpcPayload } from "./parsePublicMenu";
 import { parseMenuSlug } from "./slug";
 import { loadFulfillmentPolicy } from "@/lib/delivery/fulfillment";
@@ -10,6 +16,41 @@ import {
     acceptedCustomerPaymentsFromCompanySettings,
     listEnabledCustomerPayments,
 } from "@/src/financeiro/domain/acceptedCustomerPayments";
+
+type PromoArtRow = {
+    image_path?: string | null;
+    alvos?: unknown;
+};
+
+/** Slide usa o mesmo nome e a mesma descrição do card. O nome interno da promoção fica de fora. */
+function bannersFromMenu(categories: PublicMenuCategory[], promoRows: PromoArtRow[]): PublicMenuBanner[] {
+    const items = categories.find((c) => c.id === "__promos__")?.items ?? [];
+    const art = new Map<string, string>();
+    for (const row of promoRows) {
+        const url = row.image_path ? String(row.image_path) : "";
+        if (!url) continue;
+        const alvos = Array.isArray(row.alvos) ? row.alvos : [];
+        for (const alvo of alvos) {
+            if (typeof alvo !== "object" || alvo == null) continue;
+            const rec = alvo as { combo_id?: unknown; produto_embalagem_id?: unknown };
+            const key = String(rec.combo_id || rec.produto_embalagem_id || "");
+            if (key) art.set(key, url);
+        }
+    }
+    return items.map((item: PublicMenuItem) => {
+        const key = item.comboId ?? item.embalagemId;
+        const pack = formatMenuPackLabel(item.sigla, item.fatorConversao);
+        return {
+            id: key,
+            name: item.name,
+            description: item.description,
+            packLabel: pack || null,
+            price: item.price,
+            endsAt: item.promoEndsAt ?? "",
+            imageUrl: art.get(key) ?? item.imageUrl,
+        };
+    });
+}
 
 function parseDeliveryMinOrder(settings: unknown): number | null {
     if (typeof settings !== "object" || settings == null || Array.isArray(settings)) return null;
@@ -54,25 +95,11 @@ export async function loadPublicMenuBySlug(
     );
     const { data: promoRows, error: promoErr } = await admin
         .from("v_sec_promocoes")
-        .select("id, nome, ends_at, image_path, alvos, status")
+        .select("image_path, alvos, status")
         .eq("company_id", companyId)
         .eq("status", "ativa")
-        .order("ends_at", { ascending: true })
         .limit(5);
-    const banners: PublicMenuBanner[] = promoErr
-        ? []
-        : (promoRows ?? []).map((row) => {
-            const alvos = Array.isArray(row.alvos) ? row.alvos : [];
-            const first = alvos[0] as { preco_promocional?: number } | undefined;
-            const price = first?.preco_promocional == null ? null : Number(first.preco_promocional);
-            return {
-                id: String(row.id),
-                name: String(row.nome ?? "Promoção"),
-                price: Number.isFinite(price) ? price : null,
-                endsAt: String(row.ends_at),
-                imageUrl: row.image_path ? String(row.image_path) : null,
-            };
-        });
+    const banners = bannersFromMenu(parsed.menu.categories, promoErr ? [] : promoRows ?? []);
 
     return {
         ok: true,

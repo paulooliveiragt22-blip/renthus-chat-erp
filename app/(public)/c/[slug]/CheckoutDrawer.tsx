@@ -8,7 +8,7 @@ import type {
     PublicMenuSavedAddress,
     PublicMenuSessionOk,
 } from "@/src/types/contracts.public-menu";
-import { formatPackSiglaLabel } from "@/lib/products/packDisplayName";
+import { formatMenuPackLabel } from "@/lib/products/packDisplayName";
 import { nextMenuCheckoutStep } from "@/lib/delivery/fulfillment";
 import type { FulfillmentType } from "@/lib/delivery/fulfillment";
 import {
@@ -708,14 +708,16 @@ export default function CheckoutDrawer({
                             </p>
                         ) : (
                             <ul className="divide-y divide-zinc-100 overflow-hidden rounded-xl bg-white ring-1 ring-zinc-200">
-                                {cart.map((l) => (
+                                {cart.map((l) => {
+                                    const pack = formatMenuPackLabel(l.sigla, l.fatorConversao);
+                                    return (
                                     <li key={l.embalagemId} className="flex items-center gap-3 p-3">
                                         <div className="min-w-0 flex-1">
                                             <p className="text-sm font-semibold text-zinc-900">
                                                 {l.name}
                                             </p>
-                                            <p className="text-[10px] font-medium uppercase tracking-wide text-zinc-400">
-                                                {formatPackSiglaLabel(l.sigla, l.fatorConversao)} ·{" "}
+                                            <p className="text-[10px] font-medium text-zinc-400">
+                                                {pack ? `${pack} · ` : ""}
                                                 {formatBRL(l.unitPrice)}
                                             </p>
                                         </div>
@@ -753,7 +755,8 @@ export default function CheckoutDrawer({
                                             </button>
                                         </div>
                                     </li>
-                                ))}
+                                    );
+                                })}
                             </ul>
                         )}
                         <div className="flex justify-between text-sm font-semibold text-zinc-800">
