@@ -32,6 +32,18 @@ export function buildOrderNewPushAlert(input: {
     };
 }
 
+export function buildAiCreditLowPushAlert(
+    companyId: string
+): Pick<AdminAlert, "id" | "title" | "description" | "href"> {
+    return {
+        id: `ai-credit-low:${companyId}`,
+        title: "Crédito de IA acabando",
+        description:
+            "Restam 10% ou menos do crédito incluso do plano. Sem recarga, a IA para quando o saldo não cobrir a próxima chamada.",
+        href: "/configuracoes?tab=chatbot",
+    };
+}
+
 export function buildHandoverPushAlert(input: {
     threadId: string;
     handoverAt: string;

@@ -209,7 +209,10 @@ $envKeys = @(
     "SQS_DISPATCH_ENABLED",
     "CHATBOT_QUEUE_STALE_MINUTES",
     "PRO_PIPELINE_METRICS_STORE",
-    "PRO_PIPELINE_TURN_TRACE"
+    "PRO_PIPELINE_TURN_TRACE",
+    "NEXT_PUBLIC_VAPID_PUBLIC_KEY",
+    "VAPID_PRIVATE_KEY",
+    "VAPID_SUBJECT"
 )
 
 $dotenvPath = if ($EnvFile) { $EnvFile } else { Join-Path $Root ".env.local" }

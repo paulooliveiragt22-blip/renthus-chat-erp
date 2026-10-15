@@ -55,6 +55,8 @@ export type AiWalletSnapshot = {
     autoRechargePackCents: number | null;
     /** Fim do mês de crédito incluso. O que sobrar não passa para o mês seguinte. */
     includedPeriodEnd: string | null;
+    /** 10% do crédito incluso do plano (`fn_ai_low_credit_threshold_cents`). */
+    lowBalanceThresholdCents: number;
 };
 
 export type AiOrderUsageAverage = {
@@ -101,6 +103,7 @@ function mapSnapshot(data: unknown): AiWalletSnapshot {
             row.included_period_end == null || row.included_period_end === ""
                 ? null
                 : String(row.included_period_end),
+        lowBalanceThresholdCents: num(row.low_balance_threshold_cents),
     };
 }
 
@@ -129,14 +132,30 @@ export async function ensureAiWallet(
     return mapSnapshot(row);
 }
 
+/** Aviso de 10% (sem recarga automática) ou fila de recarga no mesmo piso. Não bloqueia o turno. */
+export async function noteAiLowCredit(admin: SupabaseClient, companyId: string): Promise<void> {
+    try {
+        const row = await rpcJson(admin, "rpc_note_ai_low_credit", { p_company_id: companyId });
+        if (row.notify_low === true) {
+            const { fireCompanyAlertPush, buildAiCreditLowPushAlert } = await import(
+                "@/lib/admin-alerts/application/fireCompanyAlertPush"
+            );
+            fireCompanyAlertPush(admin, companyId, buildAiCreditLowPushAlert(companyId));
+        }
+        if (row.recharge_needed === true) {
+            const { enqueueAiRechargeIfNeeded } = await import("@/lib/billing/enqueueAiRecharge");
+            await enqueueAiRechargeIfNeeded(admin, companyId);
+        }
+    } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : "note_ai_low_credit_failed";
+        console.warn("[aiWallet] aviso de crédito baixo", { companyId, message });
+    }
+}
+
 export async function canUseAi(admin: SupabaseClient, companyId: string): Promise<boolean> {
     const snap = await ensureAiWallet(admin, companyId);
-    if (!aiTurnAllowed(snap.remainingTotalCents, snap.lastDebitCents)) {
-        const { enqueueAiRechargeIfNeeded } = await import("@/lib/billing/enqueueAiRecharge");
-        void enqueueAiRechargeIfNeeded(admin, companyId).catch(() => {});
-        return false;
-    }
-    return true;
+    void noteAiLowCredit(admin, companyId);
+    return aiTurnAllowed(snap.remainingTotalCents, snap.lastDebitCents);
 }
 
 export async function beginAiTurn(
@@ -150,11 +169,13 @@ export async function beginAiTurn(
         p_hold_cents: Math.max(1, Math.floor(holdCents)),
         p_idempotency_key: idempotencyKey,
     });
-    return {
+    const begun = {
         allowed: Boolean(row.allowed),
         reused: Boolean(row.reused),
         reason: row.reason == null ? null : String(row.reason),
     };
+    if (!begun.allowed) void noteAiLowCredit(admin, companyId);
+    return begun;
 }
 
 export async function releaseAiTurn(
@@ -188,12 +209,7 @@ export async function settleAiTurn(
         console.warn("[aiWallet] liquidação recusada", { companyId, reason: row.reason });
         return false;
     }
-    const charged = num(row.charged_cents);
-    const remHint = row.exhausted === true || (capped > 0 && charged < capped);
-    if (remHint) {
-        const { enqueueAiRechargeIfNeeded } = await import("@/lib/billing/enqueueAiRecharge");
-        void enqueueAiRechargeIfNeeded(admin, companyId).catch(() => {});
-    }
+    void noteAiLowCredit(admin, companyId);
     return true;
 }
 

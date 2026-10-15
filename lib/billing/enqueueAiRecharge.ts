@@ -8,15 +8,14 @@ import { ensureAiWallet } from "@/lib/billing/aiWallet";
 import { billingLog } from "@/lib/billing/billingLog";
 import { isUniqueViolation } from "@/lib/billing/isUniqueViolation";
 
-const LOW_BALANCE_THRESHOLD_CENTS = 50;
-
 export async function enqueueAiRechargeIfNeeded(
     admin: SupabaseClient,
     companyId: string
 ): Promise<boolean> {
     const snap = await ensureAiWallet(admin, companyId);
     if (!snap.autoRechargeEnabled || !snap.autoRechargePackCents) return false;
-    if (snap.remainingTotalCents > LOW_BALANCE_THRESHOLD_CENTS) return false;
+    const floor = snap.lowBalanceThresholdCents;
+    if (floor <= 0 || snap.remainingTotalCents > floor) return false;
 
     const pack = snap.autoRechargePackCents;
     if (pack !== 1000 && pack !== 2000 && pack !== 5000) return false;

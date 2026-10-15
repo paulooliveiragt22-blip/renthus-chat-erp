@@ -218,8 +218,8 @@ function AiCreditUsageMeter({
                 />
             </div>
             <div className="flex justify-between text-[10px] text-zinc-400">
-                <span>0 esgotado</span>
-                <span>1.0 cheio</span>
+                <span>Sem crédito</span>
+                <span>Crédito cheio</span>
             </div>
             <p className="text-[11px] text-zinc-400">
                 O crédito incluso do plano não acumula. No vencimento do mês da assinatura
@@ -230,45 +230,46 @@ function AiCreditUsageMeter({
     );
 }
 
+/** Estimativa de pedidos restantes = saldo ÷ custo médio dos pedidos fechados pela IA nesta loja. */
 function AiOrderUsageAverage({
     orderCount,
-    avgCalls,
-    avgInputTokens,
-    avgOutputTokens,
     avgCostCents,
+    remainingTotalCents,
 }: {
     orderCount: number;
-    avgCalls: number;
-    avgInputTokens: number;
-    avgOutputTokens: number;
     avgCostCents: number;
+    remainingTotalCents: number;
 }) {
-    if (orderCount <= 0) {
+    if (orderCount <= 0 || avgCostCents <= 0) {
         return (
             <p className="text-[11px] text-zinc-400">
-                A média aparece depois do primeiro pedido fechado pela IA nesta loja.
+                Depois do primeiro pedido fechado pela IA nesta loja, mostramos quantos pedidos o
+                saldo ainda cobre, com base no custo médio dos seus clientes.
             </p>
         );
     }
+    const remainingOrders = Math.max(0, Math.floor(remainingTotalCents / avgCostCents));
     const cost = (avgCostCents / 100).toLocaleString("pt-BR", {
         style: "currency",
         currency: "BRL",
     });
+    const ordersLabel =
+        remainingOrders === 1
+            ? "1 pedido"
+            : `${remainingOrders.toLocaleString("pt-BR")} pedidos`;
     return (
         <div className="flex flex-col gap-1 border-t border-zinc-100 pt-3 dark:border-zinc-800">
             <p className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">
-                Média por pedido da IA
+                Pedidos restantes no saldo
             </p>
-            <p className="text-[11px] text-zinc-500 dark:text-zinc-400">
-                {avgCalls.toLocaleString("pt-BR", { maximumFractionDigits: 1 })} chamadas ·{" "}
-                {Math.round(avgInputTokens).toLocaleString("pt-BR")} tokens de entrada ·{" "}
-                {Math.round(avgOutputTokens).toLocaleString("pt-BR")} de saída · {cost}
+            <p className="text-sm font-bold text-violet-700 dark:text-violet-300">
+                cerca de {ordersLabel}
             </p>
             <p className="text-[11px] text-zinc-400">
-                Média calculada com os pedidos desta loja, pelo comportamento de compra dos seus
-                clientes. Atualiza a cada pedido novo. É o gasto de IA para fechar cada pedido,
-                incluindo a conversa. Conversas que não fecham pedido debitam o crédito e não entram
-                nesta média.
+                Estimativa com o saldo atual e o custo médio de IA por pedido fechado nesta loja (
+                {cost}). Atualiza a cada pedido novo, pelo comportamento de compra dos seus
+                clientes. Conversas que não fecham pedido também gastam crédito e não entram nesta
+                média.
             </p>
         </div>
     );
@@ -1795,10 +1796,8 @@ function ConfiguracoesPageContent() {
                                         {aiOrderAverage ? (
                                             <AiOrderUsageAverage
                                                 orderCount={aiOrderAverage.orderCount}
-                                                avgCalls={aiOrderAverage.avgCalls}
-                                                avgInputTokens={aiOrderAverage.avgInputTokens}
-                                                avgOutputTokens={aiOrderAverage.avgOutputTokens}
                                                 avgCostCents={aiOrderAverage.avgCostCents}
+                                                remainingTotalCents={aiWallet.remainingTotalCents}
                                             />
                                         ) : null}
                                     </div>

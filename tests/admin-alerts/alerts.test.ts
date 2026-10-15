@@ -4,11 +4,19 @@ import { mapOrderSnapshotToAlerts } from "../../lib/admin-alerts/adapters/httpOr
 import { mapHandoverRowsToAlerts } from "../../lib/admin-alerts/adapters/httpHandoverAlertFeed";
 import { createDedupeState, diffAlertFeed } from "../../lib/admin-alerts/application/presentNewAlerts";
 import { orderOpenHref, threadOpenHref } from "../../lib/admin-alerts/domain/AlertDeepLink";
+import { buildAiCreditLowPushAlert } from "../../lib/admin-alerts/application/fireCompanyAlertPush";
 
 describe("admin-alerts deep links", () => {
     it("order e thread hrefs canônicos", () => {
         assert.equal(orderOpenHref("abc-123"), "/pedidos?open=abc-123");
         assert.equal(threadOpenHref("tid-1"), "/whatsapp?t=tid-1");
+    });
+
+    it("aviso de crédito baixo abre a aba do chatbot", () => {
+        const alert = buildAiCreditLowPushAlert("co-1");
+        assert.equal(alert.href, "/configuracoes?tab=chatbot");
+        assert.equal(alert.id, "ai-credit-low:co-1");
+        assert.match(alert.description, /10%/);
     });
 });
 
