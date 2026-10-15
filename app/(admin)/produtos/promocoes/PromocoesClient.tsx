@@ -368,6 +368,9 @@ function ComboDialog(props: {
             id: i.produto_embalagem_id,
             label: `${i.nome ?? "Item"} (${i.sigla ?? "UN"})`,
             price: Number(i.preco_venda_atual ?? 0),
+            details: null,
+            sigla: i.sigla ?? null,
+            fator: 1,
             quantidade: Number(i.quantidade) || 1,
             precoUnitario: formatBrlInput(
                 i.preco_alocado != null && Number(i.quantidade) > 0
@@ -427,10 +430,13 @@ function ComboDialog(props: {
                 setHits(
                     rows
                         .filter((r: { sigla_comercial?: string }) => String(r.sigla_comercial ?? "") !== "KIT")
-                        .map((r: { id?: string; product_name?: string; preco_venda?: number; sigla_comercial?: string }) => ({
+                        .map((r: { id?: string; product_name?: string; preco_venda?: number; sigla_comercial?: string; fator_conversao?: number }) => ({
                             id: String(r.id),
                             label: `${r.product_name ?? "Item"} (${r.sigla_comercial ?? "UN"})`,
                             price: Number(r.preco_venda ?? 0),
+                            details: null,
+                            sigla: r.sigla_comercial ? String(r.sigla_comercial) : null,
+                            fator: Number(r.fator_conversao ?? 1),
                         }))
                 );
             })();
