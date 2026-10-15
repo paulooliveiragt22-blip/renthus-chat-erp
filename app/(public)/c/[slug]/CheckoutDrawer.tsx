@@ -568,7 +568,11 @@ export default function CheckoutDrawer({
                 body: JSON.stringify({
                     sessionToken,
                     idempotencyKey: attemptKey,
-                    items: cart.map((l) => ({ embalagemId: l.embalagemId, qty: l.qty })),
+                    items: cart.map((l) => ({
+                        embalagemId: l.embalagemId,
+                        qty: l.qty,
+                        comboId: l.comboId ?? null,
+                    })),
                     paymentMethod,
                     changeFor:
                         paymentMethod === "cash" && changeFor.trim()

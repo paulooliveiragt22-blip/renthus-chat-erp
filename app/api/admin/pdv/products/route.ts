@@ -78,6 +78,61 @@ function parseLimit(raw: string | null): number {
     return Math.min(MAX_LIMIT, n);
 }
 
+async function withEffectivePrices(
+    admin: SupabaseClient,
+    companyId: string,
+    rows: Record<string, unknown>[]
+): Promise<Record<string, unknown>[]> {
+    const ids = rows.map((r) => String(r.id ?? "")).filter(Boolean);
+    if (ids.length === 0) return rows;
+    const { data, error } = await admin
+        .from("v_sec_preco_efetivo_embalagem")
+        .select("id, preco_efetivo")
+        .eq("company_id", companyId)
+        .in("id", ids);
+    if (error || !data) return rows;
+    const byId = new Map(data.map((r) => [String(r.id), Number(r.preco_efetivo)]));
+    return rows.map((row) => {
+        const next = byId.get(String(row.id ?? ""));
+        if (next == null || !Number.isFinite(next) || next <= 0) return row;
+        return { ...row, preco_venda: next };
+    });
+}
+
+async function comboRowsForPdv(
+    admin: SupabaseClient,
+    companyId: string,
+    qRaw: string,
+    category: string
+): Promise<Record<string, unknown>[]> {
+    if (category && category !== "Todos" && category !== "Combos") return [];
+    const { data, error } = await admin
+        .from("v_sec_combos")
+        .select("id, nome, descricao, preco_efetivo, is_active")
+        .eq("company_id", companyId)
+        .eq("is_active", true);
+    if (error || !data) return [];
+    const q = qRaw.trim().toLowerCase();
+    return data
+        .filter((c) => {
+            if (q.length < 2) return true;
+            return String(c.nome ?? "").toLowerCase().includes(q);
+        })
+        .map((c) => ({
+            id: c.id,
+            produto_id: "",
+            product_name: c.nome,
+            descricao: c.descricao,
+            preco_venda: Number(c.preco_efetivo),
+            fator_conversao: 1,
+            sigla_comercial: "KIT",
+            sigla_humanizada: "Combo",
+            category_name: "Combos",
+            sales_count: 0,
+            is_active: true,
+        }));
+}
+
 export async function GET(req: NextRequest) {
     const ctx = await requireCompanyAnyPlanFeature([...PDV_ACCESS_FEATURES], ["owner", "admin", "member"], "pdv.access");
     if (!ctx.ok) return ctx.response;
@@ -97,6 +152,12 @@ export async function GET(req: NextRequest) {
                     .filter(Boolean)
             ),
         ].sort((a, b) => a.localeCompare(b, "pt-BR"));
+        const { count } = await admin
+            .from("v_sec_combos")
+            .select("id", { count: "exact", head: true })
+            .eq("company_id", companyId)
+            .eq("is_active", true);
+        if ((count ?? 0) > 0) categories.push("Combos");
         return NextResponse.json({ categories });
     }
 
@@ -152,5 +213,7 @@ export async function GET(req: NextRequest) {
         .limit(limit);
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-    return NextResponse.json({ rows: data ?? [] });
+    const rows = await withEffectivePrices(admin, companyId, (data ?? []) as Record<string, unknown>[]);
+    const combos = await comboRowsForPdv(admin, companyId, qRaw, category);
+    return NextResponse.json({ rows: [...combos, ...rows].slice(0, limit) });
 }

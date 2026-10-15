@@ -92,6 +92,9 @@ function parseItemRow(raw: unknown): PublicMenuItem | null {
         description: asNullableString(raw.description),
         price: asNumber(raw.price),
         currency: "BRL",
+        listPrice: raw.list_price == null ? null : asNumber(raw.list_price),
+        promoEndsAt: asNullableString(raw.promo_ends_at),
+        comboId: asNullableString(raw.combo_id),
         sigla,
         fatorConversao,
         thumbnailUrl: asNullableString(raw.thumbnail_url),
@@ -174,10 +177,61 @@ export function parsePublicMenuRpcPayload(raw: unknown): PublicMenuResult {
         }
     }
 
+    const combos: PublicMenuItem[] = [];
+    if (Array.isArray(raw.combos)) {
+        for (const row of raw.combos) {
+            if (!isRecord(row)) continue;
+            const comboId = asString(row.combo_id);
+            const name = asString(row.name).trim();
+            if (!comboId || !name) continue;
+            const price = asNumber(row.price);
+            const listPrice = row.list_price == null ? null : asNumber(row.list_price);
+            combos.push({
+                embalagemId: comboId,
+                productId: comboId,
+                categoryId: "__combos__",
+                categoryName: "Combos",
+                name,
+                description: asNullableString(row.description),
+                price,
+                currency: "BRL",
+                listPrice,
+                promoEndsAt: asNullableString(row.promo_ends_at),
+                comboId,
+                sigla: "KIT",
+                fatorConversao: 1,
+                thumbnailUrl: asNullableString(row.image_url),
+                imageUrl: asNullableString(row.image_url),
+                inStock: asBool(row.in_stock, true),
+            });
+        }
+    }
+
+    const categories = groupCategories(items, itemRows);
+    if (combos.length > 0) {
+        categories.unshift({
+            id: "__combos__",
+            name: "Combos",
+            sortOrder: -1,
+            items: combos,
+        });
+    }
+    const promoItems = [...items, ...combos].filter(
+        (item) => item.promoEndsAt && item.listPrice != null && item.listPrice > item.price
+    );
+    if (promoItems.length > 0) {
+        categories.unshift({
+            id: "__promos__",
+            name: "Promoções",
+            sortOrder: -2,
+            items: promoItems,
+        });
+    }
+
     const menu: PublicMenuResponse = {
         store,
-        categories: groupCategories(items, itemRows),
-        itemCount: items.length,
+        categories,
+        itemCount: items.length + combos.length,
         generatedAt: new Date().toISOString(),
     };
 

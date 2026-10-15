@@ -91,6 +91,7 @@ export default function MenuButtons({ compact = false, onNavigate, textColor = "
             { href: "/dashboard", icon: <IconHome />, label: "Dashboard" },
             { href: "/whatsapp", icon: <IconWhatsApp />, label: "WhatsApp" },
             { href: "/produtos/lista", icon: <IconProducts />, label: "Produtos" },
+            { href: "/produtos/promocoes", icon: <IconProducts />, label: "Promoções" },
             { href: "/pedidos", icon: <IconOrders />, label: "Pedidos" },
             {
                 href: "/relatorios",

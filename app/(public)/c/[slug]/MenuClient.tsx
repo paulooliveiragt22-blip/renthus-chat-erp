@@ -242,6 +242,8 @@ export default function MenuClient({ menu }: { menu: PublicMenuResponse }) {
                     sigla: item.sigla,
                     fatorConversao: item.fatorConversao,
                     unitPrice: item.price,
+                    listPrice: item.listPrice ?? null,
+                    comboId: item.comboId ?? null,
                     qty: 1,
                 },
             ];
@@ -534,9 +536,28 @@ export default function MenuClient({ menu }: { menu: PublicMenuResponse }) {
                                                         <p className="text-[15px] font-semibold leading-snug text-zinc-900 sm:text-base">
                                                             {item.name}
                                                         </p>
-                                                        <p className="shrink-0 text-[15px] font-bold text-zinc-900 sm:text-base">
+                                                        <div className="shrink-0 text-right">
+                                                            {item.listPrice != null && item.listPrice > item.price ? (
+                                                                <p className="text-xs font-medium text-zinc-400 line-through">
+                                                                    {formatBRL(item.listPrice)}
+                                                                </p>
+                                                            ) : null}
+                                                            <p className="text-[15px] font-bold text-zinc-900 sm:text-base">
                                                             {formatBRL(item.price)}
                                                         </p>
+                                                        {item.promoEndsAt ? (
+                                                            <p className="text-[11px] font-medium text-orange-700">
+                                                                até{" "}
+                                                                {new Date(item.promoEndsAt).toLocaleString("pt-BR", {
+                                                                    timeZone: "America/Cuiaba",
+                                                                    day: "2-digit",
+                                                                    month: "2-digit",
+                                                                    hour: "2-digit",
+                                                                    minute: "2-digit",
+                                                                })}
+                                                            </p>
+                                                        ) : null}
+                                                        </div>
                                                     </div>
                                                     {item.description ? (
                                                         <p className="mt-1 line-clamp-2 text-xs text-zinc-500 sm:text-sm">

@@ -98,6 +98,54 @@ describe("parsePublicMenuRpcPayload", () => {
         assert.equal(r.menu.categories[0]!.items[0]!.price, 12.5);
         assert.equal(r.menu.categories[0]!.items[0]!.currency, "BRL");
         assert.equal(r.menu.categories[0]!.items[0]!.embalagemId, "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
+        assert.equal(r.menu.categories[0]!.items[0]!.listPrice, null);
+    });
+
+    it("antecede Promoções e Combos sem contar a seção de promoção duas vezes", () => {
+        const r = parsePublicMenuRpcPayload({
+            store: {
+                company_id: "11111111-1111-1111-1111-111111111111",
+                slug: "disk-teste",
+                display_name: "Disk Teste",
+                is_active: true,
+            },
+            items: [
+                {
+                    embalagem_id: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+                    product_id: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+                    category_id: "cccccccc-cccc-cccc-cccc-cccccccccccc",
+                    category_name: "Cervejas",
+                    name: "Heineken",
+                    price: 10,
+                    list_price: 12.5,
+                    promo_ends_at: "2026-10-20T04:00:00.000Z",
+                    sigla: "UN",
+                    in_stock: true,
+                    category_sort: 0,
+                },
+            ],
+            combos: [
+                {
+                    combo_id: "ffffffff-ffff-ffff-ffff-ffffffffffff",
+                    name: "Kit Churrasco",
+                    price: 40,
+                    list_price: 50,
+                    promo_ends_at: "2026-10-20T04:00:00.000Z",
+                    in_stock: true,
+                },
+            ],
+        });
+
+        assert.equal(r.ok, true);
+        if (!r.ok) return;
+        assert.equal(r.menu.itemCount, 2);
+        assert.equal(r.menu.categories[0]!.id, "__promos__");
+        assert.equal(r.menu.categories[0]!.items.length, 2);
+        assert.equal(r.menu.categories[1]!.id, "__combos__");
+        assert.equal(r.menu.categories[1]!.items[0]!.comboId, "ffffffff-ffff-ffff-ffff-ffffffffffff");
+        assert.equal(r.menu.categories[1]!.items[0]!.sigla, "KIT");
+        assert.equal(r.menu.categories[2]!.name, "Cervejas");
+        assert.equal(r.menu.categories[2]!.items[0]!.listPrice, 12.5);
     });
 });
 

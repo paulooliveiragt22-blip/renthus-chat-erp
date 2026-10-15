@@ -188,7 +188,8 @@ async function assertCartStockPolicy(
     const needByProduct = new Map<string, { need: number; flag: boolean | null | undefined; name: string }>();
 
     for (const line of cart) {
-        const fator = fatorByEmb.get(line.variant_id) ?? 1;
+        const fator = fatorByEmb.get(line.variant_id);
+        if (fator == null) continue;
         const prod = byId.get(line.produto_id);
         const flag = prod?.vender_com_estoque_zero;
         const prev = needByProduct.get(line.produto_id);

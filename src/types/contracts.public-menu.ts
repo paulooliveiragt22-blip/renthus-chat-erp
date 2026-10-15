@@ -53,8 +53,14 @@ export interface PublicMenuItem {
     categoryName: string | null;
     name: string;
     description: string | null;
-    /** preco_venda da embalagem */
+    /** Preço efetivo (promoção ou combo, senão catálogo). */
     price: number;
+    /** Preço de catálogo quando a vitrine mostra promoção. */
+    listPrice?: number | null;
+    /** Fim da promoção ativa, ISO. */
+    promoEndsAt?: string | null;
+    /** Preenchido quando a linha é um combo. */
+    comboId?: string | null;
     currency: "BRL";
     sigla: string;
     /** Unidades por embalagem (ex.: CX c/8 → 8). */
@@ -168,6 +174,8 @@ export interface PublicMenuCartLine {
     fatorConversao?: number;
     unitPrice: number;
     qty: number;
+    comboId?: string | null;
+    listPrice?: number | null;
 }
 
 export interface PublicMenuSavedAddress {
@@ -235,7 +243,7 @@ export type PublicMenuSessionError =
 export type PublicMenuSessionResult = PublicMenuSessionOk | PublicMenuSessionError;
 
 export interface PublicMenuCheckoutInput {
-    items: Array<{ embalagemId: string; qty: number }>;
+    items: Array<{ embalagemId: string; qty: number; comboId?: string | null }>;
     paymentMethod: "pix" | "cash" | "card" | "debit";
     changeFor?: number | string | null;
     fulfillmentType?: "delivery" | "pickup" | null;

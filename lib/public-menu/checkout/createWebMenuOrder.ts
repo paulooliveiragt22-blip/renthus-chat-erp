@@ -151,17 +151,21 @@ export async function createWebMenuOrder(
 
     const orderItems: Array<{
         product_name: string;
-        produto_embalagem_id: string;
+        produto_embalagem_id?: string;
+        combo_id?: string;
         quantity: number;
-        unit_price: number;
     }> = [];
 
-    let subtotal = 0;
     for (const line of itemsIn) {
+        const comboId = String(line.comboId ?? "").trim();
         const id = String(line.embalagemId ?? "").trim();
         const qty = Math.floor(Number(line.qty));
-        if (!id || !Number.isFinite(qty) || qty < 1 || qty > 99) {
+        if ((!id && !comboId) || !Number.isFinite(qty) || qty < 1 || qty > 99) {
             return { ok: false, error: "qty_invalid" };
+        }
+        if (comboId) {
+            orderItems.push({ product_name: "Combo", combo_id: comboId, quantity: qty });
+            continue;
         }
         const row = embById.get(id);
         if (!row) return { ok: false, error: "items_unavailable" };
@@ -182,26 +186,58 @@ export async function createWebMenuOrder(
         ) {
             return { ok: false, error: "items_unavailable" };
         }
-        const unitPrice = Number(row.preco_venda);
-        if (!Number.isFinite(unitPrice) || unitPrice < 0) {
-            return { ok: false, error: "items_unavailable" };
-        }
-        const siglaRaw = Array.isArray(row.siglas_comerciais)
-            ? row.siglas_comerciais[0]?.sigla
-            : row.siglas_comerciais?.sigla;
-        const sigla = String(siglaRaw ?? "UN").trim().toUpperCase() || "UN";
-        const productName =
-            sigla === "UN" || sigla === "UND" || sigla === "UNID"
-                ? product.name
-                : `${product.name} (${sigla})`;
         orderItems.push({
-            product_name: productName,
+            product_name: product.name,
             produto_embalagem_id: id,
             quantity: qty,
-            unit_price: unitPrice,
         });
-        subtotal += unitPrice * qty;
     }
+
+    const { data: quoted, error: quoteErr } = await admin.rpc("rpc_quote_sale_lines", {
+        p_company_id: params.companyId,
+        p_items: orderItems.map((i) => ({
+            produto_embalagem_id: i.produto_embalagem_id ?? null,
+            combo_id: i.combo_id ?? null,
+            quantity: i.quantity,
+        })),
+    });
+    if (quoteErr || !quoted || typeof quoted !== "object") {
+        const msg = quoteErr?.message ?? "";
+        if (
+            msg.includes("combo_sem_estoque") ||
+            msg.includes("combo_indisponivel") ||
+            msg.includes("not_in_company")
+        ) {
+            return { ok: false, error: "items_unavailable" };
+        }
+        return { ok: false, error: "order_failed" };
+    }
+    const subtotal = Number((quoted as { subtotal?: unknown }).subtotal);
+    if (!Number.isFinite(subtotal) || subtotal <= 0) {
+        return { ok: false, error: "items_unavailable" };
+    }
+    const quotedLines = Array.isArray((quoted as { lines?: unknown }).lines)
+        ? (quoted as { lines: unknown[] }).lines
+        : [];
+    const notifyItems = quotedLines.flatMap((line) => {
+        if (!line || typeof line !== "object") return [];
+        const row = line as {
+            product_name?: unknown;
+            quantity?: unknown;
+            unit_price?: unknown;
+            combo_label?: unknown;
+        };
+        const name = String(row.product_name ?? "").trim();
+        const qty = Number(row.quantity);
+        const price = Number(row.unit_price);
+        if (!name || !Number.isFinite(qty) || !Number.isFinite(price)) return [];
+        const kit = typeof row.combo_label === "string" ? row.combo_label.trim() : "";
+        return [{
+            product_name: kit ? `${kit}: ${name}` : name,
+            quantity: qty,
+            unit_price: price,
+        }];
+    });
 
     const policy = await loadFulfillmentPolicy(admin, params.companyId);
     if (isFulfillmentUnavailable(policy)) {
@@ -319,9 +355,9 @@ export async function createWebMenuOrder(
         source: "web_menu",
         scopeId: session.customerId,
         items: orderItems.map((i) => ({
-            produtoEmbalagemId: i.produto_embalagem_id,
+            produtoEmbalagemId: i.combo_id ?? i.produto_embalagem_id,
             quantity: i.quantity,
-            unitPrice: i.unit_price,
+            unitPrice: 0,
         })),
         grandTotal,
         paymentMethod,
@@ -365,7 +401,7 @@ export async function createWebMenuOrder(
         originExternalId: session.externalId,
         orderCode: code,
         requireApproval,
-        items: orderItems,
+        items: notifyItems,
         deliveryFee,
         grandTotal,
         deliveryAddress: addressText,
