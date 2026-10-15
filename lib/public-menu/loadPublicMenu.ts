@@ -45,6 +45,7 @@ function bannersFromMenu(categories: PublicMenuCategory[], promoRows: PromoArtRo
             name: item.name,
             description: item.description,
             packLabel: pack || null,
+            listPrice: item.listPrice != null && item.listPrice > item.price ? item.listPrice : null,
             price: item.price,
             endsAt: item.promoEndsAt ?? "",
             imageUrl: art.get(key) ?? item.imageUrl,

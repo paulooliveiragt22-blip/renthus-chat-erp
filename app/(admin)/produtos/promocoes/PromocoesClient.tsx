@@ -5,8 +5,17 @@ import Link from "next/link";
 import { Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
+import { PromoBannerFace } from "@/components/public-menu/PromoBannerFace";
+import { buildPackDisplayName, formatMenuPackLabel } from "@/lib/products/packDisplayName";
 
-type EmbHit = { id: string; label: string; price: number };
+type EmbHit = {
+    id: string;
+    label: string;
+    price: number;
+    details: string | null;
+    sigla: string | null;
+    fator: number;
+};
 type ComboItem = {
     produto_embalagem_id: string;
     quantidade: number;
@@ -579,6 +588,44 @@ function ComboDialog(props: {
     );
 }
 
+function PromoPreview(props: {
+    preco: string;
+    alvoKind: "emb" | "combo";
+    alvoId: string;
+    hits: EmbHit[];
+    combos: ComboRow[];
+    savedName: string | null;
+    savedImage: string | null;
+    fotoUrl: string | null;
+}) {
+    const hit = props.hits.find((h) => h.id === props.alvoId) ?? null;
+    const combo = props.combos.find((c) => c.id === props.alvoId) ?? null;
+    const name = (props.alvoKind === "combo" ? combo?.nome : hit?.label) || props.savedName || "Nome do produto";
+    const items = (combo?.itens ?? [])
+        .map((i) => `${i.quantidade}× ${i.nome ?? "Item"}`)
+        .join(" · ");
+    const description = props.alvoKind === "combo"
+        ? [combo?.descricao, items].filter((part) => part && String(part).trim()).join("\n") || null
+        : hit?.details ?? null;
+    const pack = props.alvoKind === "emb" && hit ? formatMenuPackLabel(hit.sigla, hit.fator) : "";
+    const amount = parseBrl(props.preco);
+    const catalog = props.alvoKind === "combo" ? Number(combo?.preco ?? 0) : Number(hit?.price ?? 0);
+    const imageUrl = props.fotoUrl || props.savedImage || (props.alvoKind === "combo" ? combo?.image_path : null) || null;
+    return (
+        <div>
+            <p className="mb-2 text-xs font-semibold text-zinc-700 dark:text-zinc-300">Prévia no cardápio</p>
+            <PromoBannerFace
+                name={name}
+                description={description}
+                packLabel={pack || null}
+                listPriceLabel={catalog > amount && catalog > 0 ? brl(catalog) : null}
+                priceLabel={amount > 0 ? brl(amount) : null}
+                imageUrl={imageUrl}
+            />
+        </div>
+    );
+}
+
 function PromoDialog(props: {
     open: boolean;
     promo: PromoRow | null;
@@ -596,8 +643,19 @@ function PromoDialog(props: {
     const [alvoKind, setAlvoKind] = useState<"emb" | "combo">("emb");
     const [preco, setPreco] = useState("");
     const [foto, setFoto] = useState<File | null>(null);
+    const [fotoUrl, setFotoUrl] = useState<string | null>(null);
     const [err, setErr] = useState<string | null>(null);
     const [busy, setBusy] = useState(false);
+
+    useEffect(() => {
+        if (!foto) {
+            setFotoUrl(null);
+            return;
+        }
+        const url = URL.createObjectURL(foto);
+        setFotoUrl(url);
+        return () => URL.revokeObjectURL(url);
+    }, [foto]);
 
     useEffect(() => {
         if (!props.open) return;
@@ -635,10 +693,24 @@ function PromoDialog(props: {
                 setHits(
                     rows
                         .filter((r: { sigla_comercial?: string }) => String(r.sigla_comercial ?? "") !== "KIT")
-                        .map((r: { id?: string; product_name?: string; preco_venda?: number }) => ({
+                        .map((r: {
+                            id?: string;
+                            product_name?: string;
+                            descricao?: string | null;
+                            product_details?: string | null;
+                            preco_venda?: number;
+                            sigla_comercial?: string | null;
+                            fator_conversao?: number;
+                        }) => ({
                             id: String(r.id),
-                            label: String(r.product_name ?? "Item"),
+                            label: buildPackDisplayName({
+                                productName: r.product_name,
+                                itemName: r.descricao,
+                            }),
                             price: Number(r.preco_venda ?? 0),
+                            details: r.product_details ? String(r.product_details) : null,
+                            sigla: r.sigla_comercial ? String(r.sigla_comercial) : null,
+                            fator: Number(r.fator_conversao ?? 1),
                         }))
                 );
             })();
@@ -692,7 +764,7 @@ function PromoDialog(props: {
 
     return (
         <Dialog open={props.open} onOpenChange={props.onOpenChange}>
-            <DialogContent className="sm:max-w-lg">
+            <DialogContent className="max-h-[min(44rem,calc(100dvh-2rem))] overflow-y-auto sm:max-w-xl">
                 <DialogTitle>{props.promo ? "Editar promoção" : "Nova promoção"}</DialogTitle>
                 {!props.promo && props.atLimit ? (
                     <p className="text-sm text-amber-800 dark:text-amber-200">
@@ -700,8 +772,18 @@ function PromoDialog(props: {
                     </p>
                 ) : null}
                 <p className="text-xs text-zinc-500 dark:text-zinc-400">
-                    Início e fim no horário de Cuiabá. Sem arte, o cardápio monta uma faixa com o nome e o preço.
+                    Início e fim no horário de Cuiabá. A prévia é o banner do cardápio.
                 </p>
+                <PromoPreview
+                    preco={preco}
+                    alvoKind={alvoKind}
+                    alvoId={alvoId}
+                    hits={hits}
+                    combos={props.combos}
+                    savedName={props.promo?.alvos?.[0]?.nome ?? null}
+                    savedImage={props.promo?.image_path ?? null}
+                    fotoUrl={fotoUrl}
+                />
                 <label className={fieldLabel}>
                     Nome
                     <input className={`mt-1 ${fieldInput}`} value={nome} onChange={(e) => setNome(e.target.value)} />

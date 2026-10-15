@@ -83,6 +83,8 @@ export interface PublicMenuBanner {
     name: string;
     description: string | null;
     packLabel: string | null;
+    /** Preço de catálogo, quando a promoção abaixa o valor. */
+    listPrice: number | null;
     price: number | null;
     endsAt: string;
     imageUrl: string | null;

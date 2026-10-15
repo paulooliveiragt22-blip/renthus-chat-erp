@@ -18,6 +18,7 @@ import {
 import { getMenuSession, postMenuSession } from "@/lib/public-menu/clientMenuSession";
 import { formatMenuCustomerAddressLine } from "@/lib/public-menu/formatMenuAddress";
 import { formatMenuPackLabel } from "@/lib/products/packDisplayName";
+import { PromoBannerFace } from "@/components/public-menu/PromoBannerFace";
 import { filterPublicMenuCategories } from "@/lib/public-menu/searchMenuItems";
 import CheckoutDrawer from "./CheckoutDrawer";
 import MyOrdersDrawer from "./MyOrdersDrawer";
@@ -28,26 +29,14 @@ function formatBRL(n: number): string {
 
 function PromoSlide({ banner }: { banner: PublicMenuBanner }) {
     return (
-        <div className="relative flex min-h-36 w-full flex-col justify-end">
-            {banner.imageUrl ? (
-                <img src={banner.imageUrl} alt="" className="absolute inset-0 h-full w-full object-cover" />
-            ) : (
-                <div className="absolute inset-0 bg-gradient-to-r from-orange-600 to-zinc-900" />
-            )}
-            <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/40 to-black/15" />
-            <div className="relative z-10 px-12 py-4 text-left sm:px-14">
-                <p className="text-lg font-bold leading-snug text-white sm:text-xl">{banner.name}</p>
-                {banner.description ? (
-                    <p className="mt-1 whitespace-pre-line text-sm leading-snug text-white">{banner.description}</p>
-                ) : null}
-                {banner.packLabel ? (
-                    <p className="mt-1 text-xs font-medium text-orange-100">{banner.packLabel}</p>
-                ) : null}
-                {banner.price != null ? (
-                    <p className="mt-1 text-sm font-semibold text-white">{formatBRL(banner.price)}</p>
-                ) : null}
-            </div>
-        </div>
+        <PromoBannerFace
+            name={banner.name}
+            description={banner.description}
+            packLabel={banner.packLabel}
+            listPriceLabel={banner.listPrice != null ? formatBRL(banner.listPrice) : null}
+            priceLabel={banner.price != null ? formatBRL(banner.price) : null}
+            imageUrl={banner.imageUrl}
+        />
     );
 }
 
@@ -88,7 +77,7 @@ function PromoStrip({ banners }: { banners: PublicMenuBanner[] }) {
 
     return (
         <section
-            className="relative mt-3 overflow-hidden rounded-2xl"
+            className="relative overflow-hidden rounded-2xl"
             aria-roledescription="carrossel"
             aria-label="Promoções"
             onMouseEnter={() => setPaused(true)}
@@ -594,10 +583,15 @@ export default function MenuClient({ menu }: { menu: PublicMenuResponse }) {
                                 ))}
                             </nav>
                         )}
-                        <PromoStrip banners={menu.banners ?? []} />
                     </div>
                 </div>
             )}
+
+            {(menu.banners?.length ?? 0) > 0 ? (
+                <div className={`${shell} pt-3`}>
+                    <PromoStrip banners={menu.banners} />
+                </div>
+            ) : null}
 
             <main className={`${shell} py-5 sm:py-7`}>
                 {menu.itemCount === 0 ? (
