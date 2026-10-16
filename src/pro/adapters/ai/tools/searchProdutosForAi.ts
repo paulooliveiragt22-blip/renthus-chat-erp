@@ -249,8 +249,9 @@ export function finalizeSearchProdutosForAi(
         toChatCatalogPublicItem(r as unknown as Record<string, unknown>)
     );
     const allowlistIds = publicItems.map((r) => r.id).filter(Boolean);
+    /** Vitrine promo/combo: só lista numerada (pendingCatalogOfferPicks). lastSearchPicks gera botões. */
     const lastSearchPicks: SearchProdutosPickSummary[] = offerListText
-        ? offerPicks
+        ? []
         : publicItems.slice(0, 3).map((r) => ({
               embalagemId: r.id,
               label: String(r.display_name || r.product_name || "Item").slice(0, 40),

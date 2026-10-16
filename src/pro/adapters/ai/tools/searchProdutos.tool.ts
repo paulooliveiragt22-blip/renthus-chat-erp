@@ -80,7 +80,7 @@ export function createSearchProdutosTool(deps: {
                     deps.turnState.allowlistIds,
                     result.allowlistIds
                 );
-                deps.turnState.lastSearchPicks = result.offerPicks;
+                deps.turnState.lastSearchPicks = [];
                 return {
                     ...result.body,
                     worklist_pending_search: pendingSearchTermsFromWorklist(

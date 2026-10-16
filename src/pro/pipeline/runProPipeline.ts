@@ -1695,8 +1695,9 @@ export async function runProPipeline(
               mode: "direct_reply" as const,
               state: {
                   ...pipelineState,
+                  /** Lista só em texto numerado — não em lastSearchPicks (isso gera botões, máx. 3). */
                   pendingCatalogOfferPicks: offerReply.picks.length ? offerReply.picks : null,
-                  lastSearchPicks: offerReply.picks.length ? offerReply.picks : [],
+                  lastSearchPicks: [],
                   searchProdutoEmbalagemIds: [
                       ...new Set([
                           ...(pipelineState.searchProdutoEmbalagemIds ?? []),
@@ -1704,6 +1705,10 @@ export async function runProPipeline(
                       ]),
                   ],
                   emptySearchStreak: 0,
+                  step:
+                      pipelineState.step === "pro_idle"
+                          ? "pro_collecting_order"
+                          : pipelineState.step,
               },
               outbound: [{ kind: "text" as const, text: offerReply.text }],
           }

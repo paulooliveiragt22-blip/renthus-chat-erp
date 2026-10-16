@@ -29,6 +29,7 @@ export function isOrderSessionContinuityNeeded(session: ProSessionState): boolea
     if ((session.pendingPickGroups?.length ?? 0) > 0) return true;
     if (worklistPreventsCheckout(session.orderWorklist, session.draft)) return true;
     if ((session.lastSearchPicks?.length ?? 0) >= 2) return true;
+    if ((session.pendingCatalogOfferPicks?.length ?? 0) > 0) return true;
     if (
         (session.lastSearchPicks?.length ?? 0) === 1 &&
         (session.pendingFulfillmentType === "delivery" || session.pendingFulfillmentType === "pickup") &&
@@ -47,6 +48,7 @@ export function clearStaleClarifyUiIfNoDraft(session: ProSessionState): ProSessi
     if (session.draft?.items?.length) return session;
     const hasClarifyUi =
         (session.lastSearchPicks?.length ?? 0) > 0 ||
+        (session.pendingCatalogOfferPicks?.length ?? 0) > 0 ||
         (session.bootstrapPendingClarifications?.length ?? 0) > 0 ||
         (session.searchProdutoEmbalagemIds?.length ?? 0) > 0 ||
         (session.pendingPickGroups?.length ?? 0) > 0 ||
@@ -62,6 +64,7 @@ export function clearStaleClarifyUiIfNoDraft(session: ProSessionState): ProSessi
     return {
         ...session,
         lastSearchPicks: [],
+        pendingCatalogOfferPicks: null,
         searchProdutoEmbalagemIds: [],
         bootstrapPendingClarifications: [],
         bootstrapResolvedEmbalagemIds: [],

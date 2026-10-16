@@ -84,8 +84,10 @@ export function resolveCheckoutTurnOutcome(params: {
      * Picks legados: só se worklist vazia (sem lines). Com worklist, clarify é só via groups.
      */
     const hasWorklistLines = (state.orderWorklist?.lines?.length ?? 0) > 0;
+    const hasCatalogOfferList = (state.pendingCatalogOfferPicks?.length ?? 0) > 0;
     if (
         !hasWorklistLines &&
+        !hasCatalogOfferList &&
         (state.lastSearchPicks?.length ?? 0) >= 2 &&
         !(draft?.items?.length) &&
         (mode === "ai" || state.checkoutEditHold === true) &&

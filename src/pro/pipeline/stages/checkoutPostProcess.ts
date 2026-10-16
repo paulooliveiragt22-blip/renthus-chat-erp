@@ -1219,9 +1219,13 @@ export function checkoutPostProcess(params: {
 
     outbound.push(...cardsNotAlreadyPresent(outbound, checkoutCards));
 
-    /** Rede de segurança: com picks pendentes, nunca terminar sem UI de escolha. */
+    /**
+     * Rede de segurança: embalagem ambígua → botões (máx. 3).
+     * Vitrine promo/combo usa só lista numerada (`pendingCatalogOfferPicks`) — sem botões.
+     */
     if (
         turnOutcome.kind !== "clarify_pending_picks" &&
+        (nextState.pendingCatalogOfferPicks?.length ?? 0) === 0 &&
         (nextState.lastSearchPicks?.length ?? 0) >= 2 &&
         !outbound.some((m) => m.kind === "buttons")
     ) {

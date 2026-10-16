@@ -97,6 +97,23 @@ describe("resolveCheckoutTurnOutcome", () => {
         assert.equal(out.kind, "clarify_product_picks");
     });
 
+    it("lista numerada de promo/combo não vira botões de clarify_product_picks", () => {
+        const out = resolveCheckoutTurnOutcome({
+            mode: "ai",
+            state: state({
+                pendingPickGroups: [],
+                lastSearchPicks: [],
+                pendingCatalogOfferPicks: [
+                    { embalagemId: "p1", label: "HEINEKEN" },
+                    { embalagemId: "p2", label: "SKOL" },
+                    { embalagemId: "p3", label: "COMBO" },
+                    { embalagemId: "p4", label: "ORIGINAL" },
+                ],
+            }),
+        });
+        assert.equal(out.kind, "none");
+    });
+
     it("clarify_pending_picks não dispara em pro_awaiting_confirmation", () => {
         const out = resolveCheckoutTurnOutcome({
             mode: "ai",

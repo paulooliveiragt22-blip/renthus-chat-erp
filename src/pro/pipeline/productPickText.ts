@@ -93,8 +93,11 @@ function applyPick(
     label: string,
     state: ProSessionState
 ): { state: ProSessionState; syntheticUserText: string } {
-    /** Outras opções do mesmo card de clarificação — não podem voltar no prepare. */
-    const rejectedSiblingIds = (state.lastSearchPicks ?? [])
+    /** Outras opções do mesmo card/lista — não podem voltar no prepare. */
+    const rejectedSiblingIds = [
+        ...(state.lastSearchPicks ?? []),
+        ...(state.pendingCatalogOfferPicks ?? []),
+    ]
         .map((p) => String(p.embalagemId ?? "").trim())
         .filter((id) => id && id !== embId);
     const rejectSet = new Set(rejectedSiblingIds);
