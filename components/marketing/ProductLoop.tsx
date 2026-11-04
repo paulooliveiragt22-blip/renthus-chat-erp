@@ -32,6 +32,19 @@ export function ProductLoop() {
                     ))}
                 </div>
             </section>
+
+            <section aria-labelledby="cardapio-web-fluxo" className="mx-auto max-w-5xl px-4 py-12 sm:px-6">
+                <h2 id="cardapio-web-fluxo" className="sr-only">
+                    Como funciona o cardápio web
+                </h2>
+                <img
+                    src="/brand/cardapio-web.png"
+                    alt="O cliente pede no cardápio web, o pedido cai no painel e a comanda imprime."
+                    width={1024}
+                    height={1024}
+                    className="h-auto w-full rounded-2xl"
+                />
+            </section>
         </div>
     );
 }

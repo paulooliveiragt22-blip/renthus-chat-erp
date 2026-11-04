@@ -5,7 +5,7 @@ import { Check, Sparkles } from "lucide-react";
 import { BillingPeriodToggle, type BillingPeriodValue } from "@/components/billing/BillingPeriodToggle";
 import { PLAN_CATALOG, PLAN_ORDER, type CommercialPlanKey } from "@/lib/billing/planCatalog";
 import { yearlySavingsPercent } from "@/lib/billing/yearlyFromDiscount";
-import { PLAN_CARD_PITCH, PLAN_FEATURE_BLURBS } from "@/lib/marketing/copy";
+import { PLAN_CARD_PITCH, PLAN_FEATURE_BLURBS, PRO_ANNUAL_LEAFLETS } from "@/lib/marketing/copy";
 import { formatBrlFromCents } from "@/lib/marketing/marketplaceFees";
 import { accountHref } from "@/lib/marketing/hosts";
 import { ChannelSavings } from "@/components/marketing/ChannelSavings";
@@ -128,6 +128,21 @@ export function PlanShowcase({ linkToApp = false }: PlanShowcaseProps) {
                 <p className="mt-3 max-w-2xl text-sm leading-relaxed text-[#16364D]/75">
                     Preço de lista. A conta da seção anterior usa o Pro mensal. No anual, o valor por mês cai.
                 </p>
+                <div className="mt-6 grid overflow-hidden rounded-2xl border border-[#1a8f4a]/25 bg-white sm:grid-cols-[minmax(0,18rem)_1fr]">
+                    <img
+                        src="/brand/panfleto-pedido.jpg"
+                        alt="Adesivo no pedido com o WhatsApp e o cardápio web da loja."
+                        width={1024}
+                        height={1024}
+                        className="aspect-square h-auto w-full object-cover sm:max-h-80"
+                    />
+                    <div className="flex flex-col justify-center px-5 py-5 sm:px-6">
+                        <p className="text-xs font-extrabold tracking-wide text-[#1a8f4a]">PRO ANUAL</p>
+                        <p className="mt-2 text-base font-semibold leading-relaxed text-[#16364D]">
+                            {PRO_ANNUAL_LEAFLETS}
+                        </p>
+                    </div>
+                </div>
                 <div className="mt-6">
                     <BillingPeriodToggle
                         appearance="light"
@@ -188,6 +203,11 @@ export function PlanShowcase({ linkToApp = false }: PlanShowcaseProps) {
                                         {plan.yearlySavingsPercent > 0
                                             ? ` · economize ${plan.yearlySavingsPercent}%`
                                             : ""}
+                                    </p>
+                                ) : null}
+                                {plan.key === "pro" && showYear ? (
+                                    <p className="mt-3 rounded-xl bg-[#57ff8f]/45 px-3 py-2 text-sm font-semibold leading-relaxed text-[#16364D]">
+                                        1.000 panfletos de 90×15 mm para divulgar o número e mandar junto no pedido.
                                     </p>
                                 ) : null}
                                 {!showYear && hasPromo && plan.promoLabel ? (

@@ -100,6 +100,9 @@ export const LOYALTY = [
     },
 ] as const;
 
+export const PRO_ANNUAL_LEAFLETS =
+    "Na compra do Pro anual, a loja ganha 1.000 panfletos de 90×15 mm para divulgar o número e mandar junto no pedido.";
+
 export const FAQ_ITEMS = [
     {
         q: "Preciso falar com vendedor pra começar?",
@@ -120,6 +123,10 @@ export const FAQ_ITEMS = [
     {
         q: "E o iFood, o Aiqfome e o 99Food?",
         a: "Servem para cliente que ainda não te conhece. Quem já comprou pode pedir no seu WhatsApp e no cardápio, sem comissão por venda. A conta desta página usa taxas públicas de entrega da própria loja e pode ser diferente do contrato da sua cidade.",
+    },
+    {
+        q: "O Pro anual inclui panfleto?",
+        a: "Sim. Na compra do Pro anual a loja ganha 1.000 panfletos de 90×15 mm para divulgar o número e mandar junto no pedido.",
     },
     {
         q: "Dá pra mais de uma pessoa usar?",
