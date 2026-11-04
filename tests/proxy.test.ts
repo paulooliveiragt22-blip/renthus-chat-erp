@@ -252,14 +252,15 @@ describe("proxy auth routing", () => {
         assert.strictEqual(response.headers.get("location"), "https://example.com/inicio");
     });
 
-    it("redirects the legacy app host to app.zampell.com.br", async () => {
-        const { factory: publicFactory } = createMockClient(null);
-        const response = await proxy(createRequest("/login", undefined, "GET", "app.renthus.com.br"), undefined, {
-            createClient: publicFactory,
-        });
-        assert.equal(publicFactory.mock.calls.length, 0);
-        assert.equal(response.status, 308);
-        assert.equal(response.headers.get("location"), "https://app.zampell.com.br/login");
+    it("serves login on both app hosts", async () => {
+        for (const host of ["app.renthus.com.br", "app.zampell.com.br"]) {
+            const { factory: publicFactory } = createMockClient(null);
+            const response = await proxy(createRequest("/login", undefined, "GET", host), undefined, {
+                createClient: publicFactory,
+            });
+            assert.equal(publicFactory.mock.calls.length, 0);
+            assert.equal(response.headers.get("location"), null);
+        }
     });
 
     it("keeps the marketing host on the landing and sends the app away", async () => {

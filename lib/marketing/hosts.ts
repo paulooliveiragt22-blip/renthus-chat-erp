@@ -1,9 +1,8 @@
 import type { EnvLike } from "@/lib/env/EnvLike";
 
 const DEFAULT_MARKETING_HOSTS = ["zampell.com.br", "www.zampell.com.br"] as const;
-/** App deste projeto. O host antigo só redireciona para cá. */
+/** Origem dos links da vitrine quando `NEXT_PUBLIC_APP_URL` não está definido. */
 export const CANONICAL_APP_ORIGIN = "https://app.zampell.com.br";
-export const LEGACY_APP_HOST = "app.renthus.com.br";
 
 function bareHost(host: string): string {
     const withoutPort = host.trim().toLowerCase().replace(/:\d+$/, "").replace(/\.$/, "");
@@ -24,10 +23,6 @@ export function isMarketingHostname(host: string, env: EnvLike = process.env): b
 }
 
 /** Origem do app (login, painel, cardápio). Sem barra no fim. */
-export function isLegacyAppHostname(host: string): boolean {
-    return bareHost(host) === LEGACY_APP_HOST;
-}
-
 export function appPublicOrigin(env: EnvLike = process.env): string {
     const raw = env.NEXT_PUBLIC_APP_URL?.trim() || CANONICAL_APP_ORIGIN;
     return raw.replace(/\/$/, "");

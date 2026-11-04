@@ -20,31 +20,21 @@ import { cn } from "@/lib/utils";
 import Modal from "@/lib/orders/Modal";
 import { Skeleton } from "@/components/ui/skeleton";
 import { CommandMenu } from "@/components/command/CommandMenu";
+import { isAdminShellStandalone } from "@/lib/ui/adminShellMode";
 
 // ── Wrapper externo: só lê pathname (resolve rules-of-hooks) ──────────────────
-export default function AdminShell({ children }: { children: React.ReactNode }) {
+export default function AdminShell({
+    children,
+    host = "",
+}: {
+    children: React.ReactNode;
+    host?: string;
+}) {
     const pathname = usePathname();
 
-    // Paywall / onboarding standalone (sem sidebar). Hub `/plano` fica no AdminShell.
-    const isStandalone =
-        pathname === "/login" ||
-        pathname === "/billing/blocked" ||
-        pathname.startsWith("/signup") ||
-        pathname === "/inicio" ||
-        pathname.startsWith("/inicio/") ||
-        pathname.startsWith("/onboarding") ||
-        pathname === "/ativar" ||
-        pathname.startsWith("/ativar/") ||
-        pathname === "/plano/pagar" ||
-        pathname === "/plano/bloqueado" ||
-        pathname === "/plano/reativar" ||
-        pathname === "/logout" ||
-        pathname.startsWith("/c/") ||
-        pathname === "/c" ||
-        pathname.startsWith("/superadmin") ||
-        pathname.startsWith("/platform");
-
-    if (isStandalone) return <>{children}</>;
+    // Paywall / onboarding / vitrine standalone (sem sidebar). Hub `/plano` fica no AdminShell.
+    // Na vitrine o rewrite deixa a URL em `/`, então o host decide, não o pathname.
+    if (isAdminShellStandalone(pathname, host)) return <>{children}</>;
 
     return <AdminShellInner>{children}</AdminShellInner>;
 }

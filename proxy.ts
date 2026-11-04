@@ -19,12 +19,7 @@ import {
     lookupMenuSlugByHostViaRest,
     resolveMenuHostRewrite,
 } from "@/lib/public-menu/menuHostRewrite";
-import {
-    CANONICAL_APP_ORIGIN,
-    appPublicOrigin,
-    isLegacyAppHostname,
-    marketingHostAction,
-} from "@/lib/marketing/hosts";
+import { appPublicOrigin, marketingHostAction } from "@/lib/marketing/hosts";
 import { resolveTenantAccess } from "@/lib/billing/tenantAccess";
 import { isPrintAgentMachineApi } from "@/lib/security/printAgentMachineApi";
 import {
@@ -412,17 +407,6 @@ function isPublicAppRoute(pathname: string): boolean {
     );
 }
 
-function handleLegacyAppHost(
-    request: NextRequest,
-    pathname: string,
-    csp: CspContext
-): NextResponse | null {
-    const host = resolveEffectiveRequestHostname(request.headers, request.nextUrl.hostname);
-    if (!isLegacyAppHostname(host)) return null;
-    const target = `${CANONICAL_APP_ORIGIN}${pathname}${request.nextUrl.search}`;
-    return stampCspResponse(NextResponse.redirect(target, 308), csp);
-}
-
 function handleMarketingHost(
     request: NextRequest,
     pathname: string,
@@ -457,9 +441,6 @@ export async function proxy(
 ) {
     const pathname = request.nextUrl.pathname;
     const csp = createCspContext();
-
-    const legacyRes = handleLegacyAppHost(request, pathname, csp);
-    if (legacyRes) return legacyRes;
 
     const marketingRes = handleMarketingHost(request, pathname, csp);
     if (marketingRes) return marketingRes;

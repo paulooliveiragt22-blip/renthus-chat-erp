@@ -3,7 +3,7 @@ import { resolvePublicAppBaseUrl } from "@/lib/public-menu/appBaseUrl";
 
 /**
  * Base pública para redirect_uri do Facebook Login.
- * Prefere o Host da request (app.zampell.com.br) em vez de cair em VERCEL_URL
+ * Prefere o Host da request (app.zampell.com.br ou app.renthus.com.br) em vez de cair em VERCEL_URL
  * (*.vercel.app) quando NEXT_PUBLIC_APP_URL não está no runtime — causa clássica
  * de "URL bloqueada" na Meta.
  */

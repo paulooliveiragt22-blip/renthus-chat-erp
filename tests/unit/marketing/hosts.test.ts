@@ -3,10 +3,10 @@ import { describe, it } from "node:test";
 
 import {
     accountHref,
-    isLegacyAppHostname,
     isMarketingHostname,
     marketingHostAction,
 } from "../../../lib/marketing/hosts";
+import { isAdminShellStandalone } from "../../../lib/ui/adminShellMode";
 
 const env = { NEXT_PUBLIC_APP_URL: "https://app.zampell.com.br" };
 
@@ -14,9 +14,8 @@ describe("marketing host", () => {
     it("reconhece o apex e o www", () => {
         assert.equal(isMarketingHostname("www.zampell.com.br", env), true);
         assert.equal(isMarketingHostname("zampell.com.br:443", env), true);
-        assert.equal(isLegacyAppHostname("app.renthus.com.br"), true);
-        assert.equal(isLegacyAppHostname("app.zampell.com.br"), false);
         assert.equal(isMarketingHostname("app.zampell.com.br", env), false);
+        assert.equal(isMarketingHostname("app.renthus.com.br", env), false);
     });
 
     it("manda conta para o app só na vitrine", () => {
@@ -42,5 +41,14 @@ describe("marketing host", () => {
         assert.equal(marketingHostAction("www.zampell.com.br", "/c/loja", env).type, "redirect");
         assert.equal(marketingHostAction("www.zampell.com.br", "/api/orders/list", env).type, "deny");
         assert.equal(marketingHostAction("app.zampell.com.br", "/pdv", env).type, "ignore");
+        assert.equal(marketingHostAction("app.renthus.com.br", "/pdv", env).type, "ignore");
+    });
+
+    it("esconde o painel na vitrine mesmo com a URL em /", () => {
+        assert.equal(isAdminShellStandalone("/", "www.zampell.com.br", env), true);
+        assert.equal(isAdminShellStandalone("/", "zampell.com.br", env), true);
+        assert.equal(isAdminShellStandalone("/", "app.zampell.com.br", env), false);
+        assert.equal(isAdminShellStandalone("/inicio", "app.zampell.com.br", env), true);
+        assert.equal(isAdminShellStandalone("/pdv", "app.renthus.com.br", env), false);
     });
 });

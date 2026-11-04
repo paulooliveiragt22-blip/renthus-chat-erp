@@ -5,6 +5,8 @@ import { headers } from "next/headers";
 import AdminShell from "@/components/AdminShell";
 import ThemeProvider from "@/components/ThemeProvider";
 import { Providers } from "@/components/Providers";
+import { isMarketingHostname } from "@/lib/marketing/hosts";
+import { resolveRequestHostname } from "@/lib/platform/resolvePlatformRequestHost";
 import { X_NONCE_HEADER } from "@/lib/security/cspPolicy";
 
 export const metadata = {
@@ -40,7 +42,10 @@ export default async function RootLayout({
 }) {
   // Next lê x-nonce + CSP do request (proxy) e aplica nos scripts do runtime.
   // headers() força render dinâmico — nonce não pode ser estático.
-  const nonce = (await headers()).get(X_NONCE_HEADER);
+  const headerList = await headers();
+  const nonce = headerList.get(X_NONCE_HEADER);
+  const host = resolveRequestHostname(headerList);
+  const marketingHost = isMarketingHostname(host);
 
   return (
     <html lang="pt-BR" suppressHydrationWarning data-csp-nonce={nonce ?? undefined}>
@@ -49,7 +54,7 @@ export default async function RootLayout({
           <Providers>
             {/* Suspense aqui evita o erro "useSearchParams() should be wrapped in a suspense boundary" */}
             <Suspense fallback={<div />}>
-              <AdminShell>{children}</AdminShell>
+              <AdminShell host={marketingHost ? host : ""}>{children}</AdminShell>
             </Suspense>
           </Providers>
         </ThemeProvider>
