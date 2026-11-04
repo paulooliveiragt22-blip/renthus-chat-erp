@@ -2,6 +2,7 @@ import assert from "node:assert";
 import { beforeEach, afterEach, describe, it, mock } from "node:test";
 import { NextRequest } from "next/server";
 import { proxy, type SupabaseClientFactory } from "../proxy";
+import { appPublicOrigin } from "../lib/marketing/hosts";
 
 type MockedClientFactory = SupabaseClientFactory & {
     mock: ReturnType<typeof mock.fn>["mock"];
@@ -241,14 +242,72 @@ describe("proxy auth routing", () => {
         assert.strictEqual(response.headers.get("location"), "https://example.com/login");
     });
 
-    it("redirects unauthenticated root to commercial signup", async () => {
+    it("redirects unauthenticated root to the commercial landing", async () => {
         const { factory: protectedFactory } = createMockClient(null);
         const response = await proxy(createRequest("/"), undefined, {
             createClient: protectedFactory,
         });
 
         assert.strictEqual(response.status, 307);
-        assert.strictEqual(response.headers.get("location"), "https://example.com/signup");
+        assert.strictEqual(response.headers.get("location"), "https://example.com/inicio");
+    });
+
+    it("redirects the legacy app host to app.zampell.com.br", async () => {
+        const { factory: publicFactory } = createMockClient(null);
+        const response = await proxy(createRequest("/login", undefined, "GET", "app.renthus.com.br"), undefined, {
+            createClient: publicFactory,
+        });
+        assert.equal(publicFactory.mock.calls.length, 0);
+        assert.equal(response.status, 308);
+        assert.equal(response.headers.get("location"), "https://app.zampell.com.br/login");
+    });
+
+    it("keeps the marketing host on the landing and sends the app away", async () => {
+        const { factory: publicFactory } = createMockClient(null);
+        const origin = appPublicOrigin();
+
+        const root = await proxy(createRequest("/", undefined, "GET", "www.zampell.com.br"), undefined, {
+            createClient: publicFactory,
+        });
+        assert.equal(publicFactory.mock.calls.length, 0);
+        assert.equal(root.headers.get("location"), null);
+        assert.match(root.headers.get("x-middleware-rewrite") ?? "", /\/inicio$/);
+
+        const login = await proxy(createRequest("/login", undefined, "GET", "zampell.com.br"), undefined, {
+            createClient: publicFactory,
+        });
+        assert.equal(login.status, 307);
+        assert.equal(login.headers.get("location"), `${origin}/login`);
+
+        const signup = await proxy(
+            createRequest("/signup?plano=pro&periodo=year", undefined, "GET", "www.zampell.com.br"),
+            undefined,
+            { createClient: publicFactory }
+        );
+        assert.equal(signup.status, 307);
+        assert.equal(signup.headers.get("location"), `${origin}/signup?plano=pro&periodo=year`);
+
+        const pdv = await proxy(createRequest("/pdv", undefined, "GET", "www.zampell.com.br"), undefined, {
+            createClient: publicFactory,
+        });
+        assert.equal(pdv.headers.get("location"), `${origin}/pdv`);
+
+        const api = await proxy(
+            createRequest("/api/orders/list", undefined, "GET", "www.zampell.com.br"),
+            undefined,
+            { createClient: publicFactory }
+        );
+        assert.equal(api.status, 403);
+    });
+
+    it("serves the commercial landing without auth", async () => {
+        const { factory: publicFactory } = createMockClient(null);
+        const response = await proxy(createRequest("/inicio"), undefined, {
+            createClient: publicFactory,
+        });
+
+        assert.strictEqual(publicFactory.mock.calls.length, 0);
+        assert.strictEqual(response.headers.get("location"), null);
     });
 
     it("redirects superadmin to platform", async () => {

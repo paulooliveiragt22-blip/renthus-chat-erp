@@ -155,7 +155,7 @@ export async function POST(req: Request) {
         }
 
         const companyId = billing.companyId;
-        const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://app.renthus.com.br";
+        const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://app.zampell.com.br";
         const cadastroLabel = billing.paymentRequired
             ? "Novo cadastro (aguardando pagamento)"
             : `Novo cadastro (trial ${billing.trialDays}d)`;

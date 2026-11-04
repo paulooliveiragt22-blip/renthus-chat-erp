@@ -6,7 +6,7 @@
  *
  * .env.local:
  *   E2E_SKIP_WEBSERVER=1
- *   E2E_BASE_URL=https://app.renthus.com.br
+ *   E2E_BASE_URL=https://app.zampell.com.br
  *   E2E_EMAIL=...
  *   E2E_PASSWORD=...
  *   E2E_PLANO_COMPANY_ID=...   # opcional — empresa active + last_paid_at

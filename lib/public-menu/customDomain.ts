@@ -1,5 +1,6 @@
 import { parseMenuSlug } from "@/lib/public-menu/slug";
 import type { EnvLike } from "@/lib/env/EnvLike";
+import { isMarketingHostname } from "@/lib/marketing/hosts";
 
 const HOST_RE =
     /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/;
@@ -45,10 +46,11 @@ export function isAppApexHost(
 ): boolean {
     const h = normalizeMenuHost(host);
     if (!h) return true;
+    if (isMarketingHostname(h, env)) return true;
     if (h === "localhost" || h === "127.0.0.1") return true;
     if (h.endsWith(".vercel.app")) return true;
 
-    const apex: string[] = ["app.renthus.com.br"];
+    const apex: string[] = ["app.zampell.com.br", "app.renthus.com.br"];
     const platformHost = env.PLATFORM_ADMIN_HOST?.trim();
     if (platformHost) {
         apex.push(normalizeMenuHost(platformHost));

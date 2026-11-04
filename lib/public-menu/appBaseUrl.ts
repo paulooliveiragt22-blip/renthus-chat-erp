@@ -17,7 +17,7 @@ export function resolvePublicAppBaseUrl(
         return `https://${host}`;
     }
 
-    return "https://app.renthus.com.br";
+    return "https://app.zampell.com.br";
 }
 
 export function buildPublicMenuPath(slug: string): string {

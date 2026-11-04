@@ -57,7 +57,7 @@ Estrutura (Clean Architecture desta stack):
 # produção (já enforce 2026-09-05)
 npm run check:csp
 # ou
-curl.exe -sI https://app.renthus.com.br/login
+curl.exe -sI https://app.zampell.com.br/login
 
 # local (com `npm run dev`)
 npm run check:csp -- http://localhost:3000/login

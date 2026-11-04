@@ -2,7 +2,7 @@
 /**
  * S10/S11 — confere CSP enforce + X-Frame-Options no HTTP (sem DevTools).
  * Uso: npm run check:csp
- *      npm run check:csp -- https://app.renthus.com.br/login
+ *      npm run check:csp -- https://app.zampell.com.br/login
  *      CSP_CHECK_URL=http://localhost:3000/login npm run check:csp
  */
 import { createRequire } from "node:module";
@@ -14,7 +14,7 @@ const { assertCspResponseHeaders } = requireCjs("./lib/security/assertCspHeaders
 const url =
     process.argv[2] ||
     process.env.CSP_CHECK_URL ||
-    "https://app.renthus.com.br/login";
+    "https://app.zampell.com.br/login";
 
 const res = await fetch(url, {
     method: "GET",

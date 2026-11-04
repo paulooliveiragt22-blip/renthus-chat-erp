@@ -7,6 +7,7 @@ import {
     getPlatformAdminHost,
     isPlatformDedicatedHostRequest,
     platformAdminCanonicalUrl,
+    resolveEffectiveRequestHostname,
     resolveRequestHostname,
 } from "@/lib/platform/resolvePlatformRequestHost";
 import {
@@ -18,6 +19,12 @@ import {
     lookupMenuSlugByHostViaRest,
     resolveMenuHostRewrite,
 } from "@/lib/public-menu/menuHostRewrite";
+import {
+    CANONICAL_APP_ORIGIN,
+    appPublicOrigin,
+    isLegacyAppHostname,
+    marketingHostAction,
+} from "@/lib/marketing/hosts";
 import { resolveTenantAccess } from "@/lib/billing/tenantAccess";
 import { isPrintAgentMachineApi } from "@/lib/security/printAgentMachineApi";
 import {
@@ -384,6 +391,8 @@ function isPublicAppRoute(pathname: string): boolean {
         pathname.startsWith("/auth") ||
         pathname.startsWith("/billing/blocked") ||
         pathname.startsWith("/signup") ||
+        pathname === "/inicio" ||
+        pathname.startsWith("/inicio/") ||
         pathname.startsWith("/onboarding") ||
         pathname.startsWith("/c/") ||
         pathname === "/c" ||
@@ -403,6 +412,44 @@ function isPublicAppRoute(pathname: string): boolean {
     );
 }
 
+function handleLegacyAppHost(
+    request: NextRequest,
+    pathname: string,
+    csp: CspContext
+): NextResponse | null {
+    const host = resolveEffectiveRequestHostname(request.headers, request.nextUrl.hostname);
+    if (!isLegacyAppHostname(host)) return null;
+    const target = `${CANONICAL_APP_ORIGIN}${pathname}${request.nextUrl.search}`;
+    return stampCspResponse(NextResponse.redirect(target, 308), csp);
+}
+
+function handleMarketingHost(
+    request: NextRequest,
+    pathname: string,
+    csp: CspContext
+): NextResponse | null {
+    const host = resolveEffectiveRequestHostname(request.headers, request.nextUrl.hostname);
+    const action = marketingHostAction(host, pathname);
+    if (action.type === "ignore") return null;
+    if (action.type === "next") return nextWithCsp(request, csp);
+    if (action.type === "rewrite") {
+        const url = request.nextUrl.clone();
+        url.pathname = action.pathname;
+        return rewriteWithCsp(request, url, csp);
+    }
+    if (action.type === "deny") {
+        return stampCspResponse(
+            NextResponse.json(
+                { error: "Host not allowed", code: "host_not_allowed" },
+                { status: 403 }
+            ),
+            csp
+        );
+    }
+    const target = `${appPublicOrigin()}${pathname}${request.nextUrl.search}`;
+    return stampCspResponse(NextResponse.redirect(target, 307), csp);
+}
+
 export async function proxy(
     request: NextRequest,
     _event?: NextFetchEvent,
@@ -410,6 +457,12 @@ export async function proxy(
 ) {
     const pathname = request.nextUrl.pathname;
     const csp = createCspContext();
+
+    const legacyRes = handleLegacyAppHost(request, pathname, csp);
+    if (legacyRes) return legacyRes;
+
+    const marketingRes = handleMarketingHost(request, pathname, csp);
+    if (marketingRes) return marketingRes;
 
     // F4.3: subdomínio / domínio próprio → /c/{slug}
     const hostHeader =
@@ -470,9 +523,9 @@ export async function proxy(
 
     if (!isLoggedIn) {
         const url = request.nextUrl.clone();
-        // MVP comercial: raiz e rotas protegidas sem sessão → vitrine /signup (compra).
+        // Visitante na raiz vê a vitrine /inicio. Compra fica em /signup.
         // Login explícito permanece em /login para quem já tem conta.
-        url.pathname = pathname === "/" ? "/signup" : "/login";
+        url.pathname = pathname === "/" ? "/inicio" : "/login";
         return stampCspResponse(NextResponse.redirect(url), csp);
     }
 

@@ -162,7 +162,7 @@ async function provisionUserAfterPayment(
         console.log(`[pagarmeSetupPaid] Auth user criado para ${company.email}`);
     }
 
-    const appUrl     = process.env.NEXT_PUBLIC_APP_URL ?? "https://app.renthus.com.br";
+    const appUrl     = process.env.NEXT_PUBLIC_APP_URL ?? "https://app.zampell.com.br";
     const loginUrl   = `${appUrl}/login`;
 
     const renthusNumber = process.env.RENTHUS_SUPPORT_PHONE ?? "5566992071285";

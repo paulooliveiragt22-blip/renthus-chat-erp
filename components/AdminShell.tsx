@@ -30,6 +30,8 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
         pathname === "/login" ||
         pathname === "/billing/blocked" ||
         pathname.startsWith("/signup") ||
+        pathname === "/inicio" ||
+        pathname.startsWith("/inicio/") ||
         pathname.startsWith("/onboarding") ||
         pathname === "/ativar" ||
         pathname.startsWith("/ativar/") ||

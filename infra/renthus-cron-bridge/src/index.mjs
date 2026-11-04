@@ -1,7 +1,7 @@
 // renthus-cron-bridge handler (Node.js 22.x)
 // Recebe { targetUrl } via EventBridge Constant (JSON text) e dispara GET
 // autenticado por Bearer CRON_SECRET contra a rota cron correspondente
-// na Vercel (app.renthus.com.br). Logs vao para CloudWatch Logs.
+// na Vercel (app.zampell.com.br). Logs vao para CloudWatch Logs.
 
 export const handler = async (event) => {
   const url = event?.targetUrl || process.env.DEFAULT_URL;

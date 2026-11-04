@@ -62,7 +62,7 @@ Fazer **antes** ou em paralelo ao C6.1. Sem isto o botão só funciona para admi
   - Token: Business Integration System User, **never expire**
 - [ ] Login → Settings: Client OAuth, Web OAuth, Enforce HTTPS, Strict Mode
 - [ ] **Login com o SDK do Javascript = Sim** (sem isto o popup abre e a Meta mostra “A opção JSSDK não está ativada”)
-- [ ] Allowed Domains for the JavaScript SDK = host do SaaS **exato** (ex. `app.renthus.com.br`; sem `https://`)
+- [ ] Allowed Domains for the JavaScript SDK = host do SaaS **exato** (ex. `app.zampell.com.br`; sem `https://`)
 - [ ] Valid OAuth Redirect URIs = origem HTTPS exata (byte a byte)
 - [ ] Copiar Configuration ID → Vercel `META_EMBEDDED_SIGNUP_CONFIG_ID`
 - [ ] `NEXT_PUBLIC_META_APP_ID` = mesmo `META_APP_ID` do App Tech Provider

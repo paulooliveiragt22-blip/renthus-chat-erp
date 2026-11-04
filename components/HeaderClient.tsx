@@ -195,6 +195,8 @@ export default function HeaderClient({
         pathname === "/register" ||
         pathname === "/billing/blocked" ||
         pathname.startsWith("/signup") ||
+        pathname === "/inicio" ||
+        pathname.startsWith("/inicio/") ||
         pathname.startsWith("/onboarding") ||
         pathname.startsWith("/c/") ||
         pathname === "/c" ||

@@ -3,8 +3,8 @@
 /**
  * app/(public)/signup/page.tsx  →  rota: /signup
  *
- * Landing comercial MVP Zampell Delivery + checkout na mesma tela.
- * Trial configurável no platform (default 0 = pagamento antes de usar).
+ * Checkout: escolha de plano + criação de conta.
+ * A vitrine fica em /inicio. Trial configurável no platform (default 0 = paga para usar).
  */
 
 import { useMemo, useState, useRef, useEffect } from "react";
@@ -19,7 +19,8 @@ import {
     PLAN_CARD_ACCENT_SHADOW,
     PLAN_TOGGLE_ACCENT,
 } from "@/lib/billing/planOfferUi";
-import { PLAN_CATALOG, PLAN_ORDER, type CommercialPlanKey } from "@/lib/billing/planCatalog";
+import { parseCommercialPlanInput, PLAN_CATALOG, PLAN_ORDER, type CommercialPlanKey } from "@/lib/billing/planCatalog";
+import { PLAN_CARD_PITCH, PLAN_FEATURE_BLURBS, type PlanFeatureRow } from "@/lib/marketing/copy";
 import { yearlySavingsPercent } from "@/lib/billing/yearlyFromDiscount";
 import {
     mixpanelIdentify,
@@ -29,10 +30,6 @@ import {
 type TrialPolicy = { trial_days: number; payment_required: boolean };
 
 type BillingPeriod = "month" | "year";
-
-type PlanFeatureRow =
-    | { kind: "item"; label: string; ai?: boolean }
-    | { kind: "plus" };
 
 type SignupPlanCard = {
     key: CommercialPlanKey;
@@ -46,83 +43,6 @@ type SignupPlanCard = {
     promoLabel: string | null;
     features: PlanFeatureRow[];
 };
-
-/** Copy de recursos da vitrine — só WhatsApp (sem IG/Messenger). */
-const PLAN_CARD_PITCH: Record<CommercialPlanKey, string> = {
-    essencial: "Pra quem precisa parar de anotar pedido no Zap e ter um cardápio decente.",
-    pro: "Pra quem já vende todo dia e precisa que o pedido vire comanda, estoque e caixa — sem retrabalho.",
-    market: "Pra operação com mais gente no painel no mesmo horário.",
-};
-
-const PLAN_FEATURE_BLURBS: Record<CommercialPlanKey, PlanFeatureRow[]> = {
-    essencial: [
-        { kind: "item", label: "Agente IA no WhatsApp", ai: true },
-        { kind: "item", label: "Cardápio web inteligente" },
-        { kind: "item", label: "PDV básico pra vender no balcão" },
-        { kind: "item", label: "Cadastro de produtos" },
-    ],
-    pro: [
-        { kind: "item", label: "Agente IA no WhatsApp", ai: true },
-        { kind: "item", label: "Tudo do Essencial" },
-        { kind: "plus" },
-        { kind: "item", label: "Cardápio web inteligente, integrado" },
-        { kind: "item", label: "Agent de impressão automática" },
-        { kind: "item", label: "PDV completo" },
-        { kind: "item", label: "Gestão de estoque" },
-        { kind: "item", label: "Controle financeiro" },
-        { kind: "item", label: "Templates e campanhas no WhatsApp" },
-        { kind: "item", label: "01 usuário" },
-    ],
-    market: [
-        { kind: "item", label: "Agente IA no WhatsApp", ai: true },
-        { kind: "item", label: "Tudo do Essencial" },
-        { kind: "plus" },
-        { kind: "item", label: "Cardápio web inteligente, integrado" },
-        { kind: "item", label: "Agent de impressão automática" },
-        { kind: "item", label: "PDV completo" },
-        { kind: "item", label: "Gestão de estoque" },
-        { kind: "item", label: "Controle financeiro" },
-        { kind: "item", label: "Templates e campanhas no WhatsApp" },
-        { kind: "item", label: "10 usuários" },
-    ],
-};
-
-const HERO_BENEFITS = [
-    "Você controla pelo seu telefone ou computador.",
-    "Impressão do pedido automático, não precisa escrever à mão.",
-    "Cardápio web inteligente, integrado.",
-    "Cliente não precisa baixar aplicativo.",
-    "O canal é todo seu, sem taxas por vendas sem comer seus lucros.",
-] as const;
-
-const HOW_STEPS = [
-    "Cadastra o que você vende e publica o cardápio.",
-    "O cliente pede no WhatsApp — o agente monta o pedido.",
-    "Você confirma e manda sair. No Pro e no Market a comanda imprime, o estoque baixa e o valor entra no financeiro.",
-] as const;
-
-const FAQ_ITEMS = [
-    {
-        q: "Preciso falar com vendedor pra começar?",
-        a: "Não. Escolhe o plano, cria a conta e paga.",
-    },
-    {
-        q: "Funciona no celular?",
-        a: "Sim. Celular ou computador.",
-    },
-    {
-        q: "Imprime comanda?",
-        a: "No Pro e no Market o pedido vai direto pra impressora.",
-    },
-    {
-        q: "O cliente precisa baixar app?",
-        a: "Não. Abre o cardápio no navegador ou pede no WhatsApp.",
-    },
-    {
-        q: "Dá pra mais de uma pessoa usar?",
-        a: "Essencial e Pro: 1 usuário. Market: 10. No Pro e no Market dá pra adicionar gente extra (R$ 99/mês).",
-    },
-] as const;
 
 function AiSparklesIcon() {
     return (
@@ -240,6 +160,19 @@ export default function SignupPage() {
     });
 
     const formRef = useRef<HTMLFormElement>(null);
+
+    useEffect(() => {
+        const params = new URLSearchParams(window.location.search);
+        const key = parseCommercialPlanInput(params.get("plano"));
+        const period = params.get("periodo");
+        if (period === "month" || period === "year") setBillingPeriod(period);
+        if (!key) return;
+        setSelectedPlan(key);
+        const timer = window.setTimeout(() => {
+            formRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+        }, 80);
+        return () => window.clearTimeout(timer);
+    }, []);
 
     useEffect(() => {
         let cancelled = false;
@@ -465,35 +398,16 @@ export default function SignupPage() {
             </header>
 
             <div style={S.hero}>
-                <h1 style={S.title}>
-                    O WhatsApp do seu delivery atende e anota o pedido?
-                </h1>
-                <p style={S.heroAnswer}>O nosso sim!</p>
+                <h1 style={S.title}>Escolha o plano e crie a conta</h1>
                 <p style={S.subtitle}>
-                    Conheça o nosso agente de IA que atende, anota e imprime o pedido na hora.
-                </p>
-                <ul style={S.heroBenefits}>
-                    {HERO_BENEFITS.map((line) => (
-                        <li key={line} style={S.heroBenefitItem}>
-                            <FeatureCheckIcon color={BRAND.planAccent} size={18} />
-                            <span>{line}</span>
-                        </li>
-                    ))}
-                </ul>
-                <div style={S.heroCtas}>
-                    <a href="#planos" style={S.heroCtaPrimary}>
-                        Escolher plano e começar
-                    </a>
-                    <a href="/login" style={S.heroCtaSecondary}>
-                        Já tenho conta · Entrar
-                    </a>
-                </div>
-                <p style={S.policyLine}>
-                    Sem taxa pra começar · Paga e usa · Cancela quando quiser
+                    Mensalidade fixa. Sem comissão por pedido.
                     {policyLoaded && !trialPolicy.payment_required
-                        ? ` · ${trialPolicy.trial_days} dias de teste`
-                        : ""}
+                        ? ` ${trialPolicy.trial_days} dias de teste antes da primeira cobrança.`
+                        : " Paga e usa."}
                 </p>
+                <a href="/inicio" style={S.loginLink}>
+                    Ver o que muda no lugar do app de delivery
+                </a>
             </div>
 
             <div style={S.periodToggleWrap} id="planos">
@@ -769,46 +683,6 @@ export default function SignupPage() {
                     </p>
                 </form>
             )}
-
-            <section style={S.howSection} aria-labelledby="como-funciona">
-                <h2 id="como-funciona" style={S.sectionHeading}>
-                    Como funciona
-                </h2>
-                <ol style={S.howList}>
-                    {HOW_STEPS.map((step, i) => (
-                        <li key={step} style={S.howItem}>
-                            <span style={S.howNum}>{i + 1}</span>
-                            <span>{step}</span>
-                        </li>
-                    ))}
-                </ol>
-            </section>
-
-            <section style={S.faqSection} aria-labelledby="faq">
-                <h2 id="faq" style={S.sectionHeading}>
-                    Perguntas frequentes
-                </h2>
-                <div style={S.faqList}>
-                    {FAQ_ITEMS.map((item) => (
-                        <details key={item.q} style={S.faqItem}>
-                            <summary style={S.faqSummary}>{item.q}</summary>
-                            <p style={S.faqAnswer}>{item.a}</p>
-                        </details>
-                    ))}
-                </div>
-            </section>
-
-            <section style={S.finalCta} aria-labelledby="cta-final">
-                <h2 id="cta-final" style={S.finalTitle}>
-                    Cansou de anotar pedido no Zap e conferir depois se saiu certo?
-                </h2>
-                <p style={S.finalSub}>
-                    Escolhe o plano, ativa o agente e deixa o pedido cair no painel.
-                </p>
-                <a href="#planos" style={S.heroCtaPrimary}>
-                    Começar com Zampell Delivery
-                </a>
-            </section>
 
             <p style={S.loginLine}>
                 Já tem conta?{" "}

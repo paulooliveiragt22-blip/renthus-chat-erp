@@ -6,7 +6,7 @@
  *
  * .env.local:
  *   E2E_SKIP_WEBSERVER=1
- *   E2E_BASE_URL=https://app.renthus.com.br
+ *   E2E_BASE_URL=https://app.zampell.com.br
  *   NEXT_PUBLIC_SUPABASE_URL / NEXT_PUBLIC_SUPABASE_ANON_KEY
  */
 
