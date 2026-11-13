@@ -2,6 +2,12 @@ import { Boxes, MessageCircle, Printer, Store } from "lucide-react";
 import { HOW_STEPS, PRODUCT_BLOCKS } from "@/lib/marketing/copy";
 
 const ICONS = [MessageCircle, Store, Printer, Boxes] as const;
+const ICON_TONES = [
+    "border-emerald-200 bg-emerald-50 text-emerald-700",
+    "border-sky-200 bg-sky-50 text-sky-700",
+    "border-amber-200 bg-amber-50 text-amber-700",
+    "border-violet-200 bg-violet-50 text-violet-700",
+] as const;
 
 export function ProductLoop() {
     return (
@@ -49,7 +55,7 @@ export function ProductLoop() {
                                         wide ? "lg:col-span-2" : ""
                                     }`}
                                 >
-                                    <span className="inline-flex size-10 items-center justify-center rounded-xl border border-slate-200/80 bg-slate-50 text-emerald-700">
+                                    <span className={`inline-flex size-10 items-center justify-center rounded-xl border ${ICON_TONES[index] ?? ICON_TONES[0]}`}>
                                         <Icon className="size-5" aria-hidden />
                                     </span>
                                     <h3 className="mt-4 font-[family-name:var(--font-landing-display)] text-lg font-extrabold tracking-tight text-slate-950">
@@ -62,21 +68,6 @@ export function ProductLoop() {
                             );
                         })}
                     </div>
-                </div>
-            </section>
-
-            <section aria-labelledby="cardapio-web-fluxo" className="bg-white">
-                <div className="mx-auto max-w-5xl px-4 py-20 sm:px-6">
-                    <h2 id="cardapio-web-fluxo" className="sr-only">
-                        Como funciona o cardápio web
-                    </h2>
-                    <img
-                        src="/brand/cardapio-web.png"
-                        alt="O cliente pede no cardápio web, o pedido cai no painel e a comanda imprime."
-                        width={1024}
-                        height={1024}
-                        className="h-auto w-full rounded-3xl border border-slate-200/80 shadow-xl"
-                    />
                 </div>
             </section>
         </div>

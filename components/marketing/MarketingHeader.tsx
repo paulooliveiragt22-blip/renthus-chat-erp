@@ -6,7 +6,7 @@ type MarketingHeaderProps = {
 
 export function MarketingHeader({ linkToApp = false }: MarketingHeaderProps) {
     return (
-        <header className="sticky top-0 z-50 border-b border-slate-200/80 bg-white/80 text-slate-950 backdrop-blur-md">
+        <header className="sticky top-0 z-50 border-b border-slate-200/60 bg-white/80 text-slate-950 backdrop-blur-md">
             <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-3 sm:px-6">
                 <a href={linkToApp ? "/" : "/inicio"} className="flex min-w-0 items-center gap-2.5">
                     <img
@@ -32,7 +32,7 @@ export function MarketingHeader({ linkToApp = false }: MarketingHeaderProps) {
                     </a>
                     <a
                         href={linkToApp ? accountHref("/signup", true) : "#planos"}
-                        className="rounded-full bg-emerald-600 px-3 py-2 text-sm font-semibold text-white shadow-sm shadow-emerald-600/20 transition-all duration-200 hover:bg-emerald-500 sm:px-4"
+                        className="rounded-full bg-emerald-600 px-3 py-2 text-sm font-semibold text-white shadow-lg shadow-emerald-600/20 transition-all duration-200 hover:bg-emerald-500 sm:px-4"
                     >
                         Começar
                     </a>

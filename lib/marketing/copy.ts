@@ -101,17 +101,17 @@ export const LOYALTY = [
 ] as const;
 
 export const PRO_ANNUAL_LEAFLETS =
-    "Bônus anual: 1.000 panfletos prontos para colar na sacola e migrar seus clientes do iFood para o seu WhatsApp.";
+    "Bônus Anual: 1.000 panfletos prontos para colar na sacola e migrar seus clientes do iFood para o seu WhatsApp.";
 
 export const PLAN_GUARANTEE =
-    "Garantia de 7 dias: teste na sua operação ou devolvemos 100% do valor.";
+    "Garantia incondicional de 7 dias: teste na sua operação ou devolvemos 100% do valor.";
 
 export const HERO_RISK =
     "Sem fidelidade · Cancele em 1 clique · Configuração em 15 minutos";
 
 export const TRUST_METRICS = [
     { value: "+15.000", label: "pedidos fechados sem erro" },
-    { value: "99,4%", label: "de precisão na montagem de caixas e unidades" },
+    { value: "99,4%", label: "de precisão em unidades, caixas e fardos" },
     { value: "4 segundos", label: "tempo médio de resposta" },
 ] as const;
 
