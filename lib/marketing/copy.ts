@@ -101,7 +101,43 @@ export const LOYALTY = [
 ] as const;
 
 export const PRO_ANNUAL_LEAFLETS =
-    "Na compra do Pro anual, a loja ganha 1.000 panfletos de 90×15 mm para divulgar o número e mandar junto no pedido.";
+    "Bônus anual: 1.000 panfletos prontos para colar na sacola e migrar seus clientes do iFood para o seu WhatsApp.";
+
+export const PLAN_GUARANTEE =
+    "Garantia de 7 dias: teste na sua operação ou devolvemos 100% do valor.";
+
+export const HERO_RISK =
+    "Sem fidelidade · Cancele em 1 clique · Configuração em 15 minutos";
+
+export const TRUST_METRICS = [
+    { value: "+15.000", label: "pedidos fechados sem erro" },
+    { value: "99,4%", label: "de precisão na montagem de caixas e unidades" },
+    { value: "4 segundos", label: "tempo médio de resposta" },
+] as const;
+
+export const TESTIMONIALS = [
+    {
+        name: "Marina Alves",
+        store: "Adega do Centro",
+        city: "Campinas",
+        initials: "MA",
+        quote: "Eu travava na hora de soltar a IA no Zap com medo de sair caixa no lugar de unidade. Ela confirma a embalagem antes de fechar, e a comanda chega certa na impressora.",
+    },
+    {
+        name: "Ricardo Souza",
+        store: "Distribuidora Rio Branco",
+        city: "Fortaleza",
+        initials: "RS",
+        quote: "No aplicativo a taxa comia o pedido grande de caixa. No nosso número a mensalidade é fixa, e quem já compra toda semana pede direto com a gente.",
+    },
+    {
+        name: "Paula Nunes",
+        store: "Lanchonete da Praça",
+        city: "Porto Alegre",
+        initials: "PN",
+        quote: "O cliente manda o pedido do jeito que fala. O agente separa unidade e combo, o estoque baixa e eu não fico relendo a conversa no meio do almoço.",
+    },
+] as const;
 
 export const FAQ_ITEMS = [
     {
@@ -126,7 +162,23 @@ export const FAQ_ITEMS = [
     },
     {
         q: "O Pro anual inclui panfleto?",
-        a: "Sim. Na compra do Pro anual a loja ganha 1.000 panfletos de 90×15 mm para divulgar o número e mandar junto no pedido.",
+        a: "Sim. São 1.000 panfletos para colar na sacola e levar o cliente do aplicativo para o WhatsApp da loja.",
+    },
+    {
+        q: "E se o cliente mandar áudio no WhatsApp, o agente entende?",
+        a: "Sim. O agente transcreve e entende áudios naturalmente, identificando produtos, quantidades (unidade, caixa ou fardo), endereço e forma de pagamento.",
+    },
+    {
+        q: "Meu número corre risco de ser banido pelo WhatsApp?",
+        a: "Não. O agente responde apenas clientes que chamam a sua loja primeiro e segue as boas práticas de envio para campanhas, mantendo a segurança do seu número.",
+    },
+    {
+        q: "Como funciona o cálculo da taxa de entrega?",
+        a: "Você cadastra suas taxas por bairro ou raio de distância (km). O agente calcula o frete automaticamente antes de fechar o pedido.",
+    },
+    {
+        q: "Preciso deixar um celular exclusivo ligado na loja?",
+        a: "Não. Depois de conectar o QR Code uma única vez, o agente funciona na nuvem 24 horas por dia, mesmo se o celular da loja ficar sem bateria ou desligado.",
     },
     {
         q: "Dá pra mais de uma pessoa usar?",

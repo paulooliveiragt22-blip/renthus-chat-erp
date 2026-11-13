@@ -4,7 +4,10 @@ import { describe, it } from "node:test";
 import {
     MARKETPLACE_OWN_DELIVERY,
     SAVINGS_EXAMPLE_VOLUME_CENTS,
+    SAVINGS_SLIDER_MAX_CENTS,
+    SAVINGS_SLIDER_MIN_CENTS,
     marketplaceCostCents,
+    savingsAtVolume,
     savingsExample,
 } from "../../../lib/marketing/marketplaceFees";
 
@@ -32,5 +35,15 @@ describe("savingsExample", () => {
         assert.equal(example.zampellCents, 34_900);
         const ifood = example.keptVersus.find((row) => row.id === "ifood");
         assert.equal(ifood?.keptCents, 128_100);
+    });
+
+    it("recalcula a diferença contra o iFood nos extremos do slider", () => {
+        const low = savingsAtVolume(SAVINGS_SLIDER_MIN_CENTS, 34_900);
+        const high = savingsAtVolume(SAVINGS_SLIDER_MAX_CENTS, 27_920);
+        const lowIfood = low.rows.find((row) => row.id === "ifood");
+        const highIfood = high.keptVersus.find((row) => row.id === "ifood");
+        assert.equal(lowIfood?.costCents, 56_600);
+        assert.equal(highIfood?.keptCents, 1_531_000 - 27_920);
+        assert.equal(high.zampellCents, 27_920);
     });
 });

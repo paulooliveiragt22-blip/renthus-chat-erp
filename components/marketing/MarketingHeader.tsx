@@ -6,7 +6,7 @@ type MarketingHeaderProps = {
 
 export function MarketingHeader({ linkToApp = false }: MarketingHeaderProps) {
     return (
-        <header className="sticky top-0 z-40 border-b border-white/10 bg-[#16364D] text-white">
+        <header className="sticky top-0 z-50 border-b border-slate-200/80 bg-white/80 text-slate-950 backdrop-blur-md">
             <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-3 sm:px-6">
                 <a href={linkToApp ? "/" : "/inicio"} className="flex min-w-0 items-center gap-2.5">
                     <img
@@ -16,27 +16,23 @@ export function MarketingHeader({ linkToApp = false }: MarketingHeaderProps) {
                         height={36}
                         className="h-9 w-9 shrink-0"
                     />
-                    <img
-                        src="/brand/zampell-wordmark.svg?v=z1"
-                        alt="Zampell"
-                        width={148}
-                        height={40}
-                        className="h-8 w-auto"
-                    />
-                    <span className="hidden rounded-md bg-zinc-300 px-2 py-1 text-[0.7rem] font-bold tracking-wide text-[#16364D] uppercase sm:inline">
+                    <span className="font-[family-name:var(--font-landing-display)] text-lg font-extrabold tracking-tight">
+                        Zampell
+                    </span>
+                    <span className="hidden rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1 text-[0.7rem] font-bold tracking-wide text-emerald-700 uppercase sm:inline">
                         Delivery
                     </span>
                 </a>
                 <nav aria-label="Principal" className="flex shrink-0 items-center gap-2 sm:gap-3">
                     <a
                         href={accountHref("/login", linkToApp)}
-                        className="rounded-full px-3 py-2 text-sm font-semibold text-white hover:bg-white/10"
+                        className="rounded-full px-3 py-2 text-sm font-semibold text-slate-700 transition-all duration-200 hover:bg-slate-100"
                     >
                         Entrar
                     </a>
                     <a
                         href={linkToApp ? accountHref("/signup", true) : "#planos"}
-                        className="rounded-full bg-[#57ff8f] px-3 py-2 text-sm font-bold text-[#16364D] hover:brightness-95 sm:px-4"
+                        className="rounded-full bg-emerald-600 px-3 py-2 text-sm font-semibold text-white shadow-sm shadow-emerald-600/20 transition-all duration-200 hover:bg-emerald-500 sm:px-4"
                     >
                         Começar
                     </a>

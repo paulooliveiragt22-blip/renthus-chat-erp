@@ -19,6 +19,9 @@ export type MarketplaceFeeRef = {
 
 /** Volume do exemplo da landing: R$ 10.000 em pedidos no mês. */
 export const SAVINGS_EXAMPLE_VOLUME_CENTS = 1_000_000;
+export const SAVINGS_SLIDER_MIN_CENTS = 300_000;
+export const SAVINGS_SLIDER_MAX_CENTS = 10_000_000;
+export const SAVINGS_SLIDER_STEP_CENTS = 100_000;
 
 export const MARKETPLACE_OWN_DELIVERY: readonly MarketplaceFeeRef[] = [
     {
@@ -85,13 +88,15 @@ export type SavingsExampleRow = {
     sourceUrl: string;
 };
 
-export function savingsExample(zampellMonthlyCents: number): {
+export function savingsAtVolume(
+    volumeCents: number,
+    zampellMonthlyCents: number
+): {
     volumeCents: number;
     rows: SavingsExampleRow[];
     zampellCents: number;
     keptVersus: { id: string; name: string; keptCents: number }[];
 } {
-    const volumeCents = SAVINGS_EXAMPLE_VOLUME_CENTS;
     const rows = MARKETPLACE_OWN_DELIVERY.map((ref) => {
         const feeApplies =
             ref.monthlyFeeCents > 0 && volumeCents > ref.monthlyFeeExemptUpToCents;
@@ -118,4 +123,8 @@ export function savingsExample(zampellMonthlyCents: number): {
             keptCents: row.costCents - zampellMonthlyCents,
         })),
     };
+}
+
+export function savingsExample(zampellMonthlyCents: number) {
+    return savingsAtVolume(SAVINGS_EXAMPLE_VOLUME_CENTS, zampellMonthlyCents);
 }
