@@ -3,20 +3,11 @@
 import { Check } from "lucide-react";
 import { HERO, HERO_RISK } from "@/lib/marketing/copy";
 import { LiveFlowSimulator } from "@/components/marketing/LiveFlowSimulator";
-import {
-    Dialog,
-    DialogClose,
-    DialogContent,
-    DialogDescription,
-    DialogHeader,
-    DialogTitle,
-    DialogTrigger,
-} from "@/components/ui/dialog";
 
 const PROOF = [
-    "Você opera pelo celular ou pelo computador.",
+    "Unidade, caixa e fardo no mesmo pedido — sem anotar errado no Zap.",
     "O cliente pede no WhatsApp ou no cardápio. Sem aplicativo para baixar.",
-    "O canal é da loja. Sem comissão por venda.",
+    "Canal da loja, mensalidade fixa. Sem comissão por venda.",
 ] as const;
 
 export function Hero() {
@@ -41,44 +32,23 @@ export function Hero() {
                     ))}
                 </ul>
                 <div className="mt-8 flex flex-col gap-3 sm:flex-row">
-                    <Dialog>
-                        <DialogTrigger asChild>
-                            <button
-                                type="button"
-                                className="inline-flex items-center justify-center rounded-full bg-emerald-600 px-5 py-3 text-base font-semibold text-white shadow-lg shadow-emerald-600/20 transition-all duration-200 hover:bg-emerald-500"
-                            >
-                                Testar agente no WhatsApp
-                            </button>
-                        </DialogTrigger>
-                        <DialogContent className="max-h-[min(90vh,52rem)] max-w-5xl overflow-y-auto">
-                            <DialogHeader>
-                                <DialogTitle>Teste o agente no WhatsApp</DialogTitle>
-                                <DialogDescription>
-                                    Bebida, áudio de churrasco ou lanche. O agente monta o pedido e o painel recebe a comanda.
-                                </DialogDescription>
-                            </DialogHeader>
-                            <LiveFlowSimulator />
-                            <DialogClose asChild>
-                                <a
-                                    href="#planos"
-                                    className="inline-flex items-center justify-center rounded-full bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white transition-all duration-200 hover:bg-slate-800"
-                                >
-                                    Ver planos e economizar
-                                </a>
-                            </DialogClose>
-                        </DialogContent>
-                    </Dialog>
                     <a
-                        href="#planos"
-                        className="inline-flex items-center justify-center rounded-full border border-slate-200/80 bg-white px-5 py-3 text-center text-base font-semibold text-slate-950 shadow-sm transition-all duration-200 hover:bg-slate-50"
+                        href="#economia"
+                        className="inline-flex items-center justify-center rounded-full bg-emerald-600 px-5 py-3 text-base font-semibold text-white shadow-lg shadow-emerald-600/20 transition-all duration-200 hover:bg-emerald-500"
                     >
                         Ver planos e economizar
+                    </a>
+                    <a
+                        href="#fluxo-agente"
+                        className="inline-flex items-center justify-center rounded-full border border-slate-200/80 bg-white px-5 py-3 text-center text-base font-semibold text-slate-950 shadow-sm transition-all duration-200 hover:bg-slate-50"
+                    >
+                        Ver o agente em ação
                     </a>
                 </div>
                 <p className="mt-4 text-sm text-slate-600">{HERO_RISK}</p>
             </div>
 
-            <div className="relative mt-12">
+            <div id="fluxo-agente" className="relative mt-12 scroll-mt-28">
                 <div
                     aria-hidden
                     className="pointer-events-none absolute -inset-8 -z-10 rounded-full bg-[radial-gradient(circle_at_center,rgba(5,150,105,0.18),transparent_68%)]"

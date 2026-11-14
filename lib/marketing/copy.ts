@@ -42,7 +42,7 @@ export const PLAN_FEATURE_BLURBS: Record<CommercialPlanKey, PlanFeatureRow[]> = 
 export const HERO = {
     title: "O cliente pede no WhatsApp. A comanda sai, o estoque baixa, o caixa fecha.",
     subtitle:
-        "Agente de IA no número da loja, cardápio no navegador e PDV no balcão. O cliente não baixa app e você não paga comissão por pedido.",
+        "Feito pra adega, distribuidora e loja de bebida: agente de IA no número da loja, cardápio no navegador e PDV no balcão. Sem app pra baixar e sem comissão por pedido.",
 } as const;
 
 export const PAINS = [
@@ -85,72 +85,43 @@ export const PRODUCT_BLOCKS = [
     },
 ] as const;
 
-export const LOYALTY = [
-    {
-        title: "A conversa fica sua",
-        body: "No app, o próximo pedido nasce de um cupom do marketplace, ao lado do concorrente. No WhatsApp, o histórico é da loja.",
-    },
-    {
-        title: "Quem já comprou recebe de novo",
-        body: "No Pro, template e campanha saem no número que o cliente já salvou. Sem pagar mídia para falar com a própria clientela.",
-    },
-    {
-        title: "O cardápio é um link",
-        body: "O mesmo catálogo do agente abre no navegador. A pessoa monta o pedido, escolhe a embalagem e confirma. O pedido entra na fila junto com o do WhatsApp.",
-    },
-] as const;
-
-export const PRO_ANNUAL_LEAFLETS =
+/** Bônus do plano anual (Pro e Market). */
+export const ANNUAL_LEAFLETS =
     "Bônus Anual: 1.000 panfletos prontos para colar na sacola e migrar seus clientes do iFood para o seu WhatsApp.";
+
+/** @deprecated Use ANNUAL_LEAFLETS */
+export const PRO_ANNUAL_LEAFLETS = ANNUAL_LEAFLETS;
 
 export const PLAN_GUARANTEE =
     "Garantia incondicional de 7 dias: teste na sua operação ou devolvemos 100% do valor.";
 
 export const HERO_RISK =
-    "Sem fidelidade · Cancele em 1 clique · Configuração em 15 minutos";
-
-export const TRUST_METRICS = [
-    { value: "+15.000", label: "pedidos fechados sem erro" },
-    { value: "99,4%", label: "de precisão em unidades, caixas e fardos" },
-    { value: "4 segundos", label: "tempo médio de resposta" },
-] as const;
-
-export const TESTIMONIALS = [
-    {
-        name: "Marina Alves",
-        store: "Adega do Centro",
-        city: "Campinas",
-        initials: "MA",
-        quote: "Eu travava na hora de soltar a IA no Zap com medo de sair caixa no lugar de unidade. Ela confirma a embalagem antes de fechar, e a comanda chega certa na impressora.",
-    },
-    {
-        name: "Ricardo Souza",
-        store: "Distribuidora Rio Branco",
-        city: "Fortaleza",
-        initials: "RS",
-        quote: "No aplicativo a taxa comia o pedido grande de caixa. No nosso número a mensalidade é fixa, e quem já compra toda semana pede direto com a gente.",
-    },
-    {
-        name: "Paula Nunes",
-        store: "Lanchonete da Praça",
-        city: "Porto Alegre",
-        initials: "PN",
-        quote: "O cliente manda o pedido do jeito que fala. O agente separa unidade e combo, o estoque baixa e eu não fico relendo a conversa no meio do almoço.",
-    },
-] as const;
+    "Sem fidelidade · Cancele em 1 clique · Configuração em 15 minutos · Garantia de 7 dias";
 
 export const FAQ_ITEMS = [
     {
         q: "Preciso falar com vendedor pra começar?",
-        a: "Não. Escolhe o plano, cria a conta e paga.",
+        a: "Não. Escolhe o plano, cria a conta, paga e começa a configurar. Em cerca de 15 minutos dá pra cadastrar produtos, publicar o cardápio e conectar o WhatsApp.",
+    },
+    {
+        q: "Paga e usa de verdade? Tem teste grátis?",
+        a: "O comercial padrão é pagar e usar. Se a política da conta estiver com teste, a própria página dos planos mostra. Em qualquer caso, há garantia incondicional de 7 dias: se não servir na sua operação, devolvemos 100% do valor.",
+    },
+    {
+        q: "Quanto custa a IA além da mensalidade?",
+        a: "A mensalidade do plano inclui uma cota de uso de IA. Se a loja estourar a cota, dá pra recarregar crédito de IA no painel. O agente só responde quando há crédito disponível.",
+    },
+    {
+        q: "O que eu preciso pra conectar o WhatsApp?",
+        a: "Uma conta WhatsApp Business da loja e um QR Code no painel. Você escaneia uma vez; depois o agente roda na nuvem, mesmo com o celular desligado.",
     },
     {
         q: "Funciona no celular?",
-        a: "Sim. Celular ou computador.",
+        a: "Sim. Painel e PDV abrem no celular ou no computador.",
     },
     {
         q: "Imprime comanda?",
-        a: "No Pro e no Market o pedido vai direto pra impressora.",
+        a: "No Pro e no Market o pedido vai direto pra impressora com o agent de impressão.",
     },
     {
         q: "O cliente precisa baixar app?",
@@ -161,8 +132,8 @@ export const FAQ_ITEMS = [
         a: "Servem para cliente que ainda não te conhece. Quem já comprou pode pedir no seu WhatsApp e no cardápio, sem comissão por venda. A conta desta página usa taxas públicas de entrega da própria loja e pode ser diferente do contrato da sua cidade.",
     },
     {
-        q: "O Pro anual inclui panfleto?",
-        a: "Sim. São 1.000 panfletos para colar na sacola e levar o cliente do aplicativo para o WhatsApp da loja.",
+        q: "O anual inclui panfleto?",
+        a: "Sim, no Pro e no Market anual. São 1.000 panfletos para colar na sacola e levar o cliente do aplicativo para o WhatsApp da loja.",
     },
     {
         q: "E se o cliente mandar áudio no WhatsApp, o agente entende?",
@@ -179,6 +150,10 @@ export const FAQ_ITEMS = [
     {
         q: "Preciso deixar um celular exclusivo ligado na loja?",
         a: "Não. Depois de conectar o QR Code uma única vez, o agente funciona na nuvem 24 horas por dia, mesmo se o celular da loja ficar sem bateria ou desligado.",
+    },
+    {
+        q: "E se a IA ficar indisponível?",
+        a: "O cliente recebe um aviso e o link do cardápio web para pedir sem depender da conversa. Pedidos pelo cardápio e pelo PDV continuam no mesmo painel.",
     },
     {
         q: "Dá pra mais de uma pessoa usar?",

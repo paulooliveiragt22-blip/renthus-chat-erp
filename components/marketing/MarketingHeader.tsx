@@ -25,13 +25,19 @@ export function MarketingHeader({ linkToApp = false }: MarketingHeaderProps) {
                 </a>
                 <nav aria-label="Principal" className="flex shrink-0 items-center gap-2 sm:gap-3">
                     <a
+                        href="#economia"
+                        className="hidden rounded-full px-3 py-2 text-sm font-semibold text-slate-700 transition-all duration-200 hover:bg-slate-100 sm:inline-flex"
+                    >
+                        Economia
+                    </a>
+                    <a
                         href={accountHref("/login", linkToApp)}
                         className="rounded-full px-3 py-2 text-sm font-semibold text-slate-700 transition-all duration-200 hover:bg-slate-100"
                     >
                         Entrar
                     </a>
                     <a
-                        href={linkToApp ? accountHref("/signup", true) : "#planos"}
+                        href={accountHref("/signup?plano=pro&periodo=year", linkToApp)}
                         className="rounded-full bg-emerald-600 px-3 py-2 text-sm font-semibold text-white shadow-lg shadow-emerald-600/20 transition-all duration-200 hover:bg-emerald-500 sm:px-4"
                     >
                         Começar
