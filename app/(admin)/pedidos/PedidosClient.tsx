@@ -1736,7 +1736,7 @@ export default function PedidosPage() {
                 credentials: "include",
                 body: JSON.stringify({
                     order_id: orderId,
-                    copy_types: ["kitchen", "cashier"],
+                    copy_types: ["kitchen", "cashier", "driver"],
                 }),
             });
         } catch { /* silent — print job is best-effort */ }
@@ -1913,7 +1913,7 @@ export default function PedidosPage() {
                         credentials: "include",
                         body: JSON.stringify({
                             order_id: newId,
-                            copy_types: ["kitchen", "cashier"],
+                            copy_types: ["kitchen", "cashier", "driver"],
                         }),
                     });
                 } catch { /* silent */ }
@@ -2065,11 +2065,7 @@ export default function PedidosPage() {
         setReprintLoading(true);
         setReprintMsg(null);
         try {
-            const fulfill = String(
-                (viewOrder?.id === orderId ? (viewOrder as any).fulfillment_type : null) ?? "delivery"
-            );
-            const defaultCopies =
-                fulfill === "pickup" ? ["kitchen", "cashier"] : ["kitchen", "cashier", "driver"];
+            const defaultCopies = ["kitchen", "cashier", "driver"];
             const copies =
                 Array.isArray(copyTypes) && copyTypes.length > 0 ? copyTypes : defaultCopies;
             const res  = await fetch("/api/agent/reprint", {

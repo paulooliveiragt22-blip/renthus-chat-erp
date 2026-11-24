@@ -140,11 +140,11 @@ describe("MVP checklist — M3 usuários / RBAC", () => {
 });
 
 describe("MVP checklist — M4 vias de impressão", () => {
-    it("copy types + driver só delivery", () => {
-        assert.deepEqual(DEFAULT_AUTO_PRINT_COPIES, ["kitchen", "cashier"]);
+    it("copy types + via cliente também em retirada", () => {
+        assert.deepEqual(DEFAULT_AUTO_PRINT_COPIES, ["kitchen", "cashier", "driver"]);
         assert.deepEqual(
             filterCopiesForFulfillment(["kitchen", "cashier", "driver"], "pickup"),
-            ["kitchen", "cashier"]
+            ["kitchen", "cashier", "driver"]
         );
         assert.deepEqual(normalizePrintCopyTypes(["driver", "kitchen"]), ["driver", "kitchen"]);
     });

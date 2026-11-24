@@ -24,6 +24,14 @@ import {
 import PlanFeatureGate from "@/components/billing/PlanFeatureGate";
 import { Switch } from "@/components/ui/switch";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
+} from "@/components/ui/dialog";
 import { loadAdminListSnapshotEntries } from "@/lib/offline/browserStores";
 import {
     DEFAULT_AUTO_PRINT_COPIES,
@@ -57,8 +65,6 @@ type PrintJob = {
 type PrintSettings = {
     print_header: string;
     print_footer: string;
-    auto_print: boolean;
-    print_on_receive: boolean;
     hide_prices_kitchen: boolean;
 };
 
@@ -139,14 +145,18 @@ export default function ImpressorasPage() {
 
     // ── settings state ────────────────────────────────────────────────────────
     const [settings,     setSettings]     = useState<PrintSettings>({
-        print_header: "", print_footer: "", auto_print: true,
-        print_on_receive: true, hide_prices_kitchen: false,
+        print_header: "",
+        print_footer: "",
+        hide_prices_kitchen: false,
     });
+    const [autoPrintOrders, setAutoPrintOrders] = useState(true);
     const [autoCopies, setAutoCopies] = useState<PrintCopyType[]>([...DEFAULT_AUTO_PRINT_COPIES]);
     const [clearingQueue, setClearingQueue] = useState(false);
     const [loadingSettings, setLoadingSettings] = useState(true);
     const [savingSettings,  setSavingSettings]  = useState(false);
     const [settingsMsg,     setSettingsMsg]      = useState<string | null>(null);
+    const [reprintJob, setReprintJob] = useState<PrintJob | null>(null);
+    const [reprintCopies, setReprintCopies] = useState<PrintCopyType[]>([]);
 
     // ── test print ────────────────────────────────────────────────────────────
     const [testLoading, setTestLoading] = useState(false);
@@ -212,8 +222,6 @@ export default function ImpressorasPage() {
                     ...prev,
                     print_header: String(json.settings.print_header ?? prev.print_header),
                     print_footer: String(json.settings.print_footer ?? prev.print_footer),
-                    auto_print: Boolean(json.settings.auto_print ?? prev.auto_print),
-                    print_on_receive: Boolean(json.settings.print_on_receive ?? prev.print_on_receive),
                     hide_prices_kitchen: Boolean(
                         json.settings.hide_prices_kitchen ?? prev.hide_prices_kitchen
                     ),
@@ -224,6 +232,9 @@ export default function ImpressorasPage() {
             const json = await companyRes.json();
             const copies = normalizePrintCopyTypes(json?.settings?.print_auto_copies);
             setAutoCopies(copies.length > 0 ? copies : [...DEFAULT_AUTO_PRINT_COPIES]);
+            if (typeof json?.settings?.auto_print_orders === "boolean") {
+                setAutoPrintOrders(json.settings.auto_print_orders);
+            }
         }
         setLoadingSettings(false);
     }, []);
@@ -327,24 +338,40 @@ export default function ImpressorasPage() {
     }
 
     // ── reprint ───────────────────────────────────────────────────────────────
-    async function reprint(job: PrintJob) {
-        if (!job.order_id) return;
-        setReprintingId(job.id);
+    function openReprint(job: PrintJob) {
+        const seed = normalizePrintCopyTypes([job.copy_type ?? "cashier"]);
+        setReprintJob(job);
+        setReprintCopies(seed.length > 0 ? seed : ["cashier"]);
+    }
+
+    async function confirmReprint() {
+        if (!reprintJob?.order_id || reprintCopies.length === 0) return;
+        setReprintingId(reprintJob.id);
         setReprintMsg(null);
-        const copy = normalizePrintCopyTypes([job.copy_type ?? "cashier"]);
         const res = await fetch("/api/agent/reprint", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             credentials: "include",
             body: JSON.stringify({
-                order_id: job.order_id,
-                copy_types: copy.length > 0 ? copy : ["cashier"],
+                order_id: reprintJob.order_id,
+                copy_types: reprintCopies,
             }),
         });
         const json = await res.json().catch(() => ({}));
-        setReprintMsg(res.ok ? "✓ Job de reimpressão criado" : (json?.error ?? "Erro ao reimprimir"));
+        const n = Array.isArray(json.jobs) ? json.jobs.length : reprintCopies.length;
+        setReprintMsg(
+            res.ok
+                ? `✓ ${n} via(s) enviada(s) para impressão`
+                : (json?.error ?? "Erro ao reimprimir")
+        );
         setReprintingId(null);
-        if (res.ok) { setTimeout(() => { setReprintMsg(null); void loadJobs({ silent: true }); }, 3000); }
+        setReprintJob(null);
+        if (res.ok) {
+            setTimeout(() => {
+                setReprintMsg(null);
+                void loadJobs({ silent: true });
+            }, 3000);
+        }
     }
 
     async function clearQueue() {
@@ -373,18 +400,33 @@ export default function ImpressorasPage() {
     // ── settings save ─────────────────────────────────────────────────────────
     async function saveSettings() {
         setSavingSettings(true); setSettingsMsg(null);
+        if (autoPrintOrders && autoCopies.length === 0) {
+            setSettingsMsg("Selecione ao menos uma via para o auto-print.");
+            setSavingSettings(false);
+            return;
+        }
         const [agentRes, companyRes] = await Promise.all([
             fetch("/api/agent/settings", {
                 method: "PATCH",
                 headers: { "Content-Type": "application/json" },
                 credentials: "include",
-                body: JSON.stringify(settings),
+                body: JSON.stringify({
+                    print_header: settings.print_header,
+                    print_footer: settings.print_footer,
+                    hide_prices_kitchen: settings.hide_prices_kitchen,
+                    // Mantém legado alinhado ao canônico company_settings.auto_print_orders
+                    print_on_receive: autoPrintOrders,
+                    auto_print: autoPrintOrders,
+                }),
             }),
             fetch("/api/admin/company-settings", {
                 method: "PATCH",
                 headers: { "Content-Type": "application/json" },
                 credentials: "include",
-                body: JSON.stringify({ print_auto_copies: autoCopies }),
+                body: JSON.stringify({
+                    auto_print_orders: autoPrintOrders,
+                    print_auto_copies: autoCopies,
+                }),
             }),
         ]);
         const agentJson = await agentRes.json().catch(() => ({}));
@@ -757,9 +799,9 @@ export default function ImpressorasPage() {
                                         <JobBadge status={job.status} />
                                         {job.order_id && (
                                             <button
-                                                onClick={() => reprint(job)}
+                                                onClick={() => openReprint(job)}
                                                 disabled={reprintingId === job.id}
-                                                title="Reimprimir"
+                                                title="Reimprimir — escolher via"
                                                 className="flex h-7 w-7 items-center justify-center rounded-md border border-zinc-200 text-zinc-500 transition hover:border-violet-300 hover:bg-violet-50 hover:text-violet-600 disabled:opacity-50 dark:border-zinc-700"
                                             >
                                                 {reprintingId === job.id
@@ -883,8 +925,8 @@ export default function ImpressorasPage() {
                                         </div>
                                     </div>
                                     <Toggle
-                                        checked={settings.print_on_receive}
-                                        onChange={(v) => setSettings((prev) => ({ ...prev, print_on_receive: v }))}
+                                        checked={autoPrintOrders}
+                                        onChange={setAutoPrintOrders}
                                     />
                                 </div>
                                 <div className="py-4">
@@ -895,7 +937,7 @@ export default function ImpressorasPage() {
                                                 Vias no auto-print
                                             </p>
                                             <p className="mt-0.5 text-xs text-zinc-400">
-                                                Escolha quais cupons entram na fila ao confirmar o pedido. Via entregador só em pedidos de entrega.
+                                                Cozinha, Caixa e Cliente (via anexada ao pedido — entrega ou retirada).
                                             </p>
                                             <div className="mt-3 flex flex-wrap gap-2">
                                                 {PRINT_COPY_TYPES.map((copy) => {
@@ -942,7 +984,8 @@ export default function ImpressorasPage() {
                     <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 dark:border-amber-700/40 dark:bg-amber-900/20">
                         <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
                         <p className="text-xs text-amber-700 dark:text-amber-400">
-                            Alterações nas regras de automação são salvas ao clicar em <strong>Salvar Configurações</strong> no card ao lado.
+                            Auto-print usa <strong>auto_print_orders</strong> + vias selecionadas. Salve em{" "}
+                            <strong>Salvar Configurações</strong> ou <strong>Salvar Automação</strong>.
                         </p>
                     </div>
 
@@ -958,6 +1001,59 @@ export default function ImpressorasPage() {
                     </div>
                 </div>
             </div>
+
+            <Dialog open={reprintJob != null} onOpenChange={(open) => !open && setReprintJob(null)}>
+                <DialogContent className="max-w-md">
+                    <DialogHeader>
+                        <DialogTitle>Reimprimir cupom</DialogTitle>
+                        <DialogDescription>
+                            Escolha qual via enviar para a impressora. A via Cliente vai anexada ao pedido.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="flex flex-wrap gap-2 py-2">
+                        {PRINT_COPY_TYPES.map((copy) => {
+                            const on = reprintCopies.includes(copy);
+                            return (
+                                <button
+                                    key={copy}
+                                    type="button"
+                                    onClick={() =>
+                                        setReprintCopies((prev) =>
+                                            prev.includes(copy)
+                                                ? prev.filter((c) => c !== copy)
+                                                : [...prev, copy]
+                                        )
+                                    }
+                                    className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
+                                        on
+                                            ? "border-violet-500 bg-violet-50 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300"
+                                            : "border-zinc-200 text-zinc-500 hover:border-zinc-300 dark:border-zinc-700"
+                                    }`}
+                                >
+                                    {printCopyLabel(copy)}
+                                </button>
+                            );
+                        })}
+                    </div>
+                    <DialogFooter>
+                        <button
+                            type="button"
+                            onClick={() => setReprintJob(null)}
+                            className="rounded-lg border border-zinc-200 px-3 py-2 text-xs font-semibold text-zinc-600 dark:border-zinc-700"
+                        >
+                            Cancelar
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => void confirmReprint()}
+                            disabled={reprintCopies.length === 0 || reprintingId != null}
+                            className="rounded-lg bg-violet-600 px-3 py-2 text-xs font-semibold text-white disabled:opacity-50"
+                        >
+                            {reprintingId != null ? "Enviando…" : "Reimprimir"}
+                        </button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
 
         </div>
         </PlanFeatureGate>

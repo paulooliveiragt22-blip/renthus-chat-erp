@@ -22,20 +22,30 @@ export function normalizePrintCopyTypes(input: unknown): PrintCopyType[] {
     return out;
 }
 
-/** Remove `driver` quando o pedido não é entrega. */
+/**
+ * Histórico: `driver` era “só delivery”. Na prática é a via do **cliente**
+ * (vai anexada ao pedido) — imprime em entrega e em retirada.
+ */
 export function filterCopiesForFulfillment(
     copies: PrintCopyType[],
-    fulfillmentType: string | null | undefined
+    _fulfillmentType?: string | null
 ): PrintCopyType[] {
-    const ft = String(fulfillmentType ?? "delivery").toLowerCase();
-    if (ft === "delivery") return copies;
-    return copies.filter((c) => c !== "driver");
+    return copies;
 }
 
+/** Rótulo curto na UI. `driver` = via do cliente (chave legada no banco). */
 export function printCopyLabel(c: PrintCopyType): string {
     if (c === "kitchen") return "Cozinha";
-    if (c === "driver") return "Entregador";
+    if (c === "driver") return "Cliente";
     return "Caixa";
 }
 
-export const DEFAULT_AUTO_PRINT_COPIES: PrintCopyType[] = ["kitchen", "cashier"];
+/** Faixa impressa no topo do cupom térmico. */
+export function printCopyBanner(c: PrintCopyType): string {
+    if (c === "kitchen") return "VIA COZINHA";
+    if (c === "driver") return "VIA CLIENTE";
+    return "VIA CAIXA";
+}
+
+/** Default de auto-print: cozinha, caixa e cliente. */
+export const DEFAULT_AUTO_PRINT_COPIES: PrintCopyType[] = ["kitchen", "cashier", "driver"];

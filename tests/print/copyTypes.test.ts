@@ -4,6 +4,7 @@ import {
     DEFAULT_AUTO_PRINT_COPIES,
     filterCopiesForFulfillment,
     normalizePrintCopyTypes,
+    printCopyBanner,
     printCopyLabel,
 } from "../../lib/print/copyTypes";
 
@@ -14,13 +15,13 @@ describe("print copy types (M4)", () => {
             "cashier",
         ]);
         assert.deepEqual(normalizePrintCopyTypes(null), []);
-        assert.deepEqual(DEFAULT_AUTO_PRINT_COPIES, ["kitchen", "cashier"]);
+        assert.deepEqual(DEFAULT_AUTO_PRINT_COPIES, ["kitchen", "cashier", "driver"]);
     });
 
-    it("pickup remove driver", () => {
+    it("via cliente (driver) permanece em pickup e delivery", () => {
         assert.deepEqual(
             filterCopiesForFulfillment(["kitchen", "cashier", "driver"], "pickup"),
-            ["kitchen", "cashier"]
+            ["kitchen", "cashier", "driver"]
         );
         assert.deepEqual(
             filterCopiesForFulfillment(["kitchen", "driver"], "delivery"),
@@ -31,6 +32,9 @@ describe("print copy types (M4)", () => {
     it("labels PT-BR", () => {
         assert.equal(printCopyLabel("kitchen"), "Cozinha");
         assert.equal(printCopyLabel("cashier"), "Caixa");
-        assert.equal(printCopyLabel("driver"), "Entregador");
+        assert.equal(printCopyLabel("driver"), "Cliente");
+        assert.equal(printCopyBanner("kitchen"), "VIA COZINHA");
+        assert.equal(printCopyBanner("cashier"), "VIA CAIXA");
+        assert.equal(printCopyBanner("driver"), "VIA CLIENTE");
     });
 });

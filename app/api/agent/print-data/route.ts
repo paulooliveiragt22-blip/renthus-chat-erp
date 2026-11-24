@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { verifyPrintAgentApiKey } from "@/lib/agent/verifyPrintAgentApiKey";
+import {
+    normalizePrintCopyTypes,
+    printCopyBanner,
+    printCopyLabel,
+} from "@/lib/print/copyTypes";
 
 export const runtime = "nodejs";
 
@@ -19,6 +24,7 @@ export async function POST(req: Request) {
             return NextResponse.json({ error: v.error }, { status: v.status });
         }
 
+        const copyType = normalizePrintCopyTypes([body?.copy_type])[0] ?? null;
         const admin = createAdminClient();
 
         const { data: order, error: ordErr } = await admin
@@ -90,14 +96,32 @@ export async function POST(req: Request) {
             payments = (payRows ?? []) as { payment_method: string; amount: number }[];
         }
 
+        const { data: company } = await admin
+            .from("companies")
+            .select("settings")
+            .eq("id", v.agent.company_id)
+            .maybeSingle();
+        const settings = (company?.settings ?? {}) as Record<string, unknown>;
+        const printHeader = String(settings.print_header ?? "").trim();
+        const printFooter = String(settings.print_footer ?? "").trim();
+        const hidePricesKitchen = Boolean(settings.hide_prices_kitchen);
+
         return NextResponse.json({
             ok: true,
             order,
             items: enrichedItems,
             customer,
             payments,
+            print: {
+                header: printHeader,
+                footer: printFooter,
+                copy_type: copyType,
+                copy_label: copyType ? printCopyLabel(copyType) : null,
+                copy_banner: copyType ? printCopyBanner(copyType) : null,
+                hide_prices: copyType === "kitchen" && hidePricesKitchen,
+            },
         });
-    } catch (e: any) {
+    } catch (e: unknown) {
         console.error("[agent/print-data]", e);
         return NextResponse.json({ error: "Erro interno" }, { status: 500 });
     }
