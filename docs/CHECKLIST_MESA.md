@@ -38,7 +38,7 @@ Implementar nesta ordem. Não marcar item sem a verificação indicada. Não imp
 - [ ] Lançador: foco de volta, Enter lança hit exato, setas na lista, sigla, volume, preço, estoque, selo de combo, quantidade no mouse, campo vazio sem lista, erro no campo. OK fecha o modal.
 - [ ] **Finalizar** abre com o valor da conta. **Dividir conta** começa limpo; cada pagador entra por valor e pode marcar item. Sem dividir igual. Sem lançar financeiro. Sem botão de reabrir.
 - [ ] **Cancelar comanda** só em consumo, e **Trocar mesa** (só livres, só em consumo).
-- [ ] PDV: o controle **Mesas** lista em aberto (só leitura) e fechadas. A fechada mostra o número gravado na liberação, partes editáveis e **Confirmar**. Sem caixa aberto, a confirmação não segue. A mesa no salão já está livre.
+- [ ] PDV: o controle **Mesas** lista em aberto e fechadas, com o mesmo total do salão (itens + taxa). A aberta finaliza com a mesma folha da aba Mesas e só libera a mesa. A fechada mostra o número gravado na liberação, partes editáveis e **Confirmar**. Sem caixa aberto, a confirmação não segue.
 - [ ] **Gerir mesas** para dono e admin. Sessão em consumo não desativa.
 - [ ] Celular: salão em lista, comanda em tela cheia, busca no topo, liberar grudado embaixo.
 

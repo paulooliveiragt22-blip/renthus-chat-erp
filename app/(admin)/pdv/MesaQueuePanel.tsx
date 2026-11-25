@@ -1,6 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import Modal from "@/lib/orders/Modal";
+import { MesaReleaseBody, MesaReleaseFooter, useMesaRelease, type MesaReleaseItem } from "../mesa/MesaReleaseSheet";
 import { MESA_PAYMENT_LABELS, MESA_PAYMENT_METHODS, type MesaPaymentMethod } from "@/src/mesa/domain/paymentParts";
 
 type Part = { id: string; amount: number; method: MesaPaymentMethod };
@@ -20,6 +22,12 @@ type OpenTable = {
     due: number;
     items_count: number;
     previous_table_codes?: string[];
+};
+type OpenBill = {
+    id: string;
+    total: number;
+    table: { code: string; label: string | null };
+    items: MesaReleaseItem[];
 };
 
 function money(n: number) {
@@ -51,6 +59,9 @@ export default function MesaQueuePanel({
     const [draft, setDraft] = useState<Part[]>([]);
     const [msg, setMsg] = useState<string | null>(null);
     const [busy, setBusy] = useState(false);
+    const [bill, setBill] = useState<OpenBill | null>(null);
+    const [billMsg, setBillMsg] = useState<string | null>(null);
+    const sheet = useMesaRelease(Number(bill?.total ?? 0), bill?.items ?? []);
 
     const load = useCallback(async () => {
         const res = await fetch("/api/admin/pdv/mesa-queue", { credentials: "include", cache: "no-store" });
@@ -65,6 +76,11 @@ export default function MesaQueuePanel({
         const timer = setInterval(() => void load(), 12000);
         return () => clearInterval(timer);
     }, [load]);
+
+    useEffect(() => {
+        if (!bill) return;
+        sheet.openWholeBill();
+    }, [bill?.id, bill?.total, sheet.openWholeBill]);
 
     const open = rows.find((r) => r.session_id === openId) ?? null;
 
@@ -100,7 +116,49 @@ export default function MesaQueuePanel({
         }
     }
 
+    async function openBill(sessionId: string) {
+        setBusy(true);
+        setBillMsg(null);
+        try {
+            const res = await fetch(`/api/admin/pdv/mesa-sessions/${sessionId}`, { credentials: "include", cache: "no-store" });
+            const json = await res.json().catch(() => ({}));
+            if (!res.ok || !json.session) {
+                setMsg(json.error || "Não abriu a mesa.");
+                return;
+            }
+            setBill(json.session as OpenBill);
+        } finally {
+            setBusy(false);
+        }
+    }
+
+    async function releaseBill() {
+        if (!bill) return;
+        setBusy(true);
+        setBillMsg(null);
+        try {
+            const res = await fetch(`/api/admin/pdv/mesa-sessions/${bill.id}`, {
+                method: "POST",
+                credentials: "include",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ parts: sheet.buildParts() }),
+            });
+            const json = await res.json().catch(() => ({}));
+            if (!res.ok) {
+                setBillMsg(json.error || "Não finalizou a mesa.");
+                return;
+            }
+            setBill(null);
+            await load();
+        } finally {
+            setBusy(false);
+        }
+    }
+
+    const billTitle = bill?.table.label || (bill ? `Mesa ${bill.table.code}` : "Mesa");
+
     return (
+        <>
         <div className="flex min-h-0 flex-1 flex-col overflow-y-auto p-3">
             <div className="mb-4">
                 <div className="mb-2 flex items-center gap-2">
@@ -118,7 +176,12 @@ export default function MesaQueuePanel({
                 ) : (
                     <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-3">
                         {openTables.map((table) => (
-                            <div key={table.session_id} className="rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2">
+                            <button
+                                key={table.session_id}
+                                type="button"
+                                className="rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-left hover:border-emerald-700"
+                                onClick={() => void openBill(table.session_id)}
+                            >
                                 <div className="flex items-start justify-between gap-2">
                                     <p className="truncate text-sm font-semibold text-zinc-100">
                                         {table.table_label || `Mesa ${table.table_code}`}
@@ -133,7 +196,7 @@ export default function MesaQueuePanel({
                                 {beforeLabel(table.previous_table_codes) && (
                                     <p className="truncate text-xs text-zinc-500">{beforeLabel(table.previous_table_codes)}</p>
                                 )}
-                            </div>
+                            </button>
                         ))}
                     </div>
                 )}
@@ -223,5 +286,22 @@ export default function MesaQueuePanel({
                 )}
             </div>
         </div>
+        <Modal
+            title={`Finalizar ${billTitle}`}
+            open={bill != null}
+            onClose={() => { if (!busy) setBill(null); }}
+            footer={bill ? (
+                <MesaReleaseFooter
+                    state={sheet}
+                    busy={busy}
+                    msg={billMsg}
+                    onRelease={() => void releaseBill()}
+                    onBack={() => setBill(null)}
+                />
+            ) : undefined}
+        >
+            {bill && <MesaReleaseBody state={sheet} items={bill.items} />}
+        </Modal>
+        </>
     );
 }

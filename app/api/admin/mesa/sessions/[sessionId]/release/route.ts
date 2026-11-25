@@ -1,14 +1,9 @@
 import { NextResponse } from "next/server";
 import { requireCompanyPlanFeature } from "@/lib/billing/requirePlanFeature";
 import { mesaRpcError } from "@/lib/mesa/rpcError";
-import { loadStorePaymentPolicy } from "@/lib/payments/loadStorePaymentPolicy";
-import { assertStorePaymentAllowed } from "@/src/financeiro/domain/storePaymentPolicy";
-import { isMesaPaymentMethod } from "@/src/mesa/domain/paymentParts";
+import { normalizeMesaReleaseParts } from "@/lib/mesa/normalizeReleaseParts";
 
 export const runtime = "nodejs";
-
-type PartLine = { item_id?: string; qty?: number };
-type PartBody = { amount?: number; method?: string; lines?: PartLine[] };
 
 export async function POST(
     req: Request,
@@ -18,46 +13,14 @@ export async function POST(
     if (!ctx.ok) return ctx.response;
     const { admin, companyId } = ctx;
     const { sessionId } = await ctxParams.params;
-    const body = (await req.json().catch(() => ({}))) as { parts?: PartBody[] };
-    const parts = Array.isArray(body.parts) ? body.parts : [];
-    if (parts.length === 0) {
-        return NextResponse.json({ error: "payments_required" }, { status: 400 });
-    }
-
-    const policy = await loadStorePaymentPolicy(admin, companyId);
-    const normalized = [];
-    for (const part of parts) {
-        const pay = assertStorePaymentAllowed(policy.immediate, policy.prazo, part.method ?? "");
-        if (!pay.ok || !isMesaPaymentMethod(pay.method)) {
-            return NextResponse.json({ error: "payment_not_allowed" }, { status: 400 });
-        }
-        if (Array.isArray(part.lines)) {
-            const lines = [];
-            for (const line of part.lines) {
-                const qty = Number(line.qty);
-                const itemId = typeof line.item_id === "string" ? line.item_id.trim() : "";
-                if (!itemId || !Number.isFinite(qty) || qty <= 0) {
-                    return NextResponse.json({ error: "qty_mismatch" }, { status: 400 });
-                }
-                lines.push({ item_id: itemId, qty });
-            }
-            if (lines.length === 0) {
-                return NextResponse.json({ error: "qty_mismatch" }, { status: 400 });
-            }
-            normalized.push({ method: pay.method, lines });
-            continue;
-        }
-        const amount = Number(part.amount);
-        if (!Number.isFinite(amount) || amount <= 0) {
-            return NextResponse.json({ error: "payment_amount_invalid" }, { status: 400 });
-        }
-        normalized.push({ amount, method: pay.method });
-    }
+    const body = (await req.json().catch(() => ({}))) as { parts?: unknown };
+    const normalized = await normalizeMesaReleaseParts(admin, companyId, body.parts);
+    if (!normalized.ok) return NextResponse.json({ error: normalized.error }, { status: 400 });
 
     const { data, error } = await admin.rpc("rpc_mesa_release_table", {
         p_company_id: companyId,
         p_session_id: sessionId,
-        p_payload: { parts: normalized },
+        p_payload: { parts: normalized.parts },
     });
     if (error) return mesaRpcError(error, "release_failed");
     return NextResponse.json(data ?? { ok: true });
