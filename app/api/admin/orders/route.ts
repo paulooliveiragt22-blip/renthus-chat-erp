@@ -119,7 +119,8 @@ export async function GET(req: Request) {
         .from("orders")
         .select("status, total_amount, created_at")
         .eq("company_id", companyId)
-        .neq("confirmation_status", "pending_confirmation");
+        .neq("confirmation_status", "pending_confirmation")
+        .neq("status", "consuming");
     if (aggErr) return NextResponse.json({ error: aggErr.message }, { status: 500 });
     const { stats, summary } = computeStatsAndSummary(aggRows ?? []);
 
@@ -156,7 +157,8 @@ export async function GET(req: Request) {
         .from("orders")
         .select(ORDER_LIST_SELECT, { count: "exact" })
         .eq("company_id", companyId)
-        .neq("confirmation_status", "pending_confirmation");
+        .neq("confirmation_status", "pending_confirmation")
+        .neq("status", "consuming");
 
     if (statusFilter !== "all") {
         listQuery = listQuery.eq("status", statusFilter);

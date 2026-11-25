@@ -3,6 +3,7 @@
 **Status:** aceito (2026-10-14) — implementação em curso
 **Data:** 2026-10-14
 **Emenda:** 2026-10-14 — estoque do combo lê `product_volumes.estoque_atual` (é o que `fn_debitar_estoque_embalagem` debita). `preco_alocado` é a fatia da linha dentro de um combo (`sum(preco_alocado) = combos.preco`). Centavos que não fecham em preço unitário × quantidade viram uma linha extra na venda, com o mesmo componente.
+**Emenda:** 2026-11-24 — na mesa, a linha vendida passa a ser `order_items` no lançamento ([ADR 0017](./0017-mesa-consumo-recebimento-divisao.md)). O preço continua o da RPC. `table_session_items` sai.
 **Aprovação do dono:** 2026-10-14 (estrutura combo × promoção e as nove regras comerciais abaixo)
 **Escopo técnico:** o lojista cria combo (kit) e promoção no admin; o cardápio web, o PDV, o chatbot e a mesa vendem o preço que o Postgres calculou; o pedido grava esse preço em `order_items`.
 **Escopo comercial:** preço de combo, rateio e preço promocional com início e fim. **Não** altera `produto_embalagens.preco_venda`, cupom, “leve 2 pague 1”, porcentagem avulsa, dia da semana, horário do dia, nem promoção de plano (`plan_promotions`).
@@ -29,7 +30,7 @@ Combo e promoção são agregados separados. O combo existe sem promoção. A pr
 
 Cardápio web, PDV, chatbot e mesa chamam a mesma função de preço no momento da venda. iFood e Aiqfome ficam de fora: o preço de marketplace é contrato externo e sync manual.
 
-A mesa entra porque `table_session_items.unit_price` é venda do mesmo catálogo. Deixar a mesa de fora faria a promoção valer no balcão e não na mesa.
+A mesa entra porque o preço da comanda é venda do mesmo catálogo. A linha gravada é `order_items` ([ADR 0017](./0017-mesa-consumo-recebimento-divisao.md)). Deixar a mesa de fora faria a promoção valer no balcão e não na mesa.
 
 ### D2 — No pedido, o combo vira uma linha por componente
 
@@ -233,6 +234,6 @@ Implementar nesta ordem. Não marcar item sem teste (`npm test` onde houver lóg
 
 ### Fatia 3 — Venda
 
-- [x] `rpc_get_public_menu`, checkout web, PDV, chatbot e mesa resolvem preço na RPC e estouram combo. Marketplace não reprecifica. Mesa congela o preço no lançamento (`order_source = table_service`).
+- [x] `rpc_get_public_menu`, checkout web, PDV, chatbot e mesa resolvem preço na RPC e estouram combo. Marketplace não reprecifica. Mesa congela o preço no lançamento (`order_source = table_service`). A partir do ADR 0017 a linha gravada na mesa é `order_items`, não `table_session_items`.
 - [x] Cardápio: preço riscado, fim da promoção, seção Promoções, combo visível e estoque-gargalo.
 - [x] Busca do chatbot encontra combo pelo nome.

@@ -178,6 +178,7 @@ describe("proxy auth routing", () => {
             "/brand/renthus-mark-on-dark.svg",
             "/brand/zampell-wordmark.png",
             "/assets/ICONE512X512.png",
+            "/marketing/loops/cardapio.mp4",
         ];
         for (const path of paths) {
             const response = await proxy(createRequest(path), undefined, {

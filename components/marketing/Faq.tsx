@@ -8,12 +8,12 @@ export function Faq() {
                     id="faq"
                     className="font-[family-name:var(--font-landing-display)] text-2xl font-extrabold tracking-tight text-slate-950 sm:text-3xl"
                 >
-                    Perguntas frequentes
+                    Dúvidas rápidas
                 </h2>
-                <div className="mt-6 divide-y divide-slate-200/80 rounded-2xl border border-slate-200/80 bg-white shadow-sm">
+                <div className="mt-5 divide-y divide-slate-200/80 rounded-2xl border border-slate-200/80 bg-white shadow-sm">
                     {FAQ_ITEMS.map((item) => (
-                        <details key={item.q} className="group px-5 py-4">
-                            <summary className="cursor-pointer list-none font-bold text-slate-950 [&::-webkit-details-marker]:hidden">
+                        <details key={item.q} className="group px-4 py-3.5 sm:px-5">
+                            <summary className="cursor-pointer list-none text-sm font-bold text-slate-950 sm:text-base [&::-webkit-details-marker]:hidden">
                                 <span className="flex items-center justify-between gap-4">
                                     {item.q}
                                     <span aria-hidden className="text-emerald-600 transition-transform duration-200 group-open:rotate-45">
@@ -21,7 +21,7 @@ export function Faq() {
                                     </span>
                                 </span>
                             </summary>
-                            <p className="mt-3 text-sm leading-relaxed text-slate-600">{item.a}</p>
+                            <p className="mt-2 text-sm leading-snug text-slate-600">{item.a}</p>
                         </details>
                     ))}
                 </div>

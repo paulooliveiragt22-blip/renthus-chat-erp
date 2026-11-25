@@ -95,6 +95,13 @@ export function CommandMenu({ open, onOpenChange }: Props) {
   const [query, setQuery] = useState("");
   const [switching, setSwitching] = useState(false);
   const [recents, setRecents] = useState<CommandRecentEntry[]>([]);
+  const [mesaAllowed, setMesaAllowed] = useState(true);
+
+  useEffect(() => {
+    void fetch("/api/admin/mesa/access", { credentials: "include", cache: "no-store" }).then((res) => {
+      setMesaAllowed(res.ok);
+    });
+  }, [currentCompanyId]);
 
   const role: CompanyRole | null = useMemo(() => {
     const raw = companies.find((c) => c.id === currentCompanyId)?.role;
@@ -107,8 +114,9 @@ export function CommandMenu({ open, onOpenChange }: Props) {
         role,
         featuresLoading,
         features,
+        mesaAllowed,
       }),
-    [role, featuresLoading, features]
+    [role, featuresLoading, features, mesaAllowed]
   );
 
   const byGroup = useMemo(() => {

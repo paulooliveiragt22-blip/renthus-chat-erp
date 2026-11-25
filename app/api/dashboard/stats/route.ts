@@ -41,7 +41,8 @@ export async function GET() {
             .select("id", { count: "exact", head: true })
             .eq("company_id", companyId)
             .gte("created_at", todayStart.toISOString())
-            .neq("status", "canceled"),
+            .neq("status", "canceled")
+            .neq("status", "consuming"),
 
         admin
             .from("orders")
@@ -55,6 +56,7 @@ export async function GET() {
             .eq("company_id", companyId)
             .gte("created_at", past24h.toISOString())
             .neq("status", "canceled")
+            .neq("status", "consuming")
             .order("created_at", { ascending: true }),
 
         admin

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireCompanyPlanFeature } from "@/lib/billing/requirePlanFeature";
+import { mesaRpcError } from "@/lib/mesa/rpcError";
 
 export const runtime = "nodejs";
 
@@ -18,11 +19,7 @@ export async function POST(
         p_session_id: sessionId,
         p_payload: body,
     });
-    if (error) {
-        const msg = error.message || "add_item_failed";
-        const status = msg.includes("invalid") || msg.includes("not_open") ? 400 : 500;
-        return NextResponse.json({ error: msg }, { status });
-    }
+    if (error) return mesaRpcError(error, "add_item_failed");
     return NextResponse.json(data ?? { ok: true });
 }
 
@@ -49,11 +46,7 @@ export async function PATCH(
         p_item_id: itemId,
         p_qty: qty,
     });
-    if (error) {
-        const msg = error.message || "set_qty_failed";
-        const status = msg.includes("not_found") || msg.includes("not_open") ? 400 : 500;
-        return NextResponse.json({ error: msg }, { status });
-    }
+    if (error) return mesaRpcError(error, "set_qty_failed");
     return NextResponse.json(data ?? { ok: true });
 }
 
@@ -75,8 +68,6 @@ export async function DELETE(
         p_session_id: sessionId,
         p_item_id: itemId,
     });
-    if (error) {
-        return NextResponse.json({ error: error.message }, { status: 500 });
-    }
+    if (error) return mesaRpcError(error, "remove_item_failed");
     return NextResponse.json(data ?? { ok: true });
 }

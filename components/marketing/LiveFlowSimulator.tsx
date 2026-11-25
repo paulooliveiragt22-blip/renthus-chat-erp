@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { motion } from "framer-motion";
 import { Check, Play, RotateCcw } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 type CustomerKind = "text" | "audio";
 
@@ -19,53 +20,57 @@ type FlowScenario = {
 
 const SCENARIOS: readonly FlowScenario[] = [
     {
-        id: "bebidas",
-        tab: "Bebidas (Caixa + UN)",
-        customerKind: "text",
-        audioDuration: null,
-        customer:
-            "Boa noite! Manda 2 caixas de Heineken long neck, 1 fardo de Coca 2L e 3 energéticos Red Bull. Entrega na Rua das Acácias, 420. Pago no PIX.",
-        agent: "Pedido montado! 🍺\n• 2x CX Heineken LN (12un) — R$ 156,00\n• 1x FD Coca-Cola 2L (6un) — R$ 54,00\n• 3x UN Red Bull 250ml — R$ 27,00\n• Taxa de entrega: R$ 7,00\nTotal: R$ 244,00 (PIX). Confirma o envio?",
-        orderLabel: "#1048 · Entrega motoboy",
-        badges: [
-            "Comanda impressa no balcão",
-            "Estoque baixado (−2 CX, −1 FD, −3 UN)",
-            "R$ 244,00 lançado no caixa (PIX)",
-        ],
-    },
-    {
-        id: "churrasco",
-        tab: "Churrasco (Áudio no Zap)",
-        customerKind: "audio",
-        audioDuration: "0:08",
-        customer:
-            "Ôpa, vê pra mim 3 fardos de Brahma duplo malte latão, 2 sacos de gelo de coco e 1 carvão de 5kg. Vou pagar metade no PIX e metade no cartão na entrega.",
-        agent: "Anotei tudo aqui! 🔥\n• 3x FD Brahma Duplo Malte 473ml — R$ 165,00\n• 2x UN Gelo de Coco 5kg — R$ 24,00\n• 1x UN Carvão Vegetal 5kg — R$ 22,00\n• Pagamento misto: PIX + Cartão na entrega\nTotal: R$ 211,00. Posso mandar separar?",
-        orderLabel: "#1049 · Pagamento misto",
-        badges: [
-            "Comanda impressa no balcão",
-            "Estoque baixado (−3 FD, −3 UN)",
-            "R$ 211,00 lançado no financeiro",
-        ],
-    },
-    {
         id: "lanches",
-        tab: "Lanches e Porções",
+        tab: "Hamburgueria",
         customerKind: "text",
         audioDuration: null,
         customer:
-            "Quero 2 X-Bacon sem cebola, 1 porção de batata com cheddar e bacon e 1 Coca 2L. Retiro no balcão.",
-        agent: "Fechado! 🍔\n• 2x X-Bacon (obs: sem cebola) — R$ 56,00\n• 1x Batata Cheddar & Bacon — R$ 34,00\n• 1x Coca-Cola 2L — R$ 14,00\n• Retirada no balcão (sem taxa)\nTotal: R$ 104,00. Como prefere pagar?",
+            "Quero 2 X-Bacon sem cebola, 1 porção de batata com cheddar e 1 Coca 2L. Retiro no balcão.",
+        agent: "Fechado! 🍔\n• 2x X-Bacon (obs: sem cebola) — R$ 56,00\n• 1x Batata Cheddar — R$ 34,00\n• 1x Coca-Cola 2L — R$ 14,00\n• Retirada (sem taxa)\nTotal: R$ 104,00. Como prefere pagar?",
         orderLabel: "#1050 · Retirada balcão",
         badges: [
             "Comanda enviada pra cozinha",
             "Observações destacadas",
-            "R$ 104,00 lançado no caixa",
+            "R$ 104,00 no caixa",
+        ],
+    },
+    {
+        id: "pizza",
+        tab: "Pizzaria",
+        customerKind: "text",
+        audioDuration: null,
+        customer:
+            "Manda 1 pizza grande calabresa, 1 marguerita média e 2 refrigerantes. Entrega na Rua das Flores, 120. PIX.",
+        agent: "Pedido montado! 🍕\n• 1x Pizza G Calabresa — R$ 69,00\n• 1x Pizza M Marguerita — R$ 49,00\n• 2x Refri 350ml — R$ 12,00\n• Taxa entrega: R$ 8,00\nTotal: R$ 138,00 (PIX). Confirma?",
+        orderLabel: "#1051 · Entrega",
+        badges: [
+            "Comanda na cozinha",
+            "Endereço no pedido",
+            "R$ 138,00 no caixa (PIX)",
+        ],
+    },
+    {
+        id: "restaurante",
+        tab: "Restaurante (Áudio)",
+        customerKind: "audio",
+        audioDuration: "0:07",
+        customer:
+            "Oi, quero 2 marmitas executivas, 1 suco de laranja e 1 água. Entrega no escritório, pago no cartão na entrega.",
+        agent: "Anotei! 🥗\n• 2x Marmita executiva — R$ 58,00\n• 1x Suco de laranja — R$ 12,00\n• 1x Água — R$ 4,00\n• Cartão na entrega\nTotal: R$ 74,00 + taxa. Posso enviar?",
+        orderLabel: "#1052 · Entrega",
+        badges: [
+            "Comanda impressa",
+            "Pagamento na entrega",
+            "Pedido no painel",
         ],
     },
 ];
 
-export function LiveFlowSimulator() {
+type LiveFlowSimulatorProps = {
+    bare?: boolean;
+};
+
+export function LiveFlowSimulator({ bare = false }: LiveFlowSimulatorProps) {
     const [index, setIndex] = useState(0);
     const [run, setRun] = useState(0);
     const scenario = SCENARIOS[index] ?? SCENARIOS[0];
@@ -76,7 +81,12 @@ export function LiveFlowSimulator() {
     }
 
     return (
-        <div className="rounded-3xl border border-slate-200/80 bg-white p-4 shadow-xl sm:p-6">
+        <div
+            className={cn(
+                "bg-white p-4 sm:p-6",
+                bare ? "h-full" : "rounded-3xl border border-slate-200/80 shadow-xl"
+            )}
+        >
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <p className="text-xs font-bold tracking-wide text-slate-500 uppercase">Do Zap ao caixa</p>
                 <div role="tablist" aria-label="Cenários do agente" className="flex flex-wrap gap-2">

@@ -402,6 +402,7 @@ function isPublicAppRoute(pathname: string): boolean {
         pathname.startsWith("/icons/") ||
         pathname.startsWith("/brand/") ||
         pathname.startsWith("/assets/") ||
+        pathname.startsWith("/marketing/loops/") ||
         pathname === "/offline" ||
         pathname.startsWith("/offline/")
     );

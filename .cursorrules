@@ -97,3 +97,9 @@
 - **Chatbot (produto/embalagem):** `lib/chatbot/processMessage.ts`
 - **Trigger de estoque:** função `fn_debitar_estoque_embalagem()` em `order_items` (AFTER INSERT/UPDATE/DELETE)
 - **Documentação geral do banco:** `docs/DB_CURRENT_STATE.md`
+
+### Mesas (ADR 0017)
+- Comanda aberta é pedido `consuming`. Lançar item grava `order_items` e o trigger baixa estoque.
+- O garçom libera a mesa com divisão de valor livre (dinheiro, Pix, débito, crédito). A comanda fecha e não reabre. A mesa fica livre.
+- O caixa confirma na fila do PDV. Só aí nasce o journal `table_service`. Sem caixa aberto, a conta continua na fila.
+- Contrato: `docs/ADR/0017-mesa-consumo-recebimento-divisao.md`.

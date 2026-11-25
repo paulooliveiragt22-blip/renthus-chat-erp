@@ -23,12 +23,24 @@ export function MarketingHeader({ linkToApp = false }: MarketingHeaderProps) {
                         Delivery
                     </span>
                 </a>
-                <nav aria-label="Principal" className="flex shrink-0 items-center gap-2 sm:gap-3">
+                <nav aria-label="Principal" className="flex shrink-0 items-center gap-1 sm:gap-2">
                     <a
-                        href="#economia"
-                        className="hidden rounded-full px-3 py-2 text-sm font-semibold text-slate-700 transition-all duration-200 hover:bg-slate-100 sm:inline-flex"
+                        href="#produto"
+                        className="hidden rounded-full px-3 py-2 text-sm font-semibold text-slate-700 transition-all duration-200 hover:bg-slate-100 md:inline-flex"
                     >
-                        Economia
+                        Produto
+                    </a>
+                    <a
+                        href="#planos"
+                        className="hidden rounded-full px-3 py-2 text-sm font-semibold text-slate-700 transition-all duration-200 hover:bg-slate-100 md:inline-flex"
+                    >
+                        Planos
+                    </a>
+                    <a
+                        href="#faq"
+                        className="hidden rounded-full px-3 py-2 text-sm font-semibold text-slate-700 transition-all duration-200 hover:bg-slate-100 md:inline-flex"
+                    >
+                        Dúvidas
                     </a>
                     <a
                         href={accountHref("/login", linkToApp)}
@@ -40,7 +52,8 @@ export function MarketingHeader({ linkToApp = false }: MarketingHeaderProps) {
                         href={accountHref("/signup?plano=pro&periodo=year", linkToApp)}
                         className="rounded-full bg-emerald-600 px-3 py-2 text-sm font-semibold text-white shadow-lg shadow-emerald-600/20 transition-all duration-200 hover:bg-emerald-500 sm:px-4"
                     >
-                        Começar
+                        <span className="sm:hidden">Começar</span>
+                        <span className="hidden sm:inline">Começar no Pro</span>
                     </a>
                 </nav>
             </div>

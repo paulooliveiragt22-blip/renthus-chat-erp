@@ -1,60 +1,47 @@
-"use client";
-
-import { Check } from "lucide-react";
 import { HERO, HERO_RISK } from "@/lib/marketing/copy";
-import { LiveFlowSimulator } from "@/components/marketing/LiveFlowSimulator";
+import { accountHref } from "@/lib/marketing/hosts";
+import { ProductStage } from "@/components/marketing/ProductStage";
 
-const PROOF = [
-    "Unidade, caixa e fardo no mesmo pedido — sem anotar errado no Zap.",
-    "O cliente pede no WhatsApp ou no cardápio. Sem aplicativo para baixar.",
-    "Canal da loja, mensalidade fixa. Sem comissão por venda.",
-] as const;
+type HeroProps = {
+    linkToApp?: boolean;
+};
 
-export function Hero() {
+export function Hero({ linkToApp = false }: HeroProps) {
+    const proSignupHref = accountHref("/signup?plano=pro&periodo=year", linkToApp);
+
     return (
-        <section className="relative mx-auto max-w-6xl overflow-hidden px-4 py-20 sm:px-6 lg:py-24">
-            <div className="max-w-3xl">
-                <p className="text-sm font-semibold tracking-wide text-emerald-700 uppercase">
-                    Zampell Delivery
-                </p>
-                <h1 className="mt-3 font-[family-name:var(--font-landing-display)] text-3xl font-extrabold tracking-tight text-balance text-slate-950 sm:text-5xl sm:leading-[1.08]">
-                    {HERO.title}
+        <section className="relative overflow-hidden bg-white pt-16 pb-0 sm:pt-24">
+            <div className="mx-auto max-w-4xl px-4 text-center sm:px-6">
+                <h1 className="font-[family-name:var(--font-landing-display)] text-4xl font-semibold tracking-tight text-balance text-slate-950 sm:text-6xl sm:leading-[1.05] lg:text-7xl">
+                    <span className="block">{HERO.lead}</span>
+                    <span className="mt-2 block">
+                        {HERO.beforeAccent}{" "}
+                        <span className="inline-flex items-center gap-2 rounded-full bg-emerald-50 px-3 py-1 align-middle sm:px-4">
+                            <span className="size-2.5 rounded-full bg-emerald-500 sm:size-3" aria-hidden />
+                            <span>{HERO.accent}</span>
+                        </span>
+                    </span>
                 </h1>
-                <p className="mt-5 max-w-xl text-lg leading-relaxed text-slate-600">
+                <p className="mx-auto mt-6 max-w-xl text-base leading-relaxed text-slate-600 sm:text-lg">
                     {HERO.subtitle}
                 </p>
-                <ul className="mt-6 space-y-3">
-                    {PROOF.map((line) => (
-                        <li key={line} className="flex items-start gap-3 text-slate-700">
-                            <Check className="mt-0.5 size-5 shrink-0 text-emerald-600" aria-hidden />
-                            <span>{line}</span>
-                        </li>
-                    ))}
-                </ul>
-                <div className="mt-8 flex flex-col gap-3 sm:flex-row">
+                <div className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row">
                     <a
-                        href="#economia"
+                        href={proSignupHref}
                         className="inline-flex items-center justify-center rounded-full bg-emerald-600 px-5 py-3 text-base font-semibold text-white shadow-lg shadow-emerald-600/20 transition-all duration-200 hover:bg-emerald-500"
                     >
-                        Ver planos e economizar
+                        Começar no Pro anual
                     </a>
                     <a
                         href="#fluxo-agente"
-                        className="inline-flex items-center justify-center rounded-full border border-slate-200/80 bg-white px-5 py-3 text-center text-base font-semibold text-slate-950 shadow-sm transition-all duration-200 hover:bg-slate-50"
+                        className="inline-flex items-center justify-center rounded-full bg-emerald-50 px-5 py-3 text-base font-semibold text-emerald-800 transition-all duration-200 hover:bg-emerald-100"
                     >
-                        Ver o agente em ação
+                        Ver o agente
                     </a>
                 </div>
-                <p className="mt-4 text-sm text-slate-600">{HERO_RISK}</p>
+                <p className="mt-4 text-sm text-slate-500">{HERO_RISK}</p>
             </div>
-
-            <div id="fluxo-agente" className="relative mt-12 scroll-mt-28">
-                <div
-                    aria-hidden
-                    className="pointer-events-none absolute -inset-8 -z-10 rounded-full bg-[radial-gradient(circle_at_center,rgba(5,150,105,0.18),transparent_68%)]"
-                />
-                <LiveFlowSimulator />
-            </div>
+            <ProductStage />
         </section>
     );
 }

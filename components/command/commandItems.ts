@@ -176,6 +176,8 @@ export type FilterCommandItemsInput = {
   /** Fail-open quando features ainda carregam (igual sidebar). */
   featuresLoading: boolean;
   features: ReadonlySet<string>;
+  /** Member sem mesa.access não vê o atalho. Owner/admin e o carregamento inicial deixam visível. */
+  mesaAllowed?: boolean;
 };
 
 export function filterCommandNavItems({
@@ -183,8 +185,10 @@ export function filterCommandNavItems({
   role,
   featuresLoading,
   features,
+  mesaAllowed = true,
 }: FilterCommandItemsInput): CommandNavItem[] {
   return items.filter((item) => {
+    if (item.id === "nav-mesa" && !mesaAllowed) return false;
     if (item.roles?.length) {
       if (!role || !item.roles.includes(role)) return false;
     }

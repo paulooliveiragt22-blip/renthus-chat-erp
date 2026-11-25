@@ -19,13 +19,12 @@ export function ChannelSavings({
             <div className="mx-auto max-w-6xl px-4 py-20 sm:px-6 lg:py-24">
                 <h2
                     id="economia-titulo"
-                    className="max-w-3xl font-[family-name:var(--font-landing-display)] text-2xl font-extrabold tracking-tight text-balance text-slate-950 sm:text-3xl"
+                    className="max-w-2xl font-[family-name:var(--font-landing-display)] text-2xl font-extrabold tracking-tight text-balance text-slate-950 sm:text-3xl"
                 >
-                    No app, a comissão sai de cada pedido. No seu canal, a mensalidade é fixa.
+                    No app, comissão em cada pedido. No seu canal, mensalidade fixa.
                 </h2>
-                <p className="mt-4 max-w-3xl text-base leading-relaxed text-slate-600">
-                    Entrega feita pela loja e pagamento dentro do aplicativo. A Zampell entra com a
-                    mensalidade do Pro, sem percentual sobre a venda. Arraste o volume para ver a diferença.
+                <p className="mt-3 max-w-2xl text-sm leading-snug text-slate-600 sm:text-base">
+                    Arraste o volume e compare. Zampell não cobra percentual sobre a venda.
                 </p>
 
                 <SavingsCalculator
@@ -34,13 +33,7 @@ export function ChannelSavings({
                     onBillingPeriodChange={onBillingPeriodChange}
                     yearlyHint={yearlyHint}
                 />
-                <p className="mt-4 max-w-3xl text-sm leading-relaxed text-slate-500">
-                    Se o aplicativo também manda o motoboy, a referência muda: iFood Plano Entrega 23% + 3,2%,
-                    Aiqfome 19,99%, 99Food 8,9% mais custo por km. O motoboy da loja continua no canal próprio.
-                    PIX e cartão na sua maquininha têm a taxa da operadora. No anual, o Pro sai menos por mês
-                    e a diferença aumenta.
-                </p>
-                <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:items-center">
+                <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:items-center">
                     <a
                         href="#planos"
                         className="inline-flex items-center justify-center rounded-full bg-emerald-600 px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-emerald-600/20 transition-all duration-200 hover:bg-emerald-500"
@@ -48,7 +41,7 @@ export function ChannelSavings({
                         Escolher plano
                     </a>
                     <p className="text-sm text-slate-600">
-                        Pro e Market no anual incluem 1.000 panfletos pra trazer o cliente do app pro seu Zap.
+                        Anual Pro/Market: 1.000 panfletos pra trazer o cliente do app pro Zap.
                     </p>
                 </div>
             </div>

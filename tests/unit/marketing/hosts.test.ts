@@ -34,6 +34,10 @@ describe("marketing host", () => {
         assert.equal(marketingHostAction("www.zampell.com.br", "/", env).type, "rewrite");
         assert.equal(marketingHostAction("www.zampell.com.br", "/inicio", env).type, "next");
         assert.equal(
+            marketingHostAction("www.zampell.com.br", "/marketing/loops/cardapio.mp4", env).type,
+            "next"
+        );
+        assert.equal(
             marketingHostAction("www.zampell.com.br", "/api/billing/public-plans", env).type,
             "next"
         );

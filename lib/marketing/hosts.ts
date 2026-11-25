@@ -57,7 +57,8 @@ function isMarketingAsset(pathname: string): boolean {
         pathname.startsWith("/fallback-") ||
         pathname.startsWith("/icons/") ||
         pathname.startsWith("/brand/") ||
-        pathname.startsWith("/assets/")
+        pathname.startsWith("/assets/") ||
+        pathname.startsWith("/marketing/loops/")
     );
 }
 

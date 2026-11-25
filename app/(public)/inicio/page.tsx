@@ -7,7 +7,7 @@ import { resolveRequestHostname } from "@/lib/platform/resolvePlatformRequestHos
 export const metadata: Metadata = {
     title: "Zampell Delivery — pedido no WhatsApp, sem comissão por venda",
     description:
-        "Agente de IA no WhatsApp da loja, cardápio web e PDV. Mensalidade fixa no lugar da comissão de iFood, Aiqfome e 99Food.",
+        "Pra hamburgueria, pizzaria, restaurante e delivery. Agente de IA no WhatsApp, cardápio web e PDV — mensalidade fixa, sem comissão por pedido.",
 };
 
 export default async function InicioPage() {

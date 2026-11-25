@@ -244,16 +244,28 @@ export default function AdminSidebar({
   const { theme, setTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
   const { loading: featuresLoading, features } = usePlanFeatures();
+  const [mesaNav, setMesaNav] = useState(true);
 
   useEffect(() => setMounted(true), []);
+  useEffect(() => {
+    void fetch("/api/admin/mesa/access", { credentials: "include", cache: "no-store" }).then((res) => {
+      setMesaNav(res.ok);
+    });
+  }, []);
   useEffect(() => {
     onClose();
   }, [pathname]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const visibleNav = useMemo(
-    () => filterAdminNavCatalog(featuresLoading, features),
-    [featuresLoading, features]
-  );
+  const visibleNav = useMemo(() => {
+    const catalog = filterAdminNavCatalog(featuresLoading, features);
+    if (mesaNav) return catalog;
+    return catalog
+      .map((entry) => {
+        if (entry.kind === "link") return entry.id === "mesa" ? null : entry;
+        return { ...entry, children: entry.children.filter((c) => c.id !== "mesa") };
+      })
+      .filter((entry): entry is NonNullable<typeof entry> => entry != null && (entry.kind === "link" || entry.children.length > 0));
+  }, [featuresLoading, features, mesaNav]);
 
   const isDark = theme === "dark";
 

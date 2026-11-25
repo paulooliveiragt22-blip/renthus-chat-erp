@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { useWorkspace } from "@/lib/workspace/useWorkspace";
+import MesaQueuePanel from "./MesaQueuePanel";
 import { usePlanFeatures } from "@/lib/billing/usePlanFeatures";
 import PlanFeatureGate from "@/components/billing/PlanFeatureGate";
 import {
@@ -1149,6 +1150,10 @@ export default function PDVPage() {
                 </button>
               </div>
               <div className="flex-1 overflow-y-auto p-3 min-h-0">
+                <MesaQueuePanel
+                  cashRegisterId={caixa?.id ? String(caixa.id) : null}
+                  onConfirmed={() => void loadPendingOrders()}
+                />
                 {loadingPending ? (
                   <div className="space-y-2">
                     {Array.from({ length: 6 }).map((_, i) => (
