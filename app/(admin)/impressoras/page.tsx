@@ -709,7 +709,7 @@ export default function ImpressorasPage() {
                         <a
                             href={
                                 process.env.NEXT_PUBLIC_PRINT_AGENT_DOWNLOAD_URL ||
-                                "https://github.com/paulooliveiragt22-blip/renthus-chat-erp/releases/download/print-agent-v1.4.0/zampell-print-agent-1.4.0-win.zip"
+                                "https://github.com/paulooliveiragt22-blip/renthus-chat-erp/releases/download/print-agent-v1.4.0/zampell-print-agent-1.4.0-setup.exe"
                             }
                             target="_blank"
                             rel="noopener noreferrer"
