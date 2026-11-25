@@ -141,7 +141,7 @@ Comanda em consumo:
 - Itens lançados abaixo, o mais recente em cima, com +/− e remover.
 - **Finalizar** abre a folha já com o valor da conta num pagador. **Dividir conta** começa limpa; cada pagador entra por valor e pode marcar item. Finalizar só segue quando a soma fecha. A mesa fica livre, a comanda fecha e a conta entra na fila do PDV. Não há botão de reabrir.
 
-No PDV, a fila mostra a conta com o número da mesa gravado na liberação e as partes (valor e forma). O caixa corrige se precisar e **Confirmar**. Sem caixa aberto, confirmar recusa e a conta permanece na fila. A mesa, no salão, já está livre. Impressão na confirmação permanece desmarcada (`auto_print` igual ao de hoje).
+No PDV, o controle **Mesas** (ao lado de Venda e Pedidos) lista as mesas em aberto, só leitura, e as contas já fechadas pelo garçom. A fechada mostra o número gravado na liberação e as partes (valor e forma). O caixa corrige se precisar e **Confirmar**. Sem caixa aberto, confirmar recusa e a conta permanece na fila. A mesa, no salão, já está livre. Impressão na confirmação permanece desmarcada (`auto_print` igual ao de hoje).
 
 **Trocar mesa** lista só mesas livres e só com a sessão em consumo.
 

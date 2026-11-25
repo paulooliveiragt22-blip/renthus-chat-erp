@@ -9,7 +9,7 @@ import {
   Search, ShoppingCart, Trash2, X, CheckCircle2, Printer,
   User, Keyboard, AlertCircle,
   UserPlus, UserCheck, Lock, Unlock, ArrowDownLeft, ArrowUpRight,
-  FileText, TrendingDown, TrendingUp, Clock,
+  FileText, TrendingDown, TrendingUp, Clock, UtensilsCrossed,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useWorkspace } from "@/lib/workspace/useWorkspace";
@@ -192,7 +192,7 @@ export default function PDVPage() {
   const [activeOrderSource, setActiveOrderSource] = useState<string | null>(null);
 
   // ── mode toggle ──────────────────────────────────────────────────────
-  const [pdvMode,         setPdvMode]         = useState<"normal" | "pending">("normal");
+  const [pdvMode,         setPdvMode]         = useState<"normal" | "pending" | "mesas">("normal");
   const [pendingOrders,   setPendingOrders]   = useState<PendingOrder[]>([]);
   const [loadingPending,  setLoadingPending]  = useState(false);
   /** Mobile/tablet: alterna catálogo ↔ cupom (desktop mostra os dois). */
@@ -1110,6 +1110,17 @@ export default function PDVPage() {
             <Clock className="h-3 w-3" />
             <span className="hidden sm:inline">Pedidos</span>
           </button>
+          <button
+            onClick={() => setPdvMode("mesas")}
+            className={`flex items-center gap-1 rounded-md px-2 py-1 text-xs font-semibold transition-colors sm:px-2.5 ${
+              pdvMode === "mesas"
+                ? "bg-emerald-600 text-white shadow"
+                : "text-zinc-400 hover:text-zinc-200"
+            }`}
+          >
+            <UtensilsCrossed className="h-3 w-3" />
+            <span className="hidden sm:inline">Mesas</span>
+          </button>
         </div>
 
         {/* Hint */}
@@ -1138,7 +1149,12 @@ export default function PDVPage() {
           } min-w-0 flex-1 flex-col overflow-hidden border-r border-zinc-800 lg:flex`}
         >
 
-          {pdvMode === "pending" ? (
+          {pdvMode === "mesas" ? (
+            <MesaQueuePanel
+              cashRegisterId={caixa?.id ? String(caixa.id) : null}
+              onConfirmed={() => void loadPendingOrders()}
+            />
+          ) : pdvMode === "pending" ? (
             /* ── Pending orders view ────────────────────────────── */
             <>
               <div className="flex shrink-0 items-center gap-2 border-b border-zinc-800 bg-zinc-900/80 px-4 py-2">
@@ -1150,10 +1166,6 @@ export default function PDVPage() {
                 </button>
               </div>
               <div className="flex-1 overflow-y-auto p-3 min-h-0">
-                <MesaQueuePanel
-                  cashRegisterId={caixa?.id ? String(caixa.id) : null}
-                  onConfirmed={() => void loadPendingOrders()}
-                />
                 {loadingPending ? (
                   <div className="space-y-2">
                     {Array.from({ length: 6 }).map((_, i) => (

@@ -516,7 +516,7 @@ export default function MesaClient() {
             if (row.key !== key || row.basis === basis) return row;
             if (basis === "item") {
                 const qty: Record<string, number> = {};
-                for (const line of splitLines) qty[line.id] = pendingQty(line.id, key);
+                for (const line of splitLines) qty[line.id] = 0;
                 return { ...row, basis, qty };
             }
             const others = preview.amounts.reduce<number>((sum, amount, index) => {
@@ -638,11 +638,11 @@ export default function MesaClient() {
                 onClose={closeComanda}
                 footer={
                     !session ? undefined : panel === "release" ? (
-                        <div className="flex flex-wrap items-center gap-3">
-                            <Button type="button" disabled={busy || !canFinish} onClick={() => void release()}>
+                        <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:gap-3">
+                            <Button type="button" className="w-full sm:w-auto" disabled={busy || !canFinish} onClick={() => void release()}>
                                 {busy ? "Finalizando..." : "Finalizar"}
                             </Button>
-                            <Button type="button" variant="outline" disabled={busy} onClick={() => setPanel("comanda")}>
+                            <Button type="button" variant="outline" className="w-full sm:w-auto" disabled={busy} onClick={() => setPanel("comanda")}>
                                 Voltar
                             </Button>
                             <p className="text-[11px] text-foreground-muted">
@@ -763,7 +763,7 @@ export default function MesaClient() {
                                             <p className="text-sm font-semibold text-primary">{brl(preview.amounts[index] ?? 0)}</p>
                                         )}
                                     </div>
-                                    <div className="mb-3 flex flex-wrap items-center gap-2">
+                                    <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
                                         {splitMode === "split" && (
                                             <ToggleGroup
                                                 type="single"
@@ -774,9 +774,14 @@ export default function MesaClient() {
                                                     if (value === "value" || value === "item") setPayerBasis(payer.key, value);
                                                 }}
                                                 aria-label={`Como o pagador ${index + 1} divide`}
+                                                className="dark:border dark:border-zinc-500 dark:bg-zinc-900"
                                             >
-                                                <ToggleGroupItem value="value">Valor</ToggleGroupItem>
-                                                <ToggleGroupItem value="item">Item</ToggleGroupItem>
+                                                <ToggleGroupItem value="value" className="min-w-14 px-3 text-zinc-800 hover:bg-zinc-200 data-[state=on]:!bg-primary data-[state=on]:!text-white dark:text-zinc-100 dark:hover:bg-zinc-700">
+                                                    Valor
+                                                </ToggleGroupItem>
+                                                <ToggleGroupItem value="item" className="min-w-14 px-3 text-zinc-800 hover:bg-zinc-200 data-[state=on]:!bg-primary data-[state=on]:!text-white dark:text-zinc-100 dark:hover:bg-zinc-700">
+                                                    Item
+                                                </ToggleGroupItem>
                                             </ToggleGroup>
                                         )}
                                         <Select
@@ -817,7 +822,7 @@ export default function MesaClient() {
                                                 const marked = payer.qty[it.id] ?? 0;
                                                 const cap = pendingQty(it.id, payer.key);
                                                 return (
-                                                    <li key={it.id} className="flex items-center justify-between gap-3 text-sm">
+                                                    <li key={it.id} className="flex flex-col gap-2 text-sm sm:flex-row sm:items-center sm:justify-between">
                                                         <span className="min-w-0 truncate">
                                                             {it.combo_label || it.product_name}
                                                             <span className="text-foreground-muted"> · {it.qty} na comanda</span>

@@ -47,12 +47,12 @@ export default function Modal({
                 hideClose
                 overlayClassName={zClass}
                 className={cn(
-                    "flex max-h-[90vh] w-full max-w-4xl flex-col gap-0 overflow-hidden rounded-2xl p-0 shadow-2xl",
+                    "sheet-full flex max-h-[90vh] w-full max-w-4xl flex-col gap-0 overflow-hidden rounded-2xl p-0 shadow-2xl",
                     zClass
                 )}
                 aria-describedby={undefined}
             >
-                <DialogHeader className="flex shrink-0 flex-row items-center justify-between space-y-0 border-b border-border px-5 py-4 pr-14 text-left">
+                <DialogHeader className="flex shrink-0 flex-row items-center justify-between space-y-0 border-b border-border px-3 py-3 pr-14 text-left sm:px-5 sm:py-4">
                     <DialogTitle className="line-clamp-1 text-sm font-bold">
                         {title}
                     </DialogTitle>
@@ -68,11 +68,11 @@ export default function Modal({
                         </Button>
                     </DialogClose>
                 </DialogHeader>
-                <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4 text-foreground">
+                <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3 text-foreground sm:px-5 sm:py-4">
                     {children}
                 </div>
                 {footer ? (
-                    <div className="shrink-0 border-t border-border bg-background-card px-5 py-3">
+                    <div className="shrink-0 border-t border-border bg-background-card px-3 py-3 sm:px-5">
                         {footer}
                     </div>
                 ) : null}

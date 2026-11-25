@@ -212,6 +212,25 @@ body {
 [data-slot="dialog-content"] {
   transform: translate(-50%, -50%);
 }
+@media (max-width: 1023px) {
+  [data-slot="dialog-content"].sheet-full,
+  [data-slot="dialog-content"].sheet-full.animate-in,
+  [data-slot="dialog-content"].sheet-full.animate-out {
+    inset: 0;
+    top: 0;
+    left: 0;
+    width: 100%;
+    max-width: none;
+    height: 100dvh;
+    max-height: 100dvh;
+    border-radius: 0;
+    transform: none !important;
+    animation-name: dialog-fade-in;
+  }
+  [data-slot="dialog-content"].sheet-full.animate-out {
+    animation-name: dialog-fade-out;
+  }
+}
 [data-slot="dialog-content"].animate-in {
   animation-duration: 400ms;
   animation-name: dialog-enter;

@@ -11,9 +11,9 @@ export async function GET() {
     const ctx = await requireCompanyAnyPlanFeature([...PDV_ACCESS_FEATURES], ["owner", "admin", "member"], "pdv.access");
     if (!ctx.ok) return ctx.response;
     const { admin, companyId } = ctx;
-    const { data, error } = await admin.rpc("rpc_mesa_list_queue", { p_company_id: companyId });
+    const { data, error } = await admin.rpc("rpc_mesa_list_pdv_board", { p_company_id: companyId });
     if (error) return mesaRpcError(error, "queue_failed");
-    return NextResponse.json(data ?? { ok: true, queue: [] });
+    return NextResponse.json(data ?? { ok: true, open: [], queue: [] });
 }
 
 type PartBody = { amount?: number; method?: string };
