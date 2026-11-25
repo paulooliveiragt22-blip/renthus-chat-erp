@@ -4,6 +4,7 @@ import {
     isMesaPaymentMethod,
     itemPartAmounts,
     lineQtysMatch,
+    splitPreview,
     MESA_PAYMENT_METHODS,
     partsRemainder,
 } from "../../src/mesa/domain/paymentParts";
@@ -41,4 +42,42 @@ test("divisão por item fecha a quantidade e reparte a taxa no subtotal", () => 
         1,
     );
     assert.deepEqual(cents, [10.33, 10.33, 10.34]);
+});
+
+test("pagador por valor e pagador por item fecham a mesma conta", () => {
+    const lines = [
+        { id: "a", qty: 2, unitPrice: 10 },
+        { id: "b", qty: 1, unitPrice: 5 },
+    ];
+    const mixed = splitPreview(
+        lines,
+        [
+            { basis: "item", amount: null, qty: { a: 1 } },
+            { basis: "value", amount: 16.5, qty: {} },
+        ],
+        27.5,
+        2.5,
+    );
+    assert.equal(mixed.qtyOk, true);
+    assert.deepEqual(mixed.amounts, [11, 16.5]);
+    assert.equal(mixed.remainder, 0);
+
+    const short = splitPreview(
+        lines,
+        [{ basis: "item", amount: null, qty: { a: 1 } }],
+        27.5,
+        2.5,
+    );
+    assert.equal(short.qtyOk, false);
+
+    const over = splitPreview(
+        lines,
+        [
+            { basis: "item", amount: null, qty: { a: 3 } },
+            { basis: "value", amount: 1, qty: {} },
+        ],
+        27.5,
+        2.5,
+    );
+    assert.equal(over.qtyOk, false);
 });

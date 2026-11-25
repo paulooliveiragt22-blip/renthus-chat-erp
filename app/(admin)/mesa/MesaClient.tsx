@@ -13,13 +13,13 @@ import {
     SelectValue,
 } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import {
-    itemPartAmounts,
-    lineQtysMatch,
     MESA_PAYMENT_LABELS,
     MESA_PAYMENT_METHODS,
-    partsRemainder,
+    splitPreview,
     type MesaPaymentMethod,
+    type PayerBasis,
 } from "@/src/mesa/domain/paymentParts";
 
 type FloorTable = {
@@ -48,6 +48,7 @@ type SessionDetail = {
     total: number;
     table: { id: string; code: string; label: string | null };
     items: SessionItem[];
+    previous_table_codes?: string[];
 };
 
 type CatalogHit = {
@@ -62,9 +63,14 @@ type CatalogHit = {
     sell_zero: boolean;
 };
 
-type PartDraft = { key: string; amount: string; method: MesaPaymentMethod };
-type ItemPayer = { key: string; method: MesaPaymentMethod; qty: Record<string, number> };
-type SplitMode = "single" | "value" | "item";
+type PayerDraft = {
+    key: string;
+    amount: string;
+    method: MesaPaymentMethod;
+    basis: PayerBasis;
+    qty: Record<string, number>;
+};
+type SplitMode = "single" | "split";
 
 const inputCls = cn(
     "w-full rounded-lg border border-border bg-background-card px-3 py-2 text-sm text-foreground",
@@ -106,8 +112,9 @@ export default function MesaClient() {
     const [draftQty, setDraftQty] = useState<Record<string, number>>({});
     const [panel, setPanel] = useState<"comanda" | "release" | "transfer" | "cancel">("comanda");
     const [splitMode, setSplitMode] = useState<SplitMode>("single");
-    const [parts, setParts] = useState<PartDraft[]>([{ key: "1", amount: "", method: "pix" }]);
-    const [itemPayers, setItemPayers] = useState<ItemPayer[]>([]);
+    const [payers, setPayers] = useState<PayerDraft[]>([
+        { key: "1", amount: "", method: "pix", basis: "value", qty: {} },
+    ]);
     const [manageOpen, setManageOpen] = useState(false);
     const [canManageTables, setCanManageTables] = useState(false);
     const [newCode, setNewCode] = useState("");
@@ -154,14 +161,19 @@ export default function MesaClient() {
     useEffect(() => {
         if (!comandaOpen) return;
         const q = search.trim();
+        if (q.length < 2) {
+            setHits([]);
+            setSearching(false);
+            return;
+        }
         const timer = setTimeout(() => {
             void (async () => {
                 setSearching(true);
                 try {
-                    const path = q.length < 2
-                        ? "/api/admin/mesa/catalog?limit=8"
-                        : `/api/admin/mesa/catalog?q=${encodeURIComponent(q)}&limit=12`;
-                    const res = await fetch(path, { credentials: "include", cache: "no-store" });
+                    const res = await fetch(`/api/admin/mesa/catalog?q=${encodeURIComponent(q)}&limit=12`, {
+                        credentials: "include",
+                        cache: "no-store",
+                    });
                     const json = await res.json().catch(() => ({}));
                     const rows = Array.isArray(json.rows) ? (json.rows as CatalogHit[]) : [];
                     setHits(rows);
@@ -170,7 +182,7 @@ export default function MesaClient() {
                     setSearching(false);
                 }
             })();
-        }, q.length < 2 ? 0 : 220);
+        }, 220);
         return () => clearTimeout(timer);
     }, [search, comandaOpen]);
 
@@ -199,7 +211,7 @@ export default function MesaClient() {
         setMsg(null);
         setPanel("comanda");
         setSplitMode("single");
-        setItemPayers([]);
+        setPayers([]);
         setDraftQty({});
     }
 
@@ -324,16 +336,16 @@ export default function MesaClient() {
                 credentials: "include",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
-                    parts: splitMode === "item"
-                        ? itemPayers.map((payer) => ({
-                            method: payer.method,
-                            lines: (session.items ?? [])
-                                .map((it) => ({ item_id: it.id, qty: payer.qty[it.id] ?? 0 }))
-                                .filter((line) => line.qty > 0),
-                        }))
-                        : parts
-                            .filter((p) => p.amount.trim() !== "")
-                            .map((p) => ({ amount: brlToNumber(p.amount), method: p.method })),
+                    parts: payers.map((payer) =>
+                        payer.basis === "item"
+                            ? {
+                                method: payer.method,
+                                lines: (session.items ?? [])
+                                    .map((it) => ({ item_id: it.id, qty: payer.qty[it.id] ?? 0 }))
+                                    .filter((line) => line.qty > 0),
+                            }
+                            : { amount: brlToNumber(payer.amount), method: payer.method },
+                    ),
                 }),
             });
             const json = await res.json().catch(() => ({}));
@@ -388,9 +400,11 @@ export default function MesaClient() {
                 setMsg(json.error || "Não transferiu.");
                 return;
             }
+            const from = tableTitle(session.table);
             setPanel("comanda");
             await loadFloor();
             await loadSession(session.id);
+            setNotice(`${from} ficou no histórico da comanda.`);
         } finally {
             setBusy(false);
         }
@@ -446,12 +460,6 @@ export default function MesaClient() {
     }
 
     const due = Number(session?.total ?? 0);
-    const parsedAmounts = parts.map((p) => {
-        if (p.amount.trim() === "") return null;
-        const n = brlToNumber(p.amount);
-        return Number.isFinite(n) ? n : null;
-    });
-    const remainder = partsRemainder(due, parsedAmounts);
     const splitLines = (session?.items ?? []).map((it) => ({
         id: it.id,
         qty: Number(it.qty),
@@ -459,43 +467,64 @@ export default function MesaClient() {
     }));
     const itemsSubtotal = Math.round(splitLines.reduce((sum, line) => sum + line.qty * line.unitPrice, 0) * 100) / 100;
     const serviceFee = Math.round((due - itemsSubtotal) * 100) / 100;
-    const itemAmounts = itemPartAmounts(splitLines, itemPayers.map((payer) => payer.qty), serviceFee);
-    const itemReady = itemPayers.length > 0
-        && lineQtysMatch(splitLines, itemPayers.map((payer) => payer.qty))
-        && itemAmounts.every((amount) => amount > 0);
-    const valueReady = parts.length > 0
-        && parsedAmounts.every((amount) => amount != null && amount > 0)
-        && remainder === 0;
-    const canFinish = splitMode === "item" ? itemReady : valueReady;
+    const preview = splitPreview(
+        splitLines,
+        payers.map((payer) => ({
+            basis: payer.basis,
+            amount: payer.amount.trim() === "" ? null : brlToNumber(payer.amount),
+            qty: payer.qty,
+        })),
+        due,
+        serviceFee,
+    );
+    const remainder = preview.remainder;
+    const canFinish = payers.length > 0
+        && preview.qtyOk
+        && remainder === 0
+        && preview.amounts.every((amount) => amount != null && amount > 0);
 
     function pendingQty(itemId: string, exceptKey?: string) {
         const line = splitLines.find((entry) => entry.id === itemId);
-        const used = itemPayers
-            .filter((payer) => payer.key !== exceptKey)
+        const used = payers
+            .filter((payer) => payer.basis === "item" && payer.key !== exceptKey)
             .reduce((sum, payer) => sum + (payer.qty[itemId] ?? 0), 0);
         return Math.max(0, (line?.qty ?? 0) - used);
     }
 
     function openFinalizar() {
         setSplitMode("single");
-        setParts([{ key: crypto.randomUUID(), amount: formatBRL(due), method: "pix" }]);
-        setItemPayers([]);
+        setPayers([{ key: crypto.randomUUID(), amount: formatBRL(due), method: "pix", basis: "value", qty: {} }]);
         setMsg(null);
         setPanel("release");
     }
 
-    function addValuePayer() {
-        const pending = partsRemainder(due, parsedAmounts);
-        setParts((rows) => [
+    function addPayer() {
+        setPayers((rows) => [
             ...rows,
-            { key: crypto.randomUUID(), amount: pending > 0 ? formatBRL(pending) : "", method: "pix" },
+            {
+                key: crypto.randomUUID(),
+                amount: remainder > 0 ? formatBRL(remainder) : "",
+                method: "pix",
+                basis: "value",
+                qty: {},
+            },
         ]);
     }
 
-    function addItemPayer() {
-        const qty: Record<string, number> = {};
-        for (const line of splitLines) qty[line.id] = pendingQty(line.id);
-        setItemPayers((rows) => [...rows, { key: crypto.randomUUID(), method: "pix", qty }]);
+    function setPayerBasis(key: string, basis: PayerBasis) {
+        setPayers((rows) => rows.map((row) => {
+            if (row.key !== key || row.basis === basis) return row;
+            if (basis === "item") {
+                const qty: Record<string, number> = {};
+                for (const line of splitLines) qty[line.id] = pendingQty(line.id, key);
+                return { ...row, basis, qty };
+            }
+            const others = preview.amounts.reduce((sum, amount, index) => (
+                payers[index]?.key === key || amount == null ? sum : sum + amount
+            ), 0);
+            const pending = Math.round((due - others) * 100) / 100;
+            return { ...row, basis, amount: pending > 0 ? formatBRL(pending) : "" };
+        }));
     }
 
     const modalTitle = !session
@@ -616,8 +645,7 @@ export default function MesaClient() {
                                 Voltar
                             </Button>
                             <p className="text-[11px] text-foreground-muted">
-                                Conta {brl(due)}
-                                {splitMode === "item" ? "" : ` · restante ${brl(remainder)}`}
+                                Conta {brl(due)} · restante {brl(remainder)}
                                 . A mesa fica livre e a conta vai para a fila do PDV.
                             </p>
                             {msg && <span className="ml-auto text-xs font-medium text-rose-600">{msg}</span>}
@@ -656,6 +684,9 @@ export default function MesaClient() {
                         </div>
                     ) : (
                         <div className="flex flex-wrap items-center gap-3">
+                            <Button type="button" variant="outline" disabled={busy} onClick={closeComanda}>
+                                OK
+                            </Button>
                             <Button type="button" disabled={busy || session.items.length === 0} onClick={openFinalizar}>
                                 Finalizar · {brl(due)}
                             </Button>
@@ -698,84 +729,88 @@ export default function MesaClient() {
                                 size="sm"
                                 variant={splitMode === "single" ? "default" : "outline"}
                                 aria-pressed={splitMode === "single"}
-                                onClick={() => {
-                                    setSplitMode("single");
-                                    setParts([{ key: crypto.randomUUID(), amount: formatBRL(due), method: "pix" }]);
-                                    setItemPayers([]);
-                                }}
+                                onClick={openFinalizar}
                             >
                                 Conta inteira
                             </Button>
                             <Button
                                 type="button"
                                 size="sm"
-                                variant={splitMode === "value" ? "default" : "outline"}
-                                aria-pressed={splitMode === "value"}
+                                variant={splitMode === "split" ? "default" : "outline"}
+                                aria-pressed={splitMode === "split"}
                                 onClick={() => {
-                                    setSplitMode("value");
-                                    setParts([]);
-                                    setItemPayers([]);
+                                    setSplitMode("split");
+                                    setPayers([]);
                                 }}
                             >
-                                Dividir por valor
-                            </Button>
-                            <Button
-                                type="button"
-                                size="sm"
-                                variant={splitMode === "item" ? "default" : "outline"}
-                                aria-pressed={splitMode === "item"}
-                                onClick={() => {
-                                    setSplitMode("item");
-                                    setItemPayers([]);
-                                }}
-                            >
-                                Dividir por item
+                                Dividir conta
                             </Button>
                         </div>
 
-                        {splitMode === "item" ? (
-                            <div className="space-y-3">
-                                <p className="text-xs text-foreground-muted">
-                                    Marque quanto cada pessoa leva de cada linha. A soma tem de fechar a quantidade da linha.
-                                    {serviceFee > 0 ? ` Taxa de serviço ${brl(serviceFee)} entra no subtotal de cada uma.` : ""}
-                                </p>
-                                {itemPayers.map((payer, index) => (
-                                    <div key={payer.key} className={sectionCls}>
-                                        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-                                            <p className="text-sm font-semibold">Pagador {index + 1}</p>
-                                            <p className="text-sm font-semibold text-primary">{brl(itemAmounts[index] ?? 0)}</p>
-                                        </div>
-                                        <div className="mb-3 grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
-                                            <Select
-                                                value={payer.method}
-                                                onValueChange={(method) =>
-                                                    setItemPayers((rows) =>
-                                                        rows.map((row) =>
-                                                            row.key === payer.key ? { ...row, method: method as MesaPaymentMethod } : row
-                                                        )
-                                                    )
-                                                }
+                        {splitMode === "split" && payers.length === 0 && (
+                            <p className="text-sm text-foreground-muted">A divisão começa limpa. Cada pagador entra por valor, com o que ainda falta, e pode marcar item.</p>
+                        )}
+                        {splitMode === "single" && (
+                            <p className="text-xs text-foreground-muted">Um pagamento com o valor da conta. Divida só se mais de uma pessoa for pagar.</p>
+                        )}
+                        <div className="space-y-3">
+                            {payers.map((payer, index) => (
+                                <div key={payer.key} className={sectionCls}>
+                                    <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                                        <p className="text-sm font-semibold">Pagador {index + 1}</p>
+                                        {payer.basis === "item" && (
+                                            <p className="text-sm font-semibold text-primary">{brl(preview.amounts[index] ?? 0)}</p>
+                                        )}
+                                    </div>
+                                    <div className="mb-3 flex flex-wrap items-center gap-2">
+                                        {splitMode === "split" && (
+                                            <ToggleGroup
+                                                type="single"
+                                                variant="outline"
+                                                size="sm"
+                                                value={payer.basis}
+                                                onValueChange={(value) => {
+                                                    if (value === "value" || value === "item") setPayerBasis(payer.key, value);
+                                                }}
+                                                aria-label={`Como o pagador ${index + 1} divide`}
                                             >
-                                                <SelectTrigger aria-label={`Forma do pagador ${index + 1}`}>
-                                                    <SelectValue />
-                                                </SelectTrigger>
-                                                <SelectContent>
-                                                    {MESA_PAYMENT_METHODS.map((method) => (
-                                                        <SelectItem key={method} value={method}>
-                                                            {MESA_PAYMENT_LABELS[method]}
-                                                        </SelectItem>
-                                                    ))}
-                                                </SelectContent>
-                                            </Select>
+                                                <ToggleGroupItem value="value">Valor</ToggleGroupItem>
+                                                <ToggleGroupItem value="item">Item</ToggleGroupItem>
+                                            </ToggleGroup>
+                                        )}
+                                        <Select
+                                            value={payer.method}
+                                            onValueChange={(method) =>
+                                                setPayers((rows) =>
+                                                    rows.map((row) =>
+                                                        row.key === payer.key ? { ...row, method: method as MesaPaymentMethod } : row
+                                                    )
+                                                )
+                                            }
+                                        >
+                                            <SelectTrigger aria-label={`Forma do pagador ${index + 1}`} className="w-full sm:w-44">
+                                                <SelectValue />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                {MESA_PAYMENT_METHODS.map((method) => (
+                                                    <SelectItem key={method} value={method}>
+                                                        {MESA_PAYMENT_LABELS[method]}
+                                                    </SelectItem>
+                                                ))}
+                                            </SelectContent>
+                                        </Select>
+                                        {splitMode === "split" && (
                                             <Button
                                                 type="button"
                                                 variant="outline"
                                                 size="sm"
-                                                onClick={() => setItemPayers((rows) => rows.filter((row) => row.key !== payer.key))}
+                                                onClick={() => setPayers((rows) => rows.filter((row) => row.key !== payer.key))}
                                             >
                                                 Remover
                                             </Button>
-                                        </div>
+                                        )}
+                                    </div>
+                                    {payer.basis === "item" ? (
                                         <ul className="grid gap-2">
                                             {session.items.map((it) => {
                                                 const marked = payer.qty[it.id] ?? 0;
@@ -794,7 +829,7 @@ export default function MesaClient() {
                                                                 aria-label={`Diminuir ${it.product_name}`}
                                                                 disabled={marked <= 0}
                                                                 onClick={() =>
-                                                                    setItemPayers((rows) =>
+                                                                    setPayers((rows) =>
                                                                         rows.map((row) =>
                                                                             row.key === payer.key
                                                                                 ? { ...row, qty: { ...row.qty, [it.id]: Math.max(0, marked - 1) } }
@@ -813,7 +848,7 @@ export default function MesaClient() {
                                                                 aria-label={`Aumentar ${it.product_name}`}
                                                                 disabled={marked >= cap}
                                                                 onClick={() =>
-                                                                    setItemPayers((rows) =>
+                                                                    setPayers((rows) =>
                                                                         rows.map((row) =>
                                                                             row.key === payer.key
                                                                                 ? { ...row, qty: { ...row.qty, [it.id]: Math.min(cap, marked + 1) } }
@@ -829,90 +864,38 @@ export default function MesaClient() {
                                                 );
                                             })}
                                         </ul>
-                                    </div>
-                                ))}
-                                {itemPayers.length === 0 && (
-                                    <p className="text-sm text-foreground-muted">Nenhum pagador ainda. O primeiro leva o que está pendente.</p>
-                                )}
-                                {itemPayers.length > 0 && !lineQtysMatch(splitLines, itemPayers.map((payer) => payer.qty)) && (
-                                    <p className="text-xs font-medium text-rose-600">A quantidade marcada ainda não fecha todas as linhas.</p>
-                                )}
-                                {itemPayers.length > 0 && lineQtysMatch(splitLines, itemPayers.map((payer) => payer.qty)) && itemAmounts.some((amount) => amount <= 0) && (
-                                    <p className="text-xs font-medium text-rose-600">Cada pagador precisa ficar com pelo menos um item.</p>
-                                )}
-                                <Button type="button" variant="outline" onClick={addItemPayer}>
-                                    <Plus className="h-4 w-4" />
-                                    Adicionar pagador
-                                </Button>
-                            </div>
-                        ) : (
-                            <div className="space-y-3">
-                                {splitMode === "single" && (
-                                    <p className="text-xs text-foreground-muted">Um pagamento com o valor da conta. Divida só se mais de uma pessoa for pagar.</p>
-                                )}
-                                {splitMode === "value" && parts.length === 0 && (
-                                    <p className="text-sm text-foreground-muted">A divisão começa limpa. Cada pagador novo entra com o valor que ainda falta.</p>
-                                )}
-                                {parts.map((part, index) => (
-                                    <div key={part.key} className="grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_10rem_auto]">
+                                    ) : (
                                         <input
                                             inputMode="decimal"
                                             placeholder="Valor"
                                             aria-label={`Valor do pagador ${index + 1}`}
-                                            value={part.amount}
+                                            value={payer.amount}
                                             onChange={(e) =>
-                                                setParts((rows) => rows.map((r, i) => (i === index ? { ...r, amount: e.target.value } : r)))
+                                                setPayers((rows) => rows.map((row) => (row.key === payer.key ? { ...row, amount: e.target.value } : row)))
                                             }
                                             className={inputCls}
                                         />
-                                        <Select
-                                            value={part.method}
-                                            onValueChange={(method) =>
-                                                setParts((rows) =>
-                                                    rows.map((r, i) => (i === index ? { ...r, method: method as MesaPaymentMethod } : r))
-                                                )
-                                            }
-                                        >
-                                            <SelectTrigger aria-label={`Forma do pagador ${index + 1}`}>
-                                                <SelectValue />
-                                            </SelectTrigger>
-                                            <SelectContent>
-                                                {MESA_PAYMENT_METHODS.map((method) => (
-                                                    <SelectItem key={method} value={method}>
-                                                        {MESA_PAYMENT_LABELS[method]}
-                                                    </SelectItem>
-                                                ))}
-                                            </SelectContent>
-                                        </Select>
-                                        {splitMode === "value" ? (
-                                            <Button
-                                                type="button"
-                                                variant="outline"
-                                                size="sm"
-                                                onClick={() => setParts((rows) => rows.filter((row) => row.key !== part.key))}
-                                            >
-                                                Remover
-                                            </Button>
-                                        ) : <span />}
-                                    </div>
-                                ))}
-                                {splitMode === "value" && parts.length > 0 && !valueReady && (
-                                    <p className="text-xs font-medium text-rose-600">
-                                        {remainder > 0
+                                    )}
+                                </div>
+                            ))}
+                            {payers.length > 0 && !canFinish && (
+                                <p className="text-xs font-medium text-rose-600">
+                                    {!preview.qtyOk
+                                        ? "A quantidade marcada não fecha. Sem pagador por valor, tem de bater com a linha. Com pagador por valor, não pode passar da linha."
+                                        : remainder > 0
                                             ? `Ainda falta ${brl(remainder)} para fechar a conta.`
                                             : remainder < 0
                                                 ? `A soma passou ${brl(Math.abs(remainder))} da conta.`
                                                 : "Cada pagador precisa de um valor."}
-                                    </p>
-                                )}
-                                {splitMode === "value" && (
-                                    <Button type="button" variant="outline" onClick={addValuePayer}>
-                                        <Plus className="h-4 w-4" />
-                                        Adicionar pagador
-                                    </Button>
-                                )}
-                            </div>
-                        )}
+                                </p>
+                            )}
+                            {splitMode === "split" && (
+                                <Button type="button" variant="outline" onClick={addPayer}>
+                                    <Plus className="h-4 w-4" />
+                                    Adicionar pagador
+                                </Button>
+                            )}
+                        </div>
                     </div>
                 ) : panel === "transfer" ? (
                     <div>
@@ -943,6 +926,11 @@ export default function MesaClient() {
                             <span>Aberta {minutesOpen(openedAt) ?? "agora"}</span>
                             <span>{session.items.length} itens</span>
                             <span className="font-semibold text-foreground">Total {brl(due)}</span>
+                            {(session.previous_table_codes ?? []).length > 0 && (
+                                <span>
+                                    Antes {(session.previous_table_codes ?? []).map((code) => `Mesa ${code}`).join(", ")}
+                                </span>
+                            )}
                         </div>
 
                         <div className={sectionCls}>
@@ -960,17 +948,14 @@ export default function MesaClient() {
                                 />
                             </div>
                             <div className="mt-3">
-                                {searching ? (
+                                {search.trim().length < 2 ? (
+                                    <p className="text-xs text-foreground-muted">Digite o nome, código ou EAN para lançar.</p>
+                                ) : searching ? (
                                     <p className="text-xs text-foreground-muted">Buscando...</p>
                                 ) : hits.length === 0 ? (
-                                    <p className="text-xs text-foreground-muted">
-                                        {search.trim().length < 2 ? "Nenhum mais vendido ainda." : "Nenhum produto encontrado."}
-                                    </p>
+                                    <p className="text-xs text-foreground-muted">Nenhum produto encontrado.</p>
                                 ) : (
                                     <div className="grid gap-2">
-                                        {search.trim().length < 2 && (
-                                            <p className="text-[11px] font-semibold uppercase tracking-wide text-foreground-muted">Mais vendidos</p>
-                                        )}
                                         {hits.map((h, i) => {
                                             const qtd = qtyOf(h.id);
                                             return (

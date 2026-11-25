@@ -13,12 +13,7 @@ export async function GET(req: Request) {
     const limit = Number(url.searchParams.get("limit") ?? "12") || 12;
 
     if (q.length < 2) {
-        const { data, error } = await admin.rpc("rpc_mesa_top_sellers", {
-            p_company_id: companyId,
-            p_limit: limit,
-        });
-        if (error) return mesaRpcError(error, "catalog_failed");
-        return NextResponse.json(data ?? { ok: true, rows: [] });
+        return NextResponse.json({ ok: true, rows: [] });
     }
 
     const { data, error } = await admin.rpc("rpc_mesa_search_catalog", {

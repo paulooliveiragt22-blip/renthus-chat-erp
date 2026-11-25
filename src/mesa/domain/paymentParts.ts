@@ -66,3 +66,48 @@ export function lineQtysMatch(lines: SplitLine[], payers: Array<Record<string, n
         return Math.round(got * 10000) === Math.round(line.qty * 10000);
     });
 }
+
+export type PayerBasis = "value" | "item";
+
+export type SplitPayerInput = {
+    basis: PayerBasis;
+    amount: number | null;
+    qty: Record<string, number>;
+};
+
+/**
+ * Prévia da folha mista. Sem pagador por valor, o último item absorve o centavo.
+ * Com pagador por valor, a taxa do item é só a parte dele; o restante fica no valor digitado.
+ */
+export function splitPreview(
+    lines: SplitLine[],
+    payers: SplitPayerInput[],
+    due: number,
+    serviceFee: number,
+): { amounts: Array<number | null>; remainder: number; qtyOk: boolean } {
+    const itemsTotal = round2(lines.reduce((sum, line) => sum + line.qty * line.unitPrice, 0));
+    const fee = round2(serviceFee);
+    const hasItem = payers.some((payer) => payer.basis === "item");
+    const hasValue = payers.some((payer) => payer.basis === "value");
+    const qtyOk = !hasItem || lines.every((line) => {
+        const got = payers.reduce((sum, payer) => sum + (payer.basis === "item" ? (payer.qty[line.id] ?? 0) : 0), 0);
+        const same = Math.round(got * 10000) === Math.round(line.qty * 10000);
+        const within = Math.round(got * 10000) <= Math.round(line.qty * 10000);
+        return hasValue ? within && got >= 0 : same;
+    });
+
+    let amounts: Array<number | null>;
+    if (!hasItem) {
+        amounts = payers.map((payer) => payer.amount);
+    } else if (!hasValue) {
+        amounts = itemPartAmounts(lines, payers.map((payer) => payer.qty), fee);
+    } else {
+        amounts = payers.map((payer) => {
+            if (payer.basis === "value") return payer.amount;
+            const raw = lines.reduce((sum, line) => sum + (payer.qty[line.id] ?? 0) * line.unitPrice, 0);
+            const share = itemsTotal <= 0 ? 0 : round2((fee * raw) / itemsTotal);
+            return round2(round2(raw) + share);
+        });
+    }
+    return { amounts, remainder: partsRemainder(due, amounts), qtyOk };
+}

@@ -8,6 +8,7 @@ type QueueRow = {
     session_id: string;
     table_code: string | null;
     customer_name: string | null;
+    previous_table_codes?: string[];
     due: number;
     parts: Part[];
 };
@@ -91,14 +92,27 @@ export default function MesaQueuePanel({
                             setMsg(null);
                         }}
                     >
-                        <span className="text-sm text-zinc-100">Mesa {row.table_code ?? row.customer_name}</span>
+                        <span className="min-w-0 text-sm text-zinc-100">
+                            <span className="block truncate">Mesa {row.table_code ?? row.customer_name}</span>
+                            {(row.previous_table_codes ?? []).length > 0 && (
+                                <span className="block truncate text-xs text-zinc-400">
+                                    Antes {(row.previous_table_codes ?? []).map((code) => `Mesa ${code}`).join(", ")}
+                                </span>
+                            )}
+                        </span>
                         <span className="text-sm font-semibold text-orange-300">{money(Number(row.due || 0))}</span>
                     </button>
                 ))}
             </div>
             {open && (
                 <div className="mt-3 space-y-2 border-t border-zinc-800 pt-3">
-                    <p className="text-xs text-zinc-400">Mesa {open.table_code}. Ajuste valor e forma se precisar.</p>
+                    <p className="text-xs text-zinc-400">
+                        Mesa {open.table_code}
+                        {(open.previous_table_codes ?? []).length > 0
+                            ? ` · antes ${(open.previous_table_codes ?? []).map((code) => `Mesa ${code}`).join(", ")}`
+                            : ""}
+                        . Ajuste valor e forma se precisar.
+                    </p>
                     {draft.map((part, index) => (
                         <div key={part.id} className="grid grid-cols-[1fr_8rem] gap-2">
                             <input
