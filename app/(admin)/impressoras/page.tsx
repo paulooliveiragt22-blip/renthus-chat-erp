@@ -58,6 +58,7 @@ type PrintJob = {
     printed_at: string;
     status: string;
     copy_type?: string;
+    last_error?: string | null;
     total_amount: number | null;
     customer_name: string | null;
 };
@@ -100,11 +101,22 @@ const JOB_STATUS: Record<string, { label: string; cls: string; icon: React.React
     canceled:   { label: "Cancelado",    cls: "bg-zinc-100 text-zinc-500  border-zinc-200",   icon: <XCircle  className="h-3 w-3" /> },
 };
 
-function JobBadge({ status }: { status: string }) {
+function JobBadge({
+    status,
+    copyType,
+}: {
+    status: string;
+    copyType?: string | null;
+}) {
     const s = JOB_STATUS[status] ?? { label: status, cls: "bg-zinc-100 text-zinc-500 border-zinc-200", icon: null };
+    const via =
+        status === "failed" && copyType
+            ? printCopyLabel(normalizePrintCopyTypes([copyType])[0] ?? "cashier")
+            : null;
+    const label = via ? `${s.label} · ${via}` : s.label;
     return (
         <span className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs font-semibold ${s.cls}`}>
-            {s.icon}{s.label}
+            {s.icon}{label}
         </span>
     );
 }
@@ -469,7 +481,7 @@ export default function ImpressorasPage() {
         <PlanFeatureGate
             featureKey="printing_auto"
             title="Impressão automática"
-            description="Vínculo com o Renthus Print Agent, fila de cupons e automação de impressão."
+            description="Vínculo com o Zampell Print Agent, fila de cupons e automação de impressão."
             requiredPlanLabel="Pro ou Market"
         >
         <div className="flex flex-col gap-6">
@@ -478,7 +490,7 @@ export default function ImpressorasPage() {
             <div className="flex items-center justify-between">
                 <div>
                     <h1 className="text-xl font-bold text-zinc-900 dark:text-zinc-50">Gestão de Impressão</h1>
-                    <p className="mt-0.5 text-xs text-zinc-400">Renthus Print Agent · configurações e fila de impressão</p>
+                    <p className="mt-0.5 text-xs text-zinc-400">Zampell Print Agent · configurações e fila de impressão</p>
                 </div>
 
                 {/* agent status badge */}
@@ -697,7 +709,7 @@ export default function ImpressorasPage() {
                         <a
                             href={
                                 process.env.NEXT_PUBLIC_PRINT_AGENT_DOWNLOAD_URL ||
-                                "https://github.com/paulooliveiragt22-blip/renthus-chat-erp/releases/download/print-agent-v1.1.3/renthus-print-agent-1.1.3-win.zip"
+                                "https://github.com/paulooliveiragt22-blip/renthus-chat-erp/releases/download/print-agent-v1.4.0/zampell-print-agent-1.4.0-win.zip"
                             }
                             target="_blank"
                             rel="noopener noreferrer"
@@ -794,9 +806,14 @@ export default function ImpressorasPage() {
                                             <span>·</span>
                                             <span>{new Date(job.printed_at).toLocaleString("pt-BR")}</span>
                                         </div>
+                                        {job.status === "failed" && job.last_error ? (
+                                            <p className="mt-1 truncate text-[11px] text-red-600 dark:text-red-400" title={job.last_error}>
+                                                {job.last_error}
+                                            </p>
+                                        ) : null}
                                     </div>
                                     <div className="flex items-center gap-2 ml-2 shrink-0">
-                                        <JobBadge status={job.status} />
+                                        <JobBadge status={job.status} copyType={job.copy_type} />
                                         {job.order_id && (
                                             <button
                                                 onClick={() => openReprint(job)}

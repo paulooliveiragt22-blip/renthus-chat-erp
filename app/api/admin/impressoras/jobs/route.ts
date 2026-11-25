@@ -14,7 +14,9 @@ export async function GET() {
 
     const { data, error } = await admin
         .from("print_jobs")
-        .select("id, order_id, status, copy_type, processed_at, created_at, orders ( id, total_amount, printed_at, customers ( name ) )")
+        .select(
+            "id, order_id, status, copy_type, last_error, processed_at, created_at, orders ( id, total_amount, printed_at, customers ( name ) )"
+        )
         .eq("company_id", companyId)
         .order("created_at", { ascending: false })
         .limit(40);
@@ -33,6 +35,7 @@ export async function GET() {
             order_id: String(row.order_id ?? ""),
             status: String(row.status ?? "pending"),
             copy_type: String(row.copy_type ?? "cashier"),
+            last_error: row.last_error == null ? null : String(row.last_error),
             printed_at: String(ord.printed_at ?? row.processed_at ?? row.created_at ?? ""),
             total_amount: ord.total_amount == null ? null : Number(ord.total_amount),
             customer_name: customerName == null ? null : String(customerName),
