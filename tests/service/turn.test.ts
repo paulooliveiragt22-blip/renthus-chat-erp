@@ -117,6 +117,10 @@ function ports(opts: {
                 texts.push(body);
                 buttons.push(...items.map((item) => item.id));
             },
+            cta: async (body, label) => {
+                texts.push(body);
+                buttons.push(label);
+            },
         },
         handover: {
             handoff: async () => {
@@ -239,6 +243,29 @@ describe("turno de serviço", () => {
         assert.equal(dumped.includes("SEGREDO-CONTEXTO"), false);
         assert.equal(dumped.includes("quero cortar"), false);
         assert.equal(dumped.includes("context_text"), false);
+    });
+
+    it("lista com link manda o botão ver plano e não a URL no texto", async () => {
+        const harness = ports({
+            replyText: "O Essencial está disponível.",
+            onModel: async (request) => {
+                await request.executeTool("list_offerings", {});
+            },
+        });
+        harness.bundle.data.listOfferings = async () => [
+            {
+                id: "33333333-3333-4333-8333-333333333333",
+                name: "Essencial",
+                description: null,
+                durationMin: null,
+                priceCents: 27900,
+                linkUrl: "https://zampell.com.br/essencial",
+                linkLabel: "Ver plano",
+            },
+        ];
+        await executeServiceTurn({ ...base, text: "quero ver o plano" }, harness.bundle);
+        assert.equal(harness.texts.some((text) => text.includes("https://")), false);
+        assert.deepEqual(harness.buttons, ["Ver plano"]);
     });
 });
 

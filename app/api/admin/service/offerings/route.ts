@@ -27,6 +27,8 @@ export async function POST(req: Request) {
         p_duration_min: parsed.data.durationMin,
         p_price_cents: parsed.data.priceCents,
         p_active: parsed.data.active ?? true,
+        p_link_url: parsed.data.linkUrl?.trim() ? parsed.data.linkUrl.trim() : null,
+        p_link_label: parsed.data.linkUrl?.trim() ? (parsed.data.linkLabel ?? "Ver oferta") : null,
     });
     return NextResponse.json(result.body, { status: result.status });
 }

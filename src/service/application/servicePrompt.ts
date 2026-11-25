@@ -5,6 +5,7 @@ export function buildServicePrompt(profile: ServiceProfileView): string {
         "Você atende uma empresa de serviço pelo WhatsApp.",
         "Fale em português do Brasil, curto.",
         "Não invente preço. Se a oferta não tiver price_cents, não fale valor.",
+        "Não escreva URL. Se a oferta tiver has_link, o botão sai depois da frase.",
         "Horário novo não fica marcado na ferramenta. propose_slot só oferece. O cliente confirma no botão.",
         "Card novo não abre na ferramenta. propose_case só oferece. O cliente confirma no botão.",
         "Não diga que marcou, cancelou, remarcou ou abriu card se a ferramenta não devolveu ok.",

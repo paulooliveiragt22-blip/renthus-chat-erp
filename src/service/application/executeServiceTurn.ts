@@ -3,6 +3,7 @@ import { QueueRetryableError, isQueueRetryableError } from "@/lib/chatbot/queueR
 import { buildServicePrompt } from "@/src/service/application/servicePrompt";
 import { asksForHuman } from "@/src/service/domain/humanAsk";
 import { composeServiceReply, serviceFailureText } from "@/src/service/domain/composeServiceReply";
+import { httpsOfferLink, offerLinkLabel } from "@/src/service/domain/offerLink";
 import { serviceButton } from "@/src/service/domain/serviceButton";
 import { toolsForProfile } from "@/src/service/domain/serviceTools";
 import {
@@ -66,6 +67,7 @@ export async function executeServiceTurn(
 ): Promise<void> {
     const writes = emptyTurnWrites();
     const toolsUsed: ServiceToolName[] = [];
+    const offerLinks: { name: string; label: string; url: string }[] = [];
     const button = serviceButton(input.text);
 
     const finish = async (body: string, buttons?: { id: "svc_confirm_slot" | "svc_confirm_case"; title: string }[]) => {
@@ -133,7 +135,7 @@ export async function executeServiceTurn(
             userText: wrapUserInboundForLlm(input.text),
             maxSteps: MAX_STEPS,
             tools,
-            executeTool: (name, raw) => executeTool(name, raw, input, writes, toolsUsed, ports),
+            executeTool: (name, raw) => executeTool(name, raw, input, writes, toolsUsed, ports, offerLinks),
         });
         const reply = withHandoff(composeServiceReply(modelResult.replyText, writes), writes);
         const buttons = proposalButtons(writes);
@@ -149,6 +151,11 @@ export async function executeServiceTurn(
             await ports.wallet.release(input.companyId, input.messageId);
         }
         await finish(reply, buttons);
+        if (buttons.length === 0) {
+            for (const link of offerLinks.slice(0, 3)) {
+                await ports.reply.cta(link.name, link.label, link.url);
+            }
+        }
     } catch (error: unknown) {
         await ports.wallet.release(input.companyId, input.messageId);
         if (isRateLimit(error)) {
@@ -198,14 +205,32 @@ async function executeTool(
     input: ServiceTurnInput,
     writes: TurnWrites,
     toolsUsed: ServiceToolName[],
-    ports: ServiceTurnPorts
+    ports: ServiceTurnPorts,
+    offerLinks: { name: string; label: string; url: string }[]
 ): Promise<unknown> {
     toolsUsed.push(name);
     const companyId = input.companyId;
     const threadId = input.threadId;
 
     if (name === "list_offerings") {
-        return { ok: true, code: "ok", rows: await ports.data.listOfferings(companyId) };
+        const rows = await ports.data.listOfferings(companyId);
+        for (const row of rows) {
+            const url = httpsOfferLink(row.linkUrl);
+            if (!url || offerLinks.some((item) => item.url === url)) continue;
+            offerLinks.push({ name: row.name, label: offerLinkLabel(row.linkLabel), url });
+        }
+        return {
+            ok: true,
+            code: "ok",
+            rows: rows.map((row) => ({
+                id: row.id,
+                name: row.name,
+                description: row.description,
+                duration_min: row.durationMin,
+                price_cents: row.priceCents,
+                has_link: httpsOfferLink(row.linkUrl) !== null,
+            })),
+        };
     }
     if (name === "list_free_slots") {
         const parsed = listFreeSlotsInput.safeParse(raw);

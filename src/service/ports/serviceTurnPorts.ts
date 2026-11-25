@@ -92,6 +92,7 @@ export type ServiceReplyButton = {
 export type ServiceReplyPort = {
     text(body: string): Promise<void>;
     buttons(body: string, buttons: ServiceReplyButton[]): Promise<void>;
+    cta(body: string, label: string, url: string): Promise<void>;
 };
 
 export type ServiceHandoverPort = {

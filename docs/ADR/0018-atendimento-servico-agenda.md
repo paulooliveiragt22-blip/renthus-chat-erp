@@ -103,8 +103,10 @@ Endereço, telefone e turnos continuam em `companies` e `company_settings`.
 | `duration_min` | Nulo = só informação (balcão). Preenchido = marca horário. Entre 15 e 240 |
 | `price_cents` | Nulo ou `>= 0`. O dono grava pela RPC. O modelo não envia valor |
 | `active` | Fora da lista quando falso |
+| `link_url` | Opcional. Só `https`. O modelo não escreve a URL |
+| `link_label` | `Ver oferta`, `Ver plano` ou `Ver serviço`. Sem link, não há botão |
 
-No máximo 30 ofertas ativas no prompt, cada uma com nome, duração e preço. Oferta sem duração não entra na grade. Preço nulo é “sob consulta”: o modelo não inventa número.
+No máximo 30 ofertas ativas no prompt, cada uma com nome, duração e preço. Oferta sem duração não entra na grade. Preço nulo é “sob consulta”: o modelo não inventa número. Se a oferta tem link, o turno manda um botão `cta_url` com o rótulo escolhido. No máximo três botões por resposta, e nenhum quando a mesma resposta já pede confirmação de horário ou card.
 
 ### D3 — Vaga oferecida, e uma função só que insere
 

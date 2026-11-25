@@ -17,14 +17,26 @@ export const applyPresetSchema = z.object({
     preset: servicePresetSchema,
 });
 
-export const upsertOfferingSchema = z.object({
-    id: z.string().uuid().nullable().optional(),
-    name: z.string().trim().min(1).max(80),
-    description: z.string().max(500).nullable().optional(),
-    durationMin: z.number().int().min(15).max(240).nullable(),
-    priceCents: z.number().int().min(0).nullable(),
-    active: z.boolean().optional(),
-});
+export const offerLinkLabelSchema = z.enum(["Ver oferta", "Ver plano", "Ver serviço"]);
+
+export const upsertOfferingSchema = z
+    .object({
+        id: z.string().uuid().nullable().optional(),
+        name: z.string().trim().min(1).max(80),
+        description: z.string().max(500).nullable().optional(),
+        durationMin: z.number().int().min(15).max(240).nullable(),
+        priceCents: z.number().int().min(0).nullable(),
+        active: z.boolean().optional(),
+        linkUrl: z.string().trim().max(500).nullable().optional(),
+        linkLabel: offerLinkLabelSchema.nullable().optional(),
+    })
+    .superRefine((value, ctx) => {
+        const url = value.linkUrl?.trim() ?? "";
+        if (!url) return;
+        if (!url.startsWith("https://") || /\s/u.test(url)) {
+            ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["linkUrl"] });
+        }
+    });
 
 export const adminBookSchema = z.object({
     offeringId: z.string().uuid(),

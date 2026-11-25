@@ -198,6 +198,8 @@ function mapOffering(row: Record<string, unknown>): ServiceOfferingView[] {
             description: typeof row.description === "string" ? row.description : null,
             durationMin: typeof row.duration_min === "number" ? row.duration_min : null,
             priceCents: typeof row.price_cents === "number" ? row.price_cents : null,
+            linkUrl: typeof row.link_url === "string" ? row.link_url : null,
+            linkLabel: typeof row.link_label === "string" ? row.link_label : null,
         },
     ];
 }

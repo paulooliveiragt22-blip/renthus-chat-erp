@@ -119,7 +119,7 @@ function buildTools(input: ServiceModelRequest): Record<string, unknown> {
 function descriptionFor(name: ServiceToolName): string {
     switch (name) {
         case "list_offerings":
-            return "Lista as ofertas ativas da empresa. price_cents nulo significa sem preço.";
+            return "Lista as ofertas ativas da empresa. price_cents nulo significa sem preço. has_link verdadeiro significa que o botão sai depois; não copie URL.";
         case "list_free_slots":
             return "Lista inícios livres de uma oferta num dia YYYY-MM-DD.";
         case "propose_slot":

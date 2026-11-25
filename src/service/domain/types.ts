@@ -102,6 +102,8 @@ export type ServiceOfferingView = {
     description: string | null;
     durationMin: number | null;
     priceCents: number | null;
+    linkUrl: string | null;
+    linkLabel: string | null;
 };
 
 export type ServiceAppointmentView = {
