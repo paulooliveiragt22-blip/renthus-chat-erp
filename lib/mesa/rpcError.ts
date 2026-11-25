@@ -11,6 +11,7 @@ const CLIENT_MARKERS = [
     "payments_required",
     "payment_not_allowed",
     "payment_amount_invalid",
+    "qty_mismatch",
     "cart_empty",
     "sem_estoque",
     "cash_register",

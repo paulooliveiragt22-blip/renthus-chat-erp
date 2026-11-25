@@ -4,7 +4,7 @@
 **Data:** 2026-11-24
 **Emenda:** 2026-11-24 — o garçom só libera a mesa. O journal nasce quando o caixa confirma a conta na fila do PDV. A mesa não espera essa confirmação para ficar livre.
 **Emenda:** 2026-11-25 — depois que o garçom recebeu e liberou, a comanda está fechada. Não reabre, mesmo com o caixa ainda por confirmar. Novo consumo na mesma mesa é outra comanda.
-**Aprovação do dono:** 2026-11-24 (estrutura completa; divisão em valor livre; garçom libera a mesa; caixa do PDV lança o financeiro)
+**Aprovação do dono:** 2026-11-24 (estrutura completa; divisão em valor livre; garçom libera a mesa; caixa do PDV lança o financeiro). Emenda 2026-11-25: também dá para dividir por item — o garçom marca a quantidade de cada linha para cada pessoa, a soma tem de bater com a linha, e a taxa `service` ativa entra proporcional ao subtotal da parte. O botão da comanda passa a se chamar Finalizar.
 **Escopo técnico:** a mesa aberta é um pedido `consuming`. Lançar produto grava `order_items` e baixa estoque na hora. O garçom registra a divisão, libera o número e a conta entra na fila do PDV. O caixa confirma e aí o Postgres grava o journal. Transferir mesa leva a sessão inteira.
 **Escopo comercial:** não cria taxa nova, não liga a prazo na mesa, não faz divisão igual automática e não inclui QR de autoatendimento.
 **Relacionados:** [`ADR/0015`](./0015-combo-e-promocao-catalogo.md) (preço e combo no Postgres; a linha da mesa passa a ser `order_items`, não `table_session_items`), [`FINANCEIRO.md`](../FINANCEIRO.md), [`CHECKLIST_TAXAS_SERVICO.md`](../CHECKLIST_TAXAS_SERVICO.md), [`BILLING_PLANS.md`](../BILLING_PLANS.md) (`table_service` no Market)
@@ -73,7 +73,7 @@ A prazo (`credit_installment`, boleto, promissória, cheque) continua proibido. 
 
 ### D5 — Divisão livre
 
-Cada parte é uma linha em branco: valor digitado e uma forma. O garçom acrescenta quantas linhas precisar, porque foi ele quem recebeu na maquininha. Formas da mesa, as imediatas aceitas pela loja:
+A folha abre em **Conta inteira**: um pagador já com o valor da conta e a forma. **Dividir por valor** zera a folha; cada clique em **Adicionar pagador** cria uma linha com o valor que ainda falta, editável, e a forma. **Dividir por item** também começa limpa; cada pagador novo entra com a quantidade ainda não marcada. Formas da mesa, as imediatas aceitas pela loja:
 
 | Forma na tela | `payment_method` |
 |---|---|
@@ -82,7 +82,11 @@ Cada parte é uma linha em branco: valor digitado e uma forma. O garçom acresce
 | Cartão de débito | `debit` |
 | Cartão de crédito | `card` |
 
-O banco não reparte o total. Ele calcula o devido, soma as partes com valor `> 0` e recusa liberar a mesa se a soma for diferente. O restante que a tela mostra vem dessa conta. Parte com valor vazio não entra na soma e não pode ser enviada.
+O banco não reparte o total digitado. Ele calcula o devido, soma as partes com valor `> 0` e recusa finalizar se a soma for diferente. O restante que a tela mostra vem dessa conta. Parte com valor vazio não entra na soma e não pode ser enviada.
+
+A tela abre com um pagador e o valor da conta. Dividir zera isso. Cada pagador novo entra com o valor que ainda falta.
+
+Divisão por item: cada pagador recebe quantidade de cada `order_items`. A soma das quantidades tem de ser a quantidade da linha (`qty_mismatch` se não bater). O valor da parte é o das linhas dela. A taxa `service` ativa entra proporcional ao subtotal, e a última parte absorve o centavo que falta para a soma fechar o devido. O app não manda esse valor: `fn_mesa_replace_parts` calcula.
 
 Na fila do PDV o caixa vê essas partes. Pode corrigir valor ou forma antes de confirmar. A confirmação recalcula o total e recusa se a soma não fechar.
 
@@ -135,7 +139,7 @@ Comanda em consumo:
 - Campo vazio mostra os mais vendidos da empresa.
 - Erro no próprio campo (“sem estoque”, “código não encontrado”).
 - Itens lançados abaixo, o mais recente em cima, com +/− e remover.
-- **Liberar mesa** abre a folha de divisão: linhas em branco com valor e forma, botão para acrescentar linha, total devido, soma digitada e restante. Liberar só segue quando o servidor aceita a soma. A mesa fica livre, a comanda fecha e a conta entra na fila do PDV. Não há botão de reabrir.
+- **Finalizar** abre a folha já com o valor da conta num pagador. Dividir por valor ou por item só entra se o garçom escolher, e cada pagador novo carrega o que ainda falta. Finalizar só segue quando a soma fecha. A mesa fica livre, a comanda fecha e a conta entra na fila do PDV. Não há botão de reabrir.
 
 No PDV, a fila mostra a conta com o número da mesa gravado na liberação e as partes (valor e forma). O caixa corrige se precisar e **Confirmar**. Sem caixa aberto, confirmar recusa e a conta permanece na fila. A mesa, no salão, já está livre. Impressão na confirmação permanece desmarcada (`auto_print` igual ao de hoje).
 

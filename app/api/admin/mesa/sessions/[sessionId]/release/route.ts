@@ -7,7 +7,8 @@ import { isMesaPaymentMethod } from "@/src/mesa/domain/paymentParts";
 
 export const runtime = "nodejs";
 
-type PartBody = { amount?: number; method?: string };
+type PartLine = { item_id?: string; qty?: number };
+type PartBody = { amount?: number; method?: string; lines?: PartLine[] };
 
 export async function POST(
     req: Request,
@@ -26,13 +27,29 @@ export async function POST(
     const policy = await loadStorePaymentPolicy(admin, companyId);
     const normalized = [];
     for (const part of parts) {
-        const amount = Number(part.amount);
-        if (!Number.isFinite(amount) || amount <= 0) {
-            return NextResponse.json({ error: "payment_amount_invalid" }, { status: 400 });
-        }
         const pay = assertStorePaymentAllowed(policy.immediate, policy.prazo, part.method ?? "");
         if (!pay.ok || !isMesaPaymentMethod(pay.method)) {
             return NextResponse.json({ error: "payment_not_allowed" }, { status: 400 });
+        }
+        if (Array.isArray(part.lines)) {
+            const lines = [];
+            for (const line of part.lines) {
+                const qty = Number(line.qty);
+                const itemId = typeof line.item_id === "string" ? line.item_id.trim() : "";
+                if (!itemId || !Number.isFinite(qty) || qty <= 0) {
+                    return NextResponse.json({ error: "qty_mismatch" }, { status: 400 });
+                }
+                lines.push({ item_id: itemId, qty });
+            }
+            if (lines.length === 0) {
+                return NextResponse.json({ error: "qty_mismatch" }, { status: 400 });
+            }
+            normalized.push({ method: pay.method, lines });
+            continue;
+        }
+        const amount = Number(part.amount);
+        if (!Number.isFinite(amount) || amount <= 0) {
+            return NextResponse.json({ error: "payment_amount_invalid" }, { status: 400 });
         }
         normalized.push({ amount, method: pay.method });
     }

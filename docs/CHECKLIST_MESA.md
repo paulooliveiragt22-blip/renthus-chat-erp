@@ -36,7 +36,7 @@ Implementar nesta ordem. Não marcar item sem a verificação indicada. Não imp
 
 - [ ] Salão + comanda (`app/(admin)/mesa/`): Livre, Em consumo, Inativa. Mesa liberada aparece livre. Realtime da empresa.
 - [ ] Lançador: foco de volta, Enter lança hit exato, setas na lista, sigla, volume, preço, estoque, selo de combo, quantidade no mouse, mais vendidos com o campo vazio, erro no campo.
-- [ ] **Liberar mesa** com a folha de divisão (valor em branco + dinheiro / pix / débito / crédito). Sem dividir igual. Sem lançar financeiro. Sem botão de reabrir.
+- [ ] **Finalizar** abre com o valor da conta. Dividir por valor ou por item começa limpo; cada pagador novo carrega o que ainda falta. Sem dividir igual. Sem lançar financeiro. Sem botão de reabrir.
 - [ ] **Cancelar comanda** só em consumo, e **Trocar mesa** (só livres, só em consumo).
 - [ ] PDV: conta da mesa na fila, com o número gravado na liberação, partes editáveis, **Confirmar**. Sem caixa aberto, a confirmação não segue. A mesa no salão já está livre.
 - [ ] **Gerir mesas** para dono e admin. Sessão em consumo não desativa.

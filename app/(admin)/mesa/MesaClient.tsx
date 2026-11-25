@@ -1,15 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Loader2, Minus, Plus, Search, Trash2, UtensilsCrossed } from "lucide-react";
-import {
-    Dialog,
-    DialogContent,
-    DialogDescription,
-    DialogFooter,
-    DialogHeader,
-    DialogTitle,
-} from "@/components/ui/dialog";
+import { Loader2, Minus, Plus, Search, ShoppingCart, Trash2, UtensilsCrossed } from "lucide-react";
+import Modal from "@/lib/orders/Modal";
+import { brlToNumber, formatBRL } from "@/lib/orders/helpers";
+import { cn } from "@/lib/utils";
 import {
     Select,
     SelectContent,
@@ -17,7 +12,10 @@ import {
     SelectTrigger,
     SelectValue,
 } from "@/components/ui/select";
+import { Button } from "@/components/ui/button";
 import {
+    itemPartAmounts,
+    lineQtysMatch,
     MESA_PAYMENT_LABELS,
     MESA_PAYMENT_METHODS,
     partsRemainder,
@@ -65,9 +63,19 @@ type CatalogHit = {
 };
 
 type PartDraft = { key: string; amount: string; method: MesaPaymentMethod };
+type ItemPayer = { key: string; method: MesaPaymentMethod; qty: Record<string, number> };
+type SplitMode = "single" | "value" | "item";
 
-function money(n: number) {
-    return n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+const inputCls = cn(
+    "w-full rounded-lg border border-border bg-background-card px-3 py-2 text-sm text-foreground",
+    "placeholder:text-foreground-muted focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-transparent"
+);
+
+const sectionCls = "rounded-xl border border-border bg-background-card p-4";
+const labelCls = "mb-3 text-xs font-semibold uppercase tracking-wide text-foreground-muted";
+
+function brl(n: number) {
+    return `R$ ${formatBRL(n)}`;
 }
 
 function minutesOpen(iso: string | null) {
@@ -77,23 +85,29 @@ function minutesOpen(iso: string | null) {
     return `${Math.floor(mins / 60)} h ${mins % 60} min`;
 }
 
+function tableTitle(table: { label: string | null; code: string } | null | undefined) {
+    if (!table) return "Mesa";
+    return table.label || `Mesa ${table.code}`;
+}
+
 export default function MesaClient() {
     const [loading, setLoading] = useState(true);
     const [tables, setTables] = useState<FloorTable[]>([]);
     const [filter, setFilter] = useState<"all" | "free" | "open">("all");
+    const [notice, setNotice] = useState<string | null>(null);
     const [msg, setMsg] = useState<string | null>(null);
     const [session, setSession] = useState<SessionDetail | null>(null);
+    const [comandaOpen, setComandaOpen] = useState(false);
     const [busy, setBusy] = useState(false);
     const [search, setSearch] = useState("");
     const [hits, setHits] = useState<CatalogHit[]>([]);
+    const [searching, setSearching] = useState(false);
     const [highlight, setHighlight] = useState(0);
-    const [qty, setQty] = useState(1);
-    const [flashId, setFlashId] = useState<string | null>(null);
-    const [releaseOpen, setReleaseOpen] = useState(false);
-    const [parts, setParts] = useState<PartDraft[]>([
-        { key: "1", amount: "", method: "pix" },
-    ]);
-    const [transferOpen, setTransferOpen] = useState(false);
+    const [draftQty, setDraftQty] = useState<Record<string, number>>({});
+    const [panel, setPanel] = useState<"comanda" | "release" | "transfer" | "cancel">("comanda");
+    const [splitMode, setSplitMode] = useState<SplitMode>("single");
+    const [parts, setParts] = useState<PartDraft[]>([{ key: "1", amount: "", method: "pix" }]);
+    const [itemPayers, setItemPayers] = useState<ItemPayer[]>([]);
     const [manageOpen, setManageOpen] = useState(false);
     const [canManageTables, setCanManageTables] = useState(false);
     const [newCode, setNewCode] = useState("");
@@ -103,7 +117,7 @@ export default function MesaClient() {
         const res = await fetch("/api/admin/mesa/floor", { credentials: "include", cache: "no-store" });
         const json = await res.json().catch(() => ({}));
         if (!res.ok) {
-            setMsg(json.error || "Falha ao carregar mesas.");
+            setNotice(json.error || "Falha ao carregar mesas.");
             return;
         }
         setTables(Array.isArray(json.tables) ? json.tables : []);
@@ -117,9 +131,11 @@ export default function MesaClient() {
         const json = await res.json().catch(() => ({}));
         if (!res.ok) {
             setMsg(json.error || "Sessão inválida.");
-            return;
+            setSession(null);
+            return false;
         }
         setSession(json.session as SessionDetail);
+        return true;
     }, []);
 
     useEffect(() => {
@@ -136,21 +152,33 @@ export default function MesaClient() {
     }, [loadFloor]);
 
     useEffect(() => {
+        if (!comandaOpen) return;
         const q = search.trim();
         const timer = setTimeout(() => {
             void (async () => {
-                const path = q.length < 2
-                    ? "/api/admin/mesa/catalog?limit=8"
-                    : `/api/admin/mesa/catalog?q=${encodeURIComponent(q)}&limit=12`;
-                const res = await fetch(path, { credentials: "include", cache: "no-store" });
-                const json = await res.json().catch(() => ({}));
-                const rows = Array.isArray(json.rows) ? (json.rows as CatalogHit[]) : [];
-                setHits(rows);
-                setHighlight(0);
+                setSearching(true);
+                try {
+                    const path = q.length < 2
+                        ? "/api/admin/mesa/catalog?limit=8"
+                        : `/api/admin/mesa/catalog?q=${encodeURIComponent(q)}&limit=12`;
+                    const res = await fetch(path, { credentials: "include", cache: "no-store" });
+                    const json = await res.json().catch(() => ({}));
+                    const rows = Array.isArray(json.rows) ? (json.rows as CatalogHit[]) : [];
+                    setHits(rows);
+                    setHighlight(0);
+                } finally {
+                    setSearching(false);
+                }
             })();
         }, q.length < 2 ? 0 : 220);
         return () => clearTimeout(timer);
-    }, [search]);
+    }, [search, comandaOpen]);
+
+    useEffect(() => {
+        if (!comandaOpen || !session) return;
+        const timer = setTimeout(() => searchRef.current?.focus(), 40);
+        return () => clearTimeout(timer);
+    }, [comandaOpen, session?.id]);
 
     const visible = useMemo(() => {
         return tables.filter((t) => {
@@ -160,11 +188,26 @@ export default function MesaClient() {
         });
     }, [tables, filter]);
 
-    const freeTables = tables.filter((t) => !t.session_id && t.table_status === "free");
+    const freeTables = tables.filter((t) => !t.session_id && t.table_status === "free" && t.id !== session?.table.id);
+    const openedAt = tables.find((t) => t.session_id === session?.id)?.opened_at ?? null;
+
+    function closeComanda() {
+        setComandaOpen(false);
+        setSession(null);
+        setSearch("");
+        setHits([]);
+        setMsg(null);
+        setPanel("comanda");
+        setSplitMode("single");
+        setItemPayers([]);
+        setDraftQty({});
+    }
 
     async function openTable(tableId: string) {
-        setBusy(true);
+        setComandaOpen(true);
+        setSession(null);
         setMsg(null);
+        setBusy(true);
         try {
             const res = await fetch("/api/admin/mesa/sessions", {
                 method: "POST",
@@ -174,20 +217,36 @@ export default function MesaClient() {
             });
             const json = await res.json().catch(() => ({}));
             if (!res.ok) {
-                setMsg(json.error || "Não abriu a mesa.");
+                setNotice(json.error || "Não abriu a mesa.");
+                setComandaOpen(false);
                 return;
             }
             const sid = json.session?.id as string;
             await loadFloor();
             if (sid) await loadSession(sid);
-            setTimeout(() => searchRef.current?.focus(), 50);
         } finally {
             setBusy(false);
         }
     }
 
+    async function selectOpen(sessionId: string) {
+        setComandaOpen(true);
+        setMsg(null);
+        setBusy(true);
+        try {
+            const ok = await loadSession(sessionId);
+            if (!ok) setComandaOpen(false);
+        } finally {
+            setBusy(false);
+        }
+    }
+
+    function qtyOf(id: string) {
+        return draftQty[id] ?? 1;
+    }
+
     async function addHit(hit: CatalogHit, launchQty: number) {
-        if (!session) return;
+        if (!session || launchQty < 1) return;
         setBusy(true);
         setMsg(null);
         try {
@@ -209,11 +268,9 @@ export default function MesaClient() {
                 return;
             }
             setSearch("");
-            setQty(1);
+            setDraftQty((prev) => ({ ...prev, [hit.id]: 1 }));
             await loadSession(session.id);
             await loadFloor();
-            setFlashId(hit.id);
-            setTimeout(() => searchRef.current?.focus(), 30);
         } finally {
             setBusy(false);
         }
@@ -228,14 +285,16 @@ export default function MesaClient() {
             setHighlight((h) => Math.max(h - 1, 0));
         } else if (e.key === "Enter" && hits[highlight]) {
             e.preventDefault();
+            const hit = hits[highlight];
             const exact = hits.length === 1;
-            void addHit(hits[highlight], exact ? 1 : qty);
+            void addHit(hit, exact ? 1 : qtyOf(hit.id));
         }
     }
 
     async function setItemQty(itemId: string, next: number) {
         if (!session) return;
         setBusy(true);
+        setMsg(null);
         try {
             const res = await fetch(`/api/admin/mesa/sessions/${session.id}/items`, {
                 method: "PATCH",
@@ -265,19 +324,26 @@ export default function MesaClient() {
                 credentials: "include",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
-                    parts: parts
-                        .filter((p) => p.amount.trim() !== "")
-                        .map((p) => ({ amount: Number(p.amount.replace(",", ".")), method: p.method })),
+                    parts: splitMode === "item"
+                        ? itemPayers.map((payer) => ({
+                            method: payer.method,
+                            lines: (session.items ?? [])
+                                .map((it) => ({ item_id: it.id, qty: payer.qty[it.id] ?? 0 }))
+                                .filter((line) => line.qty > 0),
+                        }))
+                        : parts
+                            .filter((p) => p.amount.trim() !== "")
+                            .map((p) => ({ amount: brlToNumber(p.amount), method: p.method })),
                 }),
             });
             const json = await res.json().catch(() => ({}));
             if (!res.ok) {
-                setMsg(json.error || "Não liberou a mesa.");
+                setMsg(json.error || "Não finalizou a mesa.");
                 return;
             }
-            setReleaseOpen(false);
-            setSession(null);
-            setMsg(`Mesa liberada. Conta da mesa ${json.table_code ?? ""} na fila do PDV.`);
+            const code = json.table_code ?? session.table.code;
+            closeComanda();
+            setNotice(`Mesa ${code} finalizada. A conta está na fila do PDV.`);
             await loadFloor();
         } finally {
             setBusy(false);
@@ -286,8 +352,8 @@ export default function MesaClient() {
 
     async function cancelComanda() {
         if (!session) return;
-        if (!window.confirm("Cancelar esta comanda? O estoque dos itens volta.")) return;
         setBusy(true);
+        setMsg(null);
         try {
             const res = await fetch(`/api/admin/mesa/sessions/${session.id}/cancel`, {
                 method: "POST",
@@ -298,7 +364,8 @@ export default function MesaClient() {
                 setMsg(json.error || "Não cancelou.");
                 return;
             }
-            setSession(null);
+            closeComanda();
+            setNotice("Comanda cancelada. O estoque dos itens voltou.");
             await loadFloor();
         } finally {
             setBusy(false);
@@ -308,6 +375,7 @@ export default function MesaClient() {
     async function transfer(tableId: string) {
         if (!session) return;
         setBusy(true);
+        setMsg(null);
         try {
             const res = await fetch(`/api/admin/mesa/sessions/${session.id}/transfer`, {
                 method: "POST",
@@ -320,7 +388,7 @@ export default function MesaClient() {
                 setMsg(json.error || "Não transferiu.");
                 return;
             }
-            setTransferOpen(false);
+            setPanel("comanda");
             await loadFloor();
             await loadSession(session.id);
         } finally {
@@ -341,7 +409,7 @@ export default function MesaClient() {
             });
             const json = await res.json().catch(() => ({}));
             if (!res.ok) {
-                setMsg(json.error || "Não criou a mesa.");
+                setNotice(json.error || "Não criou a mesa.");
                 return;
             }
             setNewCode("");
@@ -368,7 +436,7 @@ export default function MesaClient() {
             });
             const json = await res.json().catch(() => ({}));
             if (!res.ok) {
-                setMsg(json.error || "Não atualizou a mesa.");
+                setNotice(json.error || "Não atualizou a mesa.");
                 return;
             }
             await loadFloor();
@@ -378,17 +446,71 @@ export default function MesaClient() {
     }
 
     const due = Number(session?.total ?? 0);
-    const remainder = partsRemainder(
-        due,
-        parts.map((p) => {
-            const n = Number(p.amount.replace(",", "."));
-            return p.amount.trim() === "" || !Number.isFinite(n) ? null : n;
-        })
-    );
+    const parsedAmounts = parts.map((p) => {
+        if (p.amount.trim() === "") return null;
+        const n = brlToNumber(p.amount);
+        return Number.isFinite(n) ? n : null;
+    });
+    const remainder = partsRemainder(due, parsedAmounts);
+    const splitLines = (session?.items ?? []).map((it) => ({
+        id: it.id,
+        qty: Number(it.qty),
+        unitPrice: Number(it.unit_price),
+    }));
+    const itemsSubtotal = Math.round(splitLines.reduce((sum, line) => sum + line.qty * line.unitPrice, 0) * 100) / 100;
+    const serviceFee = Math.round((due - itemsSubtotal) * 100) / 100;
+    const itemAmounts = itemPartAmounts(splitLines, itemPayers.map((payer) => payer.qty), serviceFee);
+    const itemReady = itemPayers.length > 0
+        && lineQtysMatch(splitLines, itemPayers.map((payer) => payer.qty))
+        && itemAmounts.every((amount) => amount > 0);
+    const valueReady = parts.length > 0
+        && parsedAmounts.every((amount) => amount != null && amount > 0)
+        && remainder === 0;
+    const canFinish = splitMode === "item" ? itemReady : valueReady;
+
+    function pendingQty(itemId: string, exceptKey?: string) {
+        const line = splitLines.find((entry) => entry.id === itemId);
+        const used = itemPayers
+            .filter((payer) => payer.key !== exceptKey)
+            .reduce((sum, payer) => sum + (payer.qty[itemId] ?? 0), 0);
+        return Math.max(0, (line?.qty ?? 0) - used);
+    }
+
+    function openFinalizar() {
+        setSplitMode("single");
+        setParts([{ key: crypto.randomUUID(), amount: formatBRL(due), method: "pix" }]);
+        setItemPayers([]);
+        setMsg(null);
+        setPanel("release");
+    }
+
+    function addValuePayer() {
+        const pending = partsRemainder(due, parsedAmounts);
+        setParts((rows) => [
+            ...rows,
+            { key: crypto.randomUUID(), amount: pending > 0 ? formatBRL(pending) : "", method: "pix" },
+        ]);
+    }
+
+    function addItemPayer() {
+        const qty: Record<string, number> = {};
+        for (const line of splitLines) qty[line.id] = pendingQty(line.id);
+        setItemPayers((rows) => [...rows, { key: crypto.randomUUID(), method: "pix", qty }]);
+    }
+
+    const modalTitle = !session
+        ? "Mesa"
+        : panel === "release"
+            ? `Finalizar ${tableTitle(session.table)}`
+            : panel === "transfer"
+                ? "Trocar mesa"
+                : panel === "cancel"
+                    ? "Cancelar comanda"
+                    : `${tableTitle(session.table)} · Em consumo`;
 
     if (loading) {
         return (
-            <div className="flex items-center gap-2 p-8 text-sm text-zinc-500">
+            <div className="flex items-center gap-2 p-8 text-sm text-foreground-muted">
                 <Loader2 className="h-4 w-4 animate-spin" />
                 Carregando salão…
             </div>
@@ -399,11 +521,11 @@ export default function MesaClient() {
         <div className="flex min-h-0 flex-1 flex-col gap-4 p-4 md:p-6">
             <div className="flex flex-wrap items-end justify-between gap-3">
                 <div>
-                    <h1 className="flex items-center gap-2 text-xl font-semibold text-zinc-900 dark:text-zinc-50">
+                    <h1 className="flex items-center gap-2 text-xl font-semibold text-foreground">
                         <UtensilsCrossed className="h-5 w-5" />
                         Mesas
                     </h1>
-                    <p className="mt-1 text-sm text-zinc-500">
+                    <p className="mt-1 text-sm text-foreground-muted">
                         {tables.filter((t) => t.session_id).length} em consumo · {tables.length} mesas
                     </p>
                 </div>
@@ -413,11 +535,12 @@ export default function MesaClient() {
                             key={key}
                             type="button"
                             onClick={() => setFilter(key)}
-                            className={`rounded-full px-3 py-1 text-xs font-medium ${
+                            className={cn(
+                                "rounded-full px-3 py-1 text-xs font-medium",
                                 filter === key
-                                    ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900"
-                                    : "bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300"
-                            }`}
+                                    ? "bg-primary text-white"
+                                    : "border border-border bg-background-card text-foreground-muted"
+                            )}
                         >
                             {key === "all" ? "Todas" : key === "free" ? "Livres" : "Em consumo"}
                         </button>
@@ -426,7 +549,7 @@ export default function MesaClient() {
                         <button
                             type="button"
                             onClick={() => setManageOpen(true)}
-                            className="rounded-lg border border-zinc-300 px-3 py-1.5 text-sm dark:border-zinc-700"
+                            className="rounded-xl border border-border px-3 py-1.5 text-sm text-foreground"
                         >
                             Gerir mesas
                         </button>
@@ -434,308 +557,596 @@ export default function MesaClient() {
                 </div>
             </div>
 
-            {msg && (
-                <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:bg-amber-950/40 dark:text-amber-100">
-                    {msg}
+            {notice && (
+                <p className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-800/50 dark:bg-amber-900/20 dark:text-amber-100">
+                    {notice}
                 </p>
             )}
 
-            <div className="grid min-h-0 flex-1 gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(22rem,28rem)]">
-                <div className="grid grid-cols-2 content-start gap-3 sm:grid-cols-3 md:grid-cols-4">
-                    {visible.map((t) => {
-                        const open = Boolean(t.session_id);
-                        return (
-                            <button
-                                key={t.id}
-                                type="button"
-                                disabled={busy || t.table_status === "disabled"}
-                                onClick={() => {
-                                    if (open && t.session_id) void loadSession(t.session_id);
-                                    else if (t.table_status === "free") void openTable(t.id);
-                                }}
-                                className={[
-                                    "rounded-xl border p-4 text-left transition",
-                                    open
-                                        ? "border-orange-300 bg-orange-50 dark:border-orange-800 dark:bg-orange-950/30"
-                                        : "border-zinc-200 bg-white hover:border-zinc-400 dark:border-zinc-800 dark:bg-zinc-950",
-                                    session?.table.id === t.id ? "ring-2 ring-orange-400" : "",
-                                ].join(" ")}
-                            >
-                                <div className="truncate text-lg font-semibold">{t.label || `Mesa ${t.code}`}</div>
-                                <div className="mt-1 text-xs uppercase tracking-wide text-zinc-500">
-                                    {open ? "Em consumo" : t.table_status === "disabled" ? "Inativa" : "Livre"}
-                                </div>
-                                {open && (
-                                    <div className="mt-2 text-sm font-medium">
-                                        {money(Number(t.session_total || 0))}
-                                        <span className="ml-1 text-xs font-normal text-zinc-500">
-                                            · {t.items_count} itens
-                                            {minutesOpen(t.opened_at) ? ` · ${minutesOpen(t.opened_at)}` : ""}
-                                        </span>
-                                    </div>
-                                )}
-                            </button>
-                        );
-                    })}
-                </div>
-
-                <aside className="flex min-h-[24rem] flex-col rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950 lg:sticky lg:top-4 lg:max-h-[calc(100dvh-8rem)]">
-                    {!session ? (
-                        <p className="p-4 text-sm text-zinc-500">
-                            Toque numa mesa livre para abrir uma comanda nova, ou numa em consumo para lançar.
-                        </p>
-                    ) : (
-                        <>
-                            <div className="flex items-start justify-between gap-2 border-b border-zinc-100 p-4 dark:border-zinc-800">
-                                <div className="min-w-0">
-                                    <h2 className="truncate font-semibold">
-                                        {session.table.label || `Mesa ${session.table.code}`}
-                                    </h2>
-                                    <p className="text-sm text-zinc-500">Total {money(due)}</p>
-                                </div>
-                                <div className="flex shrink-0 gap-2">
-                                    <button type="button" className="text-xs text-zinc-500 underline" onClick={() => setTransferOpen(true)}>
-                                        Trocar mesa
-                                    </button>
-                                    <button type="button" className="text-xs text-red-600 underline" onClick={() => void cancelComanda()}>
-                                        Cancelar
-                                    </button>
-                                </div>
+            <div className="grid grid-cols-2 content-start gap-3 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5">
+                {visible.map((t) => {
+                    const open = Boolean(t.session_id);
+                    const inactive = t.table_status === "disabled";
+                    return (
+                        <button
+                            key={t.id}
+                            type="button"
+                            disabled={busy || inactive}
+                            onClick={() => {
+                                if (open && t.session_id) void selectOpen(t.session_id);
+                                else if (t.table_status === "free") void openTable(t.id);
+                            }}
+                            className={cn(
+                                "rounded-xl border p-4 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40",
+                                open
+                                    ? "border-orange-300 bg-orange-50 dark:border-orange-800 dark:bg-orange-950/30"
+                                    : "border-border bg-background-card hover:border-zinc-400",
+                                inactive && "cursor-not-allowed opacity-50"
+                            )}
+                        >
+                            <div className="truncate text-lg font-semibold">{tableTitle(t)}</div>
+                            <div className="mt-1 text-xs font-semibold uppercase tracking-wide text-foreground-muted">
+                                {open ? "Em consumo" : inactive ? "Inativa" : "Livre"}
                             </div>
-
-                            <div className="border-b border-zinc-100 p-4 dark:border-zinc-800">
-                                <div className="relative">
-                                    <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400" />
-                                    <input
-                                        ref={searchRef}
-                                        autoFocus
-                                        value={search}
-                                        onChange={(e) => setSearch(e.target.value)}
-                                        onKeyDown={onSearchKey}
-                                        placeholder="Nome, código ou EAN — Enter lança"
-                                        className="w-full rounded-lg border border-zinc-200 py-2 pl-9 pr-3 text-sm dark:border-zinc-700 dark:bg-zinc-900"
-                                    />
+                            {open && (
+                                <div className="mt-2 text-sm font-medium">
+                                    {brl(Number(t.session_total || 0))}
+                                    <span className="ml-1 text-xs font-normal text-foreground-muted">
+                                        · {t.items_count} itens
+                                        {minutesOpen(t.opened_at) ? ` · ${minutesOpen(t.opened_at)}` : ""}
+                                    </span>
                                 </div>
-                                {hits.length > 0 && (
-                                    <ul className="mt-2 max-h-48 overflow-auto rounded-lg border border-zinc-200 text-sm dark:border-zinc-700">
-                                        {hits.map((h, i) => (
-                                            <li key={`${h.kind}-${h.id}`}>
-                                                <button
-                                                    type="button"
-                                                    className={`flex w-full items-center justify-between gap-2 px-3 py-2 text-left ${
-                                                        i === highlight ? "bg-orange-50 dark:bg-orange-950/40" : ""
-                                                    }`}
-                                                    onClick={() => void addHit(h, qty)}
-                                                >
-                                                    <span className="min-w-0">
-                                                        <span className="block truncate font-medium">
-                                                            {h.name}
-                                                            {h.kind === "combo" ? " · Combo" : h.sigla ? ` · ${h.sigla}` : ""}
-                                                        </span>
-                                                        <span className="text-xs text-zinc-500">
-                                                            {h.volume ? `${h.volume} · ` : ""}
-                                                            {h.sell_zero ? "estoque livre" : `estoque ${h.stock_qty ?? 0}`}
-                                                        </span>
-                                                    </span>
-                                                    <span className="shrink-0 text-zinc-500">{money(Number(h.price || 0))}</span>
-                                                </button>
-                                            </li>
-                                        ))}
-                                    </ul>
-                                )}
-                                <div className="mt-2 flex items-center gap-2 text-xs text-zinc-500">
-                                    <span>Qtd no clique</span>
-                                    <button type="button" className="rounded border px-2 py-1" onClick={() => setQty((q) => Math.max(1, q - 1))} aria-label="Diminuir quantidade do lançamento">
-                                        <Minus className="h-3 w-3" />
-                                    </button>
-                                    <span className="w-6 text-center tabular-nums">{qty}</span>
-                                    <button type="button" className="rounded border px-2 py-1" onClick={() => setQty((q) => q + 1)} aria-label="Aumentar quantidade do lançamento">
-                                        <Plus className="h-3 w-3" />
-                                    </button>
-                                </div>
-                            </div>
-
-                            <ul className="min-h-0 flex-1 space-y-2 overflow-auto p-4 text-sm">
-                                {session.items.map((it) => (
-                                    <li key={it.id} className={`flex items-start justify-between gap-2 border-b border-zinc-100 pb-2 dark:border-zinc-800 ${flashId && it.product_name.includes(flashId) ? "" : ""}`}>
-                                        <div className="min-w-0 flex-1">
-                                            <div className="truncate font-medium">{it.combo_label || it.product_name}</div>
-                                            <div className="text-xs text-zinc-500">
-                                                {money(Number(it.unit_price))}
-                                                {it.sigla_comercial ? ` · ${it.sigla_comercial}` : ""}
-                                            </div>
-                                        </div>
-                                        <div className="flex items-center gap-1">
-                                            <button type="button" disabled={busy} className="rounded border p-1" aria-label="Diminuir" onClick={() => void setItemQty(it.id, Number(it.qty) - 1)}>
-                                                <Minus className="h-3.5 w-3.5" />
-                                            </button>
-                                            <span className="w-6 text-center tabular-nums">{it.qty}</span>
-                                            <button type="button" disabled={busy} className="rounded border p-1" aria-label="Aumentar" onClick={() => void setItemQty(it.id, Number(it.qty) + 1)}>
-                                                <Plus className="h-3.5 w-3.5" />
-                                            </button>
-                                            <button type="button" className="text-zinc-400 hover:text-red-500" aria-label="Remover" onClick={() => void setItemQty(it.id, 0)}>
-                                                <Trash2 className="h-4 w-4" />
-                                            </button>
-                                        </div>
-                                    </li>
-                                ))}
-                                {session.items.length === 0 && <li className="text-zinc-500">Nenhum item ainda.</li>}
-                            </ul>
-
-                            <div className="border-t border-zinc-100 p-4 dark:border-zinc-800">
-                                <button
-                                    type="button"
-                                    disabled={busy || session.items.length === 0}
-                                    onClick={() => {
-                                        setParts([{ key: crypto.randomUUID(), amount: "", method: "pix" }]);
-                                        setReleaseOpen(true);
-                                    }}
-                                    className="w-full rounded-lg bg-emerald-600 px-3 py-2.5 text-sm font-medium text-white disabled:opacity-40"
-                                >
-                                    Liberar mesa · {money(due)}
-                                </button>
-                            </div>
-                        </>
-                    )}
-                </aside>
+                            )}
+                        </button>
+                    );
+                })}
             </div>
 
-            <Dialog open={releaseOpen} onOpenChange={setReleaseOpen}>
-                <DialogContent>
-                    <DialogHeader>
-                        <DialogTitle>Liberar mesa</DialogTitle>
-                        <DialogDescription>
-                            Informe o valor e a forma de cada pagamento. A mesa fica livre e a conta vai para a fila do PDV. O caixa lança o financeiro.
-                        </DialogDescription>
-                    </DialogHeader>
-                    <div className="space-y-3">
-                        {parts.map((part, index) => (
-                            <div key={part.key} className="grid grid-cols-[1fr_9rem_auto] gap-2">
-                                <input
-                                    inputMode="decimal"
-                                    placeholder="Valor"
-                                    value={part.amount}
-                                    onChange={(e) =>
-                                        setParts((rows) => rows.map((r, i) => (i === index ? { ...r, amount: e.target.value } : r)))
-                                    }
-                                    className="rounded-lg border border-zinc-200 px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900"
-                                />
-                                <Select
-                                    value={part.method}
-                                    onValueChange={(method) =>
-                                        setParts((rows) =>
-                                            rows.map((r, i) => (i === index ? { ...r, method: method as MesaPaymentMethod } : r))
-                                        )
-                                    }
-                                >
-                                    <SelectTrigger aria-label="Forma de pagamento">
-                                        <SelectValue />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        {MESA_PAYMENT_METHODS.map((method) => (
-                                            <SelectItem key={method} value={method}>
-                                                {MESA_PAYMENT_LABELS[method]}
-                                            </SelectItem>
-                                        ))}
-                                    </SelectContent>
-                                </Select>
-                                <button
-                                    type="button"
-                                    className="text-xs text-zinc-500"
-                                    onClick={() => setParts((rows) => rows.filter((_, i) => i !== index))}
-                                    disabled={parts.length === 1}
-                                >
-                                    Tirar
-                                </button>
+            <Modal
+                title={modalTitle}
+                open={comandaOpen}
+                onClose={closeComanda}
+                footer={
+                    !session ? undefined : panel === "release" ? (
+                        <div className="flex flex-wrap items-center gap-3">
+                            <Button type="button" disabled={busy || !canFinish} onClick={() => void release()}>
+                                {busy ? "Finalizando..." : "Finalizar"}
+                            </Button>
+                            <Button type="button" variant="outline" disabled={busy} onClick={() => setPanel("comanda")}>
+                                Voltar
+                            </Button>
+                            <p className="text-[11px] text-foreground-muted">
+                                Conta {brl(due)}
+                                {splitMode === "item" ? "" : ` · restante ${brl(remainder)}`}
+                                . A mesa fica livre e a conta vai para a fila do PDV.
+                            </p>
+                            {msg && <span className="ml-auto text-xs font-medium text-rose-600">{msg}</span>}
+                        </div>
+                    ) : panel === "cancel" ? (
+                        <div className="flex flex-wrap items-center gap-3">
+                            <button
+                                type="button"
+                                disabled={busy}
+                                onClick={() => void cancelComanda()}
+                                className="rounded-xl bg-rose-600 px-5 py-2 text-sm font-semibold text-white hover:bg-rose-700 disabled:opacity-50"
+                            >
+                                {busy ? "Cancelando..." : "Cancelar comanda"}
+                            </button>
+                            <button
+                                type="button"
+                                disabled={busy}
+                                onClick={() => setPanel("comanda")}
+                                className="rounded-xl border border-border px-4 py-2 text-sm font-medium text-foreground hover:bg-zinc-50 dark:hover:bg-zinc-800"
+                            >
+                                Voltar
+                            </button>
+                            {msg && <span className="ml-auto text-xs font-medium text-rose-600">{msg}</span>}
+                        </div>
+                    ) : panel === "transfer" ? (
+                        <div className="flex flex-wrap items-center gap-3">
+                            <button
+                                type="button"
+                                disabled={busy}
+                                onClick={() => setPanel("comanda")}
+                                className="rounded-xl border border-border px-4 py-2 text-sm font-medium text-foreground hover:bg-zinc-50 dark:hover:bg-zinc-800"
+                            >
+                                Voltar
+                            </button>
+                            {msg && <span className="text-xs font-medium text-rose-600">{msg}</span>}
+                        </div>
+                    ) : (
+                        <div className="flex flex-wrap items-center gap-3">
+                            <Button type="button" disabled={busy || session.items.length === 0} onClick={openFinalizar}>
+                                Finalizar · {brl(due)}
+                            </Button>
+                            <button
+                                type="button"
+                                disabled={busy}
+                                onClick={() => {
+                                    setMsg(null);
+                                    setPanel("transfer");
+                                }}
+                                className="rounded-xl border border-border px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-zinc-50 disabled:opacity-50 dark:hover:bg-zinc-800"
+                            >
+                                Trocar mesa
+                            </button>
+                            <button
+                                type="button"
+                                disabled={busy}
+                                onClick={() => {
+                                    setMsg(null);
+                                    setPanel("cancel");
+                                }}
+                                className="rounded-xl border border-rose-200 px-4 py-2 text-sm font-medium text-rose-600 transition-colors hover:bg-rose-50 disabled:opacity-50 dark:border-rose-900/50 dark:text-rose-400 dark:hover:bg-rose-950/40"
+                            >
+                                Cancelar comanda
+                            </button>
+                            {msg && <span className="ml-auto text-xs font-medium text-rose-600">{msg}</span>}
+                        </div>
+                    )
+                }
+            >
+                {busy && !session ? (
+                    <p className="py-8 text-center text-sm text-foreground-muted">Carregando...</p>
+                ) : !session ? (
+                    <p className="py-8 text-center text-sm text-foreground-muted">Nenhuma mesa selecionada.</p>
+                ) : panel === "release" ? (
+                    <div className="space-y-4">
+                        <div className="flex flex-wrap gap-2">
+                            <Button
+                                type="button"
+                                size="sm"
+                                variant={splitMode === "single" ? "default" : "outline"}
+                                aria-pressed={splitMode === "single"}
+                                onClick={() => {
+                                    setSplitMode("single");
+                                    setParts([{ key: crypto.randomUUID(), amount: formatBRL(due), method: "pix" }]);
+                                    setItemPayers([]);
+                                }}
+                            >
+                                Conta inteira
+                            </Button>
+                            <Button
+                                type="button"
+                                size="sm"
+                                variant={splitMode === "value" ? "default" : "outline"}
+                                aria-pressed={splitMode === "value"}
+                                onClick={() => {
+                                    setSplitMode("value");
+                                    setParts([]);
+                                    setItemPayers([]);
+                                }}
+                            >
+                                Dividir por valor
+                            </Button>
+                            <Button
+                                type="button"
+                                size="sm"
+                                variant={splitMode === "item" ? "default" : "outline"}
+                                aria-pressed={splitMode === "item"}
+                                onClick={() => {
+                                    setSplitMode("item");
+                                    setItemPayers([]);
+                                }}
+                            >
+                                Dividir por item
+                            </Button>
+                        </div>
+
+                        {splitMode === "item" ? (
+                            <div className="space-y-3">
+                                <p className="text-xs text-foreground-muted">
+                                    Marque quanto cada pessoa leva de cada linha. A soma tem de fechar a quantidade da linha.
+                                    {serviceFee > 0 ? ` Taxa de serviço ${brl(serviceFee)} entra no subtotal de cada uma.` : ""}
+                                </p>
+                                {itemPayers.map((payer, index) => (
+                                    <div key={payer.key} className={sectionCls}>
+                                        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                                            <p className="text-sm font-semibold">Pagador {index + 1}</p>
+                                            <p className="text-sm font-semibold text-primary">{brl(itemAmounts[index] ?? 0)}</p>
+                                        </div>
+                                        <div className="mb-3 grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
+                                            <Select
+                                                value={payer.method}
+                                                onValueChange={(method) =>
+                                                    setItemPayers((rows) =>
+                                                        rows.map((row) =>
+                                                            row.key === payer.key ? { ...row, method: method as MesaPaymentMethod } : row
+                                                        )
+                                                    )
+                                                }
+                                            >
+                                                <SelectTrigger aria-label={`Forma do pagador ${index + 1}`}>
+                                                    <SelectValue />
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                    {MESA_PAYMENT_METHODS.map((method) => (
+                                                        <SelectItem key={method} value={method}>
+                                                            {MESA_PAYMENT_LABELS[method]}
+                                                        </SelectItem>
+                                                    ))}
+                                                </SelectContent>
+                                            </Select>
+                                            <Button
+                                                type="button"
+                                                variant="outline"
+                                                size="sm"
+                                                onClick={() => setItemPayers((rows) => rows.filter((row) => row.key !== payer.key))}
+                                            >
+                                                Remover
+                                            </Button>
+                                        </div>
+                                        <ul className="grid gap-2">
+                                            {session.items.map((it) => {
+                                                const marked = payer.qty[it.id] ?? 0;
+                                                const cap = pendingQty(it.id, payer.key);
+                                                return (
+                                                    <li key={it.id} className="flex items-center justify-between gap-3 text-sm">
+                                                        <span className="min-w-0 truncate">
+                                                            {it.combo_label || it.product_name}
+                                                            <span className="text-foreground-muted"> · {it.qty} na comanda</span>
+                                                        </span>
+                                                        <div className="inline-flex shrink-0 items-center rounded-lg border border-border">
+                                                            <Button
+                                                                type="button"
+                                                                variant="ghost"
+                                                                size="icon"
+                                                                aria-label={`Diminuir ${it.product_name}`}
+                                                                disabled={marked <= 0}
+                                                                onClick={() =>
+                                                                    setItemPayers((rows) =>
+                                                                        rows.map((row) =>
+                                                                            row.key === payer.key
+                                                                                ? { ...row, qty: { ...row.qty, [it.id]: Math.max(0, marked - 1) } }
+                                                                                : row
+                                                                        )
+                                                                    )
+                                                                }
+                                                            >
+                                                                <Minus className="h-3.5 w-3.5" />
+                                                            </Button>
+                                                            <span className="min-w-[1.75rem] text-center text-xs font-bold tabular-nums">{marked}</span>
+                                                            <Button
+                                                                type="button"
+                                                                variant="ghost"
+                                                                size="icon"
+                                                                aria-label={`Aumentar ${it.product_name}`}
+                                                                disabled={marked >= cap}
+                                                                onClick={() =>
+                                                                    setItemPayers((rows) =>
+                                                                        rows.map((row) =>
+                                                                            row.key === payer.key
+                                                                                ? { ...row, qty: { ...row.qty, [it.id]: Math.min(cap, marked + 1) } }
+                                                                                : row
+                                                                        )
+                                                                    )
+                                                                }
+                                                            >
+                                                                <Plus className="h-3.5 w-3.5" />
+                                                            </Button>
+                                                        </div>
+                                                    </li>
+                                                );
+                                            })}
+                                        </ul>
+                                    </div>
+                                ))}
+                                {itemPayers.length === 0 && (
+                                    <p className="text-sm text-foreground-muted">Nenhum pagador ainda. O primeiro leva o que está pendente.</p>
+                                )}
+                                {itemPayers.length > 0 && !lineQtysMatch(splitLines, itemPayers.map((payer) => payer.qty)) && (
+                                    <p className="text-xs font-medium text-rose-600">A quantidade marcada ainda não fecha todas as linhas.</p>
+                                )}
+                                {itemPayers.length > 0 && lineQtysMatch(splitLines, itemPayers.map((payer) => payer.qty)) && itemAmounts.some((amount) => amount <= 0) && (
+                                    <p className="text-xs font-medium text-rose-600">Cada pagador precisa ficar com pelo menos um item.</p>
+                                )}
+                                <Button type="button" variant="outline" onClick={addItemPayer}>
+                                    <Plus className="h-4 w-4" />
+                                    Adicionar pagador
+                                </Button>
                             </div>
-                        ))}
-                        <button
-                            type="button"
-                            className="text-sm text-zinc-600 underline"
-                            onClick={() =>
-                                setParts((rows) => [...rows, { key: crypto.randomUUID(), amount: "", method: "pix" }])
-                            }
-                        >
-                            Acrescentar parte
-                        </button>
-                        <p className="text-sm">
-                            Conta {money(due)} · restante {money(remainder)}
-                        </p>
+                        ) : (
+                            <div className="space-y-3">
+                                {splitMode === "single" && (
+                                    <p className="text-xs text-foreground-muted">Um pagamento com o valor da conta. Divida só se mais de uma pessoa for pagar.</p>
+                                )}
+                                {splitMode === "value" && parts.length === 0 && (
+                                    <p className="text-sm text-foreground-muted">A divisão começa limpa. Cada pagador novo entra com o valor que ainda falta.</p>
+                                )}
+                                {parts.map((part, index) => (
+                                    <div key={part.key} className="grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_10rem_auto]">
+                                        <input
+                                            inputMode="decimal"
+                                            placeholder="Valor"
+                                            aria-label={`Valor do pagador ${index + 1}`}
+                                            value={part.amount}
+                                            onChange={(e) =>
+                                                setParts((rows) => rows.map((r, i) => (i === index ? { ...r, amount: e.target.value } : r)))
+                                            }
+                                            className={inputCls}
+                                        />
+                                        <Select
+                                            value={part.method}
+                                            onValueChange={(method) =>
+                                                setParts((rows) =>
+                                                    rows.map((r, i) => (i === index ? { ...r, method: method as MesaPaymentMethod } : r))
+                                                )
+                                            }
+                                        >
+                                            <SelectTrigger aria-label={`Forma do pagador ${index + 1}`}>
+                                                <SelectValue />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                {MESA_PAYMENT_METHODS.map((method) => (
+                                                    <SelectItem key={method} value={method}>
+                                                        {MESA_PAYMENT_LABELS[method]}
+                                                    </SelectItem>
+                                                ))}
+                                            </SelectContent>
+                                        </Select>
+                                        {splitMode === "value" ? (
+                                            <Button
+                                                type="button"
+                                                variant="outline"
+                                                size="sm"
+                                                onClick={() => setParts((rows) => rows.filter((row) => row.key !== part.key))}
+                                            >
+                                                Remover
+                                            </Button>
+                                        ) : <span />}
+                                    </div>
+                                ))}
+                                {splitMode === "value" && parts.length > 0 && !valueReady && (
+                                    <p className="text-xs font-medium text-rose-600">
+                                        {remainder > 0
+                                            ? `Ainda falta ${brl(remainder)} para fechar a conta.`
+                                            : remainder < 0
+                                                ? `A soma passou ${brl(Math.abs(remainder))} da conta.`
+                                                : "Cada pagador precisa de um valor."}
+                                    </p>
+                                )}
+                                {splitMode === "value" && (
+                                    <Button type="button" variant="outline" onClick={addValuePayer}>
+                                        <Plus className="h-4 w-4" />
+                                        Adicionar pagador
+                                    </Button>
+                                )}
+                            </div>
+                        )}
                     </div>
-                    <DialogFooter>
-                        <button
-                            type="button"
-                            disabled={busy || remainder !== 0}
-                            onClick={() => void release()}
-                            className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-40"
-                        >
-                            Liberar mesa
-                        </button>
-                    </DialogFooter>
-                </DialogContent>
-            </Dialog>
-
-            <Dialog open={transferOpen} onOpenChange={setTransferOpen}>
-                <DialogContent>
-                    <DialogHeader>
-                        <DialogTitle>Trocar mesa</DialogTitle>
-                        <DialogDescription>A comanda inteira vai para a mesa livre escolhida.</DialogDescription>
-                    </DialogHeader>
-                    <ul className="max-h-64 space-y-2 overflow-auto">
-                        {freeTables.map((t) => (
-                            <li key={t.id}>
-                                <button
-                                    type="button"
-                                    className="w-full rounded-lg border px-3 py-2 text-left text-sm"
-                                    onClick={() => void transfer(t.id)}
-                                >
-                                    {t.label || `Mesa ${t.code}`}
-                                </button>
-                            </li>
-                        ))}
-                        {freeTables.length === 0 && <li className="text-sm text-zinc-500">Nenhuma mesa livre.</li>}
-                    </ul>
-                </DialogContent>
-            </Dialog>
-
-            <Dialog open={manageOpen} onOpenChange={setManageOpen}>
-                <DialogContent>
-                    <DialogHeader>
-                        <DialogTitle>Gerir mesas</DialogTitle>
-                        <DialogDescription>Mesa em consumo não é desativada.</DialogDescription>
-                    </DialogHeader>
-                    <div className="flex gap-2">
-                        <input
-                            value={newCode}
-                            onChange={(e) => setNewCode(e.target.value)}
-                            placeholder="Número"
-                            className="w-28 rounded-lg border px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900"
-                        />
-                        <button type="button" onClick={() => void createTable()} className="rounded-lg bg-zinc-900 px-3 py-2 text-sm text-white dark:bg-zinc-100 dark:text-zinc-900">
-                            Criar
-                        </button>
-                    </div>
-                    <ul className="max-h-64 space-y-2 overflow-auto">
-                        {tables.map((t) => {
-                            const locked = Boolean(t.session_id) || t.table_status === "occupied";
-                            const inactive = t.table_status === "disabled";
-                            return (
-                                <li key={t.id} className="flex items-center justify-between gap-3 rounded-lg border px-3 py-2 text-sm dark:border-zinc-700">
-                                    <span className="truncate">{t.label || `Mesa ${t.code}`}</span>
+                ) : panel === "transfer" ? (
+                    <div>
+                        <p className="mb-3 text-xs text-foreground-muted">A comanda inteira vai para a mesa livre escolhida.</p>
+                        <ul className="grid gap-2">
+                            {freeTables.map((t) => (
+                                <li key={t.id}>
                                     <button
                                         type="button"
-                                        disabled={busy || locked}
-                                        className="shrink-0 rounded border px-2 py-1 text-xs disabled:opacity-40"
-                                        onClick={() => void setTableActive(t, inactive)}
+                                        disabled={busy}
+                                        className="w-full rounded-xl border border-border px-3 py-2 text-left text-sm hover:bg-zinc-50 dark:hover:bg-zinc-800"
+                                        onClick={() => void transfer(t.id)}
                                     >
-                                        {locked ? "Em consumo" : inactive ? "Reativar" : "Desativar"}
+                                        {tableTitle(t)}
                                     </button>
                                 </li>
-                            );
-                        })}
-                    </ul>
-                </DialogContent>
-            </Dialog>
+                            ))}
+                            {freeTables.length === 0 && <li className="text-sm text-foreground-muted">Nenhuma mesa livre.</li>}
+                        </ul>
+                    </div>
+                ) : panel === "cancel" ? (
+                    <p className="text-sm text-foreground">
+                        A comanda de {tableTitle(session.table)} será cancelada e o estoque dos itens volta. Isso não reabre depois.
+                    </p>
+                ) : (
+                    <div className="grid grid-cols-1 gap-3">
+                        <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-foreground-muted">
+                            <span>Aberta {minutesOpen(openedAt) ?? "agora"}</span>
+                            <span>{session.items.length} itens</span>
+                            <span className="font-semibold text-foreground">Total {brl(due)}</span>
+                        </div>
+
+                        <div className={sectionCls}>
+                            <div className={labelCls}>Adicionar itens</div>
+                            <div className="relative">
+                                <Search className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-foreground-muted" aria-hidden />
+                                <input
+                                    ref={searchRef}
+                                    value={search}
+                                    onChange={(e) => setSearch(e.target.value)}
+                                    onKeyDown={onSearchKey}
+                                    placeholder="Nome, código ou EAN — Enter lança"
+                                    className={cn(inputCls, "pl-9")}
+                                    aria-label="Buscar produtos"
+                                />
+                            </div>
+                            <div className="mt-3">
+                                {searching ? (
+                                    <p className="text-xs text-foreground-muted">Buscando...</p>
+                                ) : hits.length === 0 ? (
+                                    <p className="text-xs text-foreground-muted">
+                                        {search.trim().length < 2 ? "Nenhum mais vendido ainda." : "Nenhum produto encontrado."}
+                                    </p>
+                                ) : (
+                                    <div className="grid gap-2">
+                                        {search.trim().length < 2 && (
+                                            <p className="text-[11px] font-semibold uppercase tracking-wide text-foreground-muted">Mais vendidos</p>
+                                        )}
+                                        {hits.map((h, i) => {
+                                            const qtd = qtyOf(h.id);
+                                            return (
+                                                <div
+                                                    key={`${h.kind}-${h.id}`}
+                                                    className={cn(
+                                                        "flex items-center justify-between gap-3 rounded-xl border border-zinc-100 bg-white px-3 py-2.5 dark:border-zinc-800 dark:bg-zinc-800/50",
+                                                        i === highlight && "ring-2 ring-violet-400"
+                                                    )}
+                                                >
+                                                    <div className="min-w-0 flex-1">
+                                                        <div className="truncate text-xs font-semibold text-zinc-900 dark:text-zinc-50">
+                                                            {h.name}
+                                                        </div>
+                                                        <div className="truncate text-[11px] text-zinc-500 dark:text-zinc-400">
+                                                            {h.kind === "combo" ? "Combo" : h.sigla || "UN"}
+                                                            {h.volume ? ` · ${h.volume}` : ""}
+                                                            {" · "}
+                                                            {h.sell_zero ? "estoque livre" : `estoque ${h.stock_qty ?? 0}`}
+                                                        </div>
+                                                        <div className="mt-1 text-[11px] text-zinc-700 dark:text-zinc-300">
+                                                            <span className="font-bold">{brl(Number(h.price || 0))}</span>
+                                                        </div>
+                                                    </div>
+                                                    <div className="flex shrink-0 items-end gap-2">
+                                                        <div className="flex flex-col items-center gap-1">
+                                                            <span className="text-[10px] font-semibold text-zinc-500">Qtd</span>
+                                                            <div className="inline-flex items-center rounded-lg border border-zinc-200 bg-white dark:border-zinc-700 dark:bg-zinc-800">
+                                                                <button
+                                                                    type="button"
+                                                                    aria-label={`Diminuir ${h.name}`}
+                                                                    disabled={qtd <= 1}
+                                                                    onClick={() => setDraftQty((prev) => ({ ...prev, [h.id]: Math.max(1, qtd - 1) }))}
+                                                                    className="flex h-8 w-8 items-center justify-center rounded-l-lg text-zinc-600 hover:bg-zinc-100 disabled:opacity-40 dark:text-zinc-300 dark:hover:bg-zinc-700"
+                                                                >
+                                                                    <Minus className="h-3.5 w-3.5" />
+                                                                </button>
+                                                                <span className="min-w-[1.75rem] text-center text-xs font-bold tabular-nums">{qtd}</span>
+                                                                <button
+                                                                    type="button"
+                                                                    aria-label={`Aumentar ${h.name}`}
+                                                                    onClick={() => setDraftQty((prev) => ({ ...prev, [h.id]: qtd + 1 }))}
+                                                                    className="flex h-8 w-8 items-center justify-center rounded-r-lg text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-700"
+                                                                >
+                                                                    <Plus className="h-3.5 w-3.5" />
+                                                                </button>
+                                                            </div>
+                                                        </div>
+                                                        <button
+                                                            type="button"
+                                                            disabled={busy}
+                                                            onClick={() => void addHit(h, qtd)}
+                                                            className="flex h-8 items-center gap-1 rounded-lg bg-violet-600 px-3 text-xs font-semibold text-white transition-colors hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-40"
+                                                        >
+                                                            <ShoppingCart className="h-3 w-3" />
+                                                            Add
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+
+                        <div className={sectionCls}>
+                            <div className={labelCls}>Itens da comanda</div>
+                            {session.items.length === 0 ? (
+                                <p className="text-xs text-foreground-muted">Nenhum item adicionado.</p>
+                            ) : (
+                                <div className="grid gap-2">
+                                    {session.items.map((it) => (
+                                        <div
+                                            key={it.id}
+                                            className="flex items-center justify-between gap-3 rounded-xl border border-zinc-100 bg-zinc-50 px-3 py-2.5 dark:border-zinc-800 dark:bg-zinc-800/50"
+                                        >
+                                            <div className="min-w-0 flex-1">
+                                                <div className="flex items-center gap-1.5">
+                                                    <span className="truncate text-xs font-bold uppercase text-zinc-900 dark:text-zinc-50">
+                                                        {it.combo_label || it.product_name}
+                                                    </span>
+                                                    <span className="shrink-0 rounded-full bg-zinc-200 px-1.5 py-px text-[9px] font-bold text-zinc-600 dark:bg-zinc-700 dark:text-zinc-300">
+                                                        {it.sigla_comercial || "UN"}
+                                                    </span>
+                                                </div>
+                                                <div className="mt-1 text-[11px] text-zinc-700 dark:text-zinc-300">
+                                                    <span className="font-bold">{it.qty}</span>
+                                                    {" × "}
+                                                    <span className="font-bold">{brl(Number(it.unit_price))}</span>
+                                                    {" = "}
+                                                    <span className="font-bold text-violet-700 dark:text-violet-400">
+                                                        {brl(Number(it.qty) * Number(it.unit_price))}
+                                                    </span>
+                                                </div>
+                                            </div>
+                                            <div className="flex shrink-0 items-center gap-1">
+                                                <button
+                                                    type="button"
+                                                    disabled={busy}
+                                                    aria-label="Diminuir"
+                                                    onClick={() => void setItemQty(it.id, Number(it.qty) - 1)}
+                                                    className="flex h-7 w-7 items-center justify-center rounded-lg border border-zinc-200 bg-white text-zinc-600 hover:bg-zinc-100 disabled:opacity-40 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
+                                                >
+                                                    <Minus className="h-3 w-3" />
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    disabled={busy}
+                                                    aria-label="Aumentar"
+                                                    onClick={() => void setItemQty(it.id, Number(it.qty) + 1)}
+                                                    className="flex h-7 w-7 items-center justify-center rounded-lg border border-zinc-200 bg-white text-zinc-600 hover:bg-zinc-100 disabled:opacity-40 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
+                                                >
+                                                    <Plus className="h-3 w-3" />
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    disabled={busy}
+                                                    aria-label="Remover"
+                                                    onClick={() => void setItemQty(it.id, 0)}
+                                                    className="flex h-7 w-7 items-center justify-center rounded-lg border border-rose-100 bg-rose-50 text-rose-500 hover:bg-rose-100 disabled:opacity-40 dark:border-rose-900/50 dark:bg-rose-900/20 dark:text-rose-400"
+                                                >
+                                                    <Trash2 className="h-3 w-3" />
+                                                </button>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                            <div className="mt-4 flex items-center justify-between border-t border-border pt-3 text-sm">
+                                <span className="font-semibold text-foreground">Total</span>
+                                <span className="font-bold text-primary">{brl(due)}</span>
+                            </div>
+                        </div>
+                    </div>
+                )}
+            </Modal>
+
+            <Modal title="Gerir mesas" open={manageOpen} onClose={() => setManageOpen(false)}>
+                <p className="mb-3 text-xs text-foreground-muted">Mesa em consumo não é desativada.</p>
+                <div className="mb-4 flex gap-2">
+                    <input
+                        value={newCode}
+                        onChange={(e) => setNewCode(e.target.value)}
+                        placeholder="Número"
+                        aria-label="Número da mesa"
+                        className={cn(inputCls, "w-28")}
+                    />
+                    <button
+                        type="button"
+                        onClick={() => void createTable()}
+                        className="rounded-xl bg-violet-600 px-4 py-2 text-sm font-semibold text-white hover:bg-violet-700"
+                    >
+                        Criar
+                    </button>
+                </div>
+                <ul className="grid max-h-64 gap-2 overflow-auto">
+                    {tables.map((t) => {
+                        const locked = Boolean(t.session_id) || t.table_status === "occupied";
+                        const inactive = t.table_status === "disabled";
+                        return (
+                            <li key={t.id} className="flex items-center justify-between gap-3 rounded-xl border border-border px-3 py-2 text-sm">
+                                <span className="truncate">{tableTitle(t)}</span>
+                                <button
+                                    type="button"
+                                    disabled={busy || locked}
+                                    className="shrink-0 rounded-lg border border-border px-2 py-1 text-xs disabled:opacity-40"
+                                    onClick={() => void setTableActive(t, inactive)}
+                                >
+                                    {locked ? "Em consumo" : inactive ? "Reativar" : "Desativar"}
+                                </button>
+                            </li>
+                        );
+                    })}
+                </ul>
+            </Modal>
         </div>
     );
 }
