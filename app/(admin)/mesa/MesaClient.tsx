@@ -6,7 +6,7 @@ import Modal from "@/lib/orders/Modal";
 import { formatBRL } from "@/lib/orders/helpers";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import { MesaReleaseBody, MesaReleaseFooter, useMesaRelease } from "./MesaReleaseSheet";
+import { MesaFeeSummary, MesaReleaseBody, MesaReleaseFooter, useMesaRelease, type MesaFeeInfo } from "./MesaReleaseSheet";
 
 type FloorTable = {
     id: string;
@@ -32,6 +32,11 @@ type SessionDetail = {
     id: string;
     status: string;
     total: number;
+    items_subtotal?: number;
+    service_fee?: number;
+    service_fee_waived?: boolean;
+    service_fee_offered?: boolean;
+    service_fee_name?: string;
     table: { id: string; code: string; label: string | null };
     items: SessionItem[];
     previous_table_codes?: string[];
@@ -59,6 +64,21 @@ const labelCls = "mb-3 text-xs font-semibold uppercase tracking-wide text-foregr
 
 function brl(n: number) {
     return `R$ ${formatBRL(n)}`;
+}
+
+function sessionFee(session: SessionDetail): MesaFeeInfo {
+    const itemsSubtotal = Number(
+        session.items_subtotal ??
+        session.items.reduce((sum, item) => sum + Number(item.qty) * Number(item.unit_price), 0)
+    );
+    return {
+        offered: session.service_fee_offered === true,
+        waived: session.service_fee_waived === true,
+        amount: Number(session.service_fee ?? 0),
+        name: session.service_fee_name || "Taxa de serviço",
+        itemsSubtotal,
+        total: Number(session.total ?? 0),
+    };
 }
 
 function minutesOpen(iso: string | null) {
@@ -319,6 +339,29 @@ export default function MesaClient() {
             const code = json.table_code ?? session.table.code;
             closeComanda();
             setNotice(`Mesa ${code} finalizada. A conta está na fila do PDV.`);
+            await loadFloor();
+        } finally {
+            setBusy(false);
+        }
+    }
+
+    async function setServiceFee(waived: boolean) {
+        if (!session) return;
+        setBusy(true);
+        setMsg(null);
+        try {
+            const res = await fetch(`/api/admin/mesa/sessions/${session.id}/service-fee`, {
+                method: "POST",
+                credentials: "include",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ waived }),
+            });
+            const json = await res.json().catch(() => ({}));
+            if (!res.ok) {
+                setMsg(json.error || "Não alterou a taxa.");
+                return;
+            }
+            if (json.session) setSession(json.session as SessionDetail);
             await loadFloor();
         } finally {
             setBusy(false);
@@ -617,7 +660,13 @@ export default function MesaClient() {
                 ) : !session ? (
                     <p className="py-8 text-center text-sm text-foreground-muted">Nenhuma mesa selecionada.</p>
                 ) : panel === "release" ? (
-                    <MesaReleaseBody state={sheet} items={session.items} />
+                    <MesaReleaseBody
+                        state={sheet}
+                        items={session.items}
+                        fee={sessionFee(session)}
+                        busy={busy}
+                        onToggleFee={(waived) => void setServiceFee(waived)}
+                    />
                 ) : panel === "transfer" ? (
                     <div>
                         <p className="mb-3 text-xs text-foreground-muted">A comanda inteira vai para a mesa livre escolhida.</p>
@@ -806,10 +855,7 @@ export default function MesaClient() {
                                     ))}
                                 </div>
                             )}
-                            <div className="mt-4 flex items-center justify-between border-t border-border pt-3 text-sm">
-                                <span className="font-semibold text-foreground">Total</span>
-                                <span className="font-bold text-primary">{brl(due)}</span>
-                            </div>
+                            <MesaFeeSummary fee={sessionFee(session)} busy={busy} onToggle={(waived) => void setServiceFee(waived)} />
                         </div>
                     </div>
                 )}

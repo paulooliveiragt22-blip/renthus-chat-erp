@@ -42,7 +42,7 @@ Sem saldo e sem `vender_com_estoque_zero`, a RPC recusa o lançamento.
 
 O app manda `produto_embalagem_id` ou `combo_id` e a quantidade. A RPC grava `unit_price`. O browser não define o preço da linha.
 
-O total devido é a soma das linhas mais a taxa `system_key = service` já ativa na empresa. Taxa de entrega não entra. Não se inventa percentual. Sem definição `service` ativa, a conta é só a soma dos itens. O total é calculado de novo na liberação da mesa e outra vez na confirmação do caixa.
+O total devido é a soma das linhas mais a taxa `system_key = service` já ativa na empresa. Taxa de entrega não entra. Não se inventa percentual. Sem definição `service` ativa, a conta é só a soma dos itens. A comanda mostra os itens, a taxa e o total. **Retirar taxa** vale só para aquela mesa (`table_sessions.waive_service_fee`); a definição da empresa continua ativa e **Recolocar taxa** devolve a taxa. O valor sai do Postgres. O total é calculado de novo na liberação da mesa e outra vez na confirmação do caixa.
 
 ### D4 — Dois atos: garçom libera, caixa lança
 

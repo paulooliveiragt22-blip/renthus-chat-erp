@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Plus, Minus } from "lucide-react";
 import { brlToNumber, formatBRL } from "@/lib/orders/helpers";
 import { cn } from "@/lib/utils";
@@ -91,6 +91,16 @@ export function useMesaRelease(due: number, items: MesaReleaseItem[]) {
         setPayers([{ key: crypto.randomUUID(), amount: formatBRL(due), method: "pix", basis: "value", qty: {} }]);
     }, [due]);
 
+    useEffect(() => {
+        if (splitMode !== "single") return;
+        setPayers((rows) => {
+            if (rows.length !== 1 || rows[0]?.basis !== "value") return rows;
+            const next = formatBRL(due);
+            if (rows[0].amount === next) return rows;
+            return [{ ...rows[0], amount: next }];
+        });
+    }, [due, splitMode]);
+
     function startSplit() {
         setSplitMode("split");
         setPayers([]);
@@ -164,10 +174,67 @@ export function useMesaRelease(due: number, items: MesaReleaseItem[]) {
 
 export type MesaReleaseState = ReturnType<typeof useMesaRelease>;
 
-export function MesaReleaseBody({ state, items }: { state: MesaReleaseState; items: MesaReleaseItem[] }) {
+export type MesaFeeInfo = {
+    offered: boolean;
+    waived: boolean;
+    amount: number;
+    name: string;
+    itemsSubtotal: number;
+    total: number;
+};
+
+export function MesaFeeSummary({
+    fee,
+    busy,
+    onToggle,
+}: {
+    fee: MesaFeeInfo;
+    busy: boolean;
+    onToggle: (waived: boolean) => void;
+}) {
+    const showFee = fee.offered && (fee.waived || fee.amount > 0);
+    return (
+        <div className="space-y-2 border-t border-border pt-3 text-sm">
+            <div className="flex items-center justify-between gap-3">
+                <span className="text-foreground-muted">Itens</span>
+                <span className="tabular-nums">{brl(fee.itemsSubtotal)}</span>
+            </div>
+            {showFee && (
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                    <span className="text-foreground-muted">{fee.waived ? "Taxa retirada" : fee.name}</span>
+                    <div className="flex items-center justify-between gap-3 sm:justify-end">
+                        <span className="tabular-nums">{fee.waived ? "—" : brl(fee.amount)}</span>
+                        <Button type="button" size="sm" variant="outline" disabled={busy} onClick={() => onToggle(!fee.waived)}>
+                            {fee.waived ? "Recolocar taxa" : "Retirar taxa"}
+                        </Button>
+                    </div>
+                </div>
+            )}
+            <div className="flex items-center justify-between gap-3 font-semibold">
+                <span>Total</span>
+                <span className="font-bold text-primary tabular-nums">{brl(fee.total)}</span>
+            </div>
+        </div>
+    );
+}
+
+export function MesaReleaseBody({
+    state,
+    items,
+    fee,
+    busy,
+    onToggleFee,
+}: {
+    state: MesaReleaseState;
+    items: MesaReleaseItem[];
+    fee?: MesaFeeInfo;
+    busy?: boolean;
+    onToggleFee?: (waived: boolean) => void;
+}) {
     const { splitMode, payers, preview, remainder, canFinish, pendingQty, openWholeBill, startSplit, addPayer, setPayerBasis, setPayers, due } = state;
     return (
         <div className="space-y-4">
+            {fee && onToggleFee && <MesaFeeSummary fee={fee} busy={busy === true} onToggle={onToggleFee} />}
             <div className="flex flex-wrap gap-2">
                 <Button type="button" size="sm" variant={splitMode === "single" ? "default" : "outline"} aria-pressed={splitMode === "single"} onClick={openWholeBill}>
                     Conta inteira

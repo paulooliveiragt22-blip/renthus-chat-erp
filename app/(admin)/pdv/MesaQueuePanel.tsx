@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Modal from "@/lib/orders/Modal";
-import { MesaReleaseBody, MesaReleaseFooter, useMesaRelease, type MesaReleaseItem } from "../mesa/MesaReleaseSheet";
+import { MesaReleaseBody, MesaReleaseFooter, useMesaRelease, type MesaFeeInfo, type MesaReleaseItem } from "../mesa/MesaReleaseSheet";
 import { MESA_PAYMENT_LABELS, MESA_PAYMENT_METHODS, type MesaPaymentMethod } from "@/src/mesa/domain/paymentParts";
 
 type Part = { id: string; amount: number; method: MesaPaymentMethod };
@@ -26,6 +26,11 @@ type OpenTable = {
 type OpenBill = {
     id: string;
     total: number;
+    items_subtotal?: number;
+    service_fee?: number;
+    service_fee_waived?: boolean;
+    service_fee_offered?: boolean;
+    service_fee_name?: string;
     table: { code: string; label: string | null };
     items: MesaReleaseItem[];
 };
@@ -130,6 +135,44 @@ export default function MesaQueuePanel({
         } finally {
             setBusy(false);
         }
+    }
+
+    async function setBillFee(waived: boolean) {
+        if (!bill) return;
+        setBusy(true);
+        setBillMsg(null);
+        try {
+            const res = await fetch(`/api/admin/pdv/mesa-sessions/${bill.id}/service-fee`, {
+                method: "POST",
+                credentials: "include",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ waived }),
+            });
+            const json = await res.json().catch(() => ({}));
+            if (!res.ok || !json.session) {
+                setBillMsg(json.error || "Não alterou a taxa.");
+                return;
+            }
+            setBill(json.session as OpenBill);
+            await load();
+        } finally {
+            setBusy(false);
+        }
+    }
+
+    function billFee(current: OpenBill): MesaFeeInfo {
+        const itemsSubtotal = Number(
+            current.items_subtotal ??
+            current.items.reduce((sum, item) => sum + Number(item.qty) * Number(item.unit_price), 0)
+        );
+        return {
+            offered: current.service_fee_offered === true,
+            waived: current.service_fee_waived === true,
+            amount: Number(current.service_fee ?? 0),
+            name: current.service_fee_name || "Taxa de serviço",
+            itemsSubtotal,
+            total: Number(current.total ?? 0),
+        };
     }
 
     async function releaseBill() {
@@ -300,7 +343,15 @@ export default function MesaQueuePanel({
                 />
             ) : undefined}
         >
-            {bill && <MesaReleaseBody state={sheet} items={bill.items} />}
+            {bill && (
+                <MesaReleaseBody
+                    state={sheet}
+                    items={bill.items}
+                    fee={billFee(bill)}
+                    busy={busy}
+                    onToggleFee={(waived) => void setBillFee(waived)}
+                />
+            )}
         </Modal>
         </>
     );
