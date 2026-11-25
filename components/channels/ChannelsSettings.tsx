@@ -4,9 +4,13 @@ import { useCallback, useEffect, useState } from "react";
 import { Loader2, Link2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import MetaMessagingSettings from "@/components/menu/MetaMessagingSettings";
 import MarketPlanGate from "@/components/menu/MarketPlanGate";
 import WhatsAppEmbeddedSignupButton from "@/components/channels/WhatsAppEmbeddedSignupButton";
+import { migrateButtonLabel } from "@/lib/channels/migrateWhatsappLabel";
+import type { AttendanceMode } from "@/src/service/domain/types";
 
 type WaConnection = {
     id: string;
@@ -30,6 +34,16 @@ export default function ChannelsSettings() {
         ready: boolean;
         checks: Array<{ label: string; ok: boolean }>;
     } | null>(null);
+    const [phoneNumberId, setPhoneNumberId] = useState("");
+    const [accessToken, setAccessToken] = useState("");
+    const [wabaId, setWabaId] = useState("");
+    const [pasteSaving, setPasteSaving] = useState(false);
+    const [migrating, setMigrating] = useState(false);
+    const [taken, setTaken] = useState<{
+        sourceName: string;
+        sourceMode: AttendanceMode;
+        targetMode: AttendanceMode;
+    } | null>(null);
 
     const load = useCallback(async () => {
         setLoading(true);
@@ -51,6 +65,9 @@ export default function ChannelsSettings() {
             if (json.webhookPath) setWebhookPath(json.webhookPath);
             setDisplayPhone(json.displayPhone ?? "");
             setConn(json.connection ?? null);
+            setPhoneNumberId(json.connection?.from_identifier ?? "");
+            setWabaId(json.connection?.waba_id ?? "");
+            setAccessToken("");
             const readyRes = await fetch("/api/admin/bot-readiness", {
                 credentials: "include",
                 cache: "no-store",
@@ -135,6 +152,90 @@ export default function ChannelsSettings() {
         }
     }
 
+    async function saveCredentials() {
+        setPasteSaving(true);
+        try {
+            const res = await fetch("/api/admin/whatsapp-channel", {
+                method: "PUT",
+                credentials: "include",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    phoneNumberId,
+                    accessToken,
+                    wabaId,
+                    displayPhone,
+                }),
+            });
+            const json = (await res.json().catch(() => ({}))) as {
+                connection?: WaConnection;
+                error?: string;
+                hint?: string;
+                canMigrate?: boolean;
+                sourceName?: string;
+                sourceMode?: AttendanceMode;
+                targetMode?: AttendanceMode;
+            };
+            if (!res.ok) {
+                if (
+                    json.error === "whatsapp_already_registered" &&
+                    json.canMigrate &&
+                    json.sourceName &&
+                    (json.sourceMode === "delivery" || json.sourceMode === "service") &&
+                    (json.targetMode === "delivery" || json.targetMode === "service")
+                ) {
+                    setTaken({
+                        sourceName: json.sourceName,
+                        sourceMode: json.sourceMode,
+                        targetMode: json.targetMode,
+                    });
+                    return;
+                }
+                setTaken(null);
+                toast.error(json.hint || json.error || "Não foi possível salvar as credenciais.");
+                return;
+            }
+            setTaken(null);
+            setAccessToken("");
+            if (json.connection) setConn(json.connection);
+            toast.success("Credenciais salvas.");
+            await load();
+        } finally {
+            setPasteSaving(false);
+        }
+    }
+
+    async function migrateChannel() {
+        if (!taken) return;
+        setMigrating(true);
+        try {
+            const res = await fetch("/api/admin/whatsapp-channel/migrate", {
+                method: "POST",
+                credentials: "include",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    phoneNumberId,
+                    accessToken,
+                    wabaId,
+                    displayPhone,
+                }),
+            });
+            const json = (await res.json().catch(() => ({}))) as {
+                error?: string;
+                hint?: string;
+            };
+            if (!res.ok) {
+                toast.error(json.hint || "Não foi possível migrar o WhatsApp.");
+                return;
+            }
+            setTaken(null);
+            setAccessToken("");
+            toast.success("WhatsApp migrado. As conversas antigas ficam no perfil de origem.");
+            await load();
+        } finally {
+            setMigrating(false);
+        }
+    }
+
     const connected = Boolean(conn?.hasAccessToken && conn.status === "active");
 
     return (
@@ -144,10 +245,9 @@ export default function ChannelsSettings() {
                     <div>
                         <h3 className="text-base font-semibold text-zinc-900 dark:text-zinc-50">WhatsApp</h3>
                         <p className="mt-1 max-w-prose text-sm text-zinc-500">
-                            Conecte o número da loja pelo fluxo oficial da Meta. Você continua usando
-                            o WhatsApp Business no celular. Pedidos automáticos vêm do que o{" "}
-                            <strong>cliente</strong> pede ao assistente; o que você digitar no
-                            celular aparece na inbox e pausa o bot.
+                            Conecte pelo botão da Meta ou cole o Phone Number ID e o token, como no
+                            delivery. O número e o token precisam ser do mesmo aplicativo Meta do
+                            webhook. Você continua usando o WhatsApp Business no celular.
                         </p>
                     </div>
                     {connected && readiness?.ready ? (
@@ -202,6 +302,102 @@ export default function ChannelsSettings() {
                         ) : null}
 
                         <WhatsAppEmbeddedSignupButton onConnected={() => void load()} />
+
+                        <form
+                            className="mt-6 grid gap-3 border-t border-zinc-200 pt-4 dark:border-zinc-800"
+                            onSubmit={(event) => {
+                                event.preventDefault();
+                                void saveCredentials();
+                            }}
+                        >
+                            <div>
+                                <h4 className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">
+                                    Credenciais
+                                </h4>
+                                <p className="mt-1 max-w-prose text-xs text-zinc-500">
+                                    Phone Number ID, token e, se tiver, o WABA. O token não volta para
+                                    esta tela depois de salvar.
+                                </p>
+                            </div>
+                            <div className="grid gap-1.5">
+                                <Label htmlFor="wa-phone-number-id">Phone Number ID</Label>
+                                <Input
+                                    id="wa-phone-number-id"
+                                    name="phoneNumberId"
+                                    autoComplete="off"
+                                    value={phoneNumberId}
+                                    onChange={(event) => {
+                                        setPhoneNumberId(event.target.value);
+                                        setTaken(null);
+                                    }}
+                                    required
+                                />
+                            </div>
+                            <div className="grid gap-1.5">
+                                <Label htmlFor="wa-access-token">Token</Label>
+                                <Input
+                                    id="wa-access-token"
+                                    name="accessToken"
+                                    type="password"
+                                    autoComplete="new-password"
+                                    value={accessToken}
+                                    onChange={(event) => setAccessToken(event.target.value)}
+                                    required
+                                />
+                            </div>
+                            <div className="grid gap-3 sm:grid-cols-2">
+                                <div className="grid gap-1.5">
+                                    <Label htmlFor="wa-waba-id">WABA</Label>
+                                    <Input
+                                        id="wa-waba-id"
+                                        name="wabaId"
+                                        autoComplete="off"
+                                        value={wabaId}
+                                        onChange={(event) => setWabaId(event.target.value)}
+                                    />
+                                </div>
+                                <div className="grid gap-1.5">
+                                    <Label htmlFor="wa-display-phone">Telefone exibido</Label>
+                                    <Input
+                                        id="wa-display-phone"
+                                        name="displayPhone"
+                                        autoComplete="tel"
+                                        value={displayPhone}
+                                        onChange={(event) => setDisplayPhone(event.target.value)}
+                                    />
+                                </div>
+                            </div>
+                            <div>
+                                <Button type="submit" disabled={pasteSaving || saving || migrating}>
+                                    {pasteSaving ? "Salvando…" : "Salvar credenciais"}
+                                </Button>
+                            </div>
+                            {taken ? (
+                                <div
+                                    role="status"
+                                    className="grid gap-3 rounded-lg border border-amber-300 bg-amber-50 p-3 dark:border-amber-800 dark:bg-amber-950"
+                                >
+                                    <p className="text-sm font-medium text-amber-950 dark:text-amber-50">
+                                        WhatsApp já cadastrado
+                                    </p>
+                                    <p className="max-w-prose text-sm text-amber-900 dark:text-amber-100">
+                                        Este número está em {taken.sourceName}. Ele continua lá até você
+                                        migrar. As conversas antigas não mudam de perfil.
+                                    </p>
+                                    <div>
+                                        <Button
+                                            type="button"
+                                            disabled={migrating || pasteSaving}
+                                            onClick={() => void migrateChannel()}
+                                        >
+                                            {migrating
+                                                ? "Migrando…"
+                                                : migrateButtonLabel(taken.sourceMode, taken.targetMode)}
+                                        </Button>
+                                    </div>
+                                </div>
+                            ) : null}
+                        </form>
 
                         <div className="mt-4 rounded-lg bg-zinc-50 p-3 text-xs text-zinc-600 dark:bg-zinc-900 dark:text-zinc-300">
                             <p className="font-medium text-zinc-800 dark:text-zinc-100">Webhook WhatsApp</p>

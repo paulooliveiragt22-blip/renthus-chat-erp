@@ -356,7 +356,7 @@ describe("3. Cenário de Erro — entradas inválidas e edge cases", () => {
         clearMessages();
         const mock = createMockAdmin({
             chatbots:           [], // ← nenhum chatbot ativo
-            companies:          [{ id: "company-1", name: "Test", settings: {} }],
+            companies:          [{ id: "company-1", name: "Test", attendance_mode: "delivery", settings: {} }],
             chatbot_sessions:   [sessionRow()],
             view_chat_produtos: MOCK_DB_ROWS,
             view_categories:    [],

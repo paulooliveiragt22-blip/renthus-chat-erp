@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, it } from "node:test";
+import { whatsappTenantPasteBodySchema } from "../../src/domain/contracts/embeddedSignup";
 
 describe("embedded-signup routes — gates", () => {
     const root = process.cwd();
@@ -23,10 +24,34 @@ describe("embedded-signup routes — gates", () => {
         assert.doesNotMatch(complete, /company_id.*searchParams|body\.companyId/);
     });
 
-    it("PUT paste do tenant foi removido (410)", () => {
+    it("PUT paste do tenant exige a feature e não lê company_id do body", () => {
         const src = readFileSync(join(root, "app/api/admin/whatsapp-channel/route.ts"), "utf8");
-        assert.match(src, /tenant_paste_removed/);
-        assert.match(src, /status: 410/);
-        assert.doesNotMatch(src, /upsertWhatsappChannelCredentials\s*\(/);
+        assert.match(src, /requireCompanyPlanFeature\(\s*["']whatsapp_messages["']/);
+        assert.match(src, /upsertWhatsappChannelCredentials\s*\(/);
+        assert.match(src, /provisioningMode:\s*["']tenant_paste["']/);
+        assert.match(src, /enforceKeyRateLimitAsync/);
+        assert.doesNotMatch(src, /tenant_paste_removed/);
+        assert.doesNotMatch(src, /body\.companyId|body\.company_id/);
+    });
+
+    it("o corpo do paste recusa company_id e token curto", () => {
+        const ok = whatsappTenantPasteBodySchema.safeParse({
+            phoneNumberId: "109876543210",
+            accessToken: "EAA" + "x".repeat(40),
+            wabaId: "",
+            displayPhone: "+5565999990000",
+        });
+        assert.equal(ok.success, true);
+        const extra = whatsappTenantPasteBodySchema.safeParse({
+            phoneNumberId: "109876543210",
+            accessToken: "EAA" + "x".repeat(40),
+            companyId: "0113a3fe-e224-49ff-81c6-f8b9df556267",
+        });
+        assert.equal(extra.success, false);
+        const shortToken = whatsappTenantPasteBodySchema.safeParse({
+            phoneNumberId: "109876543210",
+            accessToken: "curto",
+        });
+        assert.equal(shortToken.success, false);
     });
 });

@@ -1,6 +1,6 @@
 # ADR 0018 — Atendimento de serviço: motor ao lado do delivery
 
-**Status:** aceito (2026-11-25) — emendas no mesmo dia. Banco, handover, desvio, turno, telas e lembrete de horário feitos. Fechamento do `npm test` ainda não.
+**Status:** aceito (2026-11-25) — emendas no mesmo dia. Banco, handover, desvio, turno, telas, lembrete e `npm test` (1943) fechados. Workers publicados em 2026-11-25: `renthus-inbound-worker:live` versão 99, outbound e reconciler no `$LATEST`.
 **Data:** 2026-11-25
 **Aprovação do dono:** 2026-11-25, de manhã (mesmo repositório; WhatsApp é o canal; inbox, templates, campanhas e Embedded Signup são reaproveitados; motor de serviço ao lado do delivery). Emenda 2026-11-25, à tarde: a estrutura superior substitui o miolo. O modelo propõe a marcação nova; o botão ou o balcão confirma; a inserção é uma função só. Emenda 2026-11-25, em seguida: cancelar e remarcar entram nas ferramentas do WhatsApp, cada um com interruptor da empresa. Os dois nascem desligados. Emenda 2026-11-25, fim da tarde: no cadastro a empresa escolhe um modelo (horário, serviço, consulta e caso, balcão). Isso liga agenda e card. As etapas do card são quatro, fixas. O rótulo pode mudar. O funil não. Emenda 2026-11-25, em seguida: o checklist de implementação passa a travar UI, contrato tipado e as rules do repositório, para o corte de código não reabrir decisão.
 **Escopo técnico:** um segundo motor de atendimento, no mesmo webhook, na mesma fila e no mesmo número. A empresa escolhe o modo no cadastro. O modo serviço responde com o contexto da empresa e marca horário. O modo delivery continua em `src/pro`.
@@ -37,7 +37,7 @@ O que já existe e não muda de tabela:
 
 | Peça | Onde está hoje | O que o modo serviço faz com ela |
 |---|---|---|
-| Número | `whatsapp_channels` — um canal ativo por `company_id`; `provisioning_mode` já aceita `platform`, `tenant_paste`, `embedded_signup`; unique `(provider, from_identifier)` | Embedded Signup e a aba Canais seguem iguais. O webhook continua achando a empresa pelo número. |
+| Número | `whatsapp_channels` — um canal ativo por `company_id`; `provisioning_mode` já aceita `platform`, `tenant_paste`, `embedded_signup`; unique `(provider, from_identifier)` | A aba Canais é a mesma nos dois modos: Embedded Signup ou credenciais coladas. O mesmo número não migra sozinho: a tela avisa e só o botão move o canal. As conversas ficam na empresa de origem. O webhook continua achando a empresa pelo número. |
 | Conversa | `whatsapp_threads` (`bot_active`, `handover_at`, `last_inbound_at`) e `whatsapp_messages` | A lista e as bolhas da inbox continuam. O trilho da direita, no modo serviço, não busca carrinho nem pedido. |
 | Fila | `chatbot_queue` e `outbound_jobs` (`unique (company_id, dedup_key)`) | O turno entra na mesma fila, com teto de 4 rodadas de ferramenta. O lembrete, numa fatia seguinte, entra na mesma outbox. |
 | Pessoa | `customers` unique `(company_id, phone_e164)` e `customer_channel_identities` unique `(company_id, channel, external_id)` | Quem fala no WhatsApp já vira cliente. A agenda aponta para esse `customer_id`. `origem = 'whatsapp'` já é válido. |
@@ -444,8 +444,8 @@ Não começar sem pedido explícito de implementar. Marcar no próprio item. A o
 
 ### 6. Fechamento
 
-- [ ] `npm test` verde, incluindo os casos da seção seguinte.
-- [ ] Nenhuma decisão desta ADR reaberta no código (etapa nova, funil editável, preço de plano, ferramenta de gravar horário novo).
+- [x] `npm test` verde, incluindo os casos da seção seguinte. Suíte completa em 2026-11-25: 1943 passaram, 0 falharam. O mock do webhook de delivery passa `attendance_mode`.
+- [x] Nenhuma decisão desta ADR reaberta no código (etapa nova, funil editável, preço de plano, ferramenta de gravar horário novo). As etapas continuam `aberto|em_andamento|concluido|perdido`. A ferramenta de horário é `propose_slot`.
 
 ---
 

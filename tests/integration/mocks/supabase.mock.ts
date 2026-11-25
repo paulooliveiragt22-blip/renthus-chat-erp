@@ -183,8 +183,9 @@ export function baseAdmin(sessionOverrides: Record<string, unknown> = {}): MockA
 
         // ── Empresa ───────────────────────────────────────────────────────────
         companies: [{
-            id:       "company-1",
-            name:     "Disk Bebidas Teste",
+            id:               "company-1",
+            name:             "Disk Bebidas Teste",
+            attendance_mode:  "delivery",
             settings: {
                 open_time:  "08:00",
                 close_time: "23:00",

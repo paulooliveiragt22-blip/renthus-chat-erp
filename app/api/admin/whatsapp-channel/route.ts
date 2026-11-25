@@ -1,7 +1,11 @@
 import { NextResponse } from "next/server";
-import { requireCompanyAccess } from "@/lib/workspace/requireCompanyAccess";
-import { setWhatsappChannelStatus } from "@/lib/channels/upsertWhatsappChannelCredentials";
+import { requireCompanyPlanFeature } from "@/lib/billing/requirePlanFeature";
+import { enforceKeyRateLimitAsync } from "@/lib/security/rateLimitDistributed";
+import { describeWhatsappMigrateOffer } from "@/lib/channels/migrateWhatsappChannel";
+import { upsertWhatsappChannelCredentials, setWhatsappChannelStatus } from "@/lib/channels/upsertWhatsappChannelCredentials";
 import { sanitizeWhatsappChannelForClient } from "@/lib/whatsapp/channelCredentials";
+import { whatsappTenantPasteBodySchema } from "@/src/domain/contracts/embeddedSignup";
+import { requireCompanyAccess } from "@/lib/workspace/requireCompanyAccess";
 
 export const runtime = "nodejs";
 
@@ -30,22 +34,97 @@ export async function GET() {
         webhookPath: "/api/whatsapp/incoming",
         guide: {
             appMustMatchPlatformWebhook: true,
-            note: "Conecte pelo Embedded Signup. O número passa a pertencer ao Meta App da plataforma.",
+            note: "Embedded Signup ou credenciais coladas. O número precisa ser do mesmo App Meta do webhook.",
         },
     });
 }
 
-/** Paste de token no tenant removido (ADR-0010). Use Embedded Signup. */
-export async function PUT() {
-    const ctx = await requireCompanyAccess(["owner", "admin"]);
-    if (!ctx.ok) return NextResponse.json({ error: ctx.error }, { status: ctx.status });
-    return NextResponse.json(
-        {
-            error: "tenant_paste_removed",
-            hint: "Use Conectar WhatsApp (Embedded Signup) na aba Canais.",
-        },
-        { status: 410 }
+function statusForPasteError(code: string): number {
+    switch (code) {
+        case "encryption_unavailable":
+            return 503;
+        case "phone_number_id_required":
+        case "token_required":
+            return 400;
+        case "phone_number_id_conflict":
+            return 409;
+        default:
+            return 500;
+    }
+}
+
+/** Credenciais coladas pelo lojista. O número precisa ser do mesmo App Meta do webhook. */
+export async function PUT(req: Request) {
+    const ctx = await requireCompanyPlanFeature("whatsapp_messages", ["owner", "admin"]);
+    if (!ctx.ok) return ctx.response;
+
+    const limited = await enforceKeyRateLimitAsync(
+        `wa_tenant_paste:${ctx.companyId}`,
+        8,
+        10 * 60 * 1000,
+        { error: "rate_limit_exceeded", hint: "Aguarde alguns minutos e tente de novo." }
     );
+    if (limited) return limited;
+
+    const raw = (await req.json().catch(() => null)) as unknown;
+    const parsed = whatsappTenantPasteBodySchema.safeParse(raw);
+    if (!parsed.success) {
+        return NextResponse.json({ error: "invalid_body" }, { status: 400 });
+    }
+
+    const wabaId = parsed.data.wabaId?.trim() ? parsed.data.wabaId.trim() : null;
+    const displayPhone = parsed.data.displayPhone?.trim() ? parsed.data.displayPhone.trim() : null;
+
+    try {
+        const result = await upsertWhatsappChannelCredentials(ctx.admin, {
+            companyId: ctx.companyId,
+            phoneNumberId: parsed.data.phoneNumberId,
+            accessToken: parsed.data.accessToken,
+            wabaId,
+            whatsappPhone: displayPhone,
+            actor: { kind: "company_user", userId: ctx.userId },
+            provisioningMode: "tenant_paste",
+        });
+        return NextResponse.json({
+            connection: result.channel,
+            created: result.created,
+            webhookPath: "/api/whatsapp/incoming",
+        });
+    } catch (e) {
+        const msg = e instanceof Error ? e.message : "paste_failed";
+        if (msg === "phone_number_id_conflict") {
+            const offer = await describeWhatsappMigrateOffer(
+                ctx.admin,
+                ctx.userId,
+                ctx.companyId,
+                parsed.data.phoneNumberId
+            );
+            if (offer) {
+                return NextResponse.json(
+                    {
+                        error: "whatsapp_already_registered",
+                        canMigrate: true,
+                        sourceName: offer.sourceName,
+                        sourceMode: offer.sourceMode,
+                        targetMode: offer.targetMode,
+                    },
+                    { status: 409 }
+                );
+            }
+        }
+        return NextResponse.json(
+            {
+                error: msg,
+                hint:
+                    msg === "encryption_unavailable"
+                        ? "Defina CREDENTIALS_ENCRYPTION_KEY (32 bytes base64)."
+                        : msg === "phone_number_id_conflict"
+                          ? "Este Phone Number ID já está vinculado a outra empresa."
+                          : undefined,
+            },
+            { status: statusForPasteError(msg) }
+        );
+    }
 }
 
 export async function PATCH(req: Request) {

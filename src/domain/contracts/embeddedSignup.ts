@@ -21,6 +21,22 @@ export const embeddedSignupCompleteBodySchema = z.object({
 
 export type EmbeddedSignupCompleteBody = z.infer<typeof embeddedSignupCompleteBodySchema>;
 
+export const whatsappTenantPasteBodySchema = z
+    .object({
+        phoneNumberId: z.string().trim().min(5).max(64),
+        accessToken: z.string().trim().min(20).max(4096),
+        wabaId: z
+            .string()
+            .trim()
+            .max(64)
+            .optional()
+            .refine((value) => value == null || value.length === 0 || value.length >= 5),
+        displayPhone: z.string().trim().max(32).optional(),
+    })
+    .strict();
+
+export type WhatsappTenantPasteBody = z.infer<typeof whatsappTenantPasteBodySchema>;
+
 export function isCoexistenceFinishEvent(event: string): boolean {
     return event === "FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING";
 }
