@@ -519,9 +519,10 @@ export default function MesaClient() {
                 for (const line of splitLines) qty[line.id] = pendingQty(line.id, key);
                 return { ...row, basis, qty };
             }
-            const others = preview.amounts.reduce((sum, amount, index) => (
-                payers[index]?.key === key || amount == null ? sum : sum + amount
-            ), 0);
+            const others = preview.amounts.reduce<number>((sum, amount, index) => {
+                if (payers[index]?.key === key || amount == null) return sum;
+                return sum + amount;
+            }, 0);
             const pending = Math.round((due - others) * 100) / 100;
             return { ...row, basis, amount: pending > 0 ? formatBRL(pending) : "" };
         }));
