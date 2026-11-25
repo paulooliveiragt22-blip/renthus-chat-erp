@@ -10,7 +10,17 @@ import MetaMessagingSettings from "@/components/menu/MetaMessagingSettings";
 import MarketPlanGate from "@/components/menu/MarketPlanGate";
 import WhatsAppEmbeddedSignupButton from "@/components/channels/WhatsAppEmbeddedSignupButton";
 import { migrateButtonLabel } from "@/lib/channels/migrateWhatsappLabel";
+import { profileLabel } from "@/lib/workspace/loginDestination";
 import type { AttendanceMode } from "@/src/service/domain/types";
+
+type AdministeredChannel = {
+    channelId: string;
+    companyName: string;
+    attendanceMode: AttendanceMode;
+    phoneNumberId: string;
+    displayPhone: string | null;
+    isCurrent: boolean;
+};
 
 type WaConnection = {
     id: string;
@@ -39,6 +49,10 @@ export default function ChannelsSettings() {
     const [wabaId, setWabaId] = useState("");
     const [pasteSaving, setPasteSaving] = useState(false);
     const [migrating, setMigrating] = useState(false);
+    const [migratingId, setMigratingId] = useState<string | null>(null);
+    const [administered, setAdministered] = useState<AdministeredChannel[]>([]);
+    const [currentName, setCurrentName] = useState("Este perfil");
+    const [currentMode, setCurrentMode] = useState<AttendanceMode>("delivery");
     const [taken, setTaken] = useState<{
         sourceName: string;
         sourceMode: AttendanceMode;
@@ -57,6 +71,9 @@ export default function ChannelsSettings() {
                 displayPhone?: string | null;
                 webhookPath?: string;
                 error?: string;
+                currentName?: string;
+                currentMode?: AttendanceMode;
+                administered?: AdministeredChannel[];
             };
             if (!res.ok) {
                 toast.error(json.error || "Falha ao carregar canal WhatsApp.");
@@ -68,6 +85,9 @@ export default function ChannelsSettings() {
             setPhoneNumberId(json.connection?.from_identifier ?? "");
             setWabaId(json.connection?.waba_id ?? "");
             setAccessToken("");
+            setCurrentName(json.currentName?.trim() || "Este perfil");
+            setCurrentMode(json.currentMode === "service" ? "service" : "delivery");
+            setAdministered(Array.isArray(json.administered) ? json.administered : []);
             const readyRes = await fetch("/api/admin/bot-readiness", {
                 credentials: "include",
                 cache: "no-store",
@@ -236,7 +256,29 @@ export default function ChannelsSettings() {
         }
     }
 
+    async function migrateListed(channelId: string) {
+        setMigratingId(channelId);
+        try {
+            const res = await fetch("/api/admin/whatsapp-channel/migrate", {
+                method: "POST",
+                credentials: "include",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ channelId }),
+            });
+            const json = (await res.json().catch(() => ({}))) as { hint?: string };
+            if (!res.ok) {
+                toast.error(json.hint || "Não foi possível migrar o WhatsApp.");
+                return;
+            }
+            toast.success(`WhatsApp migrado para ${currentName}. As conversas antigas ficam no perfil de origem.`);
+            await load();
+        } finally {
+            setMigratingId(null);
+        }
+    }
+
     const connected = Boolean(conn?.hasAccessToken && conn.status === "active");
+    const currentHasChannel = administered.some((row) => row.isCurrent);
 
     return (
         <div className="space-y-8">
@@ -300,6 +342,57 @@ export default function ChannelsSettings() {
                                 </div>
                             </dl>
                         ) : null}
+
+                        <div className="mb-6 grid gap-2">
+                            <h4 className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">
+                                WhatsApps dos seus perfis
+                            </h4>
+                            <p className="max-w-prose text-xs text-zinc-500">
+                                Migrar traz o número para {currentName}, o perfil aberto. As conversas
+                                antigas ficam onde estavam.
+                            </p>
+                            {administered.length === 0 ? (
+                                <p className="text-sm text-zinc-500">Nenhum WhatsApp nos perfis que você administra.</p>
+                            ) : (
+                                <ul className="grid gap-2">
+                                    {administered.map((row) => (
+                                        <li
+                                            key={row.channelId}
+                                            className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-zinc-200 px-3 py-2 dark:border-zinc-800"
+                                        >
+                                            <div className="min-w-0">
+                                                <p className="truncate text-sm font-medium text-zinc-900 dark:text-zinc-50">
+                                                    {row.companyName} · {profileLabel(row.attendanceMode)}
+                                                </p>
+                                                <p className="truncate text-xs text-zinc-500">
+                                                    {row.displayPhone || row.phoneNumberId}
+                                                </p>
+                                            </div>
+                                            {row.isCurrent ? (
+                                                <span className="rounded-full bg-zinc-100 px-2.5 py-0.5 text-[11px] font-bold uppercase tracking-wide text-zinc-700 dark:bg-zinc-900 dark:text-zinc-200">
+                                                    Este perfil
+                                                </span>
+                                            ) : (
+                                                <Button
+                                                    type="button"
+                                                    disabled={Boolean(migratingId) || migrating || currentHasChannel}
+                                                    onClick={() => void migrateListed(row.channelId)}
+                                                >
+                                                    {migratingId === row.channelId
+                                                        ? "Migrando…"
+                                                        : migrateButtonLabel(row.attendanceMode, currentMode)}
+                                                </Button>
+                                            )}
+                                        </li>
+                                    ))}
+                                </ul>
+                            )}
+                            {currentHasChannel && administered.some((row) => !row.isCurrent) ? (
+                                <p className="text-xs text-zinc-500">
+                                    Este perfil já tem um WhatsApp. O botão de migrar fica disponível quando ele não tiver número.
+                                </p>
+                            ) : null}
+                        </div>
 
                         <WhatsAppEmbeddedSignupButton onConnected={() => void load()} />
 

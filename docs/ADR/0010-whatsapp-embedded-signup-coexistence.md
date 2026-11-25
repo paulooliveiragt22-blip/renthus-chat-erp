@@ -48,7 +48,7 @@ Um único `POST …/embedded-signup/complete` distingue pelo `event` / `is_on_bi
 
 Decisão original (2026-09-06): o paste saía da UI do lojista. Emenda do dono (2026-11-25): a aba Canais volta a aceitar Phone Number ID, token e WABA opcional, no delivery e no serviço. O botão de Embedded Signup continua. `PUT /api/admin/whatsapp-channel` grava com `provisioning_mode = tenant_paste`. `company_id` só da sessão. O token não volta na resposta. O número precisa ser do mesmo App Meta do webhook; senão a mensagem não chega. Platform/suporte continua podendo provisionar.
 
-O mesmo Phone Number ID não muda de empresa sozinho. Se ele já está em outro perfil e o usuário administra os dois, a tela mostra **WhatsApp já cadastrado** e o botão **Migrar de Delivery para Serviço** (os rótulos seguem o modo de cada empresa). Só o clique move o canal. Conversas, clientes e pedidos ficam na empresa de origem. Quem não administra a outra empresa vê só o aviso genérico, sem o nome dela.
+O mesmo Phone Number ID não muda de empresa sozinho. A aba Canais lista os WhatsApps dos perfis que o usuário administra. O botão migra o número escolhido para o perfil aberto. Conversas, clientes e pedidos ficam na empresa de origem. Quem não administra a outra empresa não vê o número dela.
 
 ### D4 — Carrinho e pedido: só inbound do **cliente** + bot (ou inbox)
 

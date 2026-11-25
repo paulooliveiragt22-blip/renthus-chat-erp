@@ -37,6 +37,12 @@ export const whatsappTenantPasteBodySchema = z
 
 export type WhatsappTenantPasteBody = z.infer<typeof whatsappTenantPasteBodySchema>;
 
+export const whatsappMigrateByIdSchema = z
+    .object({
+        channelId: z.string().uuid(),
+    })
+    .strict();
+
 export function isCoexistenceFinishEvent(event: string): boolean {
     return event === "FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING";
 }

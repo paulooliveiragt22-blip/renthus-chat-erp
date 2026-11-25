@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import { requireCompanyPlanFeature } from "@/lib/billing/requirePlanFeature";
-import { migrateWhatsappChannel } from "@/lib/channels/migrateWhatsappChannel";
+import { migrateWhatsappChannel, migrateWhatsappChannelById } from "@/lib/channels/migrateWhatsappChannel";
 import { enforceKeyRateLimitAsync } from "@/lib/security/rateLimitDistributed";
-import { whatsappTenantPasteBodySchema } from "@/src/domain/contracts/embeddedSignup";
+import { whatsappMigrateByIdSchema, whatsappTenantPasteBodySchema } from "@/src/domain/contracts/embeddedSignup";
 
 export const runtime = "nodejs";
 
@@ -11,6 +11,7 @@ function statusForMigrateError(code: string): number {
         case "encryption_unavailable":
             return 503;
         case "channel_not_found":
+        case "already_current":
             return 404;
         case "migrate_forbidden":
             return 403;
@@ -38,6 +39,32 @@ export async function POST(req: Request) {
     if (limited) return limited;
 
     const raw = (await req.json().catch(() => null)) as unknown;
+    const byId = whatsappMigrateByIdSchema.safeParse(raw);
+    if (byId.success) {
+        try {
+            await migrateWhatsappChannelById(ctx.admin, {
+                companyId: ctx.companyId,
+                userId: ctx.userId,
+                channelId: byId.data.channelId,
+            });
+            return NextResponse.json({ ok: true, webhookPath: "/api/whatsapp/incoming" });
+        } catch (e) {
+            const msg = e instanceof Error ? e.message : "migrate_failed";
+            return NextResponse.json(
+                {
+                    error: msg,
+                    hint:
+                        msg === "migrate_forbidden"
+                            ? "Este número não pode ser migrado para este perfil."
+                            : msg === "target_has_channel"
+                              ? "Este perfil já tem um WhatsApp. Remova esse canal antes de migrar."
+                              : undefined,
+                },
+                { status: statusForMigrateError(msg) }
+            );
+        }
+    }
+
     const parsed = whatsappTenantPasteBodySchema.safeParse(raw);
     if (!parsed.success) {
         return NextResponse.json({ error: "invalid_body" }, { status: 400 });

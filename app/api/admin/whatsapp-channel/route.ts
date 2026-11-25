@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireCompanyPlanFeature } from "@/lib/billing/requirePlanFeature";
 import { enforceKeyRateLimitAsync } from "@/lib/security/rateLimitDistributed";
-import { describeWhatsappMigrateOffer } from "@/lib/channels/migrateWhatsappChannel";
+import { describeWhatsappMigrateOffer, listAdministeredWhatsappChannels } from "@/lib/channels/migrateWhatsappChannel";
 import { upsertWhatsappChannelCredentials, setWhatsappChannelStatus } from "@/lib/channels/upsertWhatsappChannelCredentials";
 import { sanitizeWhatsappChannelForClient } from "@/lib/whatsapp/channelCredentials";
 import { whatsappTenantPasteBodySchema } from "@/src/domain/contracts/embeddedSignup";
@@ -12,7 +12,7 @@ export const runtime = "nodejs";
 export async function GET() {
     const ctx = await requireCompanyAccess(["owner", "admin"]);
     if (!ctx.ok) return NextResponse.json({ error: ctx.error }, { status: ctx.status });
-    const { admin, companyId } = ctx;
+    const { admin, companyId, userId } = ctx;
 
     const [{ data: channel, error }, { data: company }] = await Promise.all([
         admin
@@ -28,9 +28,20 @@ export async function GET() {
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
+    let catalog: Awaited<ReturnType<typeof listAdministeredWhatsappChannels>>;
+    try {
+        catalog = await listAdministeredWhatsappChannels(admin, userId, companyId);
+    } catch (e) {
+        const msg = e instanceof Error ? e.message : "list_failed";
+        return NextResponse.json({ error: msg }, { status: 500 });
+    }
+
     return NextResponse.json({
         connection: channel ? sanitizeWhatsappChannelForClient(channel) : null,
         displayPhone: company?.whatsapp_phone ?? null,
+        currentName: catalog.currentName,
+        currentMode: catalog.currentMode,
+        administered: catalog.channels,
         webhookPath: "/api/whatsapp/incoming",
         guide: {
             appMustMatchPlatformWebhook: true,

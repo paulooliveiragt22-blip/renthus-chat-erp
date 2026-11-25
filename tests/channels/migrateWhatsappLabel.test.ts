@@ -21,5 +21,11 @@ describe("migração de WhatsApp entre perfis", () => {
         assert.doesNotMatch(route, /body\.companyId|body\.company_id/);
         assert.doesNotMatch(move, /whatsapp_threads|whatsapp_messages/);
         assert.match(move, /migrated_out/);
+        assert.match(move, /listAdministeredWhatsappChannels/);
+        assert.match(route, /channelId/);
+        assert.doesNotMatch(
+            move.slice(move.indexOf("listAdministeredWhatsappChannels")),
+            /encrypted_access_token/
+        );
     });
 });
