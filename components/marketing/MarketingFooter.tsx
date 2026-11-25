@@ -11,7 +11,7 @@ export function MarketingFooter({ linkToApp = false }: MarketingFooterProps) {
 
     return (
         <footer className="border-t border-slate-200/80 bg-white">
-            <div className="mx-auto grid max-w-6xl gap-10 px-4 py-14 sm:px-6 md:grid-cols-[minmax(0,1.2fr)_repeat(4,minmax(0,1fr))]">
+            <div className="mx-auto grid max-w-6xl gap-10 px-4 py-14 sm:grid-cols-2 sm:px-6 lg:grid-cols-5">
                 <a href={linkToApp ? "/" : "/inicio"} className="flex h-fit items-center gap-2.5">
                     <img
                         src="/brand/icone-512-transparente.svg?v=z1"

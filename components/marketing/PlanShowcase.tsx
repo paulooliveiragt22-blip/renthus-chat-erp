@@ -225,6 +225,7 @@ export function PlanShowcase({ linkToApp = false, beforeSavings, children }: Pla
                                                 value={billingPeriod}
                                                 onValueChange={setBillingPeriod}
                                                 yearlyHint={yearlyHint}
+                                                className="max-w-full flex-wrap"
                                             />
                                         </div>
                                     ) : null}

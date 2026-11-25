@@ -35,7 +35,6 @@ export const PLAN_FEATURE_BLURBS: Record<CommercialPlanKey, PlanFeatureRow[]> = 
         { kind: "plus" },
         { kind: "item", label: "10 usuários" },
         { kind: "item", label: "Mesa" },
-        { kind: "item", label: "iFood e Aiqfome no mesmo painel" },
     ],
 };
 

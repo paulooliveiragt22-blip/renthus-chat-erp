@@ -1,13 +1,28 @@
+"use client";
+
+import { useState } from "react";
+import { Menu } from "lucide-react";
+import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { accountHref } from "@/lib/marketing/hosts";
 
 type MarketingHeaderProps = {
     linkToApp?: boolean;
 };
 
+const SECTION_LINKS = [
+    { href: "#produto", label: "Produto" },
+    { href: "#planos", label: "Planos" },
+    { href: "#faq", label: "Dúvidas" },
+] as const;
+
 export function MarketingHeader({ linkToApp = false }: MarketingHeaderProps) {
+    const [menuOpen, setMenuOpen] = useState(false);
+    const loginHref = accountHref("/login", linkToApp);
+    const signupHref = accountHref("/signup?plano=pro&periodo=year", linkToApp);
+
     return (
-        <header className="sticky top-0 z-50 border-b border-slate-200/60 bg-white/80 text-slate-950 backdrop-blur-md">
-            <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-3 sm:px-6">
+        <header className="sticky top-0 z-40 border-b border-slate-200/60 bg-white/80 text-slate-950 backdrop-blur-md">
+            <div className="mx-auto flex max-w-6xl items-center justify-between gap-3 px-4 py-3 sm:px-6">
                 <a href={linkToApp ? "/" : "/inicio"} className="flex min-w-0 items-center gap-2.5">
                     <img
                         src="/brand/icone-512-transparente.svg?v=z1"
@@ -16,46 +31,81 @@ export function MarketingHeader({ linkToApp = false }: MarketingHeaderProps) {
                         height={36}
                         className="h-9 w-9 shrink-0"
                     />
-                    <span className="font-[family-name:var(--font-landing-display)] text-lg font-extrabold tracking-tight">
+                    <span className="truncate font-[family-name:var(--font-landing-display)] text-lg font-extrabold tracking-tight">
                         Zampell
                     </span>
                     <span className="hidden rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1 text-[0.7rem] font-bold tracking-wide text-emerald-700 uppercase sm:inline">
                         Delivery
                     </span>
                 </a>
-                <nav aria-label="Principal" className="flex shrink-0 items-center gap-1 sm:gap-2">
+                <nav aria-label="Principal" className="hidden shrink-0 items-center gap-1 md:flex lg:gap-2">
+                    {SECTION_LINKS.map((link) => (
+                        <a
+                            key={link.href}
+                            href={link.href}
+                            className="rounded-full px-3 py-2 text-sm font-semibold text-slate-700 transition-all duration-200 hover:bg-slate-100"
+                        >
+                            {link.label}
+                        </a>
+                    ))}
                     <a
-                        href="#produto"
-                        className="hidden rounded-full px-3 py-2 text-sm font-semibold text-slate-700 transition-all duration-200 hover:bg-slate-100 md:inline-flex"
-                    >
-                        Produto
-                    </a>
-                    <a
-                        href="#planos"
-                        className="hidden rounded-full px-3 py-2 text-sm font-semibold text-slate-700 transition-all duration-200 hover:bg-slate-100 md:inline-flex"
-                    >
-                        Planos
-                    </a>
-                    <a
-                        href="#faq"
-                        className="hidden rounded-full px-3 py-2 text-sm font-semibold text-slate-700 transition-all duration-200 hover:bg-slate-100 md:inline-flex"
-                    >
-                        Dúvidas
-                    </a>
-                    <a
-                        href={accountHref("/login", linkToApp)}
+                        href={loginHref}
                         className="rounded-full px-3 py-2 text-sm font-semibold text-slate-700 transition-all duration-200 hover:bg-slate-100"
                     >
                         Entrar
                     </a>
                     <a
-                        href={accountHref("/signup?plano=pro&periodo=year", linkToApp)}
-                        className="rounded-full bg-emerald-600 px-3 py-2 text-sm font-semibold text-white shadow-lg shadow-emerald-600/20 transition-all duration-200 hover:bg-emerald-500 sm:px-4"
+                        href={signupHref}
+                        className="rounded-full bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-emerald-600/20 transition-all duration-200 hover:bg-emerald-500"
                     >
-                        <span className="sm:hidden">Começar</span>
-                        <span className="hidden sm:inline">Começar no Pro</span>
+                        Começar no Pro
                     </a>
                 </nav>
+                <Sheet open={menuOpen} onOpenChange={setMenuOpen}>
+                    <SheetTrigger asChild>
+                        <button
+                            type="button"
+                            className="inline-flex size-11 shrink-0 items-center justify-center rounded-full text-slate-950 transition-colors duration-200 hover:bg-slate-100 md:hidden"
+                            aria-label="Abrir menu"
+                        >
+                            <Menu className="size-5" aria-hidden />
+                        </button>
+                    </SheetTrigger>
+                    <SheetContent
+                        side="right"
+                        className="flex w-[min(100%,20rem)] flex-col bg-white p-6 text-slate-950"
+                    >
+                        <SheetTitle className="pr-8 font-[family-name:var(--font-landing-display)] text-lg font-extrabold text-slate-950">
+                            Menu
+                        </SheetTitle>
+                        <nav aria-label="Principal" className="mt-6 flex flex-col gap-1">
+                            {SECTION_LINKS.map((link) => (
+                                <a
+                                    key={link.href}
+                                    href={link.href}
+                                    onClick={() => setMenuOpen(false)}
+                                    className="rounded-xl px-3 py-3 text-base font-semibold text-slate-800 transition-colors duration-200 hover:bg-slate-100"
+                                >
+                                    {link.label}
+                                </a>
+                            ))}
+                            <a
+                                href={loginHref}
+                                onClick={() => setMenuOpen(false)}
+                                className="rounded-xl px-3 py-3 text-base font-semibold text-slate-800 transition-colors duration-200 hover:bg-slate-100"
+                            >
+                                Entrar
+                            </a>
+                            <a
+                                href={signupHref}
+                                onClick={() => setMenuOpen(false)}
+                                className="mt-3 inline-flex items-center justify-center rounded-full bg-emerald-600 px-4 py-3 text-sm font-semibold text-white shadow-lg shadow-emerald-600/20 transition-colors duration-200 hover:bg-emerald-500"
+                            >
+                                Começar no Pro
+                            </a>
+                        </nav>
+                    </SheetContent>
+                </Sheet>
             </div>
         </header>
     );

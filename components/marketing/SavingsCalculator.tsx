@@ -65,11 +65,12 @@ export function SavingsCalculator({
                     value={billingPeriod}
                     onValueChange={onBillingPeriodChange}
                     yearlyHint={yearlyHint}
+                    className="max-w-full flex-wrap"
                 />
             </div>
 
-            <div className="mt-6 overflow-x-auto rounded-2xl border border-slate-200/80 bg-white shadow-sm">
-                <table className="w-full min-w-[36rem] border-collapse text-left text-sm">
+            <div className="mt-6 overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm">
+                <table className="w-full table-fixed border-collapse text-left text-xs sm:text-sm">
                     <caption className="sr-only">
                         Custo de referência dos apps contra a mensalidade do {periodLabel} neste volume
                     </caption>

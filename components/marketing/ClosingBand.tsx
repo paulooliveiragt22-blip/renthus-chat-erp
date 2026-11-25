@@ -17,16 +17,16 @@ export function ClosingBand({ linkToApp = false }: ClosingBandProps) {
                 <p className="mx-auto mt-4 max-w-xl text-base leading-relaxed text-slate-600">
                     Ativa o Pro, conecta o WhatsApp e publica o cardápio. Em 15 minutos a loja recebe no canal próprio.
                 </p>
-                <div className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row">
+                <div className="mt-8 flex w-full flex-col items-stretch justify-center gap-3 sm:flex-row sm:items-center">
                     <a
                         href={proSignupHref}
-                        className="inline-flex items-center justify-center rounded-full bg-emerald-600 px-5 py-3 text-base font-semibold text-white shadow-lg shadow-emerald-600/20 transition-all duration-200 hover:bg-emerald-500"
+                        className="inline-flex w-full items-center justify-center rounded-full bg-emerald-600 px-5 py-3 text-base font-semibold text-white shadow-lg shadow-emerald-600/20 transition-all duration-200 hover:bg-emerald-500 sm:w-auto"
                     >
                         Começar no Pro anual
                     </a>
                     <a
                         href="#planos"
-                        className="inline-flex items-center justify-center rounded-full bg-emerald-50 px-5 py-3 text-base font-semibold text-emerald-800 transition-all duration-200 hover:bg-emerald-100"
+                        className="inline-flex w-full items-center justify-center rounded-full bg-emerald-50 px-5 py-3 text-base font-semibold text-emerald-800 transition-all duration-200 hover:bg-emerald-100 sm:w-auto"
                     >
                         Comparar os planos
                     </a>
