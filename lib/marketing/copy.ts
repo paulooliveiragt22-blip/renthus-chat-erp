@@ -47,6 +47,8 @@ export const HERO = {
         "Pra hamburgueria, pizzaria e delivery. Agente no WhatsApp da loja, cardápio no navegador e PDV no balcão — sem app e sem comissão por pedido.",
 } as const;
 
+export const AGENT_DEMO_WHATSAPP_HREF = `https://wa.me/556692071285?text=${encodeURIComponent("manda pra mim dois hamburguer rosseiro")}`;
+
 export const FEATURE_CHAPTERS = [
     {
         id: "cardapio",
@@ -55,27 +57,11 @@ export const FEATURE_CHAPTERS = [
         title: "O cliente pede no navegador, sem baixar app.",
         body: "Abre no link da bio, do status ou do Google. O pedido cai no mesmo painel do WhatsApp.",
     },
-    {
-        id: "pdv",
-        loopId: "pdv",
-        kicker: "Balcão",
-        title: "No balcão, o pagamento pode ser misto.",
-        body: "Busca por nome, código ou EAN. PIX e dinheiro no mesmo cupom. A prazo só com cliente e limite.",
-    },
-    {
-        id: "pedido-caixa",
-        loopId: "pedidoCaixa",
-        kicker: "Cozinha e caixa",
-        title: "O pedido confirmado não para na tela.",
-        body: "A comanda segue pra impressão, o estoque baixa e o valor entra no caixa. No Pro, a campanha volta pra quem já pediu.",
-    },
 ] as const;
 
 export const USE_CASES = [
     { href: "#fluxo-agente", label: "O cliente pede no WhatsApp da loja", icon: "whatsapp" },
-    { href: "#pdv", label: "Venda no balcão com pagamento misto", icon: "pdv" },
-    { href: "#pedido-caixa", label: "A comanda imprime e o estoque baixa", icon: "print" },
-    { href: "#pedido-caixa", label: "A campanha volta pra quem já comprou", icon: "campaign" },
+    { href: "#cardapio", label: "O cliente pede no cardápio, sem baixar app", icon: "pdv" },
 ] as const;
 
 export const FOOTER_COLUMNS = [
@@ -84,14 +70,12 @@ export const FOOTER_COLUMNS = [
         links: [
             { label: "Agente no WhatsApp", href: "#fluxo-agente" },
             { label: "Cardápio", href: "#cardapio" },
-            { label: "PDV", href: "#pdv" },
             { label: "Planos", href: "#planos" },
         ],
     },
     {
         title: "Operação",
         links: [
-            { label: "Pedidos e caixa", href: "#pedido-caixa" },
             { label: "Economia", href: "#economia" },
             { label: "Dúvidas", href: "#faq" },
         ],

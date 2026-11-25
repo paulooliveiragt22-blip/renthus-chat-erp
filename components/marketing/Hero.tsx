@@ -1,4 +1,4 @@
-import { HERO, HERO_RISK } from "@/lib/marketing/copy";
+import { AGENT_DEMO_WHATSAPP_HREF, HERO, HERO_RISK } from "@/lib/marketing/copy";
 import { accountHref } from "@/lib/marketing/hosts";
 import { ProductStage } from "@/components/marketing/ProductStage";
 
@@ -33,7 +33,9 @@ export function Hero({ linkToApp = false }: HeroProps) {
                         Começar no Pro anual
                     </a>
                     <a
-                        href="#fluxo-agente"
+                        href={AGENT_DEMO_WHATSAPP_HREF}
+                        target="_blank"
+                        rel="noopener noreferrer"
                         className="inline-flex items-center justify-center rounded-full bg-emerald-50 px-5 py-3 text-base font-semibold text-emerald-800 transition-all duration-200 hover:bg-emerald-100"
                     >
                         Ver o agente

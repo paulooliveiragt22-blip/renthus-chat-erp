@@ -57,10 +57,11 @@ function includesAnnualLeaflets(planKey: CommercialPlanKey) {
 
 type PlanShowcaseProps = {
     linkToApp?: boolean;
+    beforeSavings?: ReactNode;
     children?: ReactNode;
 };
 
-export function PlanShowcase({ linkToApp = false, children }: PlanShowcaseProps) {
+export function PlanShowcase({ linkToApp = false, beforeSavings, children }: PlanShowcaseProps) {
     const [billingPeriod, setBillingPeriod] = useState<BillingPeriodValue>("year");
     const [plans, setPlans] = useState<SignupPlanCard[]>(() => catalogFallbackPlans());
 
@@ -135,6 +136,7 @@ export function PlanShowcase({ linkToApp = false, children }: PlanShowcaseProps)
 
     return (
         <>
+            {beforeSavings}
             <ChannelSavings
                 zampellMonthlyCents={zampellCents}
                 billingPeriod={billingPeriod}
@@ -151,8 +153,8 @@ export function PlanShowcase({ linkToApp = false, children }: PlanShowcaseProps)
                         Planos
                     </h2>
                     <p className="mt-3 max-w-2xl text-sm leading-relaxed text-slate-600">
-                        Preço de lista. A conta da seção anterior usa o Pro no período que você escolher. No
-                        anual, o valor por mês cai.
+                        Preço de lista. A conta da calculadora usa o Pro no período que você escolher. No anual, o
+                        valor por mês cai.
                     </p>
                     <div className="mt-6 grid overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm sm:grid-cols-[minmax(0,18rem)_1fr]">
                         <img

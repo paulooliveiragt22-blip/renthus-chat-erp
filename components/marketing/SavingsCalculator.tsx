@@ -117,22 +117,6 @@ export function SavingsCalculator({
                 </p>
             ) : null}
 
-            <ul className="mt-4 max-w-3xl space-y-2 text-sm leading-relaxed text-slate-600">
-                {example.rows.map((row) => (
-                    <li key={row.id}>
-                        {row.name}: {row.detail}{" "}
-                        <a
-                            href={row.sourceUrl}
-                            className="underline decoration-slate-300 underline-offset-2 hover:text-slate-950"
-                            target="_blank"
-                            rel="noreferrer"
-                        >
-                            {row.sourceLabel}
-                        </a>
-                        .
-                    </li>
-                ))}
-            </ul>
         </div>
     );
 }

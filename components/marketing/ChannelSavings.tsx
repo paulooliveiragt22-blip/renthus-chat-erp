@@ -21,7 +21,7 @@ export function ChannelSavings({
                     id="economia-titulo"
                     className="max-w-2xl font-[family-name:var(--font-landing-display)] text-2xl font-extrabold tracking-tight text-balance text-slate-950 sm:text-3xl"
                 >
-                    No app, comissão em cada pedido. No seu canal, mensalidade fixa.
+                    No app, comissão em cada pedido. No seu WhatsApp, custo zero.
                 </h2>
                 <p className="mt-3 max-w-2xl text-sm leading-snug text-slate-600 sm:text-base">
                     Arraste o volume e compare. Zampell não cobra percentual sobre a venda.

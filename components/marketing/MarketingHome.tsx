@@ -29,8 +29,7 @@ export function MarketingHome({ linkToApp = false }: MarketingHomeProps) {
             <main>
                 <Hero linkToApp={linkToApp} />
                 <LandingReveal>
-                    <PlanShowcase linkToApp={linkToApp}>
-                        <FeatureChapters />
+                    <PlanShowcase linkToApp={linkToApp} beforeSavings={<FeatureChapters />}>
                         <UseCaseList />
                     </PlanShowcase>
                 </LandingReveal>

@@ -1,11 +1,9 @@
-import { ArrowRight, Megaphone, MessageCircle, Printer, Store } from "lucide-react";
+import { ArrowRight, MessageCircle, Store } from "lucide-react";
 import { USE_CASES } from "@/lib/marketing/copy";
 
 const ICONS = {
     whatsapp: MessageCircle,
     pdv: Store,
-    print: Printer,
-    campaign: Megaphone,
 } as const;
 
 export function UseCaseList() {
