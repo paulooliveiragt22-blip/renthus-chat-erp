@@ -1,6 +1,6 @@
 ---
 description: Padrões do Agente PRO — hot path, tools, fila, segurança LLM. Aplicar ao editar código do bot.
-globs: src/pro/**/*,app/api/chatbot/**/*,app/api/whatsapp/**/*,lib/chatbot/**/*
+globs: src/pro/**/*,src/service/**/*,app/api/chatbot/**/*,app/api/whatsapp/**/*,lib/chatbot/**/*
 alwaysApply: false
 ---
 

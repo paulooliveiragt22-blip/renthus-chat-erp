@@ -29,7 +29,7 @@ const MAX_ATTEMPTS = getPositiveIntEnv("OUTBOUND_MAX_ATTEMPTS", 3);
 const FREQUENCY_WINDOW_HOURS = getPositiveIntEnv("OUTBOUND_FREQUENCY_WINDOW_HOURS", 72);
 const MAX_PER_CUSTOMER = getPositiveIntEnv("OUTBOUND_MAX_PER_CUSTOMER", 1);
 
-export type ProcessOutboundJobOutcome = "sent" | "skipped" | "failed";
+export type ProcessOutboundJobOutcome = "sent" | "skipped" | "failed" | "deferred";
 
 export type ProcessOutboundJobResult =
     | { ok: true; outcome: ProcessOutboundJobOutcome; job: OutboundJobRow; reason?: string }
@@ -74,6 +74,7 @@ async function loadSingleJobContext(
             .select("thread_id")
             .eq("thread_id", job.thread_id)
             .neq("purpose", "transactional")
+            .neq("purpose", "appointment_reminder")
             .gte("sent_at", frequencyCutoff),
     ]);
 
@@ -134,6 +135,27 @@ export async function processOutboundJobById(
         job.attempts = (job.attempts ?? 0) + 1;
     }
 
+    if (job.purpose === "appointment_reminder") {
+        const { data: appointment } = await admin
+            .from("service_appointments")
+            .select("status, starts_at")
+            .eq("id", job.source_id ?? "")
+            .eq("company_id", job.company_id)
+            .maybeSingle();
+        const startsAt = appointment?.starts_at ? new Date(String(appointment.starts_at)).getTime() : 0;
+        const stillDue = appointment?.status === "confirmed" && startsAt > Date.now();
+        if (!stillDue) {
+            await admin
+                .from("outbound_jobs")
+                .update({
+                    status: "skipped",
+                    skip_reason: appointment?.status === "cancelled" ? "appointment_cancelled" : "appointment_closed",
+                })
+                .eq("id", job.id);
+            return { ok: true, outcome: "skipped", job, reason: "appointment_cancelled" };
+        }
+    }
+
     const ctx = await loadSingleJobContext(admin, job);
     const hasPayload = isOutboundJobPayload(job.payload);
     const decision = evaluateOutboundGates({
@@ -147,6 +169,20 @@ export async function processOutboundJobById(
         maxProactivePerWindow: MAX_PER_CUSTOMER,
         businessHours: ctx.businessHours,
     });
+
+    if (!decision.allow && job.purpose === "appointment_reminder" && decision.reason === "outside_business_hours") {
+        await admin
+            .from("outbound_jobs")
+            .update({
+                status: "pending",
+                attempts: Math.max(0, (job.attempts ?? 1) - 1),
+                processing_started_at: null,
+                scheduled_at: new Date(Date.now() + 15 * 60_000).toISOString(),
+                skip_reason: null,
+            })
+            .eq("id", job.id);
+        return { ok: true, outcome: "deferred", job, reason: decision.reason };
+    }
 
     if (!decision.allow) {
         await admin

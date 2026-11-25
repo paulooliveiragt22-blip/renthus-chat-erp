@@ -4,6 +4,7 @@
 import React, { Suspense, useCallback, useEffect, useId, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useWorkspace } from "@/lib/workspace/useWorkspace";
+import { useServiceSnapshot } from "@/components/service/useServiceSnapshot";
 import { lookupCep } from "@/lib/address/cepLookup";
 import {
     BadgeCheck,
@@ -340,12 +341,16 @@ const TAB_QUERY_MAP: Record<string, Tab> = {
     pedidos:            "pedidos",
 };
 
+const DELIVERY_ONLY_TABS = new Set<Tab>(["delivery", "taxas", "cardapio", "formas_pagamento", "pedidos"]);
+
 function ConfiguracoesPageContent() {
     const searchParams = useSearchParams();
     const router = useRouter();
     const { currentCompanyId: companyId } = useWorkspace();
 
     const [activeTab, setActiveTab] = useState<Tab>("geral");
+    const { snapshot: serviceSnapshot } = useServiceSnapshot();
+    const serviceSettings = serviceSnapshot?.attendanceMode === "service";
     const [loading, setLoading]     = useState(true);
     const [company, setCompany]     = useState<Company | null>(null);
 
@@ -909,6 +914,12 @@ function ConfiguracoesPageContent() {
         if (next) setActiveTab(next);
     }, [searchParams, router]);
 
+    useEffect(() => {
+        if (!serviceSettings || !DELIVERY_ONLY_TABS.has(activeTab)) return;
+        setActiveTab("geral");
+        router.replace("/configuracoes", { scroll: false });
+    }, [serviceSettings, activeTab, router]);
+
     // ── load chatbot config ───────────────────────────────────────────────────
     useEffect(() => {
         fetch("/api/chatbot/config", { credentials: "include", cache: "no-store" })
@@ -1068,7 +1079,7 @@ function ConfiguracoesPageContent() {
     }
 
     // ── tabs config ───────────────────────────────────────────────────────────
-    const tabs: { id: Tab; label: string; icon: React.ElementType }[] = [
+    const allTabs: { id: Tab; label: string; icon: React.ElementType }[] = [
         { id: "geral",              label: "Geral",                 icon: Store },
         { id: "delivery",           label: "Delivery",              icon: Truck },
         { id: "taxas",              label: "Taxas",                 icon: Receipt },
@@ -1080,6 +1091,7 @@ function ConfiguracoesPageContent() {
         { id: "chatbot",            label: "Chatbot",               icon: Bot },
         { id: "pedidos",            label: "Pedidos",               icon: Package },
     ];
+    const tabs = allTabs.filter((tab) => !serviceSettings || !DELIVERY_ONLY_TABS.has(tab.id));
 
     // ── render ────────────────────────────────────────────────────────────────
     return (

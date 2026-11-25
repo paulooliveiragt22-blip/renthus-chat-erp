@@ -6,7 +6,10 @@ import { useRouter, useSearchParams } from "next/navigation";
 import type { Session } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/client";
 import PasswordInput from "@/components/PasswordInput";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { mixpanelIdentify } from "@/lib/analytics/mixpanelBrowser";
+import { loginDestination, profileLabel } from "@/lib/workspace/loginDestination";
+import type { AttendanceMode } from "@/src/service/domain/types";
 
 /** Validação linear (sem regex com backtracking / S5852). */
 function isValidEmail(email: string) {
@@ -22,6 +25,12 @@ function isValidEmail(email: string) {
     return true;
 }
 
+type LoginCompany = {
+    id: string;
+    name: string;
+    attendanceMode: AttendanceMode;
+};
+
 export default function LoginPage() {
     const router       = useRouter();
     const searchParams = useSearchParams();
@@ -32,6 +41,8 @@ export default function LoginPage() {
     const [loading,  setLoading]  = useState(false);
     const [msg,      setMsg]      = useState<string | null>(null);
     const [err,      setErr]      = useState<string | null>(null);
+    const [choices, setChoices] = useState<LoginCompany[] | null>(null);
+    const [picked, setPicked] = useState("");
 
     const redirectTo = searchParams.get("redirectTo") || "/pedidos";
 
@@ -58,20 +69,28 @@ export default function LoginPage() {
         }
     }
 
-    async function autoSelectCompany() {
-        try {
-            const res = await fetch("/api/workspace/list");
-            if (!res.ok) return;
-            const json = await res.json();
-            const companies = Array.isArray(json.companies) ? json.companies : [];
-            if (companies.length === 1) {
-                await fetch("/api/workspace/select", {
-                    method:  "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ company_id: companies[0].id }),
-                });
-            }
-        } catch {/* não bloquear */}
+    async function loadCompanies(): Promise<LoginCompany[]> {
+        const res = await fetch("/api/workspace/list", { credentials: "include" });
+        if (!res.ok) return [];
+        const json = (await res.json()) as { companies?: unknown };
+        if (!Array.isArray(json.companies)) return [];
+        return json.companies.flatMap((row) => {
+            if (!row || typeof row !== "object") return [];
+            const item = row as { id?: unknown; name?: unknown; attendanceMode?: unknown };
+            if (typeof item.id !== "string" || typeof item.name !== "string") return [];
+            const attendanceMode: AttendanceMode = item.attendanceMode === "service" ? "service" : "delivery";
+            return [{ id: item.id, name: item.name, attendanceMode }];
+        });
+    }
+
+    async function selectCompany(companyId: string) {
+        const res = await fetch("/api/workspace/select", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            credentials: "include",
+            body: JSON.stringify({ company_id: companyId }),
+        });
+        if (!res.ok) throw new Error("Não foi possível abrir esse perfil.");
     }
 
     async function handleLogin(e: React.FormEvent) {
@@ -89,15 +108,49 @@ export default function LoginPage() {
 
         if (error) return setErr(error.message);
 
-        if (data?.session) {
-            await syncServerSession(data.session);
-            const u = data.session.user;
-            mixpanelIdentify(u.id, { email: u.email ?? null });
-        }
-        await autoSelectCompany();
+        try {
+            if (data?.session) {
+                await syncServerSession(data.session);
+                const u = data.session.user;
+                mixpanelIdentify(u.id, { email: u.email ?? null });
+            }
+            const companies = await loadCompanies();
+            if (companies.length === 1) {
+                const only = companies[0];
+                if (only) {
+                    await selectCompany(only.id);
+                    router.replace(loginDestination(only.attendanceMode, redirectTo));
+                    router.refresh();
+                }
+                return;
+            }
+            if (companies.length > 1) {
+                await fetch("/api/workspace/clear", { method: "POST", credentials: "include" });
+                setChoices(companies);
+                setPicked(companies[0]?.id ?? "");
+                return;
+            }
 
-        router.replace(redirectTo);
-        router.refresh();
+            router.replace(redirectTo);
+            router.refresh();
+        } catch (error: unknown) {
+            setErr(error instanceof Error ? error.message : "Não foi possível abrir o perfil.");
+        }
+    }
+
+    async function enterPickedProfile() {
+        const company = choices?.find((item) => item.id === picked);
+        if (!company) return;
+        setErr(null);
+        setLoading(true);
+        try {
+            await selectCompany(company.id);
+            router.replace(loginDestination(company.attendanceMode, redirectTo));
+            router.refresh();
+        } catch (error: unknown) {
+            setErr(error instanceof Error ? error.message : "Não foi possível abrir esse perfil.");
+            setLoading(false);
+        }
     }
 
     async function handleResetPassword() {
@@ -181,6 +234,39 @@ export default function LoginPage() {
                     </div>
                 )}
 
+                {choices && choices.length > 1 ? (
+                    <div>
+                        <p style={{ fontSize: 13, color: "#374151", margin: "0 0 12px" }}>
+                            Qual perfil você quer acessar?
+                        </p>
+                        <Select value={picked} onValueChange={setPicked}>
+                            <SelectTrigger className="w-full" aria-label="Perfil">
+                                <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                                {choices.map((company) => (
+                                    <SelectItem key={company.id} value={company.id}>
+                                        {company.name} · {profileLabel(company.attendanceMode)}
+                                    </SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
+                        <button
+                            type="button"
+                            disabled={loading || !picked}
+                            onClick={() => void enterPickedProfile()}
+                            style={{
+                                width: "100%", padding: "13px 20px", marginTop: 16,
+                                background: "#16364D", color: "#fff",
+                                border: "none", borderRadius: 12,
+                                fontSize: 15, fontWeight: 700, cursor: "pointer",
+                                opacity: loading ? 0.7 : 1,
+                            }}
+                        >
+                            {loading ? "Entrando..." : "Acessar"}
+                        </button>
+                    </div>
+                ) : (
                 <form onSubmit={handleLogin}>
                     <div style={{ marginBottom: 14 }}>
                         <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "#374151", marginBottom: 6 }}>
@@ -234,6 +320,7 @@ export default function LoginPage() {
                         {loading ? "Entrando..." : "Entrar"}
                     </button>
                 </form>
+                )}
 
                 <div style={{ marginTop: 16, textAlign: "center" }}>
                     <button

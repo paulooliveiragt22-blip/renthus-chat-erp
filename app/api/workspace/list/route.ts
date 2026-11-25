@@ -32,7 +32,7 @@ export async function GET() {
     // 2) companies
     const { data: companies, error: cErr } = await admin
         .from("companies")
-        .select("id, name")
+        .select("id, name, attendance_mode")
         .in("id", companyIds);
 
     if (cErr) return NextResponse.json({ error: cErr.message }, { status: 500 });
@@ -40,10 +40,11 @@ export async function GET() {
     const roleByCompany = new Map<string, string>();
     for (const m of memberships ?? []) roleByCompany.set(m.company_id, m.role);
 
-    const result = (companies ?? []).map((c: any) => ({
-        id: c.id,
-        name: c.name,
-        role: roleByCompany.get(c.id) ?? "member",
+    const result = (companies ?? []).map((c) => ({
+        id: String(c.id),
+        name: String(c.name ?? ""),
+        role: roleByCompany.get(String(c.id)) ?? "member",
+        attendanceMode: c.attendance_mode === "service" ? "service" : "delivery",
     }));
 
     return NextResponse.json({ companies: result });

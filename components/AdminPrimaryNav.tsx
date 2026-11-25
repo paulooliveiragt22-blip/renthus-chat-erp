@@ -2,10 +2,10 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import {
-    ADMIN_PRIMARY_NAV,
-    isAdminPrimaryNavActive,
-} from "@/components/admin/adminPrimaryNavItems";
+import { getAdminPrimaryNavItems } from "@/components/admin/adminNavCatalog";
+import { mapLeafToPrimary, isAdminPrimaryNavActive } from "@/components/admin/adminPrimaryNavItems";
+import { usePlanFeatures } from "@/lib/billing/usePlanFeatures";
+import { useServiceSnapshot } from "@/components/service/useServiceSnapshot";
 import { cn } from "@/lib/utils";
 
 type AdminPrimaryNavVariant = "desktop" | "dock";
@@ -28,6 +28,13 @@ export default function AdminPrimaryNav({
     dockVisible = true,
 }: AdminPrimaryNavProps) {
     const pathname = usePathname();
+    const { loading: featuresLoading, features } = usePlanFeatures();
+    const { snapshot, loading: modeLoading } = useServiceSnapshot();
+    const items = getAdminPrimaryNavItems(featuresLoading, features, {
+        mode: modeLoading || !snapshot ? "loading" : snapshot.attendanceMode,
+        agendaEnabled: snapshot?.agendaEnabled === true,
+        casesEnabled: snapshot?.casesEnabled === true,
+    }).map(mapLeafToPrimary);
 
     if (variant === "desktop") {
         return (
@@ -38,7 +45,7 @@ export default function AdminPrimaryNav({
                     className
                 )}
             >
-                {ADMIN_PRIMARY_NAV.map(({ href, label, icon: Icon }) => {
+                {items.map(({ href, label, icon: Icon }) => {
                     const active = isAdminPrimaryNavActive(pathname, href);
                     return (
                         <Link
@@ -84,7 +91,7 @@ export default function AdminPrimaryNav({
                     !dockVisible && "pointer-events-none"
                 )}
             >
-                {ADMIN_PRIMARY_NAV.map(({ href, label, shortLabel, icon: Icon }) => {
+                {items.map(({ href, label, shortLabel, icon: Icon }) => {
                     const active = isAdminPrimaryNavActive(pathname, href);
                     return (
                         <Link

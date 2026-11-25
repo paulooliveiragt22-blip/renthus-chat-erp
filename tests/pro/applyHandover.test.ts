@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { applyProHandover } from "@/src/pro/pipeline/applyHandover";
+import { applyHandover } from "@/lib/chatbot/handover";
 
 type FakeRow = Record<string, unknown>;
 
@@ -96,10 +96,10 @@ function makeAdmin(opts: {
     return { admin: admin as never, updates, inserts, ticketUpdates };
 }
 
-describe("applyProHandover", () => {
+describe("applyHandover", () => {
     it("desliga bot e cria ticket quando não há aberto", async () => {
         const { admin, updates, inserts } = makeAdmin({});
-        const r = await applyProHandover({
+        const r = await applyHandover({
             admin,
             companyId: "c1",
             threadId: "t1",
@@ -121,7 +121,7 @@ describe("applyProHandover", () => {
 
     it("cria ticket IG sem telefone", async () => {
         const { admin, inserts } = makeAdmin({});
-        const r = await applyProHandover({
+        const r = await applyHandover({
             admin,
             companyId: "c1",
             threadId: "tig",
@@ -139,7 +139,7 @@ describe("applyProHandover", () => {
 
     it("não duplica ticket se já existe open/in_progress na thread", async () => {
         const { admin, inserts } = makeAdmin({ existingByThreadId: "ticket-old" });
-        const r = await applyProHandover({
+        const r = await applyHandover({
             admin,
             companyId: "c1",
             threadId: "t1",
@@ -154,7 +154,7 @@ describe("applyProHandover", () => {
         const { admin } = makeAdmin({ failThread: true });
         await assert.rejects(
             () =>
-                applyProHandover({
+                applyHandover({
                     admin,
                     companyId: "c1",
                     threadId: "t1",

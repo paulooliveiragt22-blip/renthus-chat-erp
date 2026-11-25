@@ -4,6 +4,7 @@ import {
   Bike,
   BookOpen,
   Bot,
+  Calendar,
   CircleDollarSign,
   ClipboardList,
   Clock,
@@ -115,6 +116,34 @@ export const ADMIN_NAV_CATALOG: readonly AdminNavEntry[] = [
         href: "/mesa",
         icon: UtensilsCrossed,
         feature: "table_service",
+      },
+      {
+        id: "atendimento",
+        label: "Atendimento",
+        href: "/atendimento",
+        icon: Bot,
+      },
+      {
+        id: "ofertas",
+        label: "Ofertas",
+        href: "/ofertas",
+        icon: Store,
+      },
+      {
+        id: "agenda",
+        label: "Agenda",
+        href: "/agenda",
+        icon: Calendar,
+        primary: true,
+        shortLabel: "Agenda",
+      },
+      {
+        id: "cards",
+        label: "Cards",
+        href: "/cards",
+        icon: ClipboardList,
+        primary: true,
+        shortLabel: "Cards",
       },
     ],
   },
@@ -337,18 +366,53 @@ export function isAdminNavLeafActive(
   return pathname === pathOnly || pathname.startsWith(`${pathOnly}/`);
 }
 
+export type AdminSurface = {
+  mode: "delivery" | "service" | "loading";
+  agendaEnabled: boolean;
+  casesEnabled: boolean;
+};
+
+const DELIVERY_NAV_IDS = new Set([
+  "pedidos",
+  "fila",
+  "pdv",
+  "mesa",
+  "produtos",
+  "promocoes",
+  "estoque",
+  "entregadores",
+  "impressoras",
+  "cfg-delivery",
+  "cfg-taxas",
+  "cfg-cardapio",
+  "cfg-pagamentos",
+  "cfg-pedidos",
+]);
+
+const SERVICE_NAV_IDS = new Set(["atendimento", "ofertas", "agenda", "cards"]);
+
+export function surfaceAllowsNav(id: string, surface?: AdminSurface): boolean {
+  if (!surface || surface.mode === "loading") return !SERVICE_NAV_IDS.has(id);
+  if (surface.mode === "delivery" && SERVICE_NAV_IDS.has(id)) return false;
+  if (surface.mode === "service" && DELIVERY_NAV_IDS.has(id)) return false;
+  if (id === "agenda" && !surface.agendaEnabled) return false;
+  if (id === "cards" && !surface.casesEnabled) return false;
+  return true;
+}
+
 export function filterAdminNavCatalog(
   featuresLoading: boolean,
-  features: ReadonlySet<string>
+  features: ReadonlySet<string>,
+  surface?: AdminSurface
 ): AdminNavEntry[] {
   const out: AdminNavEntry[] = [];
   for (const entry of ADMIN_NAV_CATALOG) {
     if (entry.kind === "link") {
-      if (leafAllowed(entry, featuresLoading, features)) out.push(entry);
+      if (leafAllowed(entry, featuresLoading, features) && surfaceAllowsNav(entry.id, surface)) out.push(entry);
       continue;
     }
     const children = entry.children.filter((c) =>
-      leafAllowed(c, featuresLoading, features)
+      leafAllowed(c, featuresLoading, features) && surfaceAllowsNav(c.id, surface)
     );
     if (children.length === 0) continue;
     out.push({ ...entry, children });
@@ -361,7 +425,8 @@ const PRIMARY_ORDER = ["whatsapp-inbox", "pedidos", "fila", "pdv"] as const;
 
 export function getAdminPrimaryNavItems(
   featuresLoading: boolean,
-  features: ReadonlySet<string>
+  features: ReadonlySet<string>,
+  surface?: AdminSurface
 ): AdminNavLeaf[] {
   const byId = new Map<string, AdminNavLeaf>();
   for (const entry of ADMIN_NAV_CATALOG) {
@@ -369,10 +434,14 @@ export function getAdminPrimaryNavItems(
     for (const leaf of leaves) {
       if (!leaf.primary) continue;
       if (!leafAllowed(leaf, featuresLoading, features)) continue;
+      if (!surfaceAllowsNav(leaf.id, surface)) continue;
       byId.set(leaf.id, leaf);
     }
   }
-  return PRIMARY_ORDER.map((id) => byId.get(id)).filter(
+  const order = surface?.mode === "service"
+    ? (["whatsapp-inbox", "agenda", "cards"] as const)
+    : PRIMARY_ORDER;
+  return order.map((id) => byId.get(id)).filter(
     (x): x is AdminNavLeaf => Boolean(x)
   );
 }

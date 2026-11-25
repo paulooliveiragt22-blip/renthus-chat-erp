@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { toast } from "sonner";
 import { useWorkspace } from "@/lib/workspace/useWorkspace";
+import { profileLabel } from "@/lib/workspace/loginDestination";
 import {
     Select,
     SelectContent,
@@ -90,7 +91,9 @@ export function WorkspaceSwitcher() {
                 <SelectContent>
                     {companies.map((c) => (
                         <SelectItem key={c.id} value={c.id}>
-                            <span className="truncate">{c.name}</span>
+                            <span className="truncate">
+                                {c.attendanceMode ? `${c.name} · ${profileLabel(c.attendanceMode)}` : c.name}
+                            </span>
                         </SelectItem>
                     ))}
                 </SelectContent>

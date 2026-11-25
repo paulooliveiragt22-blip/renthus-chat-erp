@@ -94,6 +94,30 @@ describe("evaluateOutboundGates", () => {
         );
     });
 
+    it("lembrete de horário sai por template fora da janela de 24h e fora do teto de campanha", () => {
+        const decision = evaluateOutboundGates(
+            baseContext({
+                purpose: "appointment_reminder",
+                lastInboundAt: null,
+                cartStatus: null,
+                recentProactiveCount: 9,
+            })
+        );
+        assert.deepEqual(decision, { allow: true });
+    });
+
+    it("lembrete de horário continua dentro do turno da empresa", () => {
+        const decision = evaluateOutboundGates(
+            baseContext({
+                purpose: "appointment_reminder",
+                lastInboundAt: null,
+                cartStatus: null,
+                businessHours: { openTime: "08:00", closeTime: "12:00", timeZone: "America/Sao_Paulo" },
+            })
+        );
+        assert.deepEqual(decision, { allow: false, reason: "outside_business_hours" });
+    });
+
     it("broadcast_template: não exige janela 24h (HSM)", () => {
         const decision = evaluateOutboundGates(
             baseContext({

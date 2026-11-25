@@ -15,6 +15,7 @@ export type Company = {
     name: string;
     /** Papel na empresa (vindo de `/api/workspace/list`). */
     role?: string;
+    attendanceMode?: "delivery" | "service";
 };
 
 type WorkspaceState = {

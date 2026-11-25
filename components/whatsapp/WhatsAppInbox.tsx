@@ -41,6 +41,8 @@ import type {
     Usage,
 } from "@/lib/whatsapp/types";
 import CartDrawer from "./CartDrawer";
+import { ServiceThreadRail } from "./ServiceThreadRail";
+import { useServiceSnapshot } from "@/components/service/useServiceSnapshot";
 import OrderSummaryModal from "./OrderSummaryModal";
 import { getInitials, normalizeBrazilToE164 } from "@/lib/whatsapp/phone";
 import {
@@ -220,6 +222,9 @@ export default function WhatsAppInbox({ initialPhone }: { initialPhone?: string 
     const [resetSessionOpen, setResetSessionOpen] = useState(false);
     const [resetSessionBusy, setResetSessionBusy] = useState(false);
     const [resetSessionDone, setResetSessionDone] = useState<string | null>(null);
+
+    const { snapshot, loading: modeLoading } = useServiceSnapshot();
+    const serviceMode = snapshot?.attendanceMode === "service";
 
     // profile sidebar
     const [profileOpen,     setProfileOpen]     = useState(true);
@@ -542,14 +547,16 @@ export default function WhatsAppInbox({ initialPhone }: { initialPhone?: string 
 
     // Load customer profile when thread changes
     useEffect(() => {
+        if (modeLoading || serviceMode) return;
         if (selectedThreadId) loadCustomerProfile(selectedThreadId);
         else setCustomerProfile(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [selectedThreadId]);
+    }, [selectedThreadId, serviceMode, modeLoading]);
 
     // Load active cart when thread changes
     useEffect(() => {
         setCartCopied(false);
+        if (modeLoading || serviceMode) return;
         if (selectedThreadId) {
             loadActiveCart(selectedThreadId);
         } else {
@@ -558,7 +565,7 @@ export default function WhatsAppInbox({ initialPhone }: { initialPhone?: string 
             setPendingConfirmation(null);
         }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [selectedThreadId]);
+    }, [selectedThreadId, serviceMode, modeLoading]);
 
     // Persist selectedThreadId + chip in URL
     useEffect(() => {
@@ -618,11 +625,11 @@ export default function WhatsAppInbox({ initialPhone }: { initialPhone?: string 
         const timer = setInterval(() => {
             if (document.hidden) return;
             loadMessages(selectedThreadId, { silent: true });
-            loadActiveCart(selectedThreadId, { silent: true });
+            if (!modeLoading && !serviceMode) loadActiveCart(selectedThreadId, { silent: true });
         }, 3000);
         return () => clearInterval(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [selectedThreadId]);
+    }, [selectedThreadId, serviceMode, modeLoading]);
 
     // ── derived ───────────────────────────────────────────────────────────────
 
@@ -1359,7 +1366,10 @@ export default function WhatsAppInbox({ initialPhone }: { initialPhone?: string 
             </section>
 
             {/* ── SIDEBAR DIREITA: perfil do cliente ──────────────────────── */}
-            {profileOpen && selectedThread && (
+            {profileOpen && selectedThread && serviceMode && (
+                <ServiceThreadRail threadId={selectedThread.id} />
+            )}
+            {profileOpen && selectedThread && !modeLoading && !serviceMode && (
                 <CustomerProfileSidebar
                     thread={selectedThread}
                     profile={customerProfile}

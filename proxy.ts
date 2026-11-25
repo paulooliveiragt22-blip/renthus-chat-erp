@@ -21,6 +21,7 @@ import {
 } from "@/lib/public-menu/menuHostRewrite";
 import { appPublicOrigin, marketingHostAction } from "@/lib/marketing/hosts";
 import { resolveTenantAccess } from "@/lib/billing/tenantAccess";
+import { adminRouteBlocked } from "@/src/service/domain/adminRoutes";
 import { isPrintAgentMachineApi } from "@/lib/security/printAgentMachineApi";
 import {
     createCspContext,
@@ -59,6 +60,7 @@ type CompanyAccessRow = {
     onboarding_completed_at: string | null;
     onboarding_token:        string | null;
     is_active:               boolean;
+    attendance_mode?:        string | null;
 };
 
 type AccessGuardResult = { type: "allow" } | { type: "redirect"; response: NextResponse };
@@ -99,7 +101,7 @@ async function checkCompanyAccess(
             fetch(
                 `${supabaseUrl}/rest/v1/companies` +
                     `?id=eq.${encodeURIComponent(companyId)}` +
-                    `&select=senha_definida,onboarding_completed_at,onboarding_token,is_active&limit=1`,
+                    `&select=senha_definida,onboarding_completed_at,onboarding_token,is_active,attendance_mode&limit=1`,
                 { headers: { Authorization: `Bearer ${serviceKey}`, apikey: serviceKey } }
             ),
         ]);
@@ -132,6 +134,16 @@ async function checkCompanyAccess(
                 onboardUrl.pathname = "/ativar";
                 onboardUrl.search = "";
                 return { type: "redirect", response: NextResponse.redirect(onboardUrl) };
+            }
+            const mode = comp.attendance_mode === "service" ? "service" : "delivery";
+            if (adminRouteBlocked(mode, pathname)) {
+                return {
+                    type: "redirect",
+                    response: NextResponse.json(
+                        { error: { code: "attendance_mode", message: "Esta tela não existe neste modo de atendimento." } },
+                        { status: 403 }
+                    ),
+                };
             }
         }
 
@@ -482,7 +494,9 @@ export async function proxy(
     if (isTechnicalApiPublic(pathname)) return nextWithCsp(request, csp);
     if (isPublicAppRoute(pathname)) return nextWithCsp(request, csp);
 
-    const response = nextWithCsp(request, csp);
+    const panelHeaders = new Headers(request.headers);
+    panelHeaders.set("x-renthus-pathname", pathname);
+    const response = nextWithCsp(request, csp, panelHeaders);
 
     // Cria client server-side
     const supabase = (options?.createClient ?? createServerClient)(

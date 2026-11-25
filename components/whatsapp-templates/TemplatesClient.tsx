@@ -10,6 +10,7 @@ import {
     SelectTrigger,
     SelectValue,
 } from "@/components/ui/select";
+import { useServiceSnapshot } from "@/components/service/useServiceSnapshot";
 
 type TemplateRow = {
     id: string;
@@ -48,6 +49,18 @@ export default function TemplatesClient() {
     const [example1, setExample1] = useState("Maria");
     const [example2, setExample2] = useState("1042");
     const [buttons, setButtons] = useState<ButtonDraft[]>([]);
+    const { snapshot } = useServiceSnapshot();
+
+    useEffect(() => {
+        if (snapshot?.attendanceMode !== "service") return;
+        setName((current) => (current === "pedido_saiu_entrega" ? "lembrete_horario" : current));
+        setBodyText((current) =>
+            current === "Olá {{1}}! Seu pedido #{{2}} saiu para entrega."
+                ? "Olá {{1}}! Seu horário de {{2}} está confirmado."
+                : current
+        );
+        setExample2((current) => (current === "1042" ? "terça 14h" : current));
+    }, [snapshot?.attendanceMode]);
 
     const load = useCallback(async () => {
         setLoading(true);

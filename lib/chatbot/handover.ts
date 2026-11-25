@@ -1,7 +1,6 @@
 /**
- * Efeito colateral do handover humano no pipeline PRO.
- * Espelha `doHandover` do Starter: desliga bot + ticket (sem reenviar mensagem —
- * o outbound já sai por `persistAndEmit`).
+ * Handover humano compartilhado pelos motores de delivery e de serviço.
+ * Desliga o bot e abre ticket. Não reenvia mensagem: o outbound já saiu no turno.
  *
  * Omnichannel: phone opcional; dedupe preferencial por `thread_id`.
  */
@@ -26,7 +25,7 @@ export type ApplyHandoverResult = {
     ticketId: string | null;
 };
 
-export async function applyProHandover(params: ApplyHandoverParams): Promise<ApplyHandoverResult> {
+export async function applyHandover(params: ApplyHandoverParams): Promise<ApplyHandoverResult> {
     const {
         admin,
         companyId,
@@ -52,7 +51,6 @@ export async function applyProHandover(params: ApplyHandoverParams): Promise<App
         throw new Error(`handover_thread_update: ${threadErr.message}`);
     }
 
-    // Dedupe 1: ticket aberto na mesma thread
     const { data: byThread } = await admin
         .from("support_tickets")
         .select("id")
@@ -87,7 +85,6 @@ export async function applyProHandover(params: ApplyHandoverParams): Promise<App
         };
     }
 
-    // Dedupe 2: legado por telefone
     if (phone) {
         const { data: byPhone } = await admin
             .from("support_tickets")

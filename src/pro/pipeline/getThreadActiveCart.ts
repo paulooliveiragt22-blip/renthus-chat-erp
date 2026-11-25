@@ -1,7 +1,7 @@
 /**
  * Leitura (read model) do carrinho ativo de uma thread — usado pela inbox admin pra
  * mostrar ao atendente humano o que o cliente já tinha montado com o bot, sem precisar
- * perguntar tudo de novo. Espelha o estilo de `applyHandover.ts` (função + params object,
+ * perguntar tudo de novo. Espelha o estilo de `lib/chatbot/handover.ts` (função + params object,
  * sem port/adapter dedicado — é um único leitor, não uma dependência trocável por provider).
  *
  * Importante: nunca usar `getOrCreateSession` aqui — tem efeito colateral de criar sessão

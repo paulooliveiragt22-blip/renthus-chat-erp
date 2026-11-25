@@ -9,6 +9,7 @@ import {
     SelectTrigger,
     SelectValue,
 } from "@/components/ui/select";
+import { useServiceSnapshot } from "@/components/service/useServiceSnapshot";
 
 type TemplateOpt = {
     id: string;
@@ -32,6 +33,11 @@ type CampaignRow = {
 };
 
 export default function CampaignsClient() {
+    const { snapshot } = useServiceSnapshot();
+    const serviceMode = snapshot?.attendanceMode === "service";
+    useEffect(() => {
+        if (serviceMode) setAudienceMode("all_with_phone");
+    }, [serviceMode]);
     const [loading, setLoading] = useState(true);
     const [starting, setStarting] = useState(false);
     const [msg, setMsg] = useState<string | null>(null);
@@ -239,9 +245,11 @@ export default function CampaignsClient() {
                                     <SelectItem value="all_with_phone">
                                         Todos clientes com telefone
                                     </SelectItem>
-                                    <SelectItem value="ordered_last_days">
-                                        Quem pediu nos últimos N dias
-                                    </SelectItem>
+                                    {serviceMode ? null : (
+                                        <SelectItem value="ordered_last_days">
+                                            Quem pediu nos últimos N dias
+                                        </SelectItem>
+                                    )}
                                 </SelectContent>
                             </Select>
                         </label>

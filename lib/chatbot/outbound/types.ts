@@ -5,7 +5,8 @@ export type OutboundPurpose =
     | "reengagement"
     | "promo"
     | "transactional"
-    | "broadcast_template";
+    | "broadcast_template"
+    | "appointment_reminder";
 
 export interface OutboundButton {
     id: string;

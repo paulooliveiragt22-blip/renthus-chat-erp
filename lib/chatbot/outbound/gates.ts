@@ -58,10 +58,10 @@ export function evaluateOutboundGates(ctx: OutboundGateContext): OutboundGateDec
         return { allow: false, reason: "empty_payload" };
     }
 
-    // HSM de campanha: não exige janela 24h (é exatamente o caso de uso do template).
-    const isBroadcast = ctx.purpose === "broadcast_template";
+    // Template aprovado sai fora da janela de 24h. Campanha e lembrete de horário.
+    const sendsByTemplate = ctx.purpose === "broadcast_template" || ctx.purpose === "appointment_reminder";
 
-    if (!isBroadcast && !isWithinCustomerServiceWindow(ctx.lastInboundAt, ctx.nowMs)) {
+    if (!sendsByTemplate && !isWithinCustomerServiceWindow(ctx.lastInboundAt, ctx.nowMs)) {
         return { allow: false, reason: "outside_service_window" };
     }
 
@@ -82,7 +82,7 @@ export function evaluateOutboundGates(ctx: OutboundGateContext): OutboundGateDec
         return { allow: false, reason: "outside_business_hours" };
     }
 
-    if (ctx.recentProactiveCount >= ctx.maxProactivePerWindow) {
+    if (ctx.purpose !== "appointment_reminder" && ctx.recentProactiveCount >= ctx.maxProactivePerWindow) {
         return { allow: false, reason: "frequency_cap" };
     }
 

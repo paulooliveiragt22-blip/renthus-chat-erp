@@ -2050,8 +2050,8 @@ export async function runProPipeline(
     /** Handover: desliga bot + abre ticket (efeito que o Starter fazia em `doHandover`). */
     if (decision.intent === "human_intent" && nextState.step === "handover" && deps.admin) {
         try {
-            const { applyProHandover } = await import("./applyHandover");
-            const hr = await applyProHandover({
+            const { applyHandover } = await import("@/lib/chatbot/handover");
+            const hr = await applyHandover({
                 admin: deps.admin,
                 companyId: input.tenant.companyId,
                 threadId: input.tenant.threadId,

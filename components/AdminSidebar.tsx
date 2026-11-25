@@ -6,6 +6,7 @@ import { useTheme } from "next-themes";
 import { useEffect, useMemo, useState } from "react";
 import { ChevronLeft, ChevronRight, Moon, Sun, X } from "lucide-react";
 import { usePlanFeatures } from "@/lib/billing/usePlanFeatures";
+import { useServiceSnapshot } from "@/components/service/useServiceSnapshot";
 import { cn } from "@/lib/utils";
 import {
   filterAdminNavCatalog,
@@ -244,6 +245,7 @@ export default function AdminSidebar({
   const { theme, setTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
   const { loading: featuresLoading, features } = usePlanFeatures();
+  const { snapshot, loading: modeLoading } = useServiceSnapshot();
   const [mesaNav, setMesaNav] = useState(true);
 
   useEffect(() => setMounted(true), []);
@@ -257,7 +259,11 @@ export default function AdminSidebar({
   }, [pathname]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const visibleNav = useMemo(() => {
-    const catalog = filterAdminNavCatalog(featuresLoading, features);
+    const catalog = filterAdminNavCatalog(featuresLoading, features, {
+      mode: modeLoading || !snapshot ? "loading" : snapshot.attendanceMode,
+      agendaEnabled: snapshot?.agendaEnabled === true,
+      casesEnabled: snapshot?.casesEnabled === true,
+    });
     if (mesaNav) return catalog;
     return catalog
       .map((entry) => {
@@ -265,7 +271,7 @@ export default function AdminSidebar({
         return { ...entry, children: entry.children.filter((c) => c.id !== "mesa") };
       })
       .filter((entry): entry is NonNullable<typeof entry> => entry != null && (entry.kind === "link" || entry.children.length > 0));
-  }, [featuresLoading, features, mesaNav]);
+  }, [featuresLoading, features, mesaNav, modeLoading, snapshot]);
 
   const isDark = theme === "dark";
 
