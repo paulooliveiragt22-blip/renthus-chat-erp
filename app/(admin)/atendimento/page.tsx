@@ -6,6 +6,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useServiceSnapshot } from "@/components/service/useServiceSnapshot";
+import { siteChatPageUrl } from "@/src/service/domain/siteChat";
 import type { ServicePreset } from "@/src/service/domain/types";
 
 const PRESETS: { value: ServicePreset; label: string }[] = [
@@ -21,6 +22,7 @@ export default function AtendimentoPage() {
     const [contextText, setContextText] = useState("");
     const [cancelEnabled, setCancelEnabled] = useState(false);
     const [rescheduleEnabled, setRescheduleEnabled] = useState(false);
+    const [replies, setReplies] = useState(["", "", ""]);
     const [message, setMessage] = useState<string | null>(null);
     const [saving, setSaving] = useState(false);
 
@@ -30,6 +32,11 @@ export default function AtendimentoPage() {
         setContextText(snapshot.contextText);
         setCancelEnabled(snapshot.cancelEnabled);
         setRescheduleEnabled(snapshot.rescheduleEnabled);
+        setReplies([
+            snapshot.siteChatReplies[0] ?? "",
+            snapshot.siteChatReplies[1] ?? "",
+            snapshot.siteChatReplies[2] ?? "",
+        ]);
     }, [snapshot]);
 
     async function post(body: unknown) {
@@ -109,6 +116,38 @@ export default function AtendimentoPage() {
             <Button type="button" disabled={saving} onClick={() => void post({ action: "context", contextText })}>
                 Salvar contexto
             </Button>
+
+            {snapshot.siteChatKey ? (
+                <div className="flex flex-col gap-3 rounded-xl border border-zinc-200 p-4 dark:border-zinc-800">
+                    <p className="text-sm font-medium text-zinc-900 dark:text-zinc-50">Chat do site</p>
+                    <p className="break-all text-sm text-zinc-600 dark:text-zinc-300">{siteChatPageUrl(snapshot.siteChatKey)}</p>
+                    {replies.map((reply, index) => (
+                        <label key={index} className="flex flex-col gap-1 text-sm text-zinc-800 dark:text-zinc-100">
+                            {`Resposta rápida ${index + 1}`}
+                            <input
+                                value={reply}
+                                maxLength={80}
+                                onChange={(event) => {
+                                    const next = [...replies];
+                                    next[index] = event.target.value;
+                                    setReplies(next);
+                                }}
+                                className="rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground dark:bg-zinc-950"
+                            />
+                        </label>
+                    ))}
+                    <Button
+                        type="button"
+                        disabled={saving}
+                        onClick={() => void post({
+                            action: "replies",
+                            replies: replies.map((item) => item.trim()).filter((item) => item.length > 0),
+                        })}
+                    >
+                        Salvar respostas
+                    </Button>
+                </div>
+            ) : null}
 
             <div className="flex flex-col gap-4 rounded-xl border border-zinc-200 p-4 dark:border-zinc-800">
                 <FlagRow

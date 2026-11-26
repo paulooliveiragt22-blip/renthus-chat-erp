@@ -14,6 +14,8 @@ export function isAdminShellStandalone(
         pathname.startsWith("/signup") ||
         pathname === "/inicio" ||
         pathname.startsWith("/inicio/") ||
+        pathname === "/chat" ||
+        pathname.startsWith("/chat/") ||
         pathname.startsWith("/onboarding") ||
         pathname === "/ativar" ||
         pathname.startsWith("/ativar/") ||

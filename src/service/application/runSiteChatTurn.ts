@@ -9,7 +9,6 @@ import { createServiceDataPort } from "@/src/service/adapters/supabase/serviceRp
 import { createServiceTrace } from "@/src/service/adapters/trace/serviceTrace";
 import { createServiceWallet } from "@/src/service/adapters/wallet/serviceWallet";
 import { executeServiceTurn } from "@/src/service/application/executeServiceTurn";
-import { ZAMPELL_SERVICE_COMPANY_ID } from "@/src/service/application/siteChatCompany";
 import { SITE_CHAT_SESSION_CAP_TEXT } from "@/src/service/domain/siteChat";
 import type { SiteChatLink } from "@/src/service/domain/siteChat";
 import type { ServiceReplyPort } from "@/src/service/ports/serviceTurnPorts";
@@ -25,11 +24,11 @@ export type SiteChatTurnResult =
 
 export async function runSiteChatTurn(
     admin: SupabaseClient,
-    input: { text: string; sessionId: string | null; reset: boolean }
+    input: { companyId: string; text: string; sessionId: string | null; reset: boolean }
 ): Promise<SiteChatTurnResult> {
     let begun;
     try {
-        begun = await beginSiteChat(admin, ZAMPELL_SERVICE_COMPANY_ID, input.sessionId, input.text, input.reset);
+        begun = await beginSiteChat(admin, input.companyId, input.sessionId, input.text, input.reset);
     } catch (error: unknown) {
         console.warn("[site-chat] begin", error instanceof Error ? error.message : "failed");
         return { kind: "unavailable" };
@@ -47,7 +46,7 @@ export async function runSiteChatTurn(
         await executeServiceTurn(
             {
                 admin,
-                companyId: ZAMPELL_SERVICE_COMPANY_ID,
+                companyId: input.companyId,
                 threadId: begun.sessionId,
                 messageId: begun.messageId,
                 phoneE164: "",
@@ -74,7 +73,7 @@ export async function runSiteChatTurn(
     const reply = collected.reply.trim().length > 0 ? collected.reply.trim() : FAILED;
     const links = linksFrom(collected.links);
     try {
-        await finishSiteChat(admin, ZAMPELL_SERVICE_COMPANY_ID, begun.sessionId, reply, links);
+        await finishSiteChat(admin, input.companyId, begun.sessionId, reply, links);
     } catch (error: unknown) {
         console.warn("[site-chat] finish", error instanceof Error ? error.message : "failed");
     }

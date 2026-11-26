@@ -1,3 +1,4 @@
+import type { ServiceModelMessage } from "@/src/service/domain/modelMessages";
 import type {
     ServiceAppointmentView,
     ServiceCaseView,
@@ -65,9 +66,11 @@ export type ServiceWalletPort = {
     release(companyId: string, turnKey: string): Promise<void>;
 };
 
+export type { ServiceModelMessage } from "@/src/service/domain/modelMessages";
+
 export type ServiceModelRequest = {
     system: string;
-    userText: string;
+    messages: readonly ServiceModelMessage[];
     maxSteps: number;
     tools: readonly ServiceToolName[];
     executeTool: (name: ServiceToolName, raw: unknown) => Promise<unknown>;
@@ -106,6 +109,7 @@ export type ServiceTraceEvent = {
     channel: string;
     tools: readonly ServiceToolName[];
     writes: TurnWrites;
+    failure: string | null;
 };
 
 export type ServiceTracePort = {

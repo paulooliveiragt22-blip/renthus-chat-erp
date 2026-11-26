@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireCapability } from "@/lib/workspace/rbac/requireCapability";
-import { applyPresetSchema, channelFlagsSchema, saveContextSchema } from "@/src/service/http/schemas";
+import { applyPresetSchema, channelFlagsSchema, saveContextSchema, siteChatRepliesSchema } from "@/src/service/http/schemas";
 import { callServiceRpc } from "@/src/service/http/serviceRpcResult";
 
 export const runtime = "nodejs";
@@ -28,6 +28,16 @@ export async function POST(req: Request) {
         const result = await callServiceRpc(ctx.admin, "rpc_service_save_context", {
             p_company_id: ctx.companyId,
             p_context_text: parsed.data.contextText,
+        });
+        return NextResponse.json(result.body, { status: result.status });
+    }
+
+    if (action === "replies") {
+        const parsed = siteChatRepliesSchema.safeParse(body);
+        if (!parsed.success) return NextResponse.json({ error: "invalid_replies" }, { status: 400 });
+        const result = await callServiceRpc(ctx.admin, "rpc_service_save_site_replies", {
+            p_company_id: ctx.companyId,
+            p_replies: parsed.data.replies,
         });
         return NextResponse.json(result.body, { status: result.status });
     }

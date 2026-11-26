@@ -92,6 +92,15 @@ if (isProd) {
 }
 
 const nextConfig = {
+  serverExternalPackages: [
+    "ai",
+    "@ai-sdk/anthropic",
+    "@ai-sdk/openai",
+    "@ai-sdk/groq",
+    "@ai-sdk/provider",
+    "@ai-sdk/provider-utils",
+    "zod",
+  ],
   async headers() {
     return [
       {

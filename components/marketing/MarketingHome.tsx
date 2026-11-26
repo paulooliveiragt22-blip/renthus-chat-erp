@@ -19,9 +19,14 @@ const jakarta = Plus_Jakarta_Sans({
 
 type MarketingHomeProps = {
     linkToApp?: boolean;
+    siteChat?: {
+        publicKey: string;
+        companyName: string;
+        replies: string[];
+    } | null;
 };
 
-export function MarketingHome({ linkToApp = false }: MarketingHomeProps) {
+export function MarketingHome({ linkToApp = false, siteChat = null }: MarketingHomeProps) {
     return (
         <div
             className={`${inter.variable} ${jakarta.variable} min-h-screen scroll-smooth bg-white pb-28 font-[family-name:var(--font-landing-body)] text-slate-950 md:pb-0`}
@@ -41,7 +46,11 @@ export function MarketingHome({ linkToApp = false }: MarketingHomeProps) {
             </main>
             <MarketingFooter linkToApp={linkToApp} />
             <StickySignupCta linkToApp={linkToApp} />
-            <SiteChat />
+            <SiteChat
+                publicKey={siteChat?.publicKey}
+                companyName={siteChat?.companyName}
+                replies={siteChat?.replies}
+            />
         </div>
     );
 }

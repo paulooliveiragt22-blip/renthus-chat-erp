@@ -1,11 +1,11 @@
-import { wrapUserInboundForLlm } from "@/src/pro/adapters/ai/userInboundGuard";
 import { QueueRetryableError, isQueueRetryableError } from "@/lib/chatbot/queueRetry";
 import { buildServicePrompt } from "@/src/service/application/servicePrompt";
 import { asksForHuman } from "@/src/service/domain/humanAsk";
 import { composeServiceReply, serviceFailureText } from "@/src/service/domain/composeServiceReply";
 import { httpsOfferLink, offerLinkLabel } from "@/src/service/domain/offerLink";
 import { serviceButton } from "@/src/service/domain/serviceButton";
-import { formatPriorTurns } from "@/src/service/domain/siteChat";
+import { sanitizeModelError } from "@/src/service/domain/modelError";
+import { toServiceModelMessages } from "@/src/service/domain/modelMessages";
 import { toolsForTurn } from "@/src/service/domain/serviceTools";
 import {
     appointmentIdInput,
@@ -72,6 +72,7 @@ export async function executeServiceTurn(
     const toolsUsed: ServiceToolName[] = [];
     const offerLinks: { name: string; label: string; url: string }[] = [];
     const button = input.messagingChannel === "site" ? null : serviceButton(input.text);
+    let modelFailure: string | null = null;
 
     const finish = async (body: string, buttons?: { id: "svc_confirm_slot" | "svc_confirm_case"; title: string }[]) => {
         if (buttons && buttons.length > 0) {
@@ -79,7 +80,7 @@ export async function executeServiceTurn(
         } else {
             await ports.reply.text(body);
         }
-        await record(ports, input, toolsUsed, writes);
+        await record(ports, input, toolsUsed, writes, modelFailure);
     };
 
     if (button === "slot") {
@@ -137,7 +138,11 @@ export async function executeServiceTurn(
     try {
         const modelResult = await ports.model.run({
             system: buildServicePrompt(profile, input.messagingChannel === "site" ? "site" : "whatsapp"),
-            userText: `${formatPriorTurns(input.priorTurns)}${wrapUserInboundForLlm(input.text, input.messagingChannel === "site" ? "do site" : "WhatsApp")}`,
+            messages: toServiceModelMessages(
+                input.priorTurns,
+                input.text,
+                input.messagingChannel === "site" ? "do site" : "WhatsApp"
+            ),
             maxSteps: MAX_STEPS,
             tools,
             executeTool: (name, raw) => executeTool(name, raw, input, writes, toolsUsed, ports, offerLinks),
@@ -166,6 +171,8 @@ export async function executeServiceTurn(
         if (isRateLimit(error)) {
             throw new QueueRetryableError("AI_RATE_LIMIT", "LLM rate limited — requeue with backoff");
         }
+        modelFailure = sanitizeModelError(error);
+        console.warn("[service] model", modelFailure);
         await finish(MODEL_FAILED);
     }
 }
@@ -198,7 +205,8 @@ async function record(
     ports: ServiceTurnPorts,
     input: ServiceTurnInput,
     tools: ServiceToolName[],
-    writes: TurnWrites
+    writes: TurnWrites,
+    failure: string | null
 ): Promise<void> {
     try {
         await ports.trace.record({
@@ -208,6 +216,7 @@ async function record(
             channel: channelOf(input),
             tools,
             writes,
+            failure,
         });
     } catch (error: unknown) {
         const message = error instanceof Error ? error.message : "service_trace_failed";

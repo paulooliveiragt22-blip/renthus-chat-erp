@@ -1,4 +1,5 @@
 import { createServiceModel } from "@/src/service/adapters/ai/runServiceModel";
+import { loadWhatsappPriorTurns } from "@/src/service/adapters/whatsapp/priorTurns";
 import { createServiceHandover } from "@/src/service/adapters/handover/serviceHandover";
 import { createServiceReply } from "@/src/service/adapters/reply/serviceReply";
 import { createServiceDataPort } from "@/src/service/adapters/supabase/serviceRpc";
@@ -10,7 +11,12 @@ import type { ServiceTurnInput } from "@/src/service/application/serviceTurnInpu
 export type { ServiceTurnInput } from "@/src/service/application/serviceTurnInput";
 
 export async function runServiceTurn(input: ServiceTurnInput): Promise<void> {
-    await executeServiceTurn(input, {
+    const priorTurns =
+        input.priorTurns ??
+        (input.messagingChannel === "site"
+            ? []
+            : await loadWhatsappPriorTurns(input.admin, input.threadId, input.messageId));
+    await executeServiceTurn({ ...input, priorTurns }, {
         data: createServiceDataPort(input.admin),
         wallet: createServiceWallet(input.admin),
         model: createServiceModel(),

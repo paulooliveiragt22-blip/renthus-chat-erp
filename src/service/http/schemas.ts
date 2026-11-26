@@ -42,8 +42,14 @@ export const siteChatPostSchema = z
     .object({
         text: z.string().trim().min(1).max(500),
         reset: z.boolean().optional(),
+        key: z.string().uuid().optional(),
     })
     .strict();
+
+export const siteChatRepliesSchema = z.object({
+    action: z.literal("replies"),
+    replies: z.array(z.string().trim().min(1).max(80)).max(3),
+});
 
 export const adminBookSchema = z.object({
     offeringId: z.string().uuid(),

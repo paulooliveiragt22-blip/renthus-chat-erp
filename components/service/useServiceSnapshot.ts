@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { siteChatReplies } from "@/src/service/domain/siteChat";
 import type { ServicePreset } from "@/src/service/domain/types";
 
 export type ServiceSnapshot = {
@@ -11,6 +12,8 @@ export type ServiceSnapshot = {
     casesEnabled: boolean;
     cancelEnabled: boolean;
     rescheduleEnabled: boolean;
+    siteChatKey: string | null;
+    siteChatReplies: string[];
 };
 
 const EMPTY_DELIVERY: ServiceSnapshot = {
@@ -21,6 +24,8 @@ const EMPTY_DELIVERY: ServiceSnapshot = {
     casesEnabled: false,
     cancelEnabled: false,
     rescheduleEnabled: false,
+    siteChatKey: null,
+    siteChatReplies: [],
 };
 
 export function useServiceSnapshot(): { snapshot: ServiceSnapshot | null; loading: boolean; reload: () => void } {
@@ -71,5 +76,7 @@ function mapSnapshot(raw: object): ServiceSnapshot {
         casesEnabled: data.cases_enabled === true,
         cancelEnabled: data.whatsapp_cancel_enabled === true,
         rescheduleEnabled: data.whatsapp_reschedule_enabled === true,
+        siteChatKey: typeof data.site_chat_key === "string" ? data.site_chat_key : null,
+        siteChatReplies: siteChatReplies(data.site_chat_replies),
     };
 }

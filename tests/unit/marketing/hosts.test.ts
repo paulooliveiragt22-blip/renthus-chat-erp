@@ -45,6 +45,7 @@ describe("marketing host", () => {
             marketingHostAction("www.zampell.com.br", "/api/public/site-chat", env).type,
             "next"
         );
+        assert.equal(marketingHostAction("www.zampell.com.br", "/chat/0113a3fe-e224-49ff-81c6-f8b9df556267", env).type, "next");
         assert.equal(marketingHostAction("www.zampell.com.br", "/pdv", env).type, "redirect");
         assert.equal(marketingHostAction("www.zampell.com.br", "/c/loja", env).type, "redirect");
         assert.equal(marketingHostAction("www.zampell.com.br", "/api/orders/list", env).type, "deny");
@@ -57,6 +58,7 @@ describe("marketing host", () => {
         assert.equal(isAdminShellStandalone("/", "zampell.com.br", env), true);
         assert.equal(isAdminShellStandalone("/", "app.zampell.com.br", env), false);
         assert.equal(isAdminShellStandalone("/inicio", "app.zampell.com.br", env), true);
+        assert.equal(isAdminShellStandalone("/chat/aec7b002-dbd8-4ee8-b97e-9abd40112d05", "app.zampell.com.br", env), true);
         assert.equal(isAdminShellStandalone("/pdv", "app.renthus.com.br", env), false);
     });
 });

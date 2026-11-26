@@ -12,7 +12,12 @@ export function createServiceTrace(admin: SupabaseClient): ServiceTracePort {
                     channel: event.channel,
                     inbound_message_id: event.messageId,
                     state_before: { kind: "service" },
-                    state_after: { kind: "service", tools: event.tools, writes: event.writes },
+                    state_after: {
+                        kind: "service",
+                        tools: event.tools,
+                        writes: event.writes,
+                        failure: event.failure,
+                    },
                     outbound: [],
                     draft_snapshot: null,
                     telemetry_reason: "service_turn",

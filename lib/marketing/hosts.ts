@@ -83,6 +83,7 @@ export function marketingHostAction(
     if (isMarketingAsset(pathname) || isMarketingReadApi(pathname)) return { type: "next" };
     if (pathname === "/") return { type: "rewrite", pathname: "/inicio" };
     if (pathname === "/inicio" || pathname.startsWith("/inicio/")) return { type: "next" };
+    if (pathname === "/chat" || pathname.startsWith("/chat/")) return { type: "next" };
     if (pathname.startsWith("/api/")) return { type: "deny" };
     return { type: "redirect" };
 }

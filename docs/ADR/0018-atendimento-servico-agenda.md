@@ -263,6 +263,8 @@ A página `zampell.com.br` abre um chat. Cada conversa aceita 8 mensagens do vis
 
 O visitante não tem telefone. O canal lista oferta, responde dúvida e manda o botão do link. Não propõe horário, não abre card, não cancela e não remarca. Pedido de humano não abre ticket: a frase aponta o WhatsApp já publicado na vitrine.
 
+A memória do turno é a lista de mensagens do modelo, no WhatsApp e no site. O texto antigo não entra dentro da frase nova. Cada empresa de serviço tem `site_chat_key`. O browser manda essa chave. A página é `https://www.zampell.com.br/chat/{chave}`. A vitrine da Zampell continua na empresa Zampell. Até três respostas rápidas ficam no perfil. Sem chave no corpo, o chat público segue a Zampell.
+
 A empresa de serviço deixa de se chamar Ferrester Serviço e passa a se chamar Zampell. A empresa de delivery Ferrester não muda.
 
 ---

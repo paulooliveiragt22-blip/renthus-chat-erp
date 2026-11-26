@@ -6,9 +6,16 @@ import { Button } from "@/components/ui/button";
 import { SITE_CHAT_TEXT_MAX } from "@/src/service/domain/siteChat";
 import { cn } from "@/lib/utils";
 
-const QUICK_REPLIES = ["Quais planos vocês têm?", "Quanto custa o Pro?", "Quero falar com alguém"] as const;
+const ZAMPELL_REPLIES = ["Quais planos vocês têm?", "Quanto custa o Pro?", "Quero falar com alguém"] as const;
 
 type Link = { label: string; url: string };
+
+type SiteChatProps = {
+    publicKey?: string | null;
+    companyName?: string;
+    replies?: readonly string[];
+    presentation?: "corner" | "page";
+};
 
 type Bubble = {
     id: string;
@@ -21,6 +28,8 @@ type ChatPayload = {
     reply?: string;
     links?: Link[];
     remaining?: number | null;
+    companyName?: string;
+    replies?: string[];
     messages?: { role: "user" | "assistant"; body: string; links?: Link[] }[];
 };
 
@@ -30,13 +39,22 @@ function greeting(now = new Date()): string {
     return `${hello}. Em que posso ajudar? Qual é a sua dúvida?`;
 }
 
-export function SiteChat() {
+export function SiteChat({
+    publicKey = null,
+    companyName = "Atendimento",
+    replies,
+    presentation = "corner",
+}: SiteChatProps) {
     const inputId = useId();
     const titleId = useId();
     const panelRef = useRef<HTMLElement>(null);
     const bottomRef = useRef<HTMLDivElement>(null);
     const startedRef = useRef(false);
-    const [open, setOpen] = useState(false);
+    const [open, setOpen] = useState(presentation === "page");
+    const [name, setName] = useState(companyName);
+    const [quickReplies, setQuickReplies] = useState<string[]>(
+        replies ? [...replies] : publicKey ? [] : [...ZAMPELL_REPLIES]
+    );
     const [loaded, setLoaded] = useState(false);
     const [hello, setHello] = useState<string | null>(null);
     const [bubbles, setBubbles] = useState<Bubble[]>([]);
@@ -65,9 +83,12 @@ export function SiteChat() {
         let cancelled = false;
         void (async () => {
             try {
-                const res = await fetch("/api/public/site-chat", { credentials: "include", cache: "no-store" });
+                const href = publicKey ? `/api/public/site-chat?key=${publicKey}` : "/api/public/site-chat";
+                const res = await fetch(href, { credentials: "include", cache: "no-store" });
                 const json = (await res.json().catch(() => ({}))) as ChatPayload;
                 if (cancelled || startedRef.current) return;
+                if (typeof json.companyName === "string" && json.companyName.trim().length > 0) setName(json.companyName.trim());
+                if (Array.isArray(json.replies)) setQuickReplies(json.replies.filter((item) => typeof item === "string" && item.trim().length > 0).slice(0, 3));
                 const messages = Array.isArray(json.messages) ? json.messages : [];
                 setBubbles(messages.map((item, index) => ({
                     id: `loaded-${index}`,
@@ -85,7 +106,7 @@ export function SiteChat() {
         return () => {
             cancelled = true;
         };
-    }, [open, loaded]);
+    }, [open, loaded, publicKey]);
 
     useEffect(() => {
         bottomRef.current?.scrollIntoView({ block: "end" });
@@ -104,7 +125,7 @@ export function SiteChat() {
                 method: "POST",
                 credentials: "include",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ text: value, reset: resetNext }),
+                body: JSON.stringify({ text: value, reset: resetNext, ...(publicKey ? { key: publicKey } : {}) }),
             });
             const json = (await res.json().catch(() => ({}))) as ChatPayload;
             setResetNext(false);
@@ -141,10 +162,14 @@ export function SiteChat() {
 
     const capped = remaining === 0;
     const hasUser = bubbles.some((bubble) => bubble.role === "user");
-    const showQuick = !hasUser && !sending && !capped;
+    const showQuick = !hasUser && !sending && !capped && quickReplies.length > 0;
+    const page = presentation === "page";
 
     return (
-        <div className="fixed bottom-28 right-4 z-40 flex flex-col items-end gap-3 md:bottom-6">
+        <div className={page
+            ? "flex min-h-screen items-end justify-center bg-slate-50 p-4 dark:bg-zinc-950"
+            : "fixed bottom-28 right-4 z-40 flex flex-col items-end gap-3 md:bottom-6"
+        }>
             {open ? (
                 <section
                     ref={panelRef}
@@ -156,17 +181,19 @@ export function SiteChat() {
                 >
                     <header className="flex items-start justify-between gap-3 border-b border-slate-200 px-4 py-3 dark:border-zinc-800">
                         <div className="min-w-0">
-                            <h2 id={titleId} className="truncate text-base font-semibold text-slate-950 dark:text-zinc-50">Zampell</h2>
+                            <h2 id={titleId} className="truncate text-base font-semibold text-slate-950 dark:text-zinc-50">{name}</h2>
                             <p className="truncate text-sm text-slate-500 dark:text-zinc-400">Em que posso ajudar?</p>
                         </div>
-                        <button
-                            type="button"
-                            className="rounded-md p-1 text-slate-500 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600 dark:text-zinc-400 dark:hover:bg-zinc-800"
-                            aria-label="Fechar conversa"
-                            onClick={() => setOpen(false)}
-                        >
-                            <X className="size-4" aria-hidden />
-                        </button>
+                        {page ? null : (
+                            <button
+                                type="button"
+                                className="rounded-md p-1 text-slate-500 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600 dark:text-zinc-400 dark:hover:bg-zinc-800"
+                                aria-label="Fechar conversa"
+                                onClick={() => setOpen(false)}
+                            >
+                                <X className="size-4" aria-hidden />
+                            </button>
+                        )}
                     </header>
                     <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-4 py-3" role="log" aria-live="polite" aria-relevant="additions">
                         {hello && !hasUser ? (
@@ -203,7 +230,7 @@ export function SiteChat() {
                         ))}
                         {showQuick ? (
                             <div className="flex flex-wrap gap-2">
-                                {QUICK_REPLIES.map((reply) => (
+                                {quickReplies.map((reply) => (
                                     <button
                                         key={reply}
                                         type="button"
@@ -253,15 +280,17 @@ export function SiteChat() {
                     </form>
                 </section>
             ) : null}
-            <Button
-                type="button"
-                className="shadow-lg"
-                aria-expanded={open}
-                onClick={() => setOpen((current) => !current)}
-            >
-                {open ? <X aria-hidden /> : <MessageCircle aria-hidden />}
-                {open ? "Fechar" : "Tirar dúvida"}
-            </Button>
+            {page ? null : (
+                <Button
+                    type="button"
+                    className="shadow-lg"
+                    aria-expanded={open}
+                    onClick={() => setOpen((current) => !current)}
+                >
+                    {open ? <X aria-hidden /> : <MessageCircle aria-hidden />}
+                    {open ? "Fechar" : "Tirar dúvida"}
+                </Button>
+            )}
         </div>
     );
 }

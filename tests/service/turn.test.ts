@@ -98,7 +98,9 @@ function ports(opts: {
             run: async (request) => {
                 order.push("model");
                 assert.equal(request.maxSteps, 4);
-                assert.match(request.userText, /<customer_message>/u);
+                const last = request.messages[request.messages.length - 1];
+                assert.equal(last?.role, "user");
+                assert.match(last?.content ?? "", /<customer_message>/u);
                 await opts.onModel?.(request);
                 if (opts.modelError) throw opts.modelError;
                 return {
@@ -188,6 +190,13 @@ describe("turno de serviço", () => {
         assert.doesNotMatch(harness.texts[0] ?? "", /marcado/u);
     });
 
+    it("falha do modelo fica no rastro e a bolha é a frase fixa", async () => {
+        const harness = ports({ modelError: new Error("ANTHROPIC_API_KEY missing") });
+        await executeServiceTurn({ ...base, text: "oi" }, harness.bundle);
+        assert.match(harness.texts[0] ?? "", /Não consegui responder agora/u);
+        assert.match(harness.traces[0]?.failure ?? "", /ANTHROPIC_API_KEY missing/u);
+    });
+
     it("429 vira erro da fila e não manda bolha de sucesso", async () => {
         const harness = ports({ modelError: { statusCode: 429 } });
         await assert.rejects(
@@ -274,7 +283,9 @@ describe("turno de serviço", () => {
             onModel: async (request) => {
                 assert.deepEqual([...request.tools], ["list_offerings", "request_human", "respond_to_customer"]);
                 assert.match(request.system, /chat do site/u);
-                assert.match(request.userText, /<prior_chat>/u);
+                assert.equal(request.messages[0]?.role, "user");
+                assert.match(request.messages[0]?.content ?? "", /quais planos/u);
+                assert.equal(request.messages.at(-1)?.role, "user");
                 await request.executeTool("request_human", {});
             },
         });

@@ -1,6 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { httpsOfferLink, offerLinkLabel } from "@/src/service/domain/offerLink";
-import type { SiteChatLink, SiteChatPriorTurn, SiteChatRole } from "@/src/service/domain/siteChat";
+import { siteChatReplies, type SiteChatLink, type SiteChatPriorTurn, type SiteChatRole } from "@/src/service/domain/siteChat";
 
 export type SiteChatBegin =
     | {
@@ -130,4 +130,31 @@ export async function readSiteChat(
     });
     const remaining = typeof row?.remaining === "number" ? row.remaining : 8;
     return { messages: messagesFrom(row?.messages), remaining };
+}
+
+export type SiteChatPublic = {
+    companyId: string;
+    companyName: string;
+    publicKey: string | null;
+    replies: string[];
+};
+
+function publicFrom(row: Record<string, unknown> | null, key: string | null): SiteChatPublic | null {
+    if (!row || row.ok !== true || typeof row.company_id !== "string") return null;
+    return {
+        companyId: row.company_id,
+        companyName: typeof row.company_name === "string" && row.company_name.trim().length > 0 ? row.company_name.trim() : "Atendimento",
+        publicKey: typeof row.site_chat_key === "string" ? row.site_chat_key : key,
+        replies: siteChatReplies(row.replies),
+    };
+}
+
+export async function readSiteChatPublic(admin: SupabaseClient, key: string): Promise<SiteChatPublic | null> {
+    const row = await callRpc(admin, "rpc_site_chat_public", { p_key: key });
+    return publicFrom(row, key);
+}
+
+export async function readSiteChatPublicCompany(admin: SupabaseClient, companyId: string): Promise<SiteChatPublic | null> {
+    const row = await callRpc(admin, "rpc_site_chat_public_company", { p_company_id: companyId });
+    return publicFrom(row, null);
 }

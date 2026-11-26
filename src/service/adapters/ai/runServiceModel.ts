@@ -31,7 +31,7 @@ export function createServiceModel(): ServiceModelPort {
                 const result = await generateText({
                     model: resolveLanguageModel(),
                     system: input.system,
-                    prompt: input.userText,
+                    messages: [...input.messages],
                     tools: buildTools(input) as ToolSet,
                     stopWhen: stepCountIs(input.maxSteps),
                     abortSignal: controller.signal,
