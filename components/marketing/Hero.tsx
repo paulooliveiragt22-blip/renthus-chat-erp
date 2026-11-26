@@ -1,3 +1,4 @@
+import { ProductSwitch } from "@/components/marketing/ProductSwitch";
 import { AGENT_DEMO_WHATSAPP_HREF, HERO, HERO_RISK } from "@/lib/marketing/copy";
 import { accountHref } from "@/lib/marketing/hosts";
 import { ProductStage } from "@/components/marketing/ProductStage";
@@ -12,6 +13,7 @@ export function Hero({ linkToApp = false }: HeroProps) {
     return (
         <section className="relative overflow-hidden bg-white pt-16 pb-0 sm:pt-24">
             <div className="mx-auto max-w-4xl px-4 text-center sm:px-6">
+                <ProductSwitch product="delivery" linkToApp={linkToApp} />
                 <h1 className="font-[family-name:var(--font-landing-display)] text-3xl font-semibold tracking-tight text-balance text-slate-950 sm:text-6xl sm:leading-[1.05] lg:text-7xl">
                     <span className="block">{HERO.lead}</span>
                     <span className="mt-2 flex flex-wrap items-center justify-center gap-x-2 gap-y-2">

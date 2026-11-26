@@ -5,6 +5,8 @@ import { MessageCircle, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { SITE_CHAT_TEXT_MAX } from "@/src/service/domain/siteChat";
 import { cn } from "@/lib/utils";
+import { readPlanCards, SitePlanCards, type ChatPlanCard } from "@/components/marketing/SitePlanCards";
+import { SiteContactForm } from "@/components/marketing/SiteContactForm";
 
 const ZAMPELL_REPLIES = ["Quais planos vocês têm?", "Quanto custa o Pro?", "Quero falar com alguém"] as const;
 
@@ -22,16 +24,23 @@ type Bubble = {
     role: "user" | "assistant";
     text: string;
     links: Link[];
+    cards: ChatPlanCard[];
 };
 
 type ChatPayload = {
     reply?: string;
     links?: Link[];
+    cards?: unknown;
     remaining?: number | null;
     companyName?: string;
     replies?: string[];
-    messages?: { role: "user" | "assistant"; body: string; links?: Link[] }[];
+    messages?: { role: "user" | "assistant"; body: string; links?: Link[]; cards?: unknown }[];
 };
+
+function asksForContact(bubble: { role: "user" | "assistant"; text: string } | undefined): boolean {
+    if (!bubble || bubble.role !== "assistant") return false;
+    return /me passa (?:também )?o seu nome|me passa seu nome e seu whatsapp/iu.test(bubble.text);
+}
 
 function greeting(now = new Date()): string {
     const hour = now.getHours();
@@ -41,7 +50,7 @@ function greeting(now = new Date()): string {
 
 export function SiteChat({
     publicKey = null,
-    companyName = "Atendimento",
+    companyName = "Office",
     replies,
     presentation = "corner",
 }: SiteChatProps) {
@@ -95,6 +104,7 @@ export function SiteChat({
                     role: item.role,
                     text: item.body,
                     links: Array.isArray(item.links) ? item.links : [],
+                    cards: readPlanCards(item.cards),
                 })));
                 if (typeof json.remaining === "number") setRemaining(json.remaining);
             } catch {
@@ -112,20 +122,25 @@ export function SiteChat({
         bottomRef.current?.scrollIntoView({ block: "end" });
     }, [bubbles, sending, open]);
 
-    async function send(raw?: string) {
+    async function send(raw?: string, offeringId?: string) {
         const value = (raw ?? text).trim();
         if (!value || sending || remaining === 0) return;
         startedRef.current = true;
         setSending(true);
         setError(null);
         setText("");
-        setBubbles((current) => [...current, { id: `user-${current.length}`, role: "user", text: value, links: [] }]);
+        setBubbles((current) => [...current, { id: `user-${current.length}`, role: "user", text: value, links: [], cards: [] }]);
         try {
             const res = await fetch("/api/public/site-chat", {
                 method: "POST",
                 credentials: "include",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ text: value, reset: resetNext, ...(publicKey ? { key: publicKey } : {}) }),
+                body: JSON.stringify({
+                    text: value,
+                    reset: resetNext,
+                    ...(publicKey ? { key: publicKey } : {}),
+                    ...(offeringId ? { offeringId } : {}),
+                }),
             });
             const json = (await res.json().catch(() => ({}))) as ChatPayload;
             setResetNext(false);
@@ -141,6 +156,7 @@ export function SiteChat({
                     role: "assistant",
                     text: json.reply ?? "",
                     links: Array.isArray(json.links) ? json.links : [],
+                    cards: readPlanCards(json.cards),
                 },
             ]);
         } catch {
@@ -211,17 +227,24 @@ export function SiteChat({
                                 )}>
                                     {bubble.text}
                                 </p>
+                                {bubble.cards.length > 0 ? (
+                                    <SitePlanCards
+                                        cards={bubble.cards}
+                                        disabled={sending || capped}
+                                        onSelect={(choice, offeringId) => void send(choice, offeringId)}
+                                    />
+                                ) : null}
                                 {bubble.links.length > 0 ? (
-                                    <div className="mt-2 flex flex-wrap gap-2">
+                                    <div className="mt-2 flex flex-col gap-2">
                                         {bubble.links.map((link) => (
                                             <a
                                                 key={link.url}
                                                 href={link.url}
                                                 target="_blank"
                                                 rel="noopener noreferrer"
-                                                className="inline-flex rounded-full bg-emerald-600 px-3 py-1.5 text-sm font-semibold text-white"
+                                                className="inline-flex w-full items-center justify-center rounded-full bg-emerald-600 px-3 py-2.5 text-sm font-semibold text-white hover:bg-emerald-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600"
                                             >
-                                                {link.label}
+                                                {link.label === "Chamar no WhatsApp" ? "Continuar no WhatsApp" : link.label}
                                             </a>
                                         ))}
                                     </div>
@@ -245,6 +268,9 @@ export function SiteChat({
                         <div ref={bottomRef} />
                     </div>
                     {error ? <p className="px-4 text-sm text-red-600 dark:text-red-400">{error}</p> : null}
+                    {asksForContact(bubbles.at(-1)) && !capped ? (
+                        <SiteContactForm disabled={sending} onReset={startOver} onSubmit={(value) => void send(value)} />
+                    ) : (
                     <form
                         className="flex flex-col gap-2 border-t border-slate-200 px-4 py-3 dark:border-zinc-800"
                         onSubmit={(event) => {
@@ -278,6 +304,7 @@ export function SiteChat({
                             </Button>
                         </div>
                     </form>
+                    )}
                 </section>
             ) : null}
             {page ? null : (

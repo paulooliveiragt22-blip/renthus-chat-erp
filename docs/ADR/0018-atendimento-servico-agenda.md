@@ -1,10 +1,10 @@
 # ADR 0018 — Atendimento de serviço: motor ao lado do delivery
 
-**Status:** aceito (2026-11-25) — emenda 2026-11-26: chat do site na vitrine, no mesmo turno, sem agenda. Workers publicados em 2026-11-25: `renthus-inbound-worker:live` versão 100.
+**Status:** aceito (2026-11-25) — emenda 2026-11-26: chat do site na vitrine, no mesmo turno, sem agenda. Emenda 2026-11-26, à tarde: a página pública de atendimento tem tabela própria (D10) e ainda não entra no billing. Workers publicados em 2026-11-25: `renthus-inbound-worker:live` versão 100.
 **Data:** 2026-11-25
 **Aprovação do dono:** 2026-11-25, de manhã (mesmo repositório; WhatsApp é o canal; inbox, templates, campanhas e Embedded Signup são reaproveitados; motor de serviço ao lado do delivery). Emenda 2026-11-25, à tarde: a estrutura superior substitui o miolo. O modelo propõe a marcação nova; o botão ou o balcão confirma; a inserção é uma função só. Emenda 2026-11-25, em seguida: cancelar e remarcar entram nas ferramentas do WhatsApp, cada um com interruptor da empresa. Os dois nascem desligados. Emenda 2026-11-25, fim da tarde: no cadastro a empresa escolhe um modelo (horário, serviço, consulta e caso, balcão). Isso liga agenda e card. As etapas do card são quatro, fixas. O rótulo pode mudar. O funil não. Emenda 2026-11-25, em seguida: o checklist de implementação passa a travar UI, contrato tipado e as rules do repositório, para o corte de código não reabrir decisão.
 **Escopo técnico:** um segundo motor de atendimento, no mesmo webhook, na mesma fila e no mesmo número. A empresa escolhe o modo no cadastro. O modo serviço responde com o contexto da empresa e marca horário. O modo delivery continua em `src/pro`.
-**Escopo comercial:** não cria plano, preço, feature key nem cota. Quem entra em serviço usa as features que já liberam WhatsApp (`whatsapp_messages`, `whatsapp_templates_broadcast`) e a mesma carteira de IA. Sem ficha, sem prontuário, sem vários profissionais, sem pagamento da consulta e sem entrega.
+**Escopo comercial:** o motor não cria plano, preço, feature key nem cota. Quem entra em serviço usa as features que já liberam WhatsApp (`whatsapp_messages`, `whatsapp_templates_broadcast`) e a mesma carteira de IA. A oferta pública da página está em D10 e não grava `plans`. Sem ficha, sem prontuário, sem vários profissionais, sem pagamento da consulta e sem entrega.
 **Relacionados:** [`ADR/0003`](./0003-sqs-outbox-lambda.md) (fila), [`ADR/0005`](./0005-pro-agent-calibration-pillars.md) (o modelo interpreta, o servidor decide), [`ADR/0010`](./0010-whatsapp-embedded-signup-coexistence.md) (número), [`ADR/0013`](./0013-pro-sellable-attendant.md) (boca do servidor), [`ADR/0016`](./0016-consumo-ia-corte-e-media-por-empresa.md) (carteira)
 **Governança:** `governanca-seguranca-negocio.mdc`, `supabase-migrations-seguranca.mdc`, `projeto-pre-producao-radical.mdc`, `decisoes-negocio-antes-codigo.mdc`, `arquitetura-lider.mdc`, `agente-pro-hexagonal.mdc`, `api-createadmin-gate.mdc`, `ui-expert.mdc`
 
@@ -87,7 +87,7 @@ Delivery e serviço ao mesmo tempo são duas empresas no mesmo login. Cada uma c
 | `context_text` | O que a empresa faz, o que não faz, como atender. Teto de 4.000 caracteres, validado na RPC. No prompt entra como dado, entre delimitadores |
 | `whatsapp_cancel_enabled` | `boolean not null default false`. Ligado: o cliente cancela horário pelo WhatsApp. Exige `agenda_enabled` |
 | `whatsapp_reschedule_enabled` | `boolean not null default false`. Ligado: o cliente remarca horário pelo WhatsApp. Exige `agenda_enabled` |
-| `service_preset` | `horario`, `servico`, `consulta_caso` ou `balcao`. O que foi escolhido no cadastro |
+| `service_preset` | `horario`, `servico`, `consulta_caso` ou `balcao`. O painel de atendimento grava. O checkout de delivery não pergunta |
 | `agenda_enabled` | Cópia do modelo. O motor lê este flag, não o nome do segmento |
 | `cases_enabled` | Cópia do modelo. Card do serviço ligado ou não |
 
@@ -267,6 +267,30 @@ A memória do turno é a lista de mensagens do modelo, no WhatsApp e no site. O 
 
 A empresa de serviço deixa de se chamar Ferrester Serviço e passa a se chamar Zampell. A empresa de delivery Ferrester não muda.
 
+### D10 — Oferta pública, fora do billing
+
+Em 2026-11-26 o dono fechou: atendimento é outro produto, com outra tabela. Delivery continua em Essencial, Pro e Market. No mesmo dia, o nome público passou a ser Office. A URL segue `/atendimento` e o painel da empresa continua em `/atendimento`.
+
+| Oferta | Preço na página | O que a página promete |
+| --- | --- | --- |
+| Atendimento mensal | R$ 159 | Agente no WhatsApp, agenda e card do serviço |
+| Atendimento anual | R$ 99,90 por mês, R$ 1.198,80 à vista | O mesmo. O card usa o desenho do delivery: risca o mensal e mostra o mês do anual |
+| Enterprise | sem preço | A empresa chama no WhatsApp e o plano é montado |
+
+O chat do site não entra nessa oferta. O widget da vitrine continua sendo o atendimento da própria Zampell.
+
+Os botões chamam o WhatsApp `556692071285`. Não há `plan_key`, linha em `plans` nem checkout. A URL pública é `https://www.zampell.com.br/atendimento`. O arquivo da página é `/agente`, porque `/atendimento` no app já é o painel da empresa de serviço. No host da vitrine, `/atendimento` reescreve para `/agente`.
+
+O agente da empresa Zampell lista uma oferta por plano e por período. Delivery: Essencial, Pro e Market, mensal e anual, nos preços já canônicos do catálogo. Atendimento: mensal R$ 159 e anual R$ 1.198,80 à vista (R$ 99,90 por mês). Enterprise fica sem preço. Nenhuma dessas ofertas tem link. A oferta única antiga “Planos Zampell” fica inativa. O nome da empresa no banco já é Zampell. O contexto do agente proíbe dizer Ferrester.
+
+A lista que o cliente lê é montada no servidor, uma linha por plano, e termina com “Qual desses você tem interesse?”. O modelo não recalcula centavos. Na escolha, a resposta são os benefícios daquela oferta. No chat do site, a frase seguinte pede nome e WhatsApp. Os dois ficam na sessão (`contact_name`, `contact_phone`, `contact_interest`) para a empresa retornar se a pessoa não tocar no botão. O botão “Chamar no WhatsApp” abre o número da loja só com o nome e o plano. O telefone não vai de novo nessa mensagem. No WhatsApp da empresa esse pedido de contato não aparece: o número já é o da conversa.
+
+---
+
+## Futuro
+
+- Integrações com o Google. Exemplo: agenda / Google Calendar. Ainda não há conta, contrato nem sincronização. A agenda do produto continua no Postgres até essa integração existir.
+
 ---
 
 ## Fora de escopo
@@ -277,7 +301,6 @@ A empresa de serviço deixa de se chamar Ferrester Serviço e passa a se chamar 
 - Ficha, prontuário e coluna de anotação na marcação.
 - Plano ou feature key novos.
 - Segundo app da Meta, outro webhook, outra fila.
-- Google Calendar.
 - Reabrir `src/pro` para também atender serviço.
 - Guardar vaga pendente em `chatbot_sessions.context`.
 - Editor de funil: criar, apagar ou reordenar etapa.

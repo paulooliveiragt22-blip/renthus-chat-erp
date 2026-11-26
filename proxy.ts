@@ -400,6 +400,8 @@ function isPublicAppRoute(pathname: string): boolean {
         pathname.startsWith("/signup") ||
         pathname === "/inicio" ||
         pathname.startsWith("/inicio/") ||
+        pathname === "/agente" ||
+        pathname.startsWith("/agente/") ||
         pathname === "/chat" ||
         pathname.startsWith("/chat/") ||
         pathname.startsWith("/onboarding") ||

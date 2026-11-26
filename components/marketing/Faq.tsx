@@ -1,6 +1,12 @@
 import { FAQ_ITEMS } from "@/lib/marketing/copy";
 
-export function Faq() {
+type FaqItem = { q: string; a: string };
+
+type FaqProps = {
+    items?: readonly FaqItem[];
+};
+
+export function Faq({ items = FAQ_ITEMS }: FaqProps) {
     return (
         <section aria-labelledby="faq" className="bg-white">
             <div className="mx-auto max-w-3xl px-4 py-20 sm:px-6 lg:py-24">
@@ -11,7 +17,7 @@ export function Faq() {
                     Dúvidas rápidas
                 </h2>
                 <div className="mt-5 divide-y divide-slate-200/80 rounded-2xl border border-slate-200/80 bg-white shadow-sm">
-                    {FAQ_ITEMS.map((item) => (
+                    {items.map((item) => (
                         <details key={item.q} className="group px-4 py-3.5 sm:px-5">
                             <summary className="cursor-pointer list-none text-sm font-bold text-slate-950 sm:text-base [&::-webkit-details-marker]:hidden">
                                 <span className="flex items-center justify-between gap-4">

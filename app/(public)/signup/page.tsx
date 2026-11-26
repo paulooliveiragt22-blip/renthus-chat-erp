@@ -12,8 +12,6 @@ import { useRouter } from "next/navigation";
 import type { Session } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/client";
 import PasswordInput from "@/components/PasswordInput";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import type { ServicePreset } from "@/src/service/domain/types";
 import { BillingPeriodToggle } from "@/components/billing/BillingPeriodToggle";
 import {
     PLAN_CARD_ACCENT,
@@ -152,7 +150,6 @@ export default function SignupPage() {
     });
     const [policyLoaded, setPolicyLoaded] = useState(false);
     const [plans, setPlans] = useState<SignupPlanCard[]>(() => catalogFallbackPlans());
-    const [attendance, setAttendance] = useState<"delivery" | ServicePreset>("delivery");
     const [form, setForm] = useState({
         company_name:      "",
         cnpj:              "",
@@ -297,7 +294,6 @@ export default function SignupPage() {
                     billing_period:   billingPeriod,
                     password:         form.password,
                     password_confirm: form.password_confirm,
-                    ...(attendance === "delivery" ? {} : { service_preset: attendance }),
                 }),
             });
             const data = (await res.json()) as {
@@ -598,21 +594,6 @@ export default function SignupPage() {
                     </div>
 
                     <div style={S.sectionLabel}>Empresa</div>
-                    <div style={S.field}>
-                        <label style={S.label} htmlFor="signup-attendance">Como você atende *</label>
-                        <Select value={attendance} onValueChange={(value) => setAttendance(value as "delivery" | ServicePreset)}>
-                            <SelectTrigger id="signup-attendance" className="w-full" aria-label="Como você atende">
-                                <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                                <SelectItem value="delivery">Delivery — cardápio e entrega</SelectItem>
-                                <SelectItem value="horario">Horário — clínica, salão</SelectItem>
-                                <SelectItem value="servico">Serviço — oficina, móveis, serralheria</SelectItem>
-                                <SelectItem value="consulta_caso">Consulta e caso — advogado, arquiteto</SelectItem>
-                                <SelectItem value="balcao">Balcão — sem hora e sem card</SelectItem>
-                            </SelectContent>
-                        </Select>
-                    </div>
                     <div style={S.field}>
                         <label style={S.label}>Nome da empresa *</label>
                         <input

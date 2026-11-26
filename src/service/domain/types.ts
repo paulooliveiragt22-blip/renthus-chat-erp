@@ -56,6 +56,7 @@ export const SERVICE_TOOL_NAMES = [
     "list_open_cases",
     "propose_case",
     "request_human",
+    "save_visitor",
     "respond_to_customer",
 ] as const;
 

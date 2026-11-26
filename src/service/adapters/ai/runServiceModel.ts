@@ -13,6 +13,7 @@ import {
     proposeSlotInput,
     rescheduleInput,
     respondInput,
+    saveVisitorInput,
     appointmentIdInput,
 } from "@/src/service/domain/toolInput";
 import type { ServiceToolName } from "@/src/service/domain/types";
@@ -98,6 +99,13 @@ function buildTools(input: ServiceModelRequest): Record<string, unknown> {
                     execute: async (raw) => run(name, raw),
                 });
                 break;
+            case "save_visitor":
+                tools[name] = tool({
+                    description: descriptionFor(name),
+                    inputSchema: saveVisitorInput,
+                    execute: async (raw) => run(name, raw),
+                });
+                break;
             case "respond_to_customer":
                 tools[name] = tool({
                     description: descriptionFor(name),
@@ -119,7 +127,9 @@ function buildTools(input: ServiceModelRequest): Record<string, unknown> {
 function descriptionFor(name: ServiceToolName): string {
     switch (name) {
         case "list_offerings":
-            return "Lista as ofertas ativas da empresa. price_cents nulo significa sem preço. has_link verdadeiro significa que o botão sai depois; não copie URL.";
+            return "Lista as ofertas ativas. Copie speak com as quebras de linha. Não recalcule. price_label e benefits já estão prontos. has_link verdadeiro significa que o botão sai depois; não copie URL.";
+        case "save_visitor":
+            return "Grava nome, WhatsApp e plano de quem pediu no chat do site. O botão do WhatsApp sai depois. Não chame sem os dois dados.";
         case "list_free_slots":
             return "Lista inícios livres de uma oferta num dia YYYY-MM-DD.";
         case "propose_slot":

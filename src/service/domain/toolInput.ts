@@ -23,6 +23,12 @@ export const proposeCaseInput = z.object({
     summary: z.string().max(500).optional(),
 });
 
+export const saveVisitorInput = z.object({
+    name: z.string().trim().min(2).max(80),
+    phone: z.string().trim().min(8).max(20),
+    interest: z.string().trim().min(1).max(80),
+});
+
 export const respondInput = z.object({
     reply_text: z.string().max(1000),
 });

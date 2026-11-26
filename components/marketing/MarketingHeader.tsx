@@ -3,10 +3,14 @@
 import { useState } from "react";
 import { Menu } from "lucide-react";
 import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
-import { accountHref } from "@/lib/marketing/hosts";
+import { attendanceTalkHref } from "@/lib/marketing/attendanceOffer";
+import { accountHref, attendanceLandingHref, deliveryLandingHref } from "@/lib/marketing/hosts";
+
+type MarketingProduct = "delivery" | "attendance";
 
 type MarketingHeaderProps = {
     linkToApp?: boolean;
+    product?: MarketingProduct;
 };
 
 const SECTION_LINKS = [
@@ -15,15 +19,19 @@ const SECTION_LINKS = [
     { href: "#faq", label: "Dúvidas" },
 ] as const;
 
-export function MarketingHeader({ linkToApp = false }: MarketingHeaderProps) {
+export function MarketingHeader({ linkToApp = false, product = "delivery" }: MarketingHeaderProps) {
     const [menuOpen, setMenuOpen] = useState(false);
     const loginHref = accountHref("/login", linkToApp);
-    const signupHref = accountHref("/signup?plano=pro&periodo=year", linkToApp);
+    const deliveryHref = deliveryLandingHref(linkToApp);
+    const attendanceHref = attendanceLandingHref(linkToApp);
+    const primaryHref = product === "attendance" ? attendanceTalkHref("year") : accountHref("/signup?plano=pro&periodo=year", linkToApp);
+    const primaryLabel = product === "attendance" ? "Começar no anual" : "Começar no Pro";
+    const logoHref = product === "attendance" ? attendanceHref : deliveryHref;
 
     return (
         <header className="sticky top-0 z-40 border-b border-slate-200/60 bg-white/80 text-slate-950 backdrop-blur-md">
             <div className="mx-auto flex max-w-6xl items-center justify-between gap-3 px-4 py-3 sm:px-6">
-                <a href={linkToApp ? "/" : "/inicio"} className="flex min-w-0 items-center gap-2.5">
+                <a href={logoHref} className="flex min-w-0 items-center gap-2.5">
                     <img
                         src="/brand/icone-512-transparente.svg?v=z1"
                         alt=""
@@ -33,9 +41,6 @@ export function MarketingHeader({ linkToApp = false }: MarketingHeaderProps) {
                     />
                     <span className="truncate font-[family-name:var(--font-landing-display)] text-lg font-extrabold tracking-tight">
                         Zampell
-                    </span>
-                    <span className="hidden rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1 text-[0.7rem] font-bold tracking-wide text-emerald-700 uppercase sm:inline">
-                        Delivery
                     </span>
                 </a>
                 <nav aria-label="Principal" className="hidden shrink-0 items-center gap-1 md:flex lg:gap-2">
@@ -55,10 +60,10 @@ export function MarketingHeader({ linkToApp = false }: MarketingHeaderProps) {
                         Entrar
                     </a>
                     <a
-                        href={signupHref}
+                        href={primaryHref}
                         className="rounded-full bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-emerald-600/20 transition-all duration-200 hover:bg-emerald-500"
                     >
-                        Começar no Pro
+                        {primaryLabel}
                     </a>
                 </nav>
                 <Sheet open={menuOpen} onOpenChange={setMenuOpen}>
@@ -97,11 +102,11 @@ export function MarketingHeader({ linkToApp = false }: MarketingHeaderProps) {
                                 Entrar
                             </a>
                             <a
-                                href={signupHref}
+                                href={primaryHref}
                                 onClick={() => setMenuOpen(false)}
                                 className="mt-3 inline-flex items-center justify-center rounded-full bg-emerald-600 px-4 py-3 text-sm font-semibold text-white shadow-lg shadow-emerald-600/20 transition-colors duration-200 hover:bg-emerald-500"
                             >
-                                Começar no Pro
+                                {primaryLabel}
                             </a>
                         </nav>
                     </SheetContent>

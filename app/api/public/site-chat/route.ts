@@ -114,10 +114,11 @@ export async function POST(req: Request) {
         text: parsed.data.text,
         sessionId,
         reset: parsed.data.reset === true,
+        offeringId: parsed.data.offeringId,
     });
     if (result.kind === "ok") {
         return withSession(
-            { reply: result.reply, links: result.links, remaining: result.remaining },
+            { reply: result.reply, links: result.links, cards: result.cards, remaining: result.remaining },
             result.sessionId
         );
     }

@@ -46,6 +46,11 @@ describe("marketing host", () => {
             "next"
         );
         assert.equal(marketingHostAction("www.zampell.com.br", "/chat/0113a3fe-e224-49ff-81c6-f8b9df556267", env).type, "next");
+        const attendance = marketingHostAction("www.zampell.com.br", "/atendimento", env);
+        assert.equal(attendance.type, "rewrite");
+        if (attendance.type === "rewrite") assert.equal(attendance.pathname, "/agente");
+        assert.equal(marketingHostAction("www.zampell.com.br", "/agente", env).type, "next");
+        assert.equal(marketingHostAction("app.zampell.com.br", "/atendimento", env).type, "ignore");
         assert.equal(marketingHostAction("www.zampell.com.br", "/pdv", env).type, "redirect");
         assert.equal(marketingHostAction("www.zampell.com.br", "/c/loja", env).type, "redirect");
         assert.equal(marketingHostAction("www.zampell.com.br", "/api/orders/list", env).type, "deny");
@@ -59,6 +64,8 @@ describe("marketing host", () => {
         assert.equal(isAdminShellStandalone("/", "app.zampell.com.br", env), false);
         assert.equal(isAdminShellStandalone("/inicio", "app.zampell.com.br", env), true);
         assert.equal(isAdminShellStandalone("/chat/aec7b002-dbd8-4ee8-b97e-9abd40112d05", "app.zampell.com.br", env), true);
+        assert.equal(isAdminShellStandalone("/agente", "app.zampell.com.br", env), true);
+        assert.equal(isAdminShellStandalone("/atendimento", "app.zampell.com.br", env), false);
         assert.equal(isAdminShellStandalone("/pdv", "app.renthus.com.br", env), false);
     });
 });

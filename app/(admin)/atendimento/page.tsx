@@ -149,6 +149,21 @@ export default function AtendimentoPage() {
                 </div>
             ) : null}
 
+            {snapshot.siteContacts.length > 0 ? (
+                <div className="flex flex-col gap-2 rounded-xl border border-zinc-200 p-4 dark:border-zinc-800">
+                    <p className="text-sm font-medium text-zinc-900 dark:text-zinc-50">Contatos do chat</p>
+                    <ul className="flex flex-col gap-2">
+                        {snapshot.siteContacts.map((contact) => (
+                            <li key={`${contact.phone}-${contact.at}`} className="min-w-0 text-sm text-zinc-700 dark:text-zinc-200">
+                                <span className="block truncate font-medium">{contact.name}</span>
+                                <span className="block truncate">{contact.phone}</span>
+                                <span className="block truncate text-zinc-500 dark:text-zinc-400">{contact.interest}</span>
+                            </li>
+                        ))}
+                    </ul>
+                </div>
+            ) : null}
+
             <div className="flex flex-col gap-4 rounded-xl border border-zinc-200 p-4 dark:border-zinc-800">
                 <FlagRow
                     label="Cancelar pelo WhatsApp"

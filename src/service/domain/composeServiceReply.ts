@@ -26,23 +26,27 @@ function splitSentences(text: string): string[] {
         .filter((part) => part.length > 0);
 }
 
+function keepSentence(sentence: string, writes: TurnWrites): boolean {
+    if (!writes.booked && claims(sentence, BOOKED_RE)) return false;
+    if (!writes.cancelled && claims(sentence, CANCELLED_RE)) return false;
+    if (!writes.rescheduled && claims(sentence, RESCHEDULED_RE)) return false;
+    if (!writes.caseOpened && claims(sentence, CASE_RE)) return false;
+    return true;
+}
+
 export function composeServiceReply(reply: string, writes: TurnWrites): string {
-    const kept = splitSentences(reply).filter((sentence) => {
-        if (!writes.booked && claims(sentence, BOOKED_RE)) return false;
-        if (!writes.cancelled && claims(sentence, CANCELLED_RE)) return false;
-        if (!writes.rescheduled && claims(sentence, RESCHEDULED_RE)) return false;
-        if (!writes.caseOpened && claims(sentence, CASE_RE)) return false;
-        return true;
+    const kept = reply.split("\n").map((line) => {
+        if (line.trim().length === 0) return "";
+        return splitSentences(line).filter((sentence) => keepSentence(sentence, writes)).join(" ");
     });
 
-    const parts = [...kept];
-    const joined = parts.join(" ");
-    if (writes.booked && !claims(joined, BOOKED_RE)) parts.push("Horário marcado.");
-    if (writes.cancelled && !claims(joined, CANCELLED_RE)) parts.push("Horário cancelado.");
-    if (writes.rescheduled && !claims(joined, RESCHEDULED_RE)) parts.push("Horário remarcado.");
-    if (writes.caseOpened && !claims(joined, CASE_RE)) parts.push("Card aberto.");
-
-    const text = parts.join(" ").trim();
+    let text = kept.join("\n").replace(/\n{3,}/gu, "\n\n").trim();
+    const extras: string[] = [];
+    if (writes.booked && !claims(text, BOOKED_RE)) extras.push("Horário marcado.");
+    if (writes.cancelled && !claims(text, CANCELLED_RE)) extras.push("Horário cancelado.");
+    if (writes.rescheduled && !claims(text, RESCHEDULED_RE)) extras.push("Horário remarcado.");
+    if (writes.caseOpened && !claims(text, CASE_RE)) extras.push("Card aberto.");
+    if (extras.length > 0) text = text.length > 0 ? `${text}\n${extras.join(" ")}` : extras.join(" ");
     if (text.length > 0) return text;
     return "Pode me dizer de outro jeito o que você precisa?";
 }

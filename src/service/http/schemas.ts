@@ -43,6 +43,7 @@ export const siteChatPostSchema = z
         text: z.string().trim().min(1).max(500),
         reset: z.boolean().optional(),
         key: z.string().uuid().optional(),
+        offeringId: z.string().uuid().optional(),
     })
     .strict();
 

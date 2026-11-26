@@ -81,6 +81,7 @@ function ports(opts: {
                 confirms += 1;
                 return { ok: true, code: "ok", title: "Portão" };
             },
+            saveSiteContact: async () => ({ ok: true, code: "ok" }),
         },
         wallet: {
             begin: async () => {
@@ -281,7 +282,7 @@ describe("turno de serviço", () => {
         const harness = ports({
             replyText: "O Essencial está na descrição.",
             onModel: async (request) => {
-                assert.deepEqual([...request.tools], ["list_offerings", "request_human", "respond_to_customer"]);
+                assert.deepEqual([...request.tools], ["list_offerings", "request_human", "respond_to_customer", "save_visitor"]);
                 assert.match(request.system, /chat do site/u);
                 assert.equal(request.messages[0]?.role, "user");
                 assert.match(request.messages[0]?.content ?? "", /quais planos/u);
@@ -322,5 +323,10 @@ describe("composeServiceReply", () => {
         const text = composeServiceReply("Não está marcado. Já marquei sim.", writes);
         assert.match(text, /Não está marcado/u);
         assert.doesNotMatch(text, /Já marquei/u);
+    });
+
+    it("mantém a quebra de linha da lista", () => {
+        const text = composeServiceReply("Essencial mensal: R$ 279,00 por mês\n\nQual desses você tem interesse?", emptyTurnWrites());
+        assert.match(text, /R\$ 279,00 por mês\n\nQual desses você tem interesse\?/u);
     });
 });

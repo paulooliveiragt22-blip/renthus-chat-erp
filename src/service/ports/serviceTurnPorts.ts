@@ -1,3 +1,4 @@
+import type { SitePlanCard } from "@/src/service/domain/offeringSpeech";
 import type { ServiceModelMessage } from "@/src/service/domain/modelMessages";
 import type {
     ServiceAppointmentView,
@@ -52,6 +53,13 @@ export type ServiceDataPort = {
         threadId: string,
         idempotencyKey: string
     ): Promise<ServiceCommandResult>;
+    saveSiteContact(
+        companyId: string,
+        sessionId: string,
+        name: string,
+        phone: string,
+        interest: string
+    ): Promise<ServiceCommandResult>;
 };
 
 export type ServiceWalletPort = {
@@ -96,6 +104,7 @@ export type ServiceReplyPort = {
     text(body: string): Promise<void>;
     buttons(body: string, buttons: ServiceReplyButton[]): Promise<void>;
     cta(body: string, label: string, url: string): Promise<void>;
+    planCards?(cards: SitePlanCard[]): Promise<void>;
 };
 
 export type ServiceHandoverPort = {

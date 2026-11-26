@@ -3,6 +3,19 @@ import { buildServicePrompt } from "@/src/service/application/servicePrompt";
 import { asksForHuman } from "@/src/service/domain/humanAsk";
 import { composeServiceReply, serviceFailureText } from "@/src/service/domain/composeServiceReply";
 import { httpsOfferLink, offerLinkLabel } from "@/src/service/domain/offerLink";
+import {
+    benefitLines,
+    looksLikeSales,
+    normalizeVisitorPhone,
+    offeringPriceLabel,
+    planCards,
+    SITE_CONTACT_SAVED,
+    siteSalesStep,
+    speakOfferings,
+    storeWhatsappHref,
+    type SitePlanCard,
+    type SiteSalesStep,
+} from "@/src/service/domain/offeringSpeech";
 import { serviceButton } from "@/src/service/domain/serviceButton";
 import { sanitizeModelError } from "@/src/service/domain/modelError";
 import { toServiceModelMessages } from "@/src/service/domain/modelMessages";
@@ -13,10 +26,12 @@ import {
     proposeCaseInput,
     proposeSlotInput,
     rescheduleInput,
+    saveVisitorInput,
 } from "@/src/service/domain/toolInput";
 import {
     emptyTurnWrites,
     type ServiceCommandResult,
+    type ServiceOfferingView,
     type ServiceToolName,
     type TurnWrites,
 } from "@/src/service/domain/types";
@@ -71,6 +86,7 @@ export async function executeServiceTurn(
     const writes = emptyTurnWrites();
     const toolsUsed: ServiceToolName[] = [];
     const offerLinks: { name: string; label: string; url: string }[] = [];
+    const sales: { rows: ServiceOfferingView[] | null; saved: boolean } = { rows: null, saved: false };
     const button = input.messagingChannel === "site" ? null : serviceButton(input.text);
     let modelFailure: string | null = null;
 
@@ -134,6 +150,18 @@ export async function executeServiceTurn(
         return;
     }
 
+    if (input.messagingChannel === "site" && !asksForHuman(input.text)) {
+        const rows = await ports.data.listOfferings(input.companyId);
+        const step = siteSalesStep(input.text, rows, input.priorTurns ?? [], true, input.offeringId);
+        const scripted = scriptedSite(step, rows);
+        if (scripted) {
+            await ports.wallet.release(input.companyId, input.messageId);
+            await finish(scripted.reply);
+            if (scripted.cards.length > 0) await ports.reply.planCards?.(scripted.cards);
+            return;
+        }
+    }
+
     const tools = toolsForTurn(profile, input.messagingChannel);
     try {
         const modelResult = await ports.model.run({
@@ -145,9 +173,10 @@ export async function executeServiceTurn(
             ),
             maxSteps: MAX_STEPS,
             tools,
-            executeTool: (name, raw) => executeTool(name, raw, input, writes, toolsUsed, ports, offerLinks),
+            executeTool: (name, raw) => executeTool(name, raw, input, writes, toolsUsed, ports, offerLinks, sales),
         });
-        const reply = withHandoff(composeServiceReply(modelResult.replyText, writes), writes, input);
+        const drafted = withHandoff(composeServiceReply(modelResult.replyText, writes), writes, input);
+        const reply = await salesReply(drafted, input, ports, offerLinks, sales, writes);
         const buttons = proposalButtons(writes);
         if (modelResult.inputTokens > 0 || modelResult.outputTokens > 0) {
             await ports.wallet.settle(
@@ -224,6 +253,58 @@ async function record(
     }
 }
 
+function scriptedSite(
+    step: SiteSalesStep | null,
+    rows: readonly ServiceOfferingView[]
+): { reply: string; cards: SitePlanCard[] } | null {
+    if (!step || step.kind === "save" || step.kind === "ask_name" || step.kind === "ask_plan") return null;
+    if (step.kind === "catalog" || step.kind === "period") {
+        const cards = planCards(step.kind === "period" ? step.rows : rows);
+        if (cards.length > 0) return { reply: "Qual desses você tem interesse?", cards };
+    }
+    return { reply: step.body, cards: [] };
+}
+
+async function salesReply(
+    reply: string,
+    input: ServiceTurnInput,
+    ports: ServiceTurnPorts,
+    offerLinks: { name: string; label: string; url: string }[],
+    sales: { rows: ServiceOfferingView[] | null; saved: boolean },
+    writes: TurnWrites
+): Promise<string> {
+    if (writes.humanRequested) return reply;
+    const collect = input.messagingChannel === "site";
+    if (!sales.saved && !sales.rows && !looksLikeSales(input.text)) return reply;
+    const rows = sales.rows ?? (await ports.data.listOfferings(input.companyId));
+    if (!sales.saved) {
+        const step = siteSalesStep(input.text, rows, input.priorTurns ?? [], collect, input.offeringId);
+        if (step?.kind === "save") {
+            const saved = await ports.data.saveSiteContact(
+                input.companyId,
+                input.threadId,
+                step.name,
+                step.phone,
+                step.interest
+            );
+            if (saved.ok) {
+                sales.saved = true;
+                if (input.humanHref && !offerLinks.some((item) => item.label === "Chamar no WhatsApp")) {
+                    offerLinks.push({
+                        name: step.interest,
+                        label: "Chamar no WhatsApp",
+                        url: storeWhatsappHref(input.humanHref, step.interest, step.name),
+                    });
+                }
+            }
+        } else if (step) {
+            reply = composeServiceReply(step.body, writes);
+        }
+    }
+    if (sales.saved && collect) return SITE_CONTACT_SAVED;
+    return reply;
+}
+
 async function executeTool(
     name: ServiceToolName,
     raw: unknown,
@@ -231,7 +312,8 @@ async function executeTool(
     writes: TurnWrites,
     toolsUsed: ServiceToolName[],
     ports: ServiceTurnPorts,
-    offerLinks: { name: string; label: string; url: string }[]
+    offerLinks: { name: string; label: string; url: string }[],
+    sales: { rows: ServiceOfferingView[] | null; saved: boolean }
 ): Promise<unknown> {
     toolsUsed.push(name);
     const companyId = input.companyId;
@@ -239,6 +321,7 @@ async function executeTool(
 
     if (name === "list_offerings") {
         const rows = await ports.data.listOfferings(companyId);
+        sales.rows = rows;
         for (const row of rows) {
             const url = httpsOfferLink(row.linkUrl);
             if (!url || offerLinks.some((item) => item.url === url)) continue;
@@ -247,12 +330,14 @@ async function executeTool(
         return {
             ok: true,
             code: "ok",
+            speak: speakOfferings(rows),
             rows: rows.map((row) => ({
                 id: row.id,
                 name: row.name,
                 description: row.description,
                 duration_min: row.durationMin,
-                price_cents: row.priceCents,
+                price_label: offeringPriceLabel(row),
+                benefits: benefitLines(row.description),
                 has_link: httpsOfferLink(row.linkUrl) !== null,
             })),
         };
@@ -313,6 +398,33 @@ async function executeTool(
         );
         if (wrote(result)) writes.caseProposed = true;
         return { ok: result.ok, code: result.code, guidance: "O card ainda não abriu. O cliente confirma no botão." };
+    }
+    if (name === "save_visitor") {
+        if (input.messagingChannel !== "site") return { ok: false, code: "flag_off" };
+        const parsed = saveVisitorInput.safeParse(raw);
+        if (!parsed.success) return { ok: false, code: "offering_invalid" };
+        const phone = normalizeVisitorPhone(parsed.data.phone);
+        if (!phone) return { ok: false, code: "offering_invalid", guidance: "Peça um WhatsApp com DDD." };
+        const saved = await ports.data.saveSiteContact(
+            input.companyId,
+            input.threadId,
+            parsed.data.name,
+            phone,
+            parsed.data.interest
+        );
+        if (saved.ok) sales.saved = true;
+        if (saved.ok && input.humanHref) {
+            offerLinks.push({
+                name: parsed.data.interest,
+                label: "Chamar no WhatsApp",
+                url: storeWhatsappHref(input.humanHref, parsed.data.interest, parsed.data.name),
+            });
+        }
+        return {
+            ok: saved.ok,
+            code: saved.code,
+            guidance: saved.ok ? "O botão do WhatsApp sai depois da frase." : "Não gravei o contato.",
+        };
     }
     if (name === "request_human") {
         writes.humanRequested = true;

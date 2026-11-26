@@ -14,4 +14,5 @@ export type ServiceTurnInput = {
     waConfig?: WaConfig;
     humanHref?: string | null;
     priorTurns?: { role: "user" | "assistant"; text: string }[];
+    offeringId?: string | null;
 };

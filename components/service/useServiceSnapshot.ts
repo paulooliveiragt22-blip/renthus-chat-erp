@@ -14,6 +14,7 @@ export type ServiceSnapshot = {
     rescheduleEnabled: boolean;
     siteChatKey: string | null;
     siteChatReplies: string[];
+    siteContacts: { name: string; phone: string; interest: string; at: string }[];
 };
 
 const EMPTY_DELIVERY: ServiceSnapshot = {
@@ -26,6 +27,7 @@ const EMPTY_DELIVERY: ServiceSnapshot = {
     rescheduleEnabled: false,
     siteChatKey: null,
     siteChatReplies: [],
+    siteContacts: [],
 };
 
 export function useServiceSnapshot(): { snapshot: ServiceSnapshot | null; loading: boolean; reload: () => void } {
@@ -60,11 +62,12 @@ export function useServiceSnapshot(): { snapshot: ServiceSnapshot | null; loadin
 }
 
 function mapSnapshot(raw: object): ServiceSnapshot {
-    const row = raw as { attendance_mode?: unknown; profile?: unknown };
-    if (row.attendance_mode !== "service") return EMPTY_DELIVERY;
+    const row = raw as { attendance_mode?: unknown; profile?: unknown; site_contacts?: unknown };
+    const siteContacts = mapContacts(row.site_contacts);
+    if (row.attendance_mode !== "service") return { ...EMPTY_DELIVERY, siteContacts };
     const profile = row.profile;
     if (!profile || typeof profile !== "object") {
-        return { ...EMPTY_DELIVERY, attendanceMode: "service" };
+        return { ...EMPTY_DELIVERY, attendanceMode: "service", siteContacts };
     }
     const data = profile as Record<string, unknown>;
     const preset = data.preset;
@@ -78,5 +81,23 @@ function mapSnapshot(raw: object): ServiceSnapshot {
         rescheduleEnabled: data.whatsapp_reschedule_enabled === true,
         siteChatKey: typeof data.site_chat_key === "string" ? data.site_chat_key : null,
         siteChatReplies: siteChatReplies(data.site_chat_replies),
+        siteContacts,
     };
+}
+
+function mapContacts(raw: unknown): ServiceSnapshot["siteContacts"] {
+    if (!Array.isArray(raw)) return [];
+    const contacts: ServiceSnapshot["siteContacts"] = [];
+    for (const item of raw) {
+        if (!item || typeof item !== "object") continue;
+        const row = item as Record<string, unknown>;
+        if (typeof row.name !== "string" || typeof row.phone !== "string") continue;
+        contacts.push({
+            name: row.name,
+            phone: row.phone,
+            interest: typeof row.interest === "string" ? row.interest : "",
+            at: typeof row.at === "string" ? row.at : "",
+        });
+    }
+    return contacts;
 }

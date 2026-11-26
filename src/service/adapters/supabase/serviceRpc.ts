@@ -181,6 +181,17 @@ export function createServiceDataPort(admin: SupabaseClient): ServiceDataPort {
                 })
             );
         },
+        async saveSiteContact(companyId, sessionId, name, phone, interest) {
+            return mapCommand(
+                await callRpc(admin, "rpc_site_chat_save_contact", {
+                    p_company_id: companyId,
+                    p_session_id: sessionId,
+                    p_name: name,
+                    p_phone: phone,
+                    p_interest: interest,
+                })
+            );
+        },
     };
 }
 

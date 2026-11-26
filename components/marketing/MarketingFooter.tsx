@@ -1,18 +1,26 @@
+import { ATTENDANCE_FOOTER, attendanceTalkHref } from "@/lib/marketing/attendanceOffer";
 import { FOOTER_COLUMNS } from "@/lib/marketing/copy";
-import { accountHref } from "@/lib/marketing/hosts";
+import { accountHref, attendanceLandingHref, deliveryLandingHref } from "@/lib/marketing/hosts";
 
 type MarketingFooterProps = {
     linkToApp?: boolean;
+    product?: "delivery" | "attendance";
 };
 
-export function MarketingFooter({ linkToApp = false }: MarketingFooterProps) {
+export function MarketingFooter({ linkToApp = false, product = "delivery" }: MarketingFooterProps) {
     const loginHref = accountHref("/login", linkToApp);
     const signupHref = accountHref("/signup?plano=pro&periodo=year", linkToApp);
+    const homeHref = product === "attendance" ? attendanceLandingHref(linkToApp) : deliveryLandingHref(linkToApp);
+    const otherHref = product === "attendance" ? deliveryLandingHref(linkToApp) : attendanceLandingHref(linkToApp);
+    const otherLabel = product === "attendance" ? "Delivery" : "Office";
+    const startHref = product === "attendance" ? attendanceTalkHref("year") : signupHref;
+    const startLabel = product === "attendance" ? "Começar no anual" : "Começar no Pro anual";
+    const columns = product === "attendance" ? ATTENDANCE_FOOTER : FOOTER_COLUMNS;
 
     return (
         <footer className="border-t border-slate-200/80 bg-white">
             <div className="mx-auto grid max-w-6xl gap-10 px-4 py-14 sm:grid-cols-2 sm:px-6 lg:grid-cols-5">
-                <a href={linkToApp ? "/" : "/inicio"} className="flex h-fit items-center gap-2.5">
+                <a href={homeHref} className="flex h-fit items-center gap-2.5">
                     <img
                         src="/brand/icone-512-transparente.svg?v=z1"
                         alt=""
@@ -24,7 +32,7 @@ export function MarketingFooter({ linkToApp = false }: MarketingFooterProps) {
                         Zampell
                     </span>
                 </a>
-                {FOOTER_COLUMNS.map((column) => (
+                {columns.map((column) => (
                     <nav key={column.title} aria-label={column.title}>
                         <p className="text-sm font-semibold text-slate-950">{column.title}</p>
                         <ul className="mt-3 space-y-2">
@@ -50,8 +58,13 @@ export function MarketingFooter({ linkToApp = false }: MarketingFooterProps) {
                             </a>
                         </li>
                         <li>
-                            <a href={signupHref} className="text-sm text-slate-600 transition-colors duration-200 hover:text-slate-950">
-                                Começar no Pro anual
+                            <a href={startHref} className="text-sm text-slate-600 transition-colors duration-200 hover:text-slate-950">
+                                {startLabel}
+                            </a>
+                        </li>
+                        <li>
+                            <a href={otherHref} className="text-sm text-slate-600 transition-colors duration-200 hover:text-slate-950">
+                                {otherLabel}
                             </a>
                         </li>
                     </ul>

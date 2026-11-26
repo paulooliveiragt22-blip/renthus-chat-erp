@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { linksFrom } from "../../src/service/adapters/site/siteChatRpc";
+import { cardsFrom, linksFrom } from "../../src/service/adapters/site/siteChatRpc";
 import { priorTurnsFromRows } from "../../src/service/adapters/whatsapp/priorTurns";
 import { sanitizeModelError } from "../../src/service/domain/modelError";
 import { toServiceModelMessages } from "../../src/service/domain/modelMessages";
@@ -54,5 +54,12 @@ describe("chat do site", () => {
             { label: "Clique", url: "https://zampell.com.br/x" },
         ]);
         assert.deepEqual(links, [{ label: "Ver plano", url: "https://zampell.com.br/pro" }, { label: "Ver oferta", url: "https://zampell.com.br/x" }]);
+        const mixed = [
+            { label: "Chamar no WhatsApp", url: "https://wa.me/556692071285?text=Ana" },
+            { kind: "plan", title: "Essencial", benefits: ["Agente de IA no WhatsApp"], options: [{ offeringId: "11111111-1111-4111-8111-111111111111", label: "Mensal", price: "R$ 279,00/mês", note: null }] },
+        ];
+        assert.equal(linksFrom(mixed)[0]?.label, "Chamar no WhatsApp");
+        assert.equal(cardsFrom(mixed)[0]?.title, "Essencial");
+        assert.equal(cardsFrom(mixed)[0]?.options[0]?.offeringId, "11111111-1111-4111-8111-111111111111");
     });
 });

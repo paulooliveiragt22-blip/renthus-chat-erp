@@ -11,12 +11,13 @@ import { createServiceWallet } from "@/src/service/adapters/wallet/serviceWallet
 import { executeServiceTurn } from "@/src/service/application/executeServiceTurn";
 import { SITE_CHAT_SESSION_CAP_TEXT } from "@/src/service/domain/siteChat";
 import type { SiteChatLink } from "@/src/service/domain/siteChat";
+import type { SitePlanCard } from "@/src/service/domain/offeringSpeech";
 import type { ServiceReplyPort } from "@/src/service/ports/serviceTurnPorts";
 
 const FAILED = "Não consegui responder agora. Tente de novo em instantes.";
 
 export type SiteChatTurnResult =
-    | { kind: "ok"; sessionId: string; reply: string; links: SiteChatLink[]; remaining: number }
+    | { kind: "ok"; sessionId: string; reply: string; links: SiteChatLink[]; cards: SitePlanCard[]; remaining: number }
     | { kind: "session_cap"; sessionId: string; reply: string; remaining: 0 }
     | { kind: "invalid" }
     | { kind: "retry" }
@@ -24,7 +25,7 @@ export type SiteChatTurnResult =
 
 export async function runSiteChatTurn(
     admin: SupabaseClient,
-    input: { companyId: string; text: string; sessionId: string | null; reset: boolean }
+    input: { companyId: string; text: string; sessionId: string | null; reset: boolean; offeringId?: string | null }
 ): Promise<SiteChatTurnResult> {
     let begun;
     try {
@@ -54,6 +55,7 @@ export async function runSiteChatTurn(
                 messagingChannel: "site",
                 humanHref: SITE_CHAT_WHATSAPP_HREF,
                 priorTurns: begun.history,
+                offeringId: input.offeringId,
             },
             {
                 data: createServiceDataPort(admin),
@@ -72,18 +74,20 @@ export async function runSiteChatTurn(
 
     const reply = collected.reply.trim().length > 0 ? collected.reply.trim() : FAILED;
     const links = linksFrom(collected.links);
+    const cards = collected.cards;
     try {
-        await finishSiteChat(admin, input.companyId, begun.sessionId, reply, links);
+        await finishSiteChat(admin, input.companyId, begun.sessionId, reply, links, cards);
     } catch (error: unknown) {
         console.warn("[site-chat] finish", error instanceof Error ? error.message : "failed");
     }
-    return { kind: "ok", sessionId: begun.sessionId, reply, links, remaining: begun.remaining };
+    return { kind: "ok", sessionId: begun.sessionId, reply, links, cards, remaining: begun.remaining };
 }
 
-function createCollector(): { port: ServiceReplyPort; reply: string; links: SiteChatLink[] } {
+function createCollector(): { port: ServiceReplyPort; reply: string; links: SiteChatLink[]; cards: SitePlanCard[] } {
     const texts: string[] = [];
     const links: SiteChatLink[] = [];
-    const bucket = { reply: "", links };
+    const cards: SitePlanCard[] = [];
+    const bucket = { reply: "", links, cards };
     const port: ServiceReplyPort = {
         async text(body) {
             texts.push(body);
@@ -97,6 +101,9 @@ function createCollector(): { port: ServiceReplyPort; reply: string; links: Site
             if (links.length >= 3 || links.some((item) => item.url === url)) return;
             links.push({ label, url });
         },
+        async planCards(next) {
+            cards.splice(0, cards.length, ...next.slice(0, 6));
+        },
     };
-    return { port, get reply() { return bucket.reply; }, links };
+    return { port, get reply() { return bucket.reply; }, links, cards };
 }

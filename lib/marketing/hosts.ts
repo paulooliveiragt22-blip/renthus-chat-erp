@@ -28,6 +28,20 @@ export function appPublicOrigin(env: EnvLike = process.env): string {
     return raw.replace(/\/$/, "");
 }
 
+/** Página interna da oferta de atendimento. `/atendimento` no app já é o painel. */
+export const ATTENDANCE_PAGE_PATH = "/agente";
+
+/** URL pública na vitrine. O host de marketing reescreve isto para `/agente`. */
+export const ATTENDANCE_MARKETING_PATH = "/atendimento";
+
+export function attendanceLandingHref(onMarketingHost: boolean): string {
+    return onMarketingHost ? ATTENDANCE_MARKETING_PATH : ATTENDANCE_PAGE_PATH;
+}
+
+export function deliveryLandingHref(onMarketingHost: boolean): string {
+    return onMarketingHost ? "/" : "/inicio";
+}
+
 /** No host da vitrine, o link de conta abre no app. No próprio app, continua relativo. */
 export function accountHref(
     path: string,
@@ -84,6 +98,8 @@ export function marketingHostAction(
     if (pathname === "/") return { type: "rewrite", pathname: "/inicio" };
     if (pathname === "/inicio" || pathname.startsWith("/inicio/")) return { type: "next" };
     if (pathname === "/chat" || pathname.startsWith("/chat/")) return { type: "next" };
+    if (pathname === "/agente" || pathname.startsWith("/agente/")) return { type: "next" };
+    if (pathname === "/atendimento") return { type: "rewrite", pathname: "/agente" };
     if (pathname.startsWith("/api/")) return { type: "deny" };
     return { type: "redirect" };
 }
