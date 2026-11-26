@@ -17,7 +17,11 @@ import type {
     RenthusBillingAddr,
     RenthusCardForm,
 } from "@/lib/billing/planBillingTypes";
-import { resolveCheckoutDisplayAmountBrl } from "@/lib/billing/resolveCheckoutDisplayAmount";
+import { isOfficePlanKey } from "@/lib/billing/planCatalog";
+import {
+    resolveCheckoutDisplayAmountBrl,
+    resolveOfficeCheckoutAmountBrl,
+} from "@/lib/billing/resolveCheckoutDisplayAmount";
 import {
     formatCardExpiryInput,
     formatCardNumberInput,
@@ -126,6 +130,7 @@ export function PlanCheckoutSection({
     const sub = billingData.pagarme_subscription;
     const st = sub?.status ?? "";
     const rawPlan = String(sub?.plan ?? billingData.plan_key ?? "");
+    const office = isOfficePlanKey(rawPlan);
     const pk =
         rawPlan === "market"
             ? ("market" as const)
@@ -143,18 +148,23 @@ export function PlanCheckoutSection({
         pendInv?.kind === "year";
 
     const priceFallback = pk === "market" ? 397 : pk === "pro" ? 279 : 197;
-    const refAmount = resolveCheckoutDisplayAmountBrl({
-        planKey: pk,
+    const amountInput = {
         billingPeriod: sub?.billing_period,
         pendingInvoiceKind: pendInv?.kind,
         pendingInvoiceAmount: pendRecord ? Number(pendRecord.amount) : null,
         checkoutAmountBrl: billingData.checkout_amount_brl,
-        monthlyPricesBrl: mp as Partial<Record<typeof pk, number>>,
-        yearlyPricesBrl: (billingData.yearly_prices_brl ?? {}) as Partial<
-            Record<typeof pk, number>
-        >,
-        fallbackMonthlyBrl: (mp as Record<string, number | undefined>)[pk] ?? priceFallback,
-    });
+    };
+    const refAmount = office
+        ? resolveOfficeCheckoutAmountBrl(amountInput)
+        : resolveCheckoutDisplayAmountBrl({
+              ...amountInput,
+              planKey: pk,
+              monthlyPricesBrl: mp as Partial<Record<typeof pk, number>>,
+              yearlyPricesBrl: (billingData.yearly_prices_brl ?? {}) as Partial<
+                  Record<typeof pk, number>
+              >,
+              fallbackMonthlyBrl: (mp as Record<string, number | undefined>)[pk] ?? priceFallback,
+          });
 
     const fromPendPix =
         typeof (pendRecord as { pix_qr_code?: string | null } | null | undefined)?.pix_qr_code ===

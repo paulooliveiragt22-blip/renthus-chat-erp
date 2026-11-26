@@ -2,7 +2,14 @@ import { NextResponse } from "next/server";
 import { requireCompanyAccess } from "@/lib/workspace/requireCompanyAccess";
 import { getActiveSubscription, getEnabledFeatures, checkLimit } from "@/lib/billing/entitlements";
 import { listCustomerCards } from "@/lib/billing/pagarme";
-import { getPlanLabel, normalizePlanKey, type CommercialPlanKey } from "@/lib/billing/planCatalog";
+import {
+    getPlanLabel,
+    isOfficePlanKey,
+    normalizePlanKey,
+    OFFICE_PLAN,
+    OFFICE_PLAN_KEY,
+    type CommercialPlanKey,
+} from "@/lib/billing/planCatalog";
 import { loadCommercialPlanPricing } from "@/lib/billing/loadCommercialPlanPricing";
 import {
     yearlyDiscountLabelPercent,
@@ -193,14 +200,17 @@ export async function GET() {
             aiWallet = null;
         }
 
-        const planKey = normalizePlanKey(
-            String((pagarmeSubRaw as { plan?: string } | null)?.plan ?? sub?.plan_key ?? "")
+        const rawSubscriptionPlan = String(
+            (pagarmeSubRaw as { plan?: string } | null)?.plan ?? sub?.plan_key ?? ""
         );
+        const officePlan = isOfficePlanKey(rawSubscriptionPlan);
+        const commercialPlanKey = normalizePlanKey(rawSubscriptionPlan);
+        const reportedPlanKey = officePlan ? OFFICE_PLAN_KEY : commercialPlanKey;
 
         const subStatus = String(pagarmeSubRaw?.status ?? "");
         const obligationAmount =
             pendingInvoice?.amount != null ? Number(pendingInvoice.amount) : null;
-        const planRow = planKey ? planByKey.get(planKey) : undefined;
+        const planRow = commercialPlanKey ? planByKey.get(commercialPlanKey) : undefined;
         const pendingKind = String(pendingInvoice?.kind ?? "");
         const billingPeriod = String(
             (pagarmeSubRaw as { billing_period?: string | null } | null)?.billing_period ?? "month"
@@ -211,22 +221,26 @@ export async function GET() {
             checkoutIntent === "period_switch" ||
             checkoutIntent === "upgrade_to_annual" ||
             billingPeriod === "year";
-        const displayPlanKey =
-            normalizePlanKey(
-                String(
-                    pendingInvoice?.target_plan_key ??
-                        upgradeIntent ??
-                        planKey ??
-                        ""
-                )
-            ) ?? planKey;
+        const displayPlanKey = officePlan
+            ? null
+            : normalizePlanKey(
+                  String(
+                      pendingInvoice?.target_plan_key ??
+                          upgradeIntent ??
+                          commercialPlanKey ??
+                          ""
+                  )
+              ) ?? commercialPlanKey;
         const displayPlanRow = displayPlanKey ? planByKey.get(displayPlanKey) : planRow;
-        const canonicalObligationCents =
-            displayPlanRow == null
-                ? null
-                : isAnnualObligation
-                  ? displayPlanRow.price_year_cents
-                  : displayPlanRow.price_cents;
+        const canonicalObligationCents = officePlan
+            ? isAnnualObligation
+                ? OFFICE_PLAN.yearlyPriceCents
+                : OFFICE_PLAN.monthlyPriceCents
+            : displayPlanRow == null
+              ? null
+              : isAnnualObligation
+                ? displayPlanRow.price_year_cents
+                : displayPlanRow.price_cents;
         const canonicalObligationBrl =
             canonicalObligationCents != null ? canonicalObligationCents / 100 : null;
         const canonicalMonthly = planRow != null ? planRow.price_cents / 100 : null;
@@ -244,8 +258,8 @@ export async function GET() {
             company_id: companyId,
             role: ctx.role,
             subscription: sub,
-            plan_key: planKey,
-            plan_label: planKey ? getPlanLabel(planKey) : null,
+            plan_key: reportedPlanKey,
+            plan_label: reportedPlanKey ? getPlanLabel(reportedPlanKey) : null,
             plan_catalog: monthlyPricesBRL,
             ai_wallet: aiWallet,
             pagarme_subscription: pagarmeSubRaw ?? null,

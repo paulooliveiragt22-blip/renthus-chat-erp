@@ -37,7 +37,7 @@ export default function PlanoPagarPage() {
                     </h1>
                     <p className="mt-1 text-sm text-zinc-500">
                         Pague com PIX ou cartão para liberar o acesso ao sistema. Depois do
-                        pagamento você será direcionado à ativação da loja.
+                        pagamento você será direcionado à ativação da conta.
                     </p>
                 </div>
                 <div className="rounded-xl bg-white p-6 shadow-sm dark:bg-zinc-900 lg:p-8">

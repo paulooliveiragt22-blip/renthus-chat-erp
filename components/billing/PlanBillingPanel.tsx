@@ -14,11 +14,12 @@ import type {
     RenthusBillingAddr,
     RenthusCardForm,
 } from "@/lib/billing/planBillingTypes";
+import { BillingPeriodToggle } from "@/components/billing/BillingPeriodToggle";
 import { PlanChangeCatalog } from "@/components/billing/PlanChangeCatalog";
 import { PlanCheckoutSection } from "@/components/billing/PlanCheckoutSection";
 import { AddPaymentMethodModal } from "@/components/billing/AddPaymentMethodModal";
 import { Button } from "@/components/ui/button";
-import { PLAN_CATALOG, normalizePlanKey } from "@/lib/billing/planCatalog";
+import { getPlanLabel, isOfficePlanKey, PLAN_CATALOG, normalizePlanKey } from "@/lib/billing/planCatalog";
 import { formatInvoiceStatusLabel } from "@/lib/billing/contracts/status";
 
 const PAGARME_PUBLIC_KEY = process.env.NEXT_PUBLIC_PAGARME_PUBLIC_KEY ?? "";
@@ -216,6 +217,33 @@ export default function PlanBillingPanel({ variant = "full" }: PlanBillingPanelP
             setPixLiveUrl(null);
             await loadBilling({ silent: true });
             invalidatePlanFeatures();
+        } catch {
+            setBillingErr("Erro de rede.");
+        } finally {
+            setPlanSaving(false);
+        }
+    }
+
+    async function changePrepayPeriod(period: "month" | "year") {
+        setPlanSaving(true);
+        setBillingErr(null);
+        try {
+            const res = await fetch("/api/billing/set-period", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                credentials: "include",
+                body: JSON.stringify({ period }),
+            });
+            const json = await res.json().catch(() => ({}));
+            if (!res.ok) {
+                setBillingErr(
+                    (json as { error?: string }).error ?? "Não foi possível alterar o ciclo."
+                );
+                return;
+            }
+            setPixLiveCode(null);
+            setPixLiveUrl(null);
+            await loadBilling({ silent: true });
         } catch {
             setBillingErr("Erro de rede.");
         } finally {
@@ -471,6 +499,13 @@ export default function PlanBillingPanel({ variant = "full" }: PlanBillingPanelP
         }
     }
 
+    const officePlan =
+        isOfficePlanKey(billingData?.pagarme_subscription?.plan) ||
+        isOfficePlanKey(billingData?.plan_key);
+    const officeAnnual =
+        String(billingData?.pagarme_subscription?.billing_period ?? "month").toLowerCase() ===
+            "year" || billingData?.pending_invoice?.kind === "year";
+
     const loading = workspaceLoading || companyLoading || billingLoading;
     const paywallStatus = billingData?.pagarme_subscription?.status ?? "";
     const showReactivateHint = useMemo(
@@ -516,9 +551,11 @@ export default function PlanBillingPanel({ variant = "full" }: PlanBillingPanelP
             {!loading && billingData ? (
                 <div
                     className={
-                        variant === "pay"
+                        variant === "pay" && !officePlan
                             ? "grid gap-8 lg:grid-cols-2 lg:items-start"
-                            : "flex flex-col gap-6"
+                            : variant === "pay"
+                              ? "mx-auto flex w-full max-w-xl flex-col gap-4"
+                              : "flex flex-col gap-6"
                     }
                 >
                     {variant !== "pay" ? (
@@ -571,16 +608,7 @@ export default function PlanBillingPanel({ variant = "full" }: PlanBillingPanelP
                                     <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-300">
                                         Plano atual:{" "}
                                         <span className="font-semibold">
-                                            {billingData.plan_label ||
-                                                (plan === "market"
-                                                    ? "Market"
-                                                    : plan === "pro" || plan === "complete"
-                                                      ? "Pro"
-                                                      : plan === "essencial" ||
-                                                          plan === "bot" ||
-                                                          plan === "starter"
-                                                        ? "Essencial"
-                                                        : plan || "—")}
+                                            {billingData.plan_label || getPlanLabel(plan) || "—"}
                                         </span>
                                     </p>
                                 </div>
@@ -626,11 +654,25 @@ export default function PlanBillingPanel({ variant = "full" }: PlanBillingPanelP
 
                     <div
                         className={
-                            variant === "pay"
+                            variant === "pay" && !officePlan
                                 ? "lg:col-start-2 lg:row-start-1 lg:row-span-2 min-w-0"
-                                : undefined
+                                : "min-w-0"
                         }
                     >
+                    {officePlan && variant === "pay" ? (
+                        <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                            <p className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">
+                                Office · {officeAnnual ? "anual" : "mensal"}
+                            </p>
+                            <BillingPeriodToggle
+                                id="office-pay-period"
+                                size="sm"
+                                value={officeAnnual ? "year" : "month"}
+                                disabled={planSaving}
+                                onValueChange={(next) => void changePrepayPeriod(next)}
+                            />
+                        </div>
+                    ) : null}
                     <PlanCheckoutSection
                         variant={variant}
                         billingData={billingData}
@@ -673,6 +715,8 @@ export default function PlanBillingPanel({ variant = "full" }: PlanBillingPanelP
                     </div>
 
                     {(() => {
+                        // Office não tem escada. O ciclo fica no pagamento.
+                        if (officePlan) return null;
                         // R3-7 defense-in-depth: upgrade/downgrade só owner/admin.
                         // O servidor (change-plan/pending-plan-change) já bloqueia member;
                         // aqui esconde o catálogo mesmo se o read for afrouxado no futuro.
@@ -761,40 +805,7 @@ export default function PlanBillingPanel({ variant = "full" }: PlanBillingPanelP
                                 onCheckoutNeeded={() => setCheckoutOpen(true)}
                                 onPrepayPeriodChange={
                                     initialCheckout
-                                        ? async (period) => {
-                                              setPlanSaving(true);
-                                              setBillingErr(null);
-                                              try {
-                                                  const res = await fetch(
-                                                      "/api/billing/set-period",
-                                                      {
-                                                          method: "POST",
-                                                          headers: {
-                                                              "Content-Type": "application/json",
-                                                          },
-                                                          credentials: "include",
-                                                          body: JSON.stringify({ period }),
-                                                      }
-                                                  );
-                                                  const json = await res
-                                                      .json()
-                                                      .catch(() => ({}));
-                                                  if (!res.ok) {
-                                                      setBillingErr(
-                                                          (json as { error?: string }).error ??
-                                                              "Não foi possível alterar o ciclo."
-                                                      );
-                                                      return;
-                                                  }
-                                                  setPixLiveCode(null);
-                                                  setPixLiveUrl(null);
-                                                  await loadBilling({ silent: true });
-                                              } catch {
-                                                  setBillingErr("Erro de rede.");
-                                              } finally {
-                                                  setPlanSaving(false);
-                                              }
-                                          }
+                                        ? (period) => changePrepayPeriod(period)
                                         : undefined
                                 }
                             />

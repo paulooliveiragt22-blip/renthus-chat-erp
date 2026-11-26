@@ -2,7 +2,7 @@
  * Valor exibido no checkout (/plano/pagar) — alinhado ao RPC/Pagar.me, não ao mensal de fallback.
  */
 
-import type { CommercialPlanKey } from "@/lib/billing/planCatalog";
+import { OFFICE_PLAN, type CommercialPlanKey } from "@/lib/billing/planCatalog";
 
 export function resolveCheckoutDisplayAmountBrl(params: {
     planKey: CommercialPlanKey;
@@ -38,4 +38,32 @@ export function resolveCheckoutDisplayAmountBrl(params: {
         return fromCatalog;
     }
     return params.fallbackMonthlyBrl ?? 0;
+}
+
+/** Office não tem escada. O valor é a obrigação, senão a linha do plano. */
+export function resolveOfficeCheckoutAmountBrl(params: {
+    billingPeriod: string | null | undefined;
+    pendingInvoiceKind?: string | null;
+    pendingInvoiceAmount?: number | null;
+    checkoutAmountBrl?: number | null;
+}): number {
+    if (
+        params.checkoutAmountBrl != null &&
+        Number.isFinite(params.checkoutAmountBrl) &&
+        params.checkoutAmountBrl > 0
+    ) {
+        return params.checkoutAmountBrl;
+    }
+    if (
+        params.pendingInvoiceAmount != null &&
+        Number.isFinite(params.pendingInvoiceAmount) &&
+        params.pendingInvoiceAmount > 0
+    ) {
+        return params.pendingInvoiceAmount;
+    }
+    const annual =
+        String(params.pendingInvoiceKind ?? "").toLowerCase() === "year" ||
+        String(params.billingPeriod ?? "month").toLowerCase() === "year";
+    const cents = annual ? OFFICE_PLAN.yearlyPriceCents : OFFICE_PLAN.monthlyPriceCents;
+    return cents / 100;
 }

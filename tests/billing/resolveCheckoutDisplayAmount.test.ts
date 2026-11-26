@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { resolveCheckoutDisplayAmountBrl } from "../../lib/billing/resolveCheckoutDisplayAmount";
+import {
+    resolveCheckoutDisplayAmountBrl,
+    resolveOfficeCheckoutAmountBrl,
+} from "../../lib/billing/resolveCheckoutDisplayAmount";
 
 describe("resolveCheckoutDisplayAmountBrl", () => {
     it("uses checkout_amount_brl from API when set", () => {
@@ -36,5 +39,31 @@ describe("resolveCheckoutDisplayAmountBrl", () => {
             yearlyPricesBrl: { pro: 1675.2 },
         });
         assert.notEqual(v, 349);
+    });
+});
+
+describe("resolveOfficeCheckoutAmountBrl", () => {
+    it("prefere o valor da obrigação", () => {
+        assert.equal(
+            resolveOfficeCheckoutAmountBrl({
+                billingPeriod: "month",
+                checkoutAmountBrl: 1198.8,
+            }),
+            1198.8
+        );
+    });
+
+    it("cai no anual do Office quando não há cobrança", () => {
+        assert.equal(
+            resolveOfficeCheckoutAmountBrl({ billingPeriod: "year" }),
+            1198.8
+        );
+    });
+
+    it("cai no mensal do Office quando o ciclo é mês", () => {
+        assert.equal(
+            resolveOfficeCheckoutAmountBrl({ billingPeriod: "month" }),
+            159
+        );
     });
 });
