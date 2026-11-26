@@ -11,9 +11,9 @@ import {
     ATTENDANCE_FAQ,
     ATTENDANCE_HERO,
     ATTENDANCE_POINTS,
-    attendanceTalkHref,
+    officeCheckoutPath,
 } from "@/lib/marketing/attendanceOffer";
-import { deliveryLandingHref } from "@/lib/marketing/hosts";
+import { accountHref, deliveryLandingHref } from "@/lib/marketing/hosts";
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-landing-body" });
 const jakarta = Plus_Jakarta_Sans({
@@ -31,7 +31,7 @@ type AttendanceHomeProps = {
 };
 
 export function AttendanceHome({ linkToApp = false, siteChat = null }: AttendanceHomeProps) {
-    const yearHref = attendanceTalkHref("year");
+    const yearHref = accountHref(officeCheckoutPath("year"), linkToApp);
 
     return (
         <div
@@ -87,7 +87,7 @@ export function AttendanceHome({ linkToApp = false, siteChat = null }: Attendanc
                         ))}
                     </div>
                 </section>
-                <AttendancePlans />
+                <AttendancePlans linkToApp={linkToApp} />
                 <Faq items={ATTENDANCE_FAQ} />
                 <section className="bg-slate-100 px-4 py-20 sm:px-6 lg:py-28">
                     <div className="mx-auto max-w-3xl text-center">
@@ -95,7 +95,7 @@ export function AttendanceHome({ linkToApp = false, siteChat = null }: Attendanc
                             Comece pelo anual.
                         </h2>
                         <p className="mx-auto mt-4 max-w-xl text-base leading-relaxed text-slate-600">
-                            Chama no WhatsApp. A gente abre a conta no Office, a R$ 99,90 por mês no ano.
+                            Cria a conta no checkout. No anual, o Office fica R$ 99,90 por mês.
                         </p>
                         <div className="mt-8 flex w-full flex-col items-stretch justify-center gap-3 sm:flex-row sm:items-center">
                             <a

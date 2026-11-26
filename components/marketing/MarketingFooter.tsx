@@ -1,4 +1,4 @@
-import { ATTENDANCE_FOOTER, attendanceTalkHref } from "@/lib/marketing/attendanceOffer";
+import { ATTENDANCE_FOOTER, officeCheckoutPath } from "@/lib/marketing/attendanceOffer";
 import { FOOTER_COLUMNS } from "@/lib/marketing/copy";
 import { accountHref, attendanceLandingHref, deliveryLandingHref } from "@/lib/marketing/hosts";
 
@@ -13,7 +13,7 @@ export function MarketingFooter({ linkToApp = false, product = "delivery" }: Mar
     const homeHref = product === "attendance" ? attendanceLandingHref(linkToApp) : deliveryLandingHref(linkToApp);
     const otherHref = product === "attendance" ? deliveryLandingHref(linkToApp) : attendanceLandingHref(linkToApp);
     const otherLabel = product === "attendance" ? "Delivery" : "Office";
-    const startHref = product === "attendance" ? attendanceTalkHref("year") : signupHref;
+    const startHref = product === "attendance" ? accountHref(officeCheckoutPath("year"), linkToApp) : signupHref;
     const startLabel = product === "attendance" ? "Começar no anual" : "Começar no Pro anual";
     const columns = product === "attendance" ? ATTENDANCE_FOOTER : FOOTER_COLUMNS;
 

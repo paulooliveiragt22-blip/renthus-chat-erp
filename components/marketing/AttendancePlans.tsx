@@ -10,11 +10,13 @@ import {
     ATTENDANCE_YEARLY_PER_MONTH_CENTS,
     attendanceTalkHref,
     attendanceYearlySavingsPercent,
+    officeCheckoutPath,
 } from "@/lib/marketing/attendanceOffer";
+import { accountHref } from "@/lib/marketing/hosts";
 import { formatBrlFromCents } from "@/lib/marketing/marketplaceFees";
 import { cn } from "@/lib/utils";
 
-export function AttendancePlans() {
+export function AttendancePlans({ linkToApp = false }: { linkToApp?: boolean }) {
     const [billingPeriod, setBillingPeriod] = useState<BillingPeriodValue>("year");
     const showYear = billingPeriod === "year";
     const priceCents = showYear ? ATTENDANCE_YEARLY_PER_MONTH_CENTS : ATTENDANCE_MONTHLY_CENTS;
@@ -85,7 +87,7 @@ export function AttendancePlans() {
                             ))}
                         </ul>
                         <a
-                            href={attendanceTalkHref(showYear ? "year" : "month")}
+                            href={accountHref(officeCheckoutPath(showYear ? "year" : "month"), linkToApp)}
                             className="relative mt-5 inline-flex items-center justify-center rounded-full bg-emerald-500 px-4 py-2.5 text-sm font-semibold text-slate-950 shadow-sm shadow-emerald-500/20 transition-all duration-200 hover:bg-emerald-400"
                         >
                             {showYear ? "Quero o anual" : "Quero o mensal"}

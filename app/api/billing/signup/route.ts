@@ -12,8 +12,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { signupCompany } from "@/lib/billing/signupCompany";
 import { getDefaultTrialDays } from "@/lib/billing/getDefaultTrialDays";
 import { sendBillingNotification } from "@/lib/billing/sendBillingNotification";
-import { parseCommercialPlanInput, getPlanLabel } from "@/lib/billing/planCatalog";
-import { servicePresetSchema } from "@/src/service/http/schemas";
+import { getPlanLabel, parseSignupPlan } from "@/lib/billing/planCatalog";
 import { isValidCnpj, normalizeFiscalDocument } from "@/lib/billing/brazilianFiscalDocument";
 import {
     BILLING_SIGNUP_IP_LIMIT,
@@ -48,7 +47,6 @@ export async function POST(req: Request) {
             billing_period?: string;
             password?: string;
             password_confirm?: string;
-            service_preset?: unknown;
         };
 
         const { company_name, cnpj, whatsapp, email, plan } = body;
@@ -75,10 +73,10 @@ export async function POST(req: Request) {
             return NextResponse.json({ error: "As senhas não coincidem" }, { status: 400 });
         }
 
-        const planKey = parseCommercialPlanInput(plan);
+        const planKey = parseSignupPlan(plan);
         if (!planKey) {
             return NextResponse.json(
-                { error: "Plano inválido. Use 'essencial', 'pro' ou 'market'" },
+                { error: "Plano inválido. Use 'essencial', 'pro', 'market' ou 'office'" },
                 { status: 400 }
             );
         }
@@ -96,14 +94,6 @@ export async function POST(req: Request) {
 
         const identityLimited = await enforceSignupIdentityRateLimits(emailNorm, cnpjDigits);
         if (identityLimited) return identityLimited;
-
-        const preset =
-            body.service_preset == null || body.service_preset === ""
-                ? null
-                : servicePresetSchema.safeParse(body.service_preset);
-        if (preset && !preset.success) {
-            return NextResponse.json({ error: "Modelo de atendimento inválido" }, { status: 400 });
-        }
 
         const admin = createAdminClient();
 
@@ -165,20 +155,6 @@ export async function POST(req: Request) {
         }
 
         const companyId = billing.companyId;
-        if (preset?.success) {
-            const applied = await admin.rpc("rpc_service_apply_preset", {
-                p_company_id: companyId,
-                p_preset: preset.data,
-            });
-            const appliedRow = applied.data as { ok?: unknown } | null;
-            if (applied.error || appliedRow?.ok !== true) {
-                console.error("[signup] apply preset:", applied.error?.message ?? applied.data);
-                return NextResponse.json(
-                    { error: "Empresa criada, mas o modelo de atendimento não foi aplicado." },
-                    { status: 500 }
-                );
-            }
-        }
         const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://app.zampell.com.br";
         const cadastroLabel = billing.paymentRequired
             ? "Novo cadastro (aguardando pagamento)"

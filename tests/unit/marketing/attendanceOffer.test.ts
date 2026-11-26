@@ -9,6 +9,7 @@ import {
     ATTENDANCE_YEARLY_PER_MONTH_CENTS,
     attendanceTalkHref,
     attendanceYearlySavingsPercent,
+    officeCheckoutPath,
 } from "../../../lib/marketing/attendanceOffer";
 
 describe("oferta pública de atendimento", () => {
@@ -23,11 +24,12 @@ describe("oferta pública de atendimento", () => {
         assert.equal(attendanceYearlySavingsPercent(), 37);
     });
 
-    it("não vende chat do site e manda o anual pro WhatsApp", () => {
+    it("não vende chat do site e manda o anual para o checkout", () => {
         const labels = ATTENDANCE_FEATURES.map((feature) => feature.label.toLowerCase());
         assert.equal(labels.some((label) => label.includes("site")), false);
-        const href = attendanceTalkHref("year");
+        assert.equal(officeCheckoutPath("year"), "/signup/office?periodo=year");
+        assert.equal(officeCheckoutPath("month"), "/signup/office?periodo=month");
+        const href = attendanceTalkHref("enterprise");
         assert.match(href, /^https:\/\/wa\.me\/556692071285\?text=/);
-        assert.match(decodeURIComponent(href), /99,90/);
     });
 });

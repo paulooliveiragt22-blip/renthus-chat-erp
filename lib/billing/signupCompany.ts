@@ -5,7 +5,7 @@
 
 import "server-only";
 import type { createAdminClient } from "@/lib/supabase/admin";
-import type { CommercialPlanKey } from "@/lib/billing/planCatalog";
+import type { SignupPlanKey } from "@/lib/billing/planCatalog";
 import { createInitialInvoice } from "@/lib/billing/createInitialInvoice";
 import { billingLog } from "@/lib/billing/billingLog";
 
@@ -19,7 +19,7 @@ export type SignupCompanyInput = {
     cnpjDigits: string;
     email: string;
     whatsappDigits: string;
-    plan: CommercialPlanKey;
+    plan: SignupPlanKey;
     trialDays: number;
     /** R2-3 anual: ciclo escolhido no signup (default mensal). */
     billingPeriod?: BillingPeriod;

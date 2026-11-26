@@ -17,9 +17,14 @@ import type {
     UiLastInvoice,
     UiNeverPaidTenant,
 } from "./ui";
-import type { SubscriptionPlanKey, PagarmeInvoiceStatus } from "./status";
+import type { PagarmeInvoiceStatus } from "./status";
+
+function uiPlanKey(raw: string | null | undefined): UiPlan["key"] {
+    if (isOfficePlanKey(raw)) return "office";
+    return normalizePlanKey(raw) ?? "essencial";
+}
 import type { Invoice } from "./invoice";
-import { normalizePlanKey } from "../planCatalog";
+import { isOfficePlanKey, normalizePlanKey } from "../planCatalog";
 
 function companyDisplayName(row: PagarmeSubscriptionWithCompany): string {
     const name = row.companyName?.trim();
@@ -42,7 +47,7 @@ function planFromDomain(
     if (row.plans) {
         return {
             id: row.plans.id,
-            key: (normalizePlanKey(row.plans.key) ?? "essencial") as SubscriptionPlanKey,
+            key: uiPlanKey(row.plans.key),
             name: row.plans.name,
             price_cents: row.plans.price_cents,
         };
@@ -50,7 +55,7 @@ function planFromDomain(
     if (row.planId || row.planKey || row.planName) {
         return {
             id: row.planId ?? row.planKey ?? "unknown",
-            key: (normalizePlanKey(row.planKey) ?? "essencial") as SubscriptionPlanKey,
+            key: uiPlanKey(row.planKey),
             name: row.planName ?? row.planKey ?? "—",
             price_cents: row.planPriceCents ?? 0,
         };

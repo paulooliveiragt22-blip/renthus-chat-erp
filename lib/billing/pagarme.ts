@@ -11,7 +11,6 @@ import "server-only";
 import {
     getMonthlyPriceCentsForPlan,
     getYearlyPriceCentsForPlan,
-    normalizePlanKey,
     type PlanInputKey,
 } from "@/lib/billing/planCatalog";
 import { isPixEmvPayload, isMundipaggPixStubUrl } from "@/lib/billing/pixEmv";
@@ -816,16 +815,12 @@ export function getSetupPriceCents(_plan?: PlanInputKey | string): number {
  * Env MONTHLY_PRICE_* legado ignorado (causava Market cobrando R$ 297 via BOT).
  */
 export function getMonthlyPriceCents(plan: PlanInputKey | string): number {
-    const key = normalizePlanKey(plan);
-    if (!key) return getMonthlyPriceCentsForPlan("essencial");
-    return getMonthlyPriceCentsForPlan(key);
+    return getMonthlyPriceCentsForPlan(plan);
 }
 
-/** Anual canônico = planCatalog (−20% default; BN-04 / R2-B). */
+/** Anual canônico. Delivery usa −20%. Office usa o valor fixo do catálogo. */
 export function getYearlyPriceCents(plan: PlanInputKey | string): number {
-    const key = normalizePlanKey(plan);
-    if (!key) return getYearlyPriceCentsForPlan("essencial");
-    return getYearlyPriceCentsForPlan(key);
+    return getYearlyPriceCentsForPlan(plan);
 }
 
 export function centsToBRL(cents: number): number {

@@ -12,6 +12,7 @@ Cliente pagante = `company` (tenant).
 | `essencial` | Essencial | **R$ 279** | R$ 2.678,40 | 1 (cap) | — |
 | `pro` | Pro | **R$ 349** | R$ 3.350,40 | 1 | R$ 99/mês |
 | `market` | Market | **R$ 449** | R$ 4.310,40 | 10 | R$ 99/mês |
+| `office` | Office | **R$ 159** | R$ 1.198,80 (desconto fixo, não −20%) | 1 (cap) | — |
 
 Catálogo código: `lib/billing/planCatalog.ts`. DB: `plans.price_cents` / `price_year_cents` / `included_seats` / `seat_extra_cents`.
 
@@ -43,7 +44,7 @@ Catálogo código: `lib/billing/planCatalog.ts`. DB: `plans.price_cents` / `pric
 
 ## Gates de plano (UI + API)
 - `estoque_full` · `financeiro_full` · `printing_auto` → Pro/Market
-- `whatsapp_templates_broadcast` → Pro/Market
+- `whatsapp_templates_broadcast` → Pro/Market e Office
 - `marketplace_*` / `omnichannel_ig_messenger` / `table_service` → Market
 - `staff_users` → Pro/Market (limites de seat: R3-3/R3-4)
 
@@ -55,4 +56,4 @@ Catálogo código: `lib/billing/planCatalog.ts`. DB: `plans.price_cents` / `pric
 
 ## Legado
 `normalizePlanKey`: `bot`/`starter` → `essencial`, `complete` → `pro`.
-APIs públicas: só `essencial` | `pro` | `market`.
+APIs de upgrade do Delivery: só `essencial` | `pro` | `market`. O checkout também aceita `office`, na página `/signup/office`.

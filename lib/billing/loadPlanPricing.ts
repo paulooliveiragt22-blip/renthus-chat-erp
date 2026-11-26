@@ -2,15 +2,17 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
+    OFFICE_PLAN,
     PLAN_CATALOG,
+    isOfficePlanKey,
     normalizePlanKey,
-    type CommercialPlanKey,
     type PlanInputKey,
+    type SignupPlanKey,
 } from "@/lib/billing/planCatalog";
 import type { PlanPricingInput } from "@/lib/billing/subscriptionAmount";
 
 export type LoadedPlanPricing = PlanPricingInput & {
-    planKey: CommercialPlanKey;
+    planKey: SignupPlanKey;
     planId: string | null;
 };
 
@@ -19,6 +21,8 @@ export async function loadPlanPricing(
     admin: SupabaseClient,
     plan: PlanInputKey | string
 ): Promise<LoadedPlanPricing> {
+    if (isOfficePlanKey(plan)) return loadOfficePlanPricing(admin);
+
     const key = normalizePlanKey(plan) ?? "essencial";
     const catalog = PLAN_CATALOG[key];
 
@@ -64,5 +68,33 @@ export async function loadPlanPricing(
         includedSeats: included,
         seatExtraCents:
             seatExtra == null || !Number.isFinite(seatExtra) ? null : Math.floor(seatExtra),
+    };
+}
+
+async function loadOfficePlanPricing(admin: SupabaseClient): Promise<LoadedPlanPricing> {
+    const { data, error } = await admin
+        .from("plans")
+        .select("id, price_cents, price_year_cents, included_seats, product_line")
+        .eq("key", "office")
+        .maybeSingle();
+
+    const monthly = Number(data?.price_cents);
+    const yearly = Number(data?.price_year_cents);
+    if (error || !data || data.product_line !== "office" || monthly <= 0 || yearly <= 0) {
+        throw new Error("office_plan_missing");
+    }
+
+    const included =
+        typeof data.included_seats === "number" && data.included_seats >= 1
+            ? data.included_seats
+            : OFFICE_PLAN.includedSeats;
+
+    return {
+        planKey: "office",
+        planId: typeof data.id === "string" ? data.id : null,
+        monthlyPriceCents: monthly,
+        yearlyPriceCents: yearly,
+        includedSeats: included,
+        seatExtraCents: null,
     };
 }

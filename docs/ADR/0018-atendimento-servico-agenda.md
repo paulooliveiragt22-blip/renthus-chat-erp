@@ -75,7 +75,7 @@ processInboundMessage
 
 `src/pro` não ganha ramo de serviço. `src/service` não importa ferramenta de catálogo, carrinho ou estoque, e não chama `admin.from`.
 
-Delivery e serviço ao mesmo tempo são duas empresas no mesmo login. Cada uma continua com um `attendance_mode`. O CNPJ permanece na empresa de delivery, porque o índice é único. A segunda empresa não abre cobrança nova. O acesso segue o plano já pago da empresa de origem. No login, um perfil entra direto. Dois ou mais mostram a escolha. A Ferrester de serviço nasce no preset `servico`, sem alterar a Ferrester de delivery. Decisão do dono em 2026-11-25.
+Uma empresa tem um produto. Delivery e Office não dividem login, CNPJ nem cobrança. Quem já paga Delivery e quer o Office cria outra conta e paga o Office. A empresa de serviço da Zampell que já existia permanece. Decisão do dono em 2026-11-26, no lugar da segunda empresa grátis de 2026-11-25.
 
 ### D2 — Contexto e oferta, separados do cardápio
 
@@ -267,9 +267,13 @@ A memória do turno é a lista de mensagens do modelo, no WhatsApp e no site. O 
 
 A empresa de serviço deixa de se chamar Ferrester Serviço e passa a se chamar Zampell. A empresa de delivery Ferrester não muda.
 
-### D10 — Oferta pública, fora do billing
+### D10 — Oferta pública e checkout
 
 Em 2026-11-26 o dono fechou: atendimento é outro produto, com outra tabela. Delivery continua em Essencial, Pro e Market. No mesmo dia, o nome público passou a ser Office. A URL segue `/atendimento` e o painel da empresa continua em `/atendimento`.
+
+No mesmo dia o checkout foi aprovado. O plano `office` tem `product_line = office`. Mensal R$ 159 (`15900`). O ano é desconto fixo de R$ 709,20 (`70920`) sobre 12 × R$ 159, fechando R$ 1.198,80 (`119880`). Não usa o −20% do Delivery. IA inclusa é a coluna gerada, 10% da mensalidade: R$ 15,90, também no anual. 1 assento, sem assento extra. Mais gente é Enterprise, fora do checkout.
+
+A conta nasce com `attendance_mode = service` e preset `balcao`: agenda e card desligados. A empresa troca o modelo no painel. Sem oferta com duração, o agente não marca horário. O checkout é `/signup/office`. A página do Delivery não lista o Office. Upgrade e downgrade continuam na escada Essencial, Pro e Market. Um trigger recusa troca de `product_line` na assinatura. Enterprise segue no WhatsApp, sem preço.
 
 | Oferta | Preço na página | O que a página promete |
 | --- | --- | --- |
@@ -279,7 +283,7 @@ Em 2026-11-26 o dono fechou: atendimento é outro produto, com outra tabela. Del
 
 O chat do site não entra nessa oferta. O widget da vitrine continua sendo o atendimento da própria Zampell.
 
-Os botões chamam o WhatsApp `556692071285`. Não há `plan_key`, linha em `plans` nem checkout. A URL pública é `https://www.zampell.com.br/atendimento`. O arquivo da página é `/agente`, porque `/atendimento` no app já é o painel da empresa de serviço. No host da vitrine, `/atendimento` reescreve para `/agente`.
+Os botões mensal e anual abrem `/signup/office`. Enterprise chama o WhatsApp `556692071285`. A URL pública é `https://www.zampell.com.br/atendimento`. O arquivo da página é `/agente`, porque `/atendimento` no app já é o painel da empresa de serviço. No host da vitrine, `/atendimento` reescreve para `/agente`.
 
 O agente da empresa Zampell lista uma oferta por plano e por período. Delivery: Essencial, Pro e Market, mensal e anual, nos preços já canônicos do catálogo. Atendimento: mensal R$ 159 e anual R$ 1.198,80 à vista (R$ 99,90 por mês). Enterprise fica sem preço. Nenhuma dessas ofertas tem link. A oferta única antiga “Planos Zampell” fica inativa. O nome da empresa no banco já é Zampell. O contexto do agente proíbe dizer Ferrester.
 

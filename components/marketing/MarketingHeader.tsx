@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { Menu } from "lucide-react";
 import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
-import { attendanceTalkHref } from "@/lib/marketing/attendanceOffer";
+import { officeCheckoutPath } from "@/lib/marketing/attendanceOffer";
 import { accountHref, attendanceLandingHref, deliveryLandingHref } from "@/lib/marketing/hosts";
 
 type MarketingProduct = "delivery" | "attendance";
@@ -24,7 +24,9 @@ export function MarketingHeader({ linkToApp = false, product = "delivery" }: Mar
     const loginHref = accountHref("/login", linkToApp);
     const deliveryHref = deliveryLandingHref(linkToApp);
     const attendanceHref = attendanceLandingHref(linkToApp);
-    const primaryHref = product === "attendance" ? attendanceTalkHref("year") : accountHref("/signup?plano=pro&periodo=year", linkToApp);
+    const primaryHref = product === "attendance"
+        ? accountHref(officeCheckoutPath("year"), linkToApp)
+        : accountHref("/signup?plano=pro&periodo=year", linkToApp);
     const primaryLabel = product === "attendance" ? "Começar no anual" : "Começar no Pro";
     const logoHref = product === "attendance" ? attendanceHref : deliveryHref;
 

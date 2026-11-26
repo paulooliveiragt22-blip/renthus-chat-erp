@@ -1,11 +1,12 @@
+import { OFFICE_PLAN } from "@/lib/billing/planCatalog";
 import { yearlySavingsPercent } from "@/lib/billing/yearlyFromDiscount";
 import { SITE_CHAT_WHATSAPP_HREF } from "@/lib/marketing/copy";
 
-/** Oferta pública da página. Ainda não é linha em `plans` nem `plan_key`. */
-export const ATTENDANCE_MONTHLY_CENTS = 15_900;
+/** Espelho do plano `office` em `plans`. A cobrança lê o banco. */
+export const ATTENDANCE_MONTHLY_CENTS = OFFICE_PLAN.monthlyPriceCents;
 /** Valor por mês na vista anual, no mesmo desenho do card de delivery. */
-export const ATTENDANCE_YEARLY_PER_MONTH_CENTS = 9_990;
-export const ATTENDANCE_YEARLY_CENTS = ATTENDANCE_YEARLY_PER_MONTH_CENTS * 12;
+export const ATTENDANCE_YEARLY_PER_MONTH_CENTS = OFFICE_PLAN.yearlyPriceCents / 12;
+export const ATTENDANCE_YEARLY_CENTS = OFFICE_PLAN.yearlyPriceCents;
 
 export const ATTENDANCE_FEATURES = [
     { label: "Agente de IA no WhatsApp", ai: true },
@@ -67,7 +68,7 @@ export const ATTENDANCE_FAQ = [
     },
     {
         q: "Como eu começo?",
-        a: "Chama no WhatsApp. A gente abre a conta neste plano.",
+        a: "Cria a conta no checkout do Office. O pagamento libera o painel.",
     },
     {
         q: "O que é o Enterprise?",
@@ -93,4 +94,9 @@ export function attendanceYearlySavingsPercent(): number {
 
 export function attendanceTalkHref(kind: AttendanceTalk): string {
     return `${SITE_CHAT_WHATSAPP_HREF}?text=${encodeURIComponent(TALK[kind])}`;
+}
+
+/** Checkout do Office no app. Mensal e anual. Enterprise continua no WhatsApp. */
+export function officeCheckoutPath(period: "month" | "year"): string {
+    return `/signup/office?periodo=${period}`;
 }

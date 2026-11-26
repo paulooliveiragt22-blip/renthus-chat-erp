@@ -24,7 +24,7 @@ export interface UiCompany {
 /** Plano (forma reduzida para listas) */
 export interface UiPlan {
     id: string;
-    key: SubscriptionPlanKey;
+    key: SubscriptionPlanKey | "office";
     name: string;
     price_cents: number;
 }

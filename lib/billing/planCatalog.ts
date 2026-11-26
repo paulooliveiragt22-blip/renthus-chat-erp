@@ -6,6 +6,37 @@
 
 export type CommercialPlanKey = "essencial" | "pro" | "market";
 
+/** Plano do Office. Fora da escada Essencial → Pro → Market. */
+export const OFFICE_PLAN_KEY = "office" as const;
+
+export type OfficePlanKey = typeof OFFICE_PLAN_KEY;
+
+export type SignupPlanKey = CommercialPlanKey | OfficePlanKey;
+
+export const OFFICE_PLAN = {
+    name: "Office",
+    monthlyPriceCents: 15_900,
+    /** À vista. Não é mensal × 12 × 0,8. */
+    yearlyPriceCents: 119_880,
+    yearlyDiscountMode: "fixed_brl" as const,
+    /** Centavos tirados de 12 × mensal para fechar R$ 1.198,80. */
+    yearlyDiscountCents: 70_920,
+    aiIncludedCents: 1_590,
+    includedSeats: 1,
+    seatExtraCents: null,
+    features: [
+        "whatsapp_messages",
+        "ai_parser",
+        "assisted_mode",
+        "ai_credit_packs",
+        "whatsapp_templates_broadcast",
+    ],
+} as const;
+
+export function isOfficePlanKey(raw: unknown): raw is OfficePlanKey {
+    return String(raw ?? "").trim().toLowerCase() === OFFICE_PLAN_KEY;
+}
+
 /** Valores aceitos em APIs/signup (inclui aliases legados). */
 export type PlanInputKey = CommercialPlanKey | "bot" | "complete" | "starter";
 
@@ -122,29 +153,40 @@ export function parseCommercialPlanInput(raw: unknown): CommercialPlanKey | null
     return null;
 }
 
+/** Checkout público: a escada de delivery ou o plano Office. */
+export function parseSignupPlan(raw: unknown): SignupPlanKey | null {
+    const commercial = parseCommercialPlanInput(raw);
+    if (commercial) return commercial;
+    return isOfficePlanKey(raw) ? OFFICE_PLAN_KEY : null;
+}
+
 export function isCommercialPlanKey(raw: string): raw is CommercialPlanKey {
     return parseCommercialPlanInput(raw) !== null;
 }
 
 export function getMonthlyPriceCentsForPlan(plan: PlanInputKey | string): number {
+    if (isOfficePlanKey(plan)) return OFFICE_PLAN.monthlyPriceCents;
     const key = normalizePlanKey(plan);
     if (!key) return PLAN_CATALOG.essencial.monthlyPriceCents;
     return PLAN_CATALOG[key].monthlyPriceCents;
 }
 
 export function getYearlyPriceCentsForPlan(plan: PlanInputKey | string): number {
+    if (isOfficePlanKey(plan)) return OFFICE_PLAN.yearlyPriceCents;
     const key = normalizePlanKey(plan);
     if (!key) return PLAN_CATALOG.essencial.yearlyPriceCents;
     return PLAN_CATALOG[key].yearlyPriceCents;
 }
 
 export function getPlanLabel(plan: PlanInputKey | string): string {
+    if (isOfficePlanKey(plan)) return OFFICE_PLAN.name;
     const key = normalizePlanKey(plan);
     return key ? PLAN_CATALOG[key].name : String(plan);
 }
 
 /** Rank para upgrades (maior = mais alto). */
 export function planRank(plan: PlanInputKey | string): number {
+    if (isOfficePlanKey(plan)) return -1;
     const key = normalizePlanKey(plan);
     if (!key) return 0;
     return PLAN_ORDER.indexOf(key);
