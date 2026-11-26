@@ -95,7 +95,8 @@
     "lib/whatsapp/customerServiceWindow.ts",
     "app/api/whatsapp/incoming/route.ts",
     "app/api/admin/company-settings/route.ts",
-    "app/api/health/route.ts"
+    "app/api/health/route.ts",
+    "app/api/public/site-chat/route.ts"
   ],
   "exclude": [
     "node_modules",

@@ -63,7 +63,11 @@ function isMarketingAsset(pathname: string): boolean {
 }
 
 function isMarketingReadApi(pathname: string): boolean {
-    return pathname === "/api/billing/public-plans" || pathname === "/api/billing/trial-policy";
+    return (
+        pathname === "/api/billing/public-plans" ||
+        pathname === "/api/billing/trial-policy" ||
+        pathname === "/api/public/site-chat"
+    );
 }
 
 /**

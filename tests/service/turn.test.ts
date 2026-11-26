@@ -267,6 +267,42 @@ describe("turno de serviço", () => {
         assert.equal(harness.texts.some((text) => text.includes("https://")), false);
         assert.deepEqual(harness.buttons, ["Ver plano"]);
     });
+
+    it("chat do site não marca horário e não abre chamado", async () => {
+        const harness = ports({
+            replyText: "O Essencial está na descrição.",
+            onModel: async (request) => {
+                assert.deepEqual([...request.tools], ["list_offerings", "request_human", "respond_to_customer"]);
+                assert.match(request.system, /chat do site/u);
+                assert.match(request.userText, /<prior_chat>/u);
+                await request.executeTool("request_human", {});
+            },
+        });
+        await executeServiceTurn(
+            {
+                ...base,
+                messagingChannel: "site",
+                phoneE164: "",
+                text: "quero falar com alguém",
+                humanHref: "https://wa.me/556692071285",
+                priorTurns: [{ role: "user", text: "quais planos" }],
+            },
+            harness.bundle
+        );
+        assert.equal(harness.handoffs, 0);
+        assert.equal(harness.confirms, 0);
+        assert.match(harness.texts.join("\n"), /https:\/\/wa\.me\/556692071285/u);
+    });
+
+    it("chat do site ignora o botão de horário", async () => {
+        const harness = ports({ replyText: "Posso explicar os planos." });
+        await executeServiceTurn(
+            { ...base, messagingChannel: "site", text: "svc_confirm_slot" },
+            harness.bundle
+        );
+        assert.equal(harness.confirms, 0);
+        assert.equal(harness.order.includes("model"), true);
+    });
 });
 
 describe("composeServiceReply", () => {

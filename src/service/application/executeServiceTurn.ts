@@ -5,7 +5,8 @@ import { asksForHuman } from "@/src/service/domain/humanAsk";
 import { composeServiceReply, serviceFailureText } from "@/src/service/domain/composeServiceReply";
 import { httpsOfferLink, offerLinkLabel } from "@/src/service/domain/offerLink";
 import { serviceButton } from "@/src/service/domain/serviceButton";
-import { toolsForProfile } from "@/src/service/domain/serviceTools";
+import { formatPriorTurns } from "@/src/service/domain/siteChat";
+import { toolsForTurn } from "@/src/service/domain/serviceTools";
 import {
     appointmentIdInput,
     listFreeSlotsInput,
@@ -28,6 +29,8 @@ const EMPTY_WALLET =
     "Neste momento não consigo continuar a conversa por aqui. Se quiser falar com uma pessoa, peça um atendente.";
 
 const HANDOFF = "Vou chamar alguém da equipe.";
+
+const SITE_HANDOFF = "Para falar com uma pessoa, chame no WhatsApp.";
 
 const NOT_CONFIGURED = "O atendimento desta empresa ainda não foi configurado.";
 
@@ -68,7 +71,7 @@ export async function executeServiceTurn(
     const writes = emptyTurnWrites();
     const toolsUsed: ServiceToolName[] = [];
     const offerLinks: { name: string; label: string; url: string }[] = [];
-    const button = serviceButton(input.text);
+    const button = input.messagingChannel === "site" ? null : serviceButton(input.text);
 
     const finish = async (body: string, buttons?: { id: "svc_confirm_slot" | "svc_confirm_case"; title: string }[]) => {
         if (buttons && buttons.length > 0) {
@@ -120,24 +123,26 @@ export async function executeServiceTurn(
     if (!begun.allowed) {
         if (asksForHuman(input.text)) {
             writes.humanRequested = true;
-            await ports.handover.handoff("Cliente pediu atendimento humano sem crédito de IA");
-            await finish(HANDOFF);
+            if (input.messagingChannel !== "site") {
+                await ports.handover.handoff("Cliente pediu atendimento humano sem crédito de IA");
+            }
+            await finish(handoffLine(input));
             return;
         }
         await finish(EMPTY_WALLET);
         return;
     }
 
-    const tools = toolsForProfile(profile);
+    const tools = toolsForTurn(profile, input.messagingChannel);
     try {
         const modelResult = await ports.model.run({
-            system: buildServicePrompt(profile),
-            userText: wrapUserInboundForLlm(input.text),
+            system: buildServicePrompt(profile, input.messagingChannel === "site" ? "site" : "whatsapp"),
+            userText: `${formatPriorTurns(input.priorTurns)}${wrapUserInboundForLlm(input.text, input.messagingChannel === "site" ? "do site" : "WhatsApp")}`,
             maxSteps: MAX_STEPS,
             tools,
             executeTool: (name, raw) => executeTool(name, raw, input, writes, toolsUsed, ports, offerLinks),
         });
-        const reply = withHandoff(composeServiceReply(modelResult.replyText, writes), writes);
+        const reply = withHandoff(composeServiceReply(modelResult.replyText, writes), writes, input);
         const buttons = proposalButtons(writes);
         if (modelResult.inputTokens > 0 || modelResult.outputTokens > 0) {
             await ports.wallet.settle(
@@ -165,8 +170,19 @@ export async function executeServiceTurn(
     }
 }
 
-function withHandoff(reply: string, writes: TurnWrites): string {
+function handoffLine(input: ServiceTurnInput): string {
+    if (input.messagingChannel !== "site") return HANDOFF;
+    return input.humanHref ? `Para falar com uma pessoa, chame no WhatsApp: ${input.humanHref}` : SITE_HANDOFF;
+}
+
+function withHandoff(reply: string, writes: TurnWrites, input: ServiceTurnInput): string {
     if (!writes.humanRequested) return reply;
+    if (input.messagingChannel === "site") {
+        const line = handoffLine(input);
+        if (input.humanHref && reply.includes(input.humanHref)) return reply;
+        if (!input.humanHref && reply.includes("WhatsApp")) return reply;
+        return `${line} ${reply}`.trim();
+    }
     if (reply.includes("alguém da equipe")) return reply;
     return `${HANDOFF} ${reply}`.trim();
 }
@@ -291,7 +307,9 @@ async function executeTool(
     }
     if (name === "request_human") {
         writes.humanRequested = true;
-        await ports.handover.handoff("Cliente pediu atendimento humano");
+        if (input.messagingChannel !== "site") {
+            await ports.handover.handoff("Cliente pediu atendimento humano");
+        }
         return { ok: true, code: "ok" };
     }
     return { ok: true, code: "ok" };

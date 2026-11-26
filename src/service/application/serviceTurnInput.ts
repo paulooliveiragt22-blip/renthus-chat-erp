@@ -9,7 +9,9 @@ export type ServiceTurnInput = {
     phoneE164: string;
     text: string;
     profileName?: string | null;
-    messagingChannel?: "whatsapp" | "instagram" | "messenger";
+    messagingChannel?: "whatsapp" | "instagram" | "messenger" | "site";
     channelUserId?: string;
     waConfig?: WaConfig;
+    humanHref?: string | null;
+    priorTurns?: { role: "user" | "assistant"; text: string }[];
 };

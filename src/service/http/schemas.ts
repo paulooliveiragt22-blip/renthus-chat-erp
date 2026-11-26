@@ -38,6 +38,13 @@ export const upsertOfferingSchema = z
         }
     });
 
+export const siteChatPostSchema = z
+    .object({
+        text: z.string().trim().min(1).max(500),
+        reset: z.boolean().optional(),
+    })
+    .strict();
+
 export const adminBookSchema = z.object({
     offeringId: z.string().uuid(),
     startsAt: z.string().min(16),

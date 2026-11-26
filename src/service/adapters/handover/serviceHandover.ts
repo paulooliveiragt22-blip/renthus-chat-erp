@@ -11,7 +11,7 @@ export function createServiceHandover(input: ServiceTurnInput): ServiceHandoverP
                 threadId: input.threadId,
                 phoneE164: input.phoneE164,
                 customerName: input.profileName ?? null,
-                channel: input.messagingChannel ?? "whatsapp",
+                channel: input.messagingChannel === "site" ? null : input.messagingChannel,
                 reason,
             });
         },

@@ -1,6 +1,6 @@
 # ADR 0018 — Atendimento de serviço: motor ao lado do delivery
 
-**Status:** aceito (2026-11-25) — emendas no mesmo dia. Banco, handover, desvio, turno, telas, lembrete e `npm test` (1943) fechados. Workers publicados em 2026-11-25: `renthus-inbound-worker:live` versão 99, outbound e reconciler no `$LATEST`.
+**Status:** aceito (2026-11-25) — emenda 2026-11-26: chat do site na vitrine, no mesmo turno, sem agenda. Workers publicados em 2026-11-25: `renthus-inbound-worker:live` versão 100.
 **Data:** 2026-11-25
 **Aprovação do dono:** 2026-11-25, de manhã (mesmo repositório; WhatsApp é o canal; inbox, templates, campanhas e Embedded Signup são reaproveitados; motor de serviço ao lado do delivery). Emenda 2026-11-25, à tarde: a estrutura superior substitui o miolo. O modelo propõe a marcação nova; o botão ou o balcão confirma; a inserção é uma função só. Emenda 2026-11-25, em seguida: cancelar e remarcar entram nas ferramentas do WhatsApp, cada um com interruptor da empresa. Os dois nascem desligados. Emenda 2026-11-25, fim da tarde: no cadastro a empresa escolhe um modelo (horário, serviço, consulta e caso, balcão). Isso liga agenda e card. As etapas do card são quatro, fixas. O rótulo pode mudar. O funil não. Emenda 2026-11-25, em seguida: o checklist de implementação passa a travar UI, contrato tipado e as rules do repositório, para o corte de código não reabrir decisão.
 **Escopo técnico:** um segundo motor de atendimento, no mesmo webhook, na mesma fila e no mesmo número. A empresa escolhe o modo no cadastro. O modo serviço responde com o contexto da empresa e marca horário. O modo delivery continua em `src/pro`.
@@ -254,6 +254,16 @@ Abrir card é botão, como horário novo. A proposta fica em `service_case_offer
 Horário novo não exige card, mesmo com `cases_enabled`. “Quero cortar amanhã” marca e não abre card. “Quero um portão de 4 m” abre card, sem preço e sem hora. A visita cola no card pelo `case_id`, se o card for desta pessoa e ainda estiver `aberto` ou `em_andamento`. Colar a visita não muda a etapa.
 
 `service_case_stage_labels` — uma linha por empresa e por chave, opcional. A chave não muda. O rótulo visível tem teto de 40 caracteres. Sem linha, o rótulo padrão em português vale (`Aberto`, `Em andamento`, `Concluído`, `Perdido`). O agente fala o rótulo. Criar, apagar ou reordenar etapa não existe nesta versão.
+
+### D9 — Chat da vitrine
+
+O mesmo turno atende no site. O canal é `site`. A empresa é a de serviço da Zampell, fixa no servidor. O browser não envia `company_id`.
+
+A página `zampell.com.br` abre um chat. Cada conversa aceita 8 mensagens do visitante. O mesmo IP aceita 30 mensagens por hora. A carteira de IA é a da empresa. Sem saldo, a frase fixa.
+
+O visitante não tem telefone. O canal lista oferta, responde dúvida e manda o botão do link. Não propõe horário, não abre card, não cancela e não remarca. Pedido de humano não abre ticket: a frase aponta o WhatsApp já publicado na vitrine.
+
+A empresa de serviço deixa de se chamar Ferrester Serviço e passa a se chamar Zampell. A empresa de delivery Ferrester não muda.
 
 ---
 

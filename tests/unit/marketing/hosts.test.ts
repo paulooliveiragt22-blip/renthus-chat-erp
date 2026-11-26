@@ -41,6 +41,10 @@ describe("marketing host", () => {
             marketingHostAction("www.zampell.com.br", "/api/billing/public-plans", env).type,
             "next"
         );
+        assert.equal(
+            marketingHostAction("www.zampell.com.br", "/api/public/site-chat", env).type,
+            "next"
+        );
         assert.equal(marketingHostAction("www.zampell.com.br", "/pdv", env).type, "redirect");
         assert.equal(marketingHostAction("www.zampell.com.br", "/c/loja", env).type, "redirect");
         assert.equal(marketingHostAction("www.zampell.com.br", "/api/orders/list", env).type, "deny");

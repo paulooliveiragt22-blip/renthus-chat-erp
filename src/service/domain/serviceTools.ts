@@ -6,6 +6,11 @@ const ALWAYS: readonly ServiceToolName[] = [
     "respond_to_customer",
 ];
 
+export function toolsForTurn(profile: ServiceProfileView, channel: string | undefined): ServiceToolName[] {
+    if (channel === "site") return [...ALWAYS];
+    return toolsForProfile(profile);
+}
+
 export function toolsForProfile(profile: ServiceProfileView): ServiceToolName[] {
     const names: ServiceToolName[] = [...ALWAYS];
     if (profile.agendaEnabled) {

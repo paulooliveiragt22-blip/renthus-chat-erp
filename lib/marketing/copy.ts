@@ -48,6 +48,8 @@ export const HERO = {
 
 export const AGENT_DEMO_WHATSAPP_HREF = `https://wa.me/556692071285?text=${encodeURIComponent("manda pra mim dois hamburguer rosseiro")}`;
 
+export const SITE_CHAT_WHATSAPP_HREF = "https://wa.me/556692071285";
+
 export const FEATURE_CHAPTERS = [
     {
         id: "cardapio",
