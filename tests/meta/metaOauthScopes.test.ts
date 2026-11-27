@@ -16,8 +16,11 @@ describe("metaOauthScopes (S14)", () => {
 
     it("messaging: grant completo + alias IG passa", () => {
         const granted = [
-            ...META_MESSAGING_OAUTH_SCOPE_LIST.filter((s) => s !== "instagram_basic"),
+            ...META_MESSAGING_OAUTH_SCOPE_LIST.filter(
+                (s) => s !== "instagram_basic" && s !== "instagram_manage_messages"
+            ),
             "instagram_business_basic",
+            "instagram_business_manage_messages",
             "public_profile",
         ];
         const v = evaluateGrantedMetaScopes(granted, "messaging");

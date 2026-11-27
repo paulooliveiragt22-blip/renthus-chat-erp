@@ -17,9 +17,14 @@ export type MetaMessagingOauthScope = (typeof META_MESSAGING_OAUTH_SCOPE_LIST)[n
 
 export const META_MESSAGING_OAUTH_SCOPES = META_MESSAGING_OAUTH_SCOPE_LIST.join(",");
 
-/** App Review / Login for Business às vezes entrega o alias novo no lugar de instagram_basic. */
+/**
+ * App Review entrega os nomes novos no lugar dos antigos.
+ * instagram_business_basic → instagram_basic
+ * instagram_business_manage_messages → instagram_manage_messages
+ */
 const MESSAGING_SCOPE_ALIASES: Record<string, MetaMessagingOauthScope> = {
     instagram_business_basic: "instagram_basic",
+    instagram_business_manage_messages: "instagram_manage_messages",
 };
 
 export const META_WHATSAPP_REQUIRED_SCOPES = ["whatsapp_business_messaging"] as const;
