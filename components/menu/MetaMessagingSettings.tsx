@@ -26,7 +26,6 @@ export default function MetaMessagingSettings() {
     const [oauthBusy, setOauthBusy] = useState(false);
     const [healthBusy, setHealthBusy] = useState(false);
     const [msg, setMsg] = useState<string | null>(null);
-    const [webhookPath, setWebhookPath] = useState("/api/meta/messaging/incoming");
     const [pageId, setPageId] = useState("");
     const [pageName, setPageName] = useState("");
     const [igUserId, setIgUserId] = useState("");
@@ -47,7 +46,6 @@ export default function MetaMessagingSettings() {
             });
             const json = (await res.json().catch(() => ({}))) as {
                 connection?: Connection | null;
-                webhookPath?: string;
                 oauthConfigured?: boolean;
                 pendingPages?: PendingPage[];
                 error?: string;
@@ -56,7 +54,6 @@ export default function MetaMessagingSettings() {
                 setMsg(json.error || "Falha ao carregar.");
                 return;
             }
-            if (json.webhookPath) setWebhookPath(json.webhookPath);
             setOauthConfigured(Boolean(json.oauthConfigured));
             setPendingPages(Array.isArray(json.pendingPages) ? json.pendingPages : []);
             const c = json.connection ?? null;
@@ -453,27 +450,6 @@ export default function MetaMessagingSettings() {
                     )}
                 </div>
             )}
-
-            <div className="mt-4 rounded-lg bg-zinc-50 p-3 text-xs text-zinc-600 dark:bg-zinc-900 dark:text-zinc-300">
-                <p className="font-medium text-zinc-800 dark:text-zinc-100">Webhook Meta</p>
-                <p className="mt-1 break-all">
-                    Callback URL:{" "}
-                    <code>
-                        {typeof globalThis.location !== "undefined"
-                            ? `${globalThis.location.origin}${webhookPath}`
-                            : webhookPath}
-                    </code>
-                </p>
-                <p className="mt-1">
-                    Verify token: env <code>META_MESSAGING_WEBHOOK_VERIFY_TOKEN</code> (ou
-                    WHATSAPP_WEBHOOK_VERIFY_TOKEN). Assinatura:{" "}
-                    <code>META_APP_SECRET</code> / <code>WHATSAPP_APP_SECRET</code>.
-                </p>
-                <p className="mt-1">
-                    OAuth redirect:{" "}
-                    <code>/api/admin/meta-messaging/oauth/callback</code> (cadastre no app Meta).
-                </p>
-            </div>
 
             {msg && <p className="mt-3 text-sm text-zinc-600 dark:text-zinc-300">{msg}</p>}
 
