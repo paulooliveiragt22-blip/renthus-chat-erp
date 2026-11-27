@@ -67,12 +67,22 @@ export function filterFreeSlots(
 export function googleEventBody(input: {
     offeringName: string;
     customerName: string | null;
+    label?: string | null;
     startsAt: string;
     endsAt: string;
     timeZone: string;
 }): { summary: string; start: { dateTime: string; timeZone: string }; end: { dateTime: string; timeZone: string } } {
     const who = input.customerName?.trim() ?? "";
-    const summary = (who.length > 0 ? `${input.offeringName} — ${who}` : input.offeringName).slice(0, 200);
+    const subject = input.label?.trim() ?? "";
+    const summary = (
+        subject.length > 0
+            ? who.length > 0
+                ? `${subject} — ${who}`
+                : subject
+            : who.length > 0
+              ? `${input.offeringName} — ${who}`
+              : input.offeringName
+    ).slice(0, 200);
     return {
         summary,
         start: { dateTime: input.startsAt, timeZone: input.timeZone },

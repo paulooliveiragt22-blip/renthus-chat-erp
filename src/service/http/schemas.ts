@@ -69,6 +69,7 @@ export const adminBookSchema = z.object({
     startsAt: z.string().min(16),
     phoneE164: z.string().trim().min(8).max(20),
     customerName: z.string().trim().max(80).optional(),
+    label: z.string().trim().max(120).optional(),
     caseId: z.string().uuid().nullable().optional(),
     idempotencyKey: z.string().trim().min(8).max(200),
 });

@@ -43,7 +43,10 @@ export async function GET(req: Request) {
             return typeof id === "string" && id ? [id] : [];
         })
     );
-    const google = await createGoogleCalendarPort(ctx.admin).listWindow(ctx.companyId, new Date(fromMs).toISOString(), new Date(toMs).toISOString());
+    const yearSpan = toMs - fromMs > 62 * 24 * 60 * 60 * 1000;
+    const google = yearSpan
+        ? { connected: false, unavailable: false, events: [] as { id: string }[] }
+        : await createGoogleCalendarPort(ctx.admin).listWindow(ctx.companyId, new Date(fromMs).toISOString(), new Date(toMs).toISOString());
     return NextResponse.json(
         {
             ...body,
@@ -79,6 +82,7 @@ export async function POST(req: Request) {
             p_phone_e164: parsed.data.phoneE164,
             p_customer_name: parsed.data.customerName ?? null,
             p_case_id: parsed.data.caseId ?? null,
+            p_label: parsed.data.label ?? null,
         });
         const appointmentId = commandId(result.body);
         if (result.status === 200 && appointmentId) {

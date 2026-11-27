@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { cva } from "class-variance-authority";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverAnchor, PopoverContent } from "@/components/ui/popover";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 
 export type OfferingChoice = { id: string; name: string; duration_min: number | null };
+type ContactHit = { name: string; phone: string; source: "cliente" | "conversa" };
 
 const DURATIONS = [15, 30, 60] as const;
 
@@ -86,20 +87,45 @@ export function QuickCreatePopover({
     offerings: OfferingChoice[];
     error: string | null;
     onOpenChange: (open: boolean) => void;
-    onSave: (input: { offeringId: string; minutes: number; phone: string; customerName: string }) => void;
+    onSave: (input: { offeringId: string; minutes: number; phone: string; customerName: string; label: string }) => void;
 }) {
     const [offeringId, setOfferingId] = useState("");
     const [start, setStart] = useState(minutes);
     const [title, setTitle] = useState("");
+    const [name, setName] = useState("");
     const [phone, setPhone] = useState("");
+    const [hits, setHits] = useState<ContactHit[]>([]);
+    const picked = useRef("");
 
     useEffect(() => {
         if (!open) return;
         setStart(minutes);
         setTitle("");
+        setName("");
         setPhone("");
+        setHits([]);
+        picked.current = "";
         setOfferingId((current) => current || offerings[0]?.id || "");
     }, [open, minutes, offerings]);
+
+    useEffect(() => {
+        if (!open) return;
+        if (picked.current === `${name.trim()}|${phone.trim()}`) return;
+        const query = (name.trim().length >= 2 ? name : phone).trim();
+        if (query.length < 2) {
+            setHits([]);
+            return;
+        }
+        const handle = window.setTimeout(() => {
+            void fetch(`/api/admin/service/contacts?q=${encodeURIComponent(query)}`, { credentials: "include" })
+                .then((res) => res.json())
+                .then((json: { contacts?: ContactHit[] }) => {
+                    setHits(Array.isArray(json.contacts) ? json.contacts : []);
+                })
+                .catch(() => setHits([]));
+        }, 200);
+        return () => window.clearTimeout(handle);
+    }, [open, name, phone]);
 
     const offering = offerings.find((row) => row.id === offeringId) ?? null;
     const duration = offering?.duration_min ?? 30;
@@ -126,7 +152,7 @@ export function QuickCreatePopover({
                     onSubmit={(event) => {
                         event.preventDefault();
                         if (!offeringId) return;
-                        onSave({ offeringId, minutes: start, phone: phone.trim(), customerName: title.trim() });
+                        onSave({ offeringId, minutes: start, phone: phone.trim(), customerName: name.trim(), label: title.trim() });
                     }}
                 >
                     <div>
@@ -197,12 +223,46 @@ export function QuickCreatePopover({
                         ))}
                     </ToggleGroup>
                     <input
+                        value={name}
+                        onChange={(event) => setName(event.target.value)}
+                        placeholder="Nome do cliente"
+                        aria-label="Nome do cliente"
+                        className="rounded-md border border-zinc-200/80 bg-transparent px-2 py-1.5 text-sm outline-none focus-visible:ring-1 focus-visible:ring-zinc-400 dark:border-zinc-800/80"
+                    />
+                    <input
                         value={phone}
                         onChange={(event) => setPhone(event.target.value)}
                         placeholder="WhatsApp"
                         aria-label="WhatsApp"
                         className="rounded-md border border-zinc-200/80 bg-transparent px-2 py-1.5 font-mono text-sm tabular-nums outline-none focus-visible:ring-1 focus-visible:ring-zinc-400 dark:border-zinc-800/80"
                     />
+                    {hits.length === 0 ? (
+                        <p className="text-[11px] text-zinc-400">Digite o nome ou o WhatsApp para vincular um cliente salvo ou uma conversa.</p>
+                    ) : null}
+                    {hits.length > 0 ? (
+                        <ul role="listbox" aria-label="Contatos salvos" className="flex flex-col">
+                            {hits.map((hit) => (
+                                <li key={hit.phone}>
+                                    <button
+                                        type="button"
+                                        role="option"
+                                        className="flex w-full items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left hover:bg-zinc-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-400 dark:hover:bg-zinc-800/50"
+                                        onClick={() => {
+                                            picked.current = `${hit.name}|${hit.phone}`;
+                                            setName(hit.name);
+                                            setPhone(hit.phone);
+                                            setHits([]);
+                                        }}
+                                    >
+                                        <span className="truncate text-sm text-zinc-800 dark:text-zinc-100">{hit.name}</span>
+                                        <span className="shrink-0 font-mono text-[11px] tabular-nums text-zinc-400">
+                                            {hit.source === "cliente" ? "cliente" : "conversa"} {hit.phone}
+                                        </span>
+                                    </button>
+                                </li>
+                            ))}
+                        </ul>
+                    ) : null}
                     {error ? <p className="text-xs text-red-600 dark:text-red-400">{error}</p> : null}
                     <Button type="submit" size="sm" disabled={!offeringId}>
                         Salvar
@@ -217,6 +277,7 @@ export function EventPeek({
     open,
     rect,
     title,
+    person,
     category,
     when,
     phone,
@@ -233,6 +294,7 @@ export function EventPeek({
     open: boolean;
     rect: DOMRect | null;
     title: string;
+    person?: string;
     category: string;
     when: string;
     phone?: string;
@@ -258,6 +320,7 @@ export function EventPeek({
             <Anchor rect={rect} />
             <PopoverContent className="w-80">
                 <p className="text-sm font-medium text-zinc-900 dark:text-zinc-50">{title}</p>
+                {person ? <p className="mt-1 text-sm text-zinc-700 dark:text-zinc-200">{person}</p> : null}
                 <p className="mt-1 text-xs text-zinc-500">{category}</p>
                 <p className="mt-2 font-mono text-xs tabular-nums text-zinc-700 dark:text-zinc-200">{when}</p>
                 <p className="mt-2 text-xs text-zinc-500">{originLabel}</p>

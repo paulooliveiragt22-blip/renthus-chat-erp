@@ -25,6 +25,7 @@ type AppointmentMirror = {
     endsAt: string;
     offeringName: string;
     customerName: string | null;
+    label: string | null;
     googleEventId: string | null;
     timeZone: string;
     status: string;
@@ -90,6 +91,7 @@ async function loadMirror(admin: SupabaseClient, companyId: string, appointmentI
         endsAt: row.ends_at,
         offeringName: row.offering_name,
         customerName: typeof row.customer_name === "string" ? row.customer_name : null,
+        label: typeof row.label === "string" ? row.label : null,
         googleEventId: typeof row.google_event_id === "string" ? row.google_event_id : null,
         timeZone: typeof row.time_zone === "string" ? row.time_zone : "America/Cuiaba",
         status: typeof row.status === "string" ? row.status : "",
@@ -123,6 +125,7 @@ async function writeEvent(
     const body = googleEventBody({
         offeringName: mirror.offeringName,
         customerName: mirror.customerName,
+        label: mirror.label,
         startsAt: mirror.startsAt,
         endsAt: mirror.endsAt,
         timeZone: mirror.timeZone,

@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useState, type MouseEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
 import { cva } from "class-variance-authority";
 import { Bot, Calendar, ChevronLeft, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { AttendanceHours } from "@/components/service/agenda/AttendanceHours";
 import { GoogleCalendarConnect } from "@/components/service/GoogleCalendarConnect";
 import {
     EventPeek,
@@ -19,7 +20,7 @@ import { useServiceSnapshot } from "@/components/service/useServiceSnapshot";
 import { cn } from "@/lib/utils";
 
 type Origin = "google" | "whatsapp" | "admin";
-type View = "day" | "week" | "month";
+type View = "day" | "week" | "month" | "year";
 
 type LocalRow = {
     id: string;
@@ -28,6 +29,7 @@ type LocalRow = {
     ends_at?: string;
     phone_e164: string;
     customer_name: string | null;
+    label?: string | null;
     google_sync?: string | null;
     google_event_id?: string | null;
     source?: string | null;
@@ -55,6 +57,7 @@ type AgendaItem = {
     appointmentId?: string;
     failed?: boolean;
     phone?: string;
+    customerName?: string;
     googleEventId?: string | null;
     allDay?: boolean;
 };
@@ -71,10 +74,10 @@ const WEEKDAYS = [
     { id: "sab", label: "S" },
 ];
 
-const OPEN_MIN = 7 * 60;
-const CLOSE_MIN = 21 * 60;
+const OPEN_MIN = 0;
+const CLOSE_MIN = 24 * 60;
 const HOUR_REM = 3.5;
-const HOURS = Array.from({ length: (CLOSE_MIN - OPEN_MIN) / 60 + 1 }, (_, index) => OPEN_MIN / 60 + index);
+const HOURS = Array.from({ length: 24 }, (_, hour) => hour);
 
 const block = cva(
     "absolute z-10 overflow-hidden rounded-md border border-zinc-200/80 border-l-2 px-2 py-1 text-left transition-colors duration-150 hover:brightness-95 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-400 dark:border-zinc-800/80",
@@ -189,6 +192,7 @@ function bookMessage(code: string | undefined, fallback: string): string {
 }
 
 function periodLabel(view: View, selected: string, cursor: Date): string {
+    if (view === "year") return String(cursor.getFullYear());
     if (view === "month") return cursor.toLocaleDateString("pt-BR", { month: "long", year: "numeric" });
     if (view === "day") return parseDay(selected).toLocaleDateString("pt-BR", { day: "numeric", month: "long", year: "numeric" });
     const days = weekOf(selected);
@@ -198,6 +202,10 @@ function periodLabel(view: View, selected: string, cursor: Date): string {
 }
 
 function movePeriod(view: View, selected: string, cursor: Date, dir: number): { selected: string; cursor: Date } {
+    if (view === "year") {
+        const next = new Date(cursor.getFullYear() + dir, 0, 1);
+        return { selected: dayKey(next), cursor: next };
+    }
     if (view === "month") {
         const next = new Date(cursor.getFullYear(), cursor.getMonth() + dir, 1);
         return { selected: dayKey(next), cursor: next };
@@ -213,7 +221,7 @@ function typingTarget(target: EventTarget | null): boolean {
 }
 
 function nextFree(day: string, items: AgendaItem[]): number {
-    for (let minutes = OPEN_MIN; minutes < CLOSE_MIN; minutes += 30) {
+    for (let minutes = 7 * 60; minutes < CLOSE_MIN; minutes += 30) {
         const start = Date.parse(isoFrom(day, minutes));
         const end = start + 30 * 60_000;
         const busy = items.some((item) => item.day === day && item.sort < end && item.endSort > start);
@@ -314,17 +322,18 @@ export default function AgendaPage() {
     const [reloadKey, setReloadKey] = useState(0);
     const [createAt, setCreateAt] = useState<Point | null>(null);
     const [peek, setPeek] = useState<{ item: AgendaItem; rect: DOMRect } | null>(null);
+    const gridRef = useRef<HTMLDivElement>(null);
 
     const cells = useMemo(() => monthCells(cursor), [cursor]);
     const today = dayKey(new Date());
     const visibleDays = view === "week" ? weekOf(selected) : [parseDay(selected)];
     const weekKeys = new Set(weekOf(selected).map((day) => dayKey(day)));
 
-    async function load(visible: Date[]) {
+    async function load(visible: Date[], exclusiveEnd = false) {
         const from = new Date(visible[0]!);
         from.setHours(0, 0, 0, 0);
         const to = new Date(visible[visible.length - 1]!);
-        to.setDate(to.getDate() + 1);
+        if (!exclusiveEnd) to.setDate(to.getDate() + 1);
         to.setHours(0, 0, 0, 0);
         const [agendaRes, offeringRes] = await Promise.all([
             fetch(`/api/admin/service/agenda?from=${encodeURIComponent(from.toISOString())}&to=${encodeURIComponent(to.toISOString())}`, { credentials: "include", cache: "no-store" }),
@@ -339,7 +348,8 @@ export default function AgendaPage() {
             const origin: Origin = row.source === "whatsapp_button" ? "whatsapp" : "admin";
             return {
                 key: row.id,
-                title: row.customer_name?.trim() || row.offering_name,
+                title: row.label?.trim() || row.customer_name?.trim() || row.offering_name,
+                customerName: row.customer_name?.trim() || undefined,
                 offeringName: row.offering_name,
                 detail: row.google_sync === "failed" ? "Não entrou no Google" : row.phone_e164,
                 when: clock(row.starts_at),
@@ -378,15 +388,27 @@ export default function AgendaPage() {
     }
 
     useEffect(() => {
-        if (snapshot?.agendaEnabled) void load(cells);
-    }, [snapshot?.agendaEnabled, cursor, reloadKey]);
+        if (!snapshot?.agendaEnabled) return;
+        if (view === "year") {
+            void load([new Date(cursor.getFullYear(), 0, 1), new Date(cursor.getFullYear() + 1, 0, 1)], true);
+            return;
+        }
+        void load(cells);
+    }, [snapshot?.agendaEnabled, cursor, reloadKey, view]);
+
+    useEffect(() => {
+        if (view === "month" || view === "year") return;
+        const node = gridRef.current;
+        if (!node) return;
+        node.scrollTop = 7 * HOUR_REM * 16;
+    }, [view, selected]);
 
     useEffect(() => {
         function onKey(event: KeyboardEvent) {
             if (event.metaKey || event.ctrlKey || event.altKey || typingTarget(event.target)) return;
             const key = event.key.toLowerCase();
-            if (key === "d" || key === "w" || key === "m") {
-                setView(key === "d" ? "day" : key === "w" ? "week" : "month");
+            if (key === "d" || key === "w" || key === "m" || key === "y") {
+                setView(key === "d" ? "day" : key === "w" ? "week" : key === "m" ? "month" : "year");
                 return;
             }
             if (key !== "c") return;
@@ -420,7 +442,7 @@ export default function AgendaPage() {
         setCursor(next.cursor);
     }
 
-    async function book(input: { offeringId: string; minutes: number; phone: string; customerName: string }) {
+    async function book(input: { offeringId: string; minutes: number; phone: string; customerName: string; label: string }) {
         if (!createAt) return;
         if (input.phone.length < 8) {
             setError("Informe o WhatsApp para gravar o horário.");
@@ -436,6 +458,7 @@ export default function AgendaPage() {
                 startsAt: isoFrom(createAt.day, input.minutes),
                 phoneE164: input.phone,
                 customerName: input.customerName,
+                label: input.label,
                 idempotencyKey: `admin-${crypto.randomUUID()}`,
             }),
         });
@@ -507,6 +530,7 @@ export default function AgendaPage() {
                             <ChevronRight className="h-4 w-4" />
                         </button>
                     </div>
+                    <AttendanceHours />
                     <GoogleCalendarConnect onChange={() => setReloadKey((value) => value + 1)} />
                 </div>
                 <Tabs value={view} onValueChange={(value) => setView(value as View)}>
@@ -514,6 +538,7 @@ export default function AgendaPage() {
                         <TabsTrigger value="day">Dia</TabsTrigger>
                         <TabsTrigger value="week">Semana</TabsTrigger>
                         <TabsTrigger value="month">Mês</TabsTrigger>
+                        <TabsTrigger value="year">Ano</TabsTrigger>
                     </TabsList>
                 </Tabs>
             </header>
@@ -565,7 +590,46 @@ export default function AgendaPage() {
 
                 <section className="min-w-0 rounded-xl border border-zinc-200/80 bg-white dark:border-zinc-800/80 dark:bg-zinc-950">
                     {googleNote ? <p className="border-b border-amber-500/20 px-4 py-2 text-sm text-amber-700 dark:text-amber-300">{googleNote}</p> : null}
-                    {view === "month" ? (
+                    {view === "year" ? (
+                        <div className="grid grid-cols-2 gap-3 p-3 md:grid-cols-3 xl:grid-cols-4" aria-label={periodLabel(view, selected, cursor)}>
+                            {Array.from({ length: 12 }, (_, month) => {
+                                const days = monthCells(new Date(cursor.getFullYear(), month, 1));
+                                return (
+                                    <section key={month} className="min-w-0">
+                                        <p className="mb-1 text-xs capitalize text-zinc-500">
+                                            {new Date(cursor.getFullYear(), month, 1).toLocaleDateString("pt-BR", { month: "long" })}
+                                        </p>
+                                        <div className="grid grid-cols-7 gap-0.5">
+                                            {days.map((day) => {
+                                                const key = dayKey(day);
+                                                const inMonth = day.getMonth() === month;
+                                                const has = marked.has(key);
+                                                return (
+                                                    <button
+                                                        key={key}
+                                                        type="button"
+                                                        aria-label={day.toLocaleDateString("pt-BR", { day: "numeric", month: "long" })}
+                                                        onClick={() => {
+                                                            chooseDay(key);
+                                                            setView("day");
+                                                        }}
+                                                        className={cn(
+                                                            "flex h-6 items-center justify-center rounded-full font-mono text-[10px] tabular-nums focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-400",
+                                                            key === selected && "bg-primary text-white",
+                                                            key !== selected && has && "text-emerald-700 dark:text-emerald-300",
+                                                            !inMonth && "text-zinc-300 dark:text-zinc-600"
+                                                        )}
+                                                    >
+                                                        {day.getDate()}
+                                                    </button>
+                                                );
+                                            })}
+                                        </div>
+                                    </section>
+                                );
+                            })}
+                        </div>
+                    ) : view === "month" ? (
                         <div className="grid grid-cols-7" role="grid" aria-label={periodLabel(view, selected, cursor)}>
                             {WEEKDAYS.map((day) => (
                                 <div key={day.id} className="border-b border-zinc-200/80 px-2 py-2 text-center text-[11px] text-zinc-400 dark:border-zinc-800/80">{day.label}</div>
@@ -616,7 +680,7 @@ export default function AgendaPage() {
                             })}
                         </div>
                     ) : (
-                        <div className="overflow-x-auto">
+                        <div ref={gridRef} className="max-h-[calc(100dvh-14rem)] overflow-auto">
                             <div className={cn(view === "week" ? "min-w-[64rem]" : "min-w-[36rem]")}>
                                 <div className="sticky top-0 z-30 grid border-b border-zinc-200/80 bg-white dark:border-zinc-800/80 dark:bg-zinc-950" style={{ gridTemplateColumns: `3.5rem repeat(${visibleDays.length}, minmax(0,1fr))` }}>
                                     <div />
@@ -685,6 +749,7 @@ export default function AgendaPage() {
                 open={peek != null}
                 rect={peek?.rect ?? null}
                 title={peek?.item.title ?? ""}
+                person={peek?.item.customerName && peek.item.customerName !== peek.item.title ? peek.item.customerName : undefined}
                 category={peek?.item.offeringName ?? ""}
                 when={peek?.item.when ?? ""}
                 phone={peek?.item.phone}

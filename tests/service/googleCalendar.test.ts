@@ -35,6 +35,17 @@ describe("agenda do Google", () => {
             timeZone: "America/Cuiaba",
         });
         assert.equal(body.summary, "Corte — Ana");
+        assert.equal(
+            googleEventBody({
+                offeringName: "Corte",
+                customerName: "Ana",
+                label: "Visita para orçamento",
+                startsAt: SLOT,
+                endsAt: LATER,
+                timeZone: "America/Cuiaba",
+            }).summary,
+            "Visita para orçamento — Ana"
+        );
         assert.equal(JSON.stringify(body).includes("5565"), false);
         assert.equal(
             googleScopesGranted("openid email https://www.googleapis.com/auth/calendar.events"),
