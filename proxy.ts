@@ -388,7 +388,12 @@ function isTechnicalApiPublic(pathname: string): boolean {
         /** Cardápio web público (rate limit nas próprias rotas). */
         pathname.startsWith("/api/public/") ||
         /** Health check pra monitor externo de uptime — sem cookie de sessão. */
-        pathname === "/api/health"
+        pathname === "/api/health" ||
+        /**
+         * Retorno do Google Calendar. A navegação sai de accounts.google.com e o
+         * cookie de sessão não vem junto; o handler autentica pelo state HMAC.
+         */
+        pathname === "/api/admin/google-calendar/callback"
     );
 }
 
@@ -396,6 +401,9 @@ function isPublicAppRoute(pathname: string): boolean {
     return (
         pathname.startsWith("/login") ||
         pathname.startsWith("/auth") ||
+        /** Fecha o popup do Google sem exigir sessão. A Agenda continua na aba de origem. */
+        pathname === "/oauth/google-done" ||
+        pathname.startsWith("/oauth/google-done/") ||
         pathname.startsWith("/billing/blocked") ||
         pathname.startsWith("/signup") ||
         pathname === "/inicio" ||

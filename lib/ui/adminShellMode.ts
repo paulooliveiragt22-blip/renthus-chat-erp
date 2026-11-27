@@ -28,6 +28,7 @@ export function isAdminShellStandalone(
         pathname.startsWith("/c/") ||
         pathname === "/c" ||
         pathname.startsWith("/superadmin") ||
-        pathname.startsWith("/platform")
+        pathname.startsWith("/platform") ||
+        pathname.startsWith("/oauth/")
     );
 }

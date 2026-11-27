@@ -1,8 +1,15 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
+} from "@/components/ui/dialog";
 
 type GoogleStatus = {
     configured?: boolean;
@@ -26,6 +33,9 @@ export function GoogleCalendarConnect({ onChange }: { onChange?: () => void }) {
     const [notice, setNotice] = useState<string | null>(null);
     const [busy, setBusy] = useState(false);
     const [confirmOff, setConfirmOff] = useState(false);
+    const [connectOpen, setConnectOpen] = useState(false);
+    const [waiting, setWaiting] = useState(false);
+    const watchRef = useRef<number | null>(null);
 
     function reload() {
         void fetch("/api/admin/google-calendar", { credentials: "include", cache: "no-store" })
@@ -39,7 +49,48 @@ export function GoogleCalendarConnect({ onChange }: { onChange?: () => void }) {
         const code = new URLSearchParams(window.location.search).get("google");
         if (code) setNotice(NOTICES[code] ?? NOTICES.erro);
         reload();
+        return () => {
+            if (watchRef.current != null) window.clearInterval(watchRef.current);
+        };
     }, []);
+
+    useEffect(() => {
+        function onMessage(event: MessageEvent) {
+            if (event.origin !== window.location.origin) return;
+            const data = event.data as { type?: unknown; google?: unknown } | null;
+            if (!data || data.type !== "renthus-google-calendar" || typeof data.google !== "string") return;
+            setNotice(NOTICES[data.google] ?? NOTICES.erro);
+            setConnectOpen(false);
+            setWaiting(false);
+            reload();
+            if (data.google === "conectado") onChange?.();
+        }
+        window.addEventListener("message", onMessage);
+        return () => window.removeEventListener("message", onMessage);
+    }, [onChange]);
+
+    function openGoogle() {
+        const popup = window.open(
+            "/api/admin/google-calendar/start",
+            "renthus_google_calendar",
+            "popup=yes,width=480,height=720,scrollbars=yes,resizable=yes"
+        );
+        if (!popup) {
+            setNotice("O navegador bloqueou a janela do Google. Permita pop-ups neste site e tente de novo.");
+            return;
+        }
+        setWaiting(true);
+        if (watchRef.current != null) window.clearInterval(watchRef.current);
+        watchRef.current = window.setInterval(() => {
+            if (!popup.closed) return;
+            if (watchRef.current != null) window.clearInterval(watchRef.current);
+            watchRef.current = null;
+            setWaiting(false);
+            setConnectOpen(false);
+            reload();
+            onChange?.();
+        }, 700);
+    }
 
     async function disconnect() {
         setBusy(true);
@@ -77,12 +128,13 @@ export function GoogleCalendarConnect({ onChange }: { onChange?: () => void }) {
                 >
                     <span className="truncate">{label}</span>
                 </Button>
-            ) : configured ? (
-                <Button asChild className="rounded-full bg-accent text-accent-foreground hover:bg-accent-dark">
-                    <a href="/api/admin/google-calendar/start">{label}</a>
-                </Button>
             ) : (
-                <Button type="button" className="rounded-full" disabled>
+                <Button
+                    type="button"
+                    className="rounded-full bg-accent text-accent-foreground hover:bg-accent-dark"
+                    disabled={!configured || waiting}
+                    onClick={() => setConnectOpen(true)}
+                >
                     {label}
                 </Button>
             )}
@@ -90,14 +142,34 @@ export function GoogleCalendarConnect({ onChange }: { onChange?: () => void }) {
                 <p className="max-w-48 truncate text-xs text-zinc-500 dark:text-zinc-400">{status.email}</p>
             ) : null}
             {notice ? <p className="max-w-64 text-xs text-zinc-600 dark:text-zinc-300">{notice}</p> : null}
+            <Dialog open={connectOpen} onOpenChange={setConnectOpen}>
+                <DialogContent className="max-w-md">
+                    <DialogHeader>
+                        <DialogTitle>Conectar o Google</DialogTitle>
+                        <DialogDescription>
+                            {waiting
+                                ? "Conclua a autorização na janela do Google. Esta Agenda continua aberta."
+                                : "A Agenda continua nesta tela. O Google abre numa janela para autorizar a leitura e a marcação dos horários."}
+                        </DialogDescription>
+                    </DialogHeader>
+                    <DialogFooter>
+                        <Button type="button" variant="outline" onClick={() => setConnectOpen(false)}>
+                            Fechar
+                        </Button>
+                        <Button type="button" disabled={waiting} onClick={openGoogle}>
+                            Continuar
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
             <Dialog open={confirmOff} onOpenChange={setConfirmOff}>
-                <DialogContent>
+                <DialogContent className="max-w-md">
                     <DialogHeader>
                         <DialogTitle>Desconectar o Google?</DialogTitle>
+                        <DialogDescription>
+                            A agenda deixa de carregar os horários dessa conta. Os horários já marcados no sistema continuam.
+                        </DialogDescription>
                     </DialogHeader>
-                    <p className="text-sm text-zinc-600 dark:text-zinc-300">
-                        A agenda deixa de carregar os horários dessa conta. Os horários já marcados no sistema continuam.
-                    </p>
                     <DialogFooter>
                         <Button type="button" variant="outline" onClick={() => setConfirmOff(false)}>
                             Cancelar

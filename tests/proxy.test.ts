@@ -111,6 +111,16 @@ describe("proxy auth routing", () => {
         assert.strictEqual(response.headers.get("location"), null);
     });
 
+    it("exempts the Google Calendar return (state HMAC, sem cookie de sessão)", async () => {
+        for (const path of ["/api/admin/google-calendar/callback", "/oauth/google-done"]) {
+            const response = await proxy(createRequest(path), undefined, {
+                createClient: factory,
+            });
+            assert.strictEqual(response.headers.get("location"), null, path);
+        }
+        assert.strictEqual(factory.mock.calls.length, 0);
+    });
+
     it("exempts /api/health (monitor externo de uptime, sem cookie)", async () => {
         const response = await proxy(createRequest("/api/health"), undefined, {
             createClient: factory,

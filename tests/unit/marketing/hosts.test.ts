@@ -67,5 +67,6 @@ describe("marketing host", () => {
         assert.equal(isAdminShellStandalone("/agente", "app.zampell.com.br", env), true);
         assert.equal(isAdminShellStandalone("/atendimento", "app.zampell.com.br", env), false);
         assert.equal(isAdminShellStandalone("/pdv", "app.renthus.com.br", env), false);
+        assert.equal(isAdminShellStandalone("/oauth/google-done", "app.zampell.com.br", env), true);
     });
 });

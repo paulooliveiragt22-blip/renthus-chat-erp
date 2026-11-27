@@ -27,6 +27,8 @@ export const CREATE_ADMIN_GATE_PATTERNS: readonly RegExp[] = [
     /createServerClient\s*\(/,
     /createClient\s*\(/, // sessão cookie (@/lib/supabase/server) na própria rota
     /\.auth\.getUser\s*\(/,
+    /** Retorno OAuth do Google: sem cookie; o state HMAC autoriza companyId+userId. */
+    /parseGoogleOAuthState\s*\(/,
 ];
 
 /**
