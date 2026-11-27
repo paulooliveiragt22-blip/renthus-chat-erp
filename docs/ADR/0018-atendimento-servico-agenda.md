@@ -304,9 +304,9 @@ A lista que o cliente lê é montada no servidor, uma linha por plano, e termina
 
 ### D11 — Agenda do Google
 
-Em 2026-11-27 o dono pediu a conexão no painel. Uma empresa de serviço conecta uma conta Google. O cliente final não autoriza nada. Delivery não ganha essa conexão.
+Em 2026-11-27 o dono pediu a conexão no painel. No mesmo dia, o botão ficou na aba Agenda, no canto superior esquerdo, e a tela passou a ser o mês. Uma empresa de serviço conecta uma conta Google. O cliente final não autoriza nada. Delivery não ganha essa conexão.
 
-O horário marcado continua nascendo em `service_appointments`. A conta Google faz duas coisas: a vaga ocupada nessa agenda não é oferecida nem confirmada; o horário confirmado vira um evento, o cancelamento apaga o evento e a remarcação move o mesmo evento. Se a gravação do evento falhar depois que o Postgres já gravou, a marcação fica e a agenda do painel mostra “Não entrou no Google”. Sem conta conectada, o turno segue só no Postgres.
+O horário marcado continua nascendo em `service_appointments`. A conta Google faz três coisas: a vaga ocupada nessa agenda não é oferecida nem confirmada; o mês da aba Agenda mostra os eventos dessa conta junto com os horários do sistema; o horário confirmado vira um evento, o cancelamento apaga o evento e a remarcação move o mesmo evento. O evento que o sistema gravou não aparece duas vezes. Se a gravação do evento falhar depois que o Postgres já gravou, a marcação fica e o dia mostra “Não entrou no Google”. Sem conta conectada, o turno e o mês seguem só no Postgres.
 
 Escopos: e-mail da conta, livre/ocupado (`calendar.freebusy`) e eventos (`calendar.events`). Não pede a agenda inteira. O refresh token fica cifrado com `CREDENTIALS_ENCRYPTION_KEY` em `service_google_connections`. O browser não recebe o token.
 
@@ -499,7 +499,7 @@ Não começar sem pedido explícito de implementar. Marcar no próprio item. A o
 - [x] Interruptor de cancelar e de remarcar: Switch Radix, `disabled` quando a agenda está desligada.
 - [x] Contexto, ofertas, agenda, cards e rótulos: Dialog Radix, skeleton, `truncate` / `line-clamp`, `dark:`, sem largura em pixel solto.
 - [x] Agenda só com `agenda_enabled`. Cards só com `cases_enabled`. URL de delivery recusada no layout quando o modo é serviço.
-- [x] Painel de atendimento conecta uma conta Google. O token não volta ao browser. Sem as variáveis do cliente, o botão fica desligado.
+- [x] A aba Agenda tem o botão do Google no canto superior esquerdo e o mês mostra a conta junto com os horários do sistema. O token não volta ao browser. Sem as variáveis do cliente, o botão fica desligado.
 - [x] Rota nova no inventário de `createAdminClient`. `company_id` da sessão. Zod na borda.
 - [x] Trilho da inbox de serviço não chama `/cart` nem `/orders`.
 

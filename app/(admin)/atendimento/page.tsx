@@ -5,7 +5,6 @@ import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Skeleton } from "@/components/ui/skeleton";
-import { GoogleCalendarConnect } from "@/components/service/GoogleCalendarConnect";
 import { ServiceFaqPanel } from "@/components/service/ServiceFaqPanel";
 import { useServiceSnapshot } from "@/components/service/useServiceSnapshot";
 import { siteChatPageUrl } from "@/src/service/domain/siteChat";
@@ -167,8 +166,6 @@ export default function AtendimentoPage() {
                     </ul>
                 </div>
             ) : null}
-
-            <GoogleCalendarConnect />
 
             <div className="flex flex-col gap-4 rounded-xl border border-zinc-200 p-4 dark:border-zinc-800">
                 <FlagRow

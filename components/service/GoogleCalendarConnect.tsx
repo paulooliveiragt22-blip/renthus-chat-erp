@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
 type GoogleStatus = {
     configured?: boolean;
@@ -20,23 +21,24 @@ const NOTICES: Record<string, string> = {
     erro: "Não foi possível conectar o Google.",
 };
 
-export function GoogleCalendarConnect() {
+export function GoogleCalendarConnect({ onChange }: { onChange?: () => void }) {
     const [status, setStatus] = useState<GoogleStatus | null>(null);
     const [notice, setNotice] = useState<string | null>(null);
     const [busy, setBusy] = useState(false);
+    const [confirmOff, setConfirmOff] = useState(false);
+
+    function reload() {
+        void fetch("/api/admin/google-calendar", { credentials: "include", cache: "no-store" })
+            .then(async (res) => {
+                setStatus(res.ok ? ((await res.json()) as GoogleStatus) : { configured: false, connected: false });
+            })
+            .catch(() => setStatus({ configured: false, connected: false }));
+    }
 
     useEffect(() => {
         const code = new URLSearchParams(window.location.search).get("google");
         if (code) setNotice(NOTICES[code] ?? NOTICES.erro);
-        void fetch("/api/admin/google-calendar", { credentials: "include", cache: "no-store" })
-            .then(async (res) => {
-                if (!res.ok) {
-                    setStatus({ configured: false, connected: false });
-                    return;
-                }
-                setStatus((await res.json()) as GoogleStatus);
-            })
-            .catch(() => setStatus({ configured: false, connected: false }));
+        reload();
     }, []);
 
     async function disconnect() {
@@ -51,8 +53,10 @@ export function GoogleCalendarConnect() {
                 setNotice("Não foi possível desconectar.");
                 return;
             }
+            setConfirmOff(false);
             setStatus({ configured: status?.configured === true, connected: false, email: null, link_status: null });
-            setNotice("Agenda do Google desconectada. Os horários já marcados continuam no sistema.");
+            setNotice("Agenda do Google desconectada. Os horários do sistema continuam.");
+            onChange?.();
         } finally {
             setBusy(false);
         }
@@ -60,41 +64,50 @@ export function GoogleCalendarConnect() {
 
     const configured = status?.configured === true;
     const connected = status?.connected === true && Boolean(status.email);
-    const revoked = status?.link_status === "revoked";
+    const label = connected ? "Sincronizado" : "Conectar Google";
 
     return (
-        <section className="flex flex-col gap-3 rounded-xl border border-zinc-200 p-4 dark:border-zinc-800">
-            <div>
-                <h2 className="text-sm font-medium text-zinc-900 dark:text-zinc-50">Agenda do Google</h2>
-                <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-300">
-                    A conta conectada esconde horários já ocupados e recebe o horário confirmado. Sem essa conta, a agenda do sistema segue sozinha.
-                </p>
-            </div>
-            {status === null ? (
-                <p className="text-sm text-zinc-500 dark:text-zinc-400">Carregando…</p>
-            ) : connected ? (
-                <p className="truncate text-sm text-zinc-800 dark:text-zinc-100">{status?.email}</p>
-            ) : revoked ? (
-                <p className="text-sm text-zinc-600 dark:text-zinc-300">A autorização expirou. Conecte de novo.</p>
-            ) : configured ? (
-                <p className="text-sm text-zinc-600 dark:text-zinc-300">Nenhuma conta conectada.</p>
-            ) : (
-                <p className="text-sm text-zinc-600 dark:text-zinc-300">O servidor ainda não tem o cliente do Google.</p>
-            )}
+        <div className="flex min-w-0 flex-col items-start gap-1">
             {connected ? (
-                <Button type="button" variant="outline" disabled={busy} onClick={() => void disconnect()}>
-                    Desconectar
+                <Button
+                    type="button"
+                    className="max-w-full rounded-full bg-accent text-accent-foreground hover:bg-accent-dark"
+                    disabled={busy}
+                    onClick={() => setConfirmOff(true)}
+                >
+                    <span className="truncate">{label}</span>
                 </Button>
             ) : configured ? (
-                <Button asChild>
-                    <a href="/api/admin/google-calendar/start">Conectar Google</a>
+                <Button asChild className="rounded-full bg-accent text-accent-foreground hover:bg-accent-dark">
+                    <a href="/api/admin/google-calendar/start">{label}</a>
                 </Button>
             ) : (
-                <Button type="button" disabled>
-                    Conectar Google
+                <Button type="button" className="rounded-full" disabled>
+                    {label}
                 </Button>
             )}
-            {notice ? <p className="text-sm text-zinc-600 dark:text-zinc-300">{notice}</p> : null}
-        </section>
+            {connected && status?.email ? (
+                <p className="max-w-48 truncate text-xs text-zinc-500 dark:text-zinc-400">{status.email}</p>
+            ) : null}
+            {notice ? <p className="max-w-64 text-xs text-zinc-600 dark:text-zinc-300">{notice}</p> : null}
+            <Dialog open={confirmOff} onOpenChange={setConfirmOff}>
+                <DialogContent>
+                    <DialogHeader>
+                        <DialogTitle>Desconectar o Google?</DialogTitle>
+                    </DialogHeader>
+                    <p className="text-sm text-zinc-600 dark:text-zinc-300">
+                        A agenda deixa de carregar os horários dessa conta. Os horários já marcados no sistema continuam.
+                    </p>
+                    <DialogFooter>
+                        <Button type="button" variant="outline" onClick={() => setConfirmOff(false)}>
+                            Cancelar
+                        </Button>
+                        <Button type="button" disabled={busy} onClick={() => void disconnect()}>
+                            Desconectar
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+        </div>
     );
 }

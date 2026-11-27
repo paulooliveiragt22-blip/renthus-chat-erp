@@ -163,6 +163,7 @@ describe("turno de serviço", () => {
             },
             mirrorCancelled: async () => undefined,
             mirrorMoved: async () => undefined,
+            listWindow: async () => ({ connected: false, unavailable: false, events: [] }),
         };
         await executeServiceTurn({ ...base, text: "svc_confirm_slot" }, harness.bundle);
         assert.equal(harness.confirms, 0);

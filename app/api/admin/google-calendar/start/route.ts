@@ -7,7 +7,7 @@ import { createGoogleOAuthState } from "@/src/service/adapters/google/googleOAut
 export const runtime = "nodejs";
 
 function panel(code: string): NextResponse {
-    const url = new URL("/atendimento", appPublicOrigin());
+    const url = new URL("/agenda", appPublicOrigin());
     url.searchParams.set("google", code);
     return NextResponse.redirect(url);
 }

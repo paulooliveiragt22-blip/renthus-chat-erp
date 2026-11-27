@@ -8,6 +8,7 @@ import {
     deleteGoogleEvent,
     googleCalendarConfigured,
     insertGoogleEvent,
+    listGoogleEvents,
     patchGoogleEvent,
     queryGoogleBusy,
     refreshGoogleAccessToken,
@@ -242,6 +243,16 @@ export function createGoogleCalendarPort(admin: SupabaseClient): ServiceCalendar
             } catch {
                 await mark(admin, companyId, toAppointmentId, null, "failed");
             }
+        },
+        async listWindow(companyId, fromIso, toIso) {
+            const ready = await loadReady(admin, companyId);
+            if (ready === "off") return { connected: false, unavailable: false, events: [] };
+            if (typeof ready === "string") return { connected: true, unavailable: true, events: [] };
+            const token = await accessToken(admin, companyId, ready);
+            if (typeof token !== "string") return { connected: true, unavailable: true, events: [] };
+            const listed = await listGoogleEvents(token, ready.calendarId, fromIso, toIso);
+            if (!listed.ok) return { connected: true, unavailable: true, events: [] };
+            return { connected: true, unavailable: false, events: listed.events };
         },
     };
 }

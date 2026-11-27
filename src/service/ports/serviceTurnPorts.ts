@@ -15,6 +15,20 @@ export type ServiceSlotList = ServiceCommandResult & { slots: string[]; duration
 
 export type GoogleGate = "off" | "free" | "busy" | "unavailable" | "missing";
 
+export type GoogleCalendarEvent = {
+    id: string;
+    summary: string;
+    startsAt: string;
+    endsAt: string;
+    allDay: boolean;
+};
+
+export type GoogleWindow = {
+    connected: boolean;
+    unavailable: boolean;
+    events: GoogleCalendarEvent[];
+};
+
 export type ServiceCalendarPort = {
     gateOpenSlot(companyId: string, threadId: string): Promise<GoogleGate>;
     gateOffering(companyId: string, offeringId: string, startsAt: string): Promise<GoogleGate>;
@@ -27,6 +41,7 @@ export type ServiceCalendarPort = {
     mirrorBooked(companyId: string, appointmentId: string): Promise<void>;
     mirrorCancelled(companyId: string, appointmentId: string): Promise<void>;
     mirrorMoved(companyId: string, fromAppointmentId: string, toAppointmentId: string): Promise<void>;
+    listWindow(companyId: string, fromIso: string, toIso: string): Promise<GoogleWindow>;
 };
 
 export type ServiceDataPort = {

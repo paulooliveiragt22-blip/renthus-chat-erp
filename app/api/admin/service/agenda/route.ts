@@ -12,13 +12,49 @@ function commandId(body: unknown): string | null {
 
 export const runtime = "nodejs";
 
-export async function GET() {
+export async function GET(req: Request) {
     const ctx = await requireCapability("settings.company");
     if (!ctx.ok) return NextResponse.json({ error: ctx.error }, { status: ctx.status });
-    const result = await callServiceRpc(ctx.admin, "rpc_service_list_company_appointments", {
+    const url = new URL(req.url);
+    const from = url.searchParams.get("from");
+    const to = url.searchParams.get("to");
+    if (!from || !to) {
+        const result = await callServiceRpc(ctx.admin, "rpc_service_list_company_appointments", {
+            p_company_id: ctx.companyId,
+        });
+        return NextResponse.json(result.body, { status: result.status });
+    }
+    const fromMs = Date.parse(from);
+    const toMs = Date.parse(to);
+    if (!Number.isFinite(fromMs) || !Number.isFinite(toMs) || toMs <= fromMs) {
+        return NextResponse.json({ ok: false, code: "google_invalid" }, { status: 400 });
+    }
+    const result = await callServiceRpc(ctx.admin, "rpc_service_list_appointments_range", {
         p_company_id: ctx.companyId,
+        p_from: new Date(fromMs).toISOString(),
+        p_to: new Date(toMs).toISOString(),
     });
-    return NextResponse.json(result.body, { status: result.status });
+    const body = result.body && typeof result.body === "object" ? (result.body as { rows?: unknown; ok?: unknown }) : {};
+    const rows = Array.isArray(body.rows) ? body.rows : [];
+    const ownIds = new Set(
+        rows.flatMap((row) => {
+            if (!row || typeof row !== "object") return [];
+            const id = (row as { google_event_id?: unknown }).google_event_id;
+            return typeof id === "string" && id ? [id] : [];
+        })
+    );
+    const google = await createGoogleCalendarPort(ctx.admin).listWindow(ctx.companyId, new Date(fromMs).toISOString(), new Date(toMs).toISOString());
+    return NextResponse.json(
+        {
+            ...body,
+            google: {
+                connected: google.connected,
+                unavailable: google.unavailable,
+                events: google.events.filter((event) => !ownIds.has(event.id)),
+            },
+        },
+        { status: result.status }
+    );
 }
 
 export async function POST(req: Request) {

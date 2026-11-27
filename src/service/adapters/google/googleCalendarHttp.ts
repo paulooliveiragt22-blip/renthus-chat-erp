@@ -154,6 +154,56 @@ export async function queryGoogleBusy(
     return { ok: true, busy };
 }
 
+export type GoogleListedEvent = {
+    id: string;
+    summary: string;
+    startsAt: string;
+    endsAt: string;
+    allDay: boolean;
+};
+
+export async function listGoogleEvents(
+    accessToken: string,
+    calendarId: string,
+    timeMin: string,
+    timeMax: string
+): Promise<{ ok: true; events: GoogleListedEvent[] } | { ok: false }> {
+    const events: GoogleListedEvent[] = [];
+    let pageToken = "";
+    for (let page = 0; page < 4; page += 1) {
+        const url = new URL(`${CALENDAR_API}/calendars/${encodeURIComponent(calendarId)}/events`);
+        url.searchParams.set("timeMin", timeMin);
+        url.searchParams.set("timeMax", timeMax);
+        url.searchParams.set("singleEvents", "true");
+        url.searchParams.set("orderBy", "startTime");
+        url.searchParams.set("maxResults", "250");
+        if (pageToken) url.searchParams.set("pageToken", pageToken);
+        const res = await googleFetch(url.toString(), { headers: { Authorization: `Bearer ${accessToken}` } });
+        if (!res.ok) return { ok: false };
+        const json = asRecord(await res.json().catch(() => null));
+        const items = Array.isArray(json?.items) ? json.items : [];
+        for (const item of items) {
+            const row = asRecord(item);
+            if (!row || row.status === "cancelled" || typeof row.id !== "string") continue;
+            const start = asRecord(row.start);
+            const end = asRecord(row.end);
+            const allDay = typeof start?.date === "string";
+            const startsAt = allDay ? `${start?.date}T00:00:00` : typeof start?.dateTime === "string" ? start.dateTime : "";
+            const endsAt = allDay
+                ? `${typeof end?.date === "string" ? end.date : start?.date}T00:00:00`
+                : typeof end?.dateTime === "string"
+                  ? end.dateTime
+                  : "";
+            if (!startsAt || !endsAt) continue;
+            const summary = typeof row.summary === "string" && row.summary.trim() ? row.summary.trim() : "Sem título";
+            events.push({ id: row.id, summary: summary.slice(0, 200), startsAt, endsAt, allDay });
+        }
+        pageToken = typeof json?.nextPageToken === "string" ? json.nextPageToken : "";
+        if (!pageToken) break;
+    }
+    return { ok: true, events };
+}
+
 export async function insertGoogleEvent(
     accessToken: string,
     calendarId: string,
