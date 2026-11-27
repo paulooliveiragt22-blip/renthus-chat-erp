@@ -10,21 +10,25 @@ import {
     DialogTitle,
     DialogTrigger,
 } from "@/components/ui/dialog";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 
-const DAYS: { dow: number; label: string }[] = [
-    { dow: 1, label: "Segunda" },
-    { dow: 2, label: "Terça" },
-    { dow: 3, label: "Quarta" },
-    { dow: 4, label: "Quinta" },
-    { dow: 5, label: "Sexta" },
-    { dow: 6, label: "Sábado" },
-    { dow: 0, label: "Domingo" },
+const DAYS: { dow: number; short: string; label: string }[] = [
+    { dow: 1, short: "Seg", label: "Segunda" },
+    { dow: 2, short: "Ter", label: "Terça" },
+    { dow: 3, short: "Qua", label: "Quarta" },
+    { dow: 4, short: "Qui", label: "Quinta" },
+    { dow: 5, short: "Sex", label: "Sexta" },
+    { dow: 6, short: "Sáb", label: "Sábado" },
+    { dow: 0, short: "Dom", label: "Domingo" },
 ];
+
+const WEEKDAYS = ["1", "2", "3", "4", "5"];
 
 type Window = { dow: number; open: string; close: string };
 type Shifts = { open: string; close: string; open2: string; close2: string };
 
 const EMPTY: Shifts = { open: "", close: "", open2: "", close2: "" };
+const SAMPLE: Shifts = { open: "07:00", close: "11:00", open2: "13:00", close2: "17:00" };
 
 function rowsFrom(windows: Window[]): Record<number, Shifts> {
     const next: Record<number, Shifts> = {};
@@ -43,21 +47,48 @@ function rowsFrom(windows: Window[]): Record<number, Shifts> {
     return next;
 }
 
+function describe(row: Shifts): string {
+    const parts = [
+        row.open && row.close ? `${row.open}–${row.close}` : "",
+        row.open2 && row.close2 ? `${row.open2}–${row.close2}` : "",
+    ].filter(Boolean);
+    return parts.length > 0 ? parts.join(" · ") : "fechado";
+}
+
 export function AttendanceHours() {
     const [open, setOpen] = useState(false);
     const [rows, setRows] = useState<Record<number, Shifts>>(() => rowsFrom([]));
+    const [template, setTemplate] = useState<Shifts>(SAMPLE);
+    const [selected, setSelected] = useState<string[]>(WEEKDAYS);
     const [note, setNote] = useState<string | null>(null);
     const [saving, setSaving] = useState(false);
 
     async function load() {
         const res = await fetch("/api/admin/service/hours", { credentials: "include", cache: "no-store" });
         const json = (await res.json().catch(() => ({}))) as { windows?: Window[] };
-        setRows(rowsFrom(Array.isArray(json.windows) ? json.windows : []));
+        const next = rowsFrom(Array.isArray(json.windows) ? json.windows : []);
+        setRows(next);
+        const sample = DAYS.map((day) => next[day.dow]).find((row) => row && row.open && row.close);
+        if (sample) setTemplate({ ...sample });
         setNote(null);
     }
 
-    function setField(dow: number, key: keyof Shifts, value: string) {
-        setRows((current) => ({ ...current, [dow]: { ...current[dow], [key]: value } }));
+    function setTemplateField(key: keyof Shifts, value: string) {
+        setTemplate((current) => ({ ...current, [key]: value }));
+    }
+
+    function apply() {
+        if (selected.length === 0) {
+            setNote("Marque pelo menos um dia para aplicar o turno.");
+            return;
+        }
+        setRows((current) => {
+            const next = { ...current };
+            for (const id of selected) next[Number(id)] = { ...template };
+            return next;
+        });
+        const names = DAYS.filter((day) => selected.includes(String(day.dow))).map((day) => day.label);
+        setNote(`Turno aplicado em ${names.join(", ")}. Salve para valer no WhatsApp.`);
     }
 
     async function save() {
@@ -76,7 +107,7 @@ export function AttendanceHours() {
         });
         setSaving(false);
         if (!res.ok) {
-            setNote("Não foi possível salvar o expediente. Cada turno precisa terminar depois de começar, no máximo dois por dia.");
+            setNote("Não foi possível salvar. Cada turno precisa terminar depois de começar.");
             return;
         }
         setNote(windows.length === 0 ? "Expediente limpo. A marcação volta ao horário já salvo da empresa." : "Expediente salvo. Fora desses turnos o WhatsApp não marca.");
@@ -91,7 +122,7 @@ export function AttendanceHours() {
             }}
         >
             <DialogTrigger asChild>
-                <Button type="button" size="sm" variant="ghost" className="h-8 rounded-full px-3">
+                <Button type="button" size="sm" variant="outline" className="h-8 rounded-full px-3">
                     Expediente
                 </Button>
             </DialogTrigger>
@@ -99,27 +130,76 @@ export function AttendanceHours() {
                 <DialogHeader>
                     <DialogTitle>Expediente do atendimento</DialogTitle>
                     <DialogDescription>
-                        Segunda a sexta, por exemplo, 07:00–11:00 e 13:00–17:00. Fora desses turnos o WhatsApp não marca horário. Isso não muda a grade do dia, que continua das 00:00 às 24:00.
+                        Monte um turno e aplique nos dias que quiser. Dá para repetir com outro horário em outros dias.
                     </DialogDescription>
                 </DialogHeader>
                 <div className="flex flex-col gap-3">
-                    {DAYS.map((day) => {
-                        const row = rows[day.dow] ?? EMPTY;
-                        return (
-                            <div key={day.dow} className="grid grid-cols-[5.5rem_1fr] items-center gap-2">
-                                <p className="text-sm text-zinc-700 dark:text-zinc-200">{day.label}</p>
-                                <div className="flex flex-wrap items-center gap-1">
-                                    <TimeField label={`Abertura da ${day.label}`} value={row.open} onChange={(value) => setField(day.dow, "open", value)} />
-                                    <span className="text-xs text-zinc-400">às</span>
-                                    <TimeField label={`Fechamento da ${day.label}`} value={row.close} onChange={(value) => setField(day.dow, "close", value)} />
-                                    <span className="px-1 text-xs text-zinc-300">e</span>
-                                    <TimeField label={`Segunda abertura da ${day.label}`} value={row.open2} onChange={(value) => setField(day.dow, "open2", value)} />
-                                    <span className="text-xs text-zinc-400">às</span>
-                                    <TimeField label={`Segundo fechamento da ${day.label}`} value={row.close2} onChange={(value) => setField(day.dow, "close2", value)} />
-                                </div>
-                            </div>
-                        );
-                    })}
+                    <div className="flex flex-wrap items-center gap-2">
+                        <TimeField label="Abertura" value={template.open} onChange={(value) => setTemplateField("open", value)} />
+                        <span className="text-xs text-zinc-400">às</span>
+                        <TimeField label="Fechamento" value={template.close} onChange={(value) => setTemplateField("close", value)} />
+                        <span className="px-1 text-xs text-zinc-300">e</span>
+                        <TimeField label="Segunda abertura" value={template.open2} onChange={(value) => setTemplateField("open2", value)} />
+                        <span className="text-xs text-zinc-400">às</span>
+                        <TimeField label="Segundo fechamento" value={template.close2} onChange={(value) => setTemplateField("close2", value)} />
+                    </div>
+                    <div className="flex flex-wrap gap-1">
+                        <Button type="button" size="sm" variant="ghost" className="h-7 px-2" onClick={() => setSelected(WEEKDAYS)}>
+                            Dias úteis
+                        </Button>
+                        <Button type="button" size="sm" variant="ghost" className="h-7 px-2" onClick={() => setSelected(["6"])}>
+                            Sábado
+                        </Button>
+                        <Button type="button" size="sm" variant="ghost" className="h-7 px-2" onClick={() => setSelected(["0"])}>
+                            Domingo
+                        </Button>
+                        <Button type="button" size="sm" variant="ghost" className="h-7 px-2" onClick={() => setSelected(DAYS.map((day) => String(day.dow)))}>
+                            Todos
+                        </Button>
+                    </div>
+                    <ToggleGroup
+                        type="multiple"
+                        value={selected}
+                        onValueChange={setSelected}
+                        className="flex flex-wrap justify-start gap-1"
+                        aria-label="Dias do turno"
+                    >
+                        {DAYS.map((day) => (
+                            <ToggleGroupItem
+                                key={day.dow}
+                                value={String(day.dow)}
+                                className="h-7 rounded-full border border-zinc-200/80 px-2 data-[state=on]:bg-zinc-900 data-[state=on]:text-white dark:border-zinc-800/80 dark:data-[state=on]:bg-zinc-100 dark:data-[state=on]:text-zinc-900"
+                            >
+                                {day.short}
+                            </ToggleGroupItem>
+                        ))}
+                    </ToggleGroup>
+                    <Button type="button" size="sm" variant="outline" onClick={apply}>
+                        Aplicar nestes dias
+                    </Button>
+                    <ul className="flex flex-col gap-1 border-t border-zinc-200/80 pt-3 dark:border-zinc-800/80">
+                        {DAYS.map((day) => {
+                            const row = rows[day.dow] ?? EMPTY;
+                            return (
+                                <li key={day.dow} className="flex items-center justify-between gap-2">
+                                    <p className="text-sm text-zinc-700 dark:text-zinc-200">
+                                        {day.label}{" "}
+                                        <span className="font-mono text-xs tabular-nums text-zinc-500">{describe(row)}</span>
+                                    </p>
+                                    <button
+                                        type="button"
+                                        className="text-xs text-zinc-500 underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-400"
+                                        onClick={() => {
+                                            setTemplate({ ...row });
+                                            setSelected([String(day.dow)]);
+                                        }}
+                                    >
+                                        Usar este
+                                    </button>
+                                </li>
+                            );
+                        })}
+                    </ul>
                 </div>
                 {note ? <p className="text-xs text-zinc-500">{note}</p> : null}
                 <Button type="button" size="sm" onClick={() => void save()} disabled={saving}>
