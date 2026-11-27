@@ -24,6 +24,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/ui/empty-state";
 import { toast } from "sonner";
+import { optionalCustomerAddress } from "@/lib/customers/optionalAddress";
 import { useWorkspace } from "@/lib/workspace/useWorkspace";
 import { loadAdminListSnapshotEntries } from "@/lib/offline/browserStores";
 
@@ -82,6 +83,7 @@ interface VendaPrazo {
 const EMPTY_FORM = {
   name: "", phone: "", email: "", cpf_cnpj: "", tipo_pessoa: "PF" as "PF"|"PJ",
   limite_credito: "0", notes: "",
+  addr_logradouro: "", addr_numero: "", addr_bairro: "", addr_cidade: "", addr_estado: "", addr_cep: "",
 };
 
 const EMPTY_ADDR = {
@@ -217,6 +219,7 @@ type CustomerFormModalProps = Readonly<{
   saving: boolean;
   onClose: () => void;
   onSave: () => void;
+  onCep?: (value: string) => void;
 }>;
 
 function CustomerFormModal({
@@ -227,6 +230,7 @@ function CustomerFormModal({
   saving,
   onClose,
   onSave,
+  onCep,
 }: CustomerFormModalProps) {
   const uid = useId();
   const idName = `${uid}-name`;
@@ -352,6 +356,38 @@ function CustomerFormModal({
               </div>
               <p className="mt-1 text-[10px] text-zinc-500">Deixe 0 para desabilitar pagamento A Prazo para este cliente.</p>
             </div>
+            {!editingId ? (
+              <>
+                <div className="col-span-2">
+                  <p className="text-[11px] font-semibold uppercase tracking-widest text-zinc-400">Endereço</p>
+                  <p className="mt-1 text-[10px] text-zinc-500">Opcional. Se preencher, informe rua, número, bairro, cidade e UF.</p>
+                </div>
+                <div>
+                  <label htmlFor={`${uid}-cep`} className="mb-1 block text-[11px] font-semibold uppercase tracking-widest text-zinc-400">CEP</label>
+                  <input id={`${uid}-cep`} value={form.addr_cep} onChange={(e) => void onCep?.(e.target.value)} className="w-full rounded-xl border border-zinc-700 bg-zinc-800 px-3 py-2 font-mono text-sm tabular-nums text-zinc-100 focus:border-violet-500 focus:outline-none" placeholder="00000-000" />
+                </div>
+                <div>
+                  <label htmlFor={`${uid}-num`} className="mb-1 block text-[11px] font-semibold uppercase tracking-widest text-zinc-400">Número</label>
+                  <input id={`${uid}-num`} value={form.addr_numero} onChange={(e) => setForm((p) => ({ ...p, addr_numero: e.target.value }))} className="w-full rounded-xl border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-100 focus:border-violet-500 focus:outline-none" />
+                </div>
+                <div className="col-span-2">
+                  <label htmlFor={`${uid}-log`} className="mb-1 block text-[11px] font-semibold uppercase tracking-widest text-zinc-400">Logradouro</label>
+                  <input id={`${uid}-log`} value={form.addr_logradouro} onChange={(e) => setForm((p) => ({ ...p, addr_logradouro: e.target.value }))} className="w-full rounded-xl border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-100 focus:border-violet-500 focus:outline-none" />
+                </div>
+                <div>
+                  <label htmlFor={`${uid}-bairro`} className="mb-1 block text-[11px] font-semibold uppercase tracking-widest text-zinc-400">Bairro</label>
+                  <input id={`${uid}-bairro`} value={form.addr_bairro} onChange={(e) => setForm((p) => ({ ...p, addr_bairro: e.target.value }))} className="w-full rounded-xl border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-100 focus:border-violet-500 focus:outline-none" />
+                </div>
+                <div>
+                  <label htmlFor={`${uid}-cidade`} className="mb-1 block text-[11px] font-semibold uppercase tracking-widest text-zinc-400">Cidade</label>
+                  <input id={`${uid}-cidade`} value={form.addr_cidade} onChange={(e) => setForm((p) => ({ ...p, addr_cidade: e.target.value }))} className="w-full rounded-xl border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-100 focus:border-violet-500 focus:outline-none" />
+                </div>
+                <div>
+                  <label htmlFor={`${uid}-uf`} className="mb-1 block text-[11px] font-semibold uppercase tracking-widest text-zinc-400">UF</label>
+                  <input id={`${uid}-uf`} value={form.addr_estado} maxLength={2} onChange={(e) => setForm((p) => ({ ...p, addr_estado: e.target.value.toUpperCase() }))} className="w-full rounded-xl border border-zinc-700 bg-zinc-800 px-3 py-2 font-mono text-sm uppercase text-zinc-100 focus:border-violet-500 focus:outline-none" />
+                </div>
+              </>
+            ) : null}
             <div className="col-span-2">
               <label htmlFor={idNotes} className="mb-1 block text-[11px] font-semibold uppercase tracking-widest text-zinc-400">
                 Observações
@@ -675,12 +711,27 @@ export default function ClientesPage() {
       tipo_pessoa:    c.tipo_pessoa ?? "PF",
       limite_credito: String(c.limite_credito ?? 0),
       notes:          c.notes ?? "",
+      addr_logradouro: "", addr_numero: "", addr_bairro: "", addr_cidade: "", addr_estado: "", addr_cep: "",
     });
     setShowForm(true);
   };
 
   const saveCustomer = async () => {
     if (!companyId || !form.name.trim() || !form.phone.trim()) return;
+    const address = editingId
+      ? { ok: true as const, address: null }
+      : optionalCustomerAddress({
+          logradouro: form.addr_logradouro,
+          numero: form.addr_numero,
+          bairro: form.addr_bairro,
+          cidade: form.addr_cidade,
+          estado: form.addr_estado,
+          cep: form.addr_cep,
+        });
+    if (!address.ok) {
+      toast.error("Complete o endereço ou deixe os campos em branco.");
+      return;
+    }
     setSaving(true);
     const payload = {
       name:           form.name.trim(),
@@ -707,10 +758,14 @@ export default function ClientesPage() {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
+        body: JSON.stringify({ ...payload, ...(address.address ? { address: address.address } : {}) }),
       });
       const json = await res.json().catch(() => ({}));
-      if (!res.ok) { toast.error("Erro: " + (json?.error ?? "falha")); setSaving(false); return; }
+      if (!res.ok) {
+        toast.error(json?.error === "address_incomplete" ? "Complete o endereço ou deixe os campos em branco." : "Erro: " + (json?.error ?? "falha"));
+        setSaving(false);
+        return;
+      }
       setCustomers(p => [json.customer as Customer, ...p]);
     }
     setSaving(false);
@@ -722,6 +777,22 @@ export default function ClientesPage() {
     await fetch(`/api/admin/customers?id=${encodeURIComponent(id)}`, { method: "DELETE", credentials: "include" });
     setCustomers(p => p.filter(c => c.id !== id));
     if (selected?.id === id) setSelected(null);
+  };
+
+  const handleFormCep = async (val: string) => {
+    setForm((p) => ({ ...p, addr_cep: val }));
+    if (digitsOnly(val).length === 8) {
+      const d = await fetchCep(val);
+      if (d) {
+        setForm((p) => ({
+          ...p,
+          addr_logradouro: d.logradouro,
+          addr_bairro: d.bairro,
+          addr_cidade: d.cidade,
+          addr_estado: d.estado,
+        }));
+      }
+    }
   };
 
   const handleCepChange = async (val: string) => {
@@ -1080,6 +1151,7 @@ export default function ClientesPage() {
         saving={saving}
         onClose={() => setShowForm(false)}
         onSave={saveCustomer}
+        onCep={(value) => void handleFormCep(value)}
       />
 
       <AddressFormModal

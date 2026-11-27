@@ -26,9 +26,11 @@ import {
     ShoppingBag,
     ShoppingCart,
     Square,
+    UserPlus,
     Wallet,
     X,
 } from "lucide-react";
+import { SaveCustomerDialog } from "@/components/whatsapp/SaveCustomerDialog";
 import type {
     ActiveCart,
     CustomerOrder,
@@ -231,6 +233,7 @@ export default function WhatsAppInbox({ initialPhone }: { initialPhone?: string 
     const [profileOpen,     setProfileOpen]     = useState(true);
     const [customerProfile, setCustomerProfile] = useState<CustomerProfile | null>(null);
     const [loadingProfile,  setLoadingProfile]  = useState(false);
+    const [saveCustomerOpen, setSaveCustomerOpen] = useState(false);
 
     // carrinho ativo da thread (sessão do bot / abandonado) — facilita fechar pedido no atendimento humano
     const [activeCart,   setActiveCart]   = useState<ActiveCart | null>(null);
@@ -1144,6 +1147,16 @@ export default function WhatsAppInbox({ initialPhone }: { initialPhone?: string 
                             </div>
 
                             <div className="flex shrink-0 items-center gap-2">
+                                {selectedThread.phone_e164 && !loadingProfile && !customerProfile ? (
+                                    <button
+                                        type="button"
+                                        onClick={() => setSaveCustomerOpen(true)}
+                                        className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-200/80 px-2.5 py-1.5 text-xs font-medium text-zinc-700 transition-colors duration-150 hover:bg-zinc-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-400 dark:border-zinc-800/80 dark:text-zinc-200 dark:hover:bg-zinc-800/50"
+                                    >
+                                        <UserPlus className="h-3.5 w-3.5" aria-hidden />
+                                        Salvar cliente
+                                    </button>
+                                ) : null}
                                 {/* Toggle bot */}
                                 <div className="flex items-center gap-2 rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-1.5 dark:border-zinc-700 dark:bg-zinc-800">
                                     <span className="text-[11px] font-medium text-zinc-600 dark:text-zinc-400">Bot</span>
@@ -1466,6 +1479,19 @@ export default function WhatsAppInbox({ initialPhone }: { initialPhone?: string 
                     </div>
                 </InlineModal>
             )}
+
+            {selectedThread?.phone_e164 ? (
+                <SaveCustomerDialog
+                    open={saveCustomerOpen}
+                    name={selectedThread.profile_name ?? ""}
+                    phone={selectedThread.phone_e164}
+                    onOpenChange={setSaveCustomerOpen}
+                    onSaved={() => {
+                        profileCacheRef.current.delete(selectedThread.id);
+                        void loadCustomerProfile(selectedThread.id);
+                    }}
+                />
+            ) : null}
 
             {/* ── MODAL: encerrar sessão / limpar carrinho ───────────────── */}
             {resetSessionOpen && selectedThread && (

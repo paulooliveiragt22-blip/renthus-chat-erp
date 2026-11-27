@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { optionalCustomerAddress } from "@/lib/customers/optionalAddress";
 import { requireCapability } from "@/lib/workspace/rbac/requireCapability";
 import { checkRateLimit, RATE_LIMIT_WINDOW_MS } from "@/lib/security/rateLimit";
 import {
@@ -130,6 +131,13 @@ export async function POST(req: Request) {
     const name = String(body.name ?? "").trim();
     const phone = String(body.phone ?? "").trim();
     if (!name || !phone) return NextResponse.json({ error: "name_phone_required" }, { status: 400 });
+    const addressInput = body.address;
+    const address = optionalCustomerAddress(
+        addressInput && typeof addressInput === "object" && !Array.isArray(addressInput)
+            ? (addressInput as Record<string, string | null>)
+            : null
+    );
+    if (!address.ok) return NextResponse.json({ error: "address_incomplete" }, { status: 400 });
 
     const { data: newId, error } = await admin.rpc("rpc_upsert_customer_with_primary_address", {
         p_company_id: companyId,
@@ -144,10 +152,15 @@ export async function POST(req: Request) {
                 limite_credito: Number.parseFloat(String(body.limite_credito ?? "0")) || 0,
                 notes: String(body.notes ?? "").trim() || null,
             },
+            ...(address.address ? { address: address.address } : {}),
         },
     });
 
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    if (error) {
+        const code = (error as { code?: string }).code;
+        if (code === "23505") return NextResponse.json({ error: "already_customer" }, { status: 409 });
+        return NextResponse.json({ error: error.message }, { status: 500 });
+    }
     const { data, error: selErr } = await admin
         .from("customers")
         .select(EXPORT_SELECT)
