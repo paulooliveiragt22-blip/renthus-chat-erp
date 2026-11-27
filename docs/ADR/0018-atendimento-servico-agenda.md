@@ -53,7 +53,7 @@ O que o banco não tem: modo da empresa, texto do que a empresa faz, oferta, vag
 
 `opening_periods` não tem dia da semana. Sem turno cadastrado, o delivery trata a loja como aberta. Na agenda isso marcaria qualquer hora. A marcação de serviço recusa empresa sem turno.
 
-Decisão do dono em 2026-11-27: o expediente do atendimento fica em `service_profiles.attendance_windows` (até dois turnos `{dow, open, close}` por dia da semana). É essa janela que o painel e o WhatsApp consultam antes de marcar. Não é o `opening_periods` da loja e não é a grade visual. A grade mostra o dia inteiro, 00:00–24:00, no mesmo recorte de um evento com hora do Google Agenda. Sem janelas salvas, a marcação continua no `opening_periods`. Com janelas salvas, um dia sem turno fica fechado.
+Decisão do dono em 2026-11-27: o painel pode gravar um evento sem oferta. A duração, nesse caso, é 15, 30 ou 60 minutos e o fim é calculado no banco. O WhatsApp continua marcando só em cima de uma oferta. O expediente do atendimento fica em `service_profiles.attendance_windows` (até dois turnos `{dow, open, close}` por dia da semana). É essa janela que o painel e o WhatsApp consultam antes de marcar. Não é o `opening_periods` da loja e não é a grade visual. A grade mostra o dia inteiro, 00:00–24:00, no mesmo recorte de um evento com hora do Google Agenda. Sem janelas salvas, a marcação continua no `opening_periods`. Com janelas salvas, um dia sem turno fica fechado.
 
 A policy `service_role_only` fecha o browser. O worker usa `service_role` e ignora essa policy. Quem isola a empresa é a função.
 

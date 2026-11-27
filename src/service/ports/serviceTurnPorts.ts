@@ -32,6 +32,7 @@ export type GoogleWindow = {
 export type ServiceCalendarPort = {
     gateOpenSlot(companyId: string, threadId: string): Promise<GoogleGate>;
     gateOffering(companyId: string, offeringId: string, startsAt: string): Promise<GoogleGate>;
+    gateSpan(companyId: string, startsAt: string, endsAt: string): Promise<GoogleGate>;
     gateMoved(companyId: string, appointmentId: string, startsAt: string): Promise<GoogleGate>;
     filterSlots(
         companyId: string,

@@ -24,7 +24,7 @@ type View = "day" | "week" | "month" | "year";
 
 type LocalRow = {
     id: string;
-    offering_name: string;
+    offering_name: string | null;
     starts_at: string;
     ends_at?: string;
     phone_e164: string;
@@ -348,16 +348,16 @@ export default function AgendaPage() {
             const origin: Origin = row.source === "whatsapp_button" ? "whatsapp" : "admin";
             return {
                 key: row.id,
-                title: row.label?.trim() || row.customer_name?.trim() || row.offering_name,
+                title: row.label?.trim() || row.customer_name?.trim() || row.offering_name?.trim() || "Evento",
                 customerName: row.customer_name?.trim() || undefined,
-                offeringName: row.offering_name,
+                offeringName: row.offering_name?.trim() || "Evento",
                 detail: row.google_sync === "failed" ? "Não entrou no Google" : row.phone_e164,
                 when: clock(row.starts_at),
                 sort: Date.parse(row.starts_at),
                 endSort: Date.parse(row.ends_at || row.starts_at),
                 day: keyFromIso(row.starts_at),
                 origin,
-                tone: toneFor(row.offering_name),
+                tone: toneFor(row.offering_name?.trim() || row.label?.trim() || "Evento"),
                 appointmentId: row.id,
                 failed: row.google_sync === "failed",
                 phone: row.phone_e164,
@@ -442,7 +442,7 @@ export default function AgendaPage() {
         setCursor(next.cursor);
     }
 
-    async function book(input: { offeringId: string; minutes: number; phone: string; customerName: string; label: string }) {
+    async function book(input: { offeringId: string | null; durationMin: 15 | 30 | 60; minutes: number; phone: string; customerName: string; label: string }) {
         if (!createAt) return;
         if (input.phone.length < 8) {
             setError("Informe o WhatsApp para gravar o horário.");
@@ -455,6 +455,7 @@ export default function AgendaPage() {
             body: JSON.stringify({
                 action: "book",
                 offeringId: input.offeringId,
+                durationMin: input.durationMin,
                 startsAt: isoFrom(createAt.day, input.minutes),
                 phoneE164: input.phone,
                 customerName: input.customerName,

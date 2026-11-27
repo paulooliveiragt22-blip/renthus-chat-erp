@@ -65,7 +65,8 @@ export const siteChatRepliesSchema = z.object({
 });
 
 export const adminBookSchema = z.object({
-    offeringId: z.string().uuid(),
+    offeringId: z.string().uuid().nullish(),
+    durationMin: z.union([z.literal(15), z.literal(30), z.literal(60)]),
     startsAt: z.string().min(16),
     phoneE164: z.string().trim().min(8).max(20),
     customerName: z.string().trim().max(80).optional(),

@@ -74,7 +74,7 @@ export function googleEventBody(input: {
 }): { summary: string; start: { dateTime: string; timeZone: string }; end: { dateTime: string; timeZone: string } } {
     const who = input.customerName?.trim() ?? "";
     const subject = input.label?.trim() ?? "";
-    const summary = (
+    const summary = ((
         subject.length > 0
             ? who.length > 0
                 ? `${subject} — ${who}`
@@ -82,7 +82,7 @@ export function googleEventBody(input: {
             : who.length > 0
               ? `${input.offeringName} — ${who}`
               : input.offeringName
-    ).slice(0, 200);
+    ).trim() || "Evento").slice(0, 200);
     return {
         summary,
         start: { dateTime: input.startsAt, timeZone: input.timeZone },

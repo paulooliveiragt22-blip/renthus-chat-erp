@@ -87,9 +87,17 @@ export function QuickCreatePopover({
     offerings: OfferingChoice[];
     error: string | null;
     onOpenChange: (open: boolean) => void;
-    onSave: (input: { offeringId: string; minutes: number; phone: string; customerName: string; label: string }) => void;
+    onSave: (input: {
+        offeringId: string | null;
+        durationMin: (typeof DURATIONS)[number];
+        minutes: number;
+        phone: string;
+        customerName: string;
+        label: string;
+    }) => void;
 }) {
     const [offeringId, setOfferingId] = useState("");
+    const [chosenDuration, setChosenDuration] = useState<(typeof DURATIONS)[number]>(30);
     const [start, setStart] = useState(minutes);
     const [title, setTitle] = useState("");
     const [name, setName] = useState("");
@@ -105,8 +113,9 @@ export function QuickCreatePopover({
         setPhone("");
         setHits([]);
         picked.current = "";
-        setOfferingId((current) => current || offerings[0]?.id || "");
-    }, [open, minutes, offerings]);
+        setOfferingId("");
+        setChosenDuration(30);
+    }, [open, minutes]);
 
     useEffect(() => {
         if (!open) return;
@@ -128,12 +137,13 @@ export function QuickCreatePopover({
     }, [open, name, phone]);
 
     const offering = offerings.find((row) => row.id === offeringId) ?? null;
-    const duration = offering?.duration_min ?? 30;
+    const duration = offering?.duration_min ?? chosenDuration;
 
     function pickDuration(value: string) {
         const minutesWanted = Number(value);
-        const match = offerings.find((row) => row.duration_min === minutesWanted);
-        if (match) setOfferingId(match.id);
+        if (minutesWanted !== 15 && minutesWanted !== 30 && minutesWanted !== 60) return;
+        setOfferingId("");
+        setChosenDuration(minutesWanted);
     }
 
     return (
@@ -151,8 +161,15 @@ export function QuickCreatePopover({
                     className="flex flex-col gap-3"
                     onSubmit={(event) => {
                         event.preventDefault();
-                        if (!offeringId) return;
-                        onSave({ offeringId, minutes: start, phone: phone.trim(), customerName: name.trim(), label: title.trim() });
+                        const chip = duration === 15 || duration === 30 || duration === 60 ? duration : chosenDuration;
+                        onSave({
+                            offeringId: offeringId || null,
+                            durationMin: chip,
+                            minutes: start,
+                            phone: phone.trim(),
+                            customerName: name.trim(),
+                            label: title.trim(),
+                        });
                     }}
                 >
                     <div>
@@ -166,15 +183,11 @@ export function QuickCreatePopover({
                             className="mt-1 w-full border-0 border-b border-zinc-200/80 bg-transparent py-1 text-sm outline-none focus-visible:border-zinc-400 dark:border-zinc-800/80"
                         />
                     </div>
-                    {offerings.length === 0 ? (
-                        <p className="text-xs text-zinc-500">Cadastre uma oferta com duração para marcar.</p>
-                    ) : (
+                    {offerings.length > 0 ? (
                         <ToggleGroup
                             type="single"
                             value={offeringId}
-                            onValueChange={(value) => {
-                                if (value) setOfferingId(value);
-                            }}
+                            onValueChange={setOfferingId}
                             className="flex flex-wrap justify-start gap-1"
                             aria-label="Oferta"
                         >
@@ -189,7 +202,7 @@ export function QuickCreatePopover({
                                 </ToggleGroupItem>
                             ))}
                         </ToggleGroup>
-                    )}
+                    ) : null}
                     <div className="flex items-center gap-2">
                         <input
                             type="time"
@@ -209,13 +222,12 @@ export function QuickCreatePopover({
                         value={String(duration)}
                         onValueChange={pickDuration}
                         className="flex justify-start gap-1"
-                        aria-label="Duração da oferta"
+                        aria-label="Duração"
                     >
                         {DURATIONS.map((value) => (
                             <ToggleGroupItem
                                 key={value}
                                 value={String(value)}
-                                disabled={!offerings.some((row) => row.duration_min === value)}
                                 className="h-7 rounded-full border border-zinc-200/80 px-2 font-mono tabular-nums data-[state=on]:bg-zinc-900 data-[state=on]:text-white dark:border-zinc-800/80 dark:data-[state=on]:bg-zinc-100 dark:data-[state=on]:text-zinc-900"
                             >
                                 {value === 60 ? "1h" : `${value}m`}
@@ -264,7 +276,7 @@ export function QuickCreatePopover({
                         </ul>
                     ) : null}
                     {error ? <p className="text-xs text-red-600 dark:text-red-400">{error}</p> : null}
-                    <Button type="submit" size="sm" disabled={!offeringId}>
+                    <Button type="submit" size="sm">
                         Salvar
                     </Button>
                 </form>

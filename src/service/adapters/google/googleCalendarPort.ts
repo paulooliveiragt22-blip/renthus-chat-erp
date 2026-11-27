@@ -85,11 +85,10 @@ async function loadMirror(admin: SupabaseClient, companyId: string, appointmentI
         p_appointment_id: appointmentId,
     });
     if (!row || row.ok !== true || typeof row.starts_at !== "string" || typeof row.ends_at !== "string") return null;
-    if (typeof row.offering_name !== "string") return null;
     return {
         startsAt: row.starts_at,
         endsAt: row.ends_at,
-        offeringName: row.offering_name,
+        offeringName: typeof row.offering_name === "string" ? row.offering_name : "",
         customerName: typeof row.customer_name === "string" ? row.customer_name : null,
         label: typeof row.label === "string" ? row.label : null,
         googleEventId: typeof row.google_event_id === "string" ? row.google_event_id : null,
@@ -167,6 +166,9 @@ export function createGoogleCalendarPort(admin: SupabaseClient): ServiceCalendar
                 return "off";
             }
             return gateWindow(admin, companyId, row.starts_at, row.ends_at);
+        },
+        async gateSpan(companyId, startsAt, endsAt) {
+            return gateWindow(admin, companyId, startsAt, endsAt);
         },
         async gateMoved(companyId, appointmentId, startsAt) {
             const current = await loadMirror(admin, companyId, appointmentId);

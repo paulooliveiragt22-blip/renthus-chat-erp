@@ -156,6 +156,7 @@ describe("turno de serviço", () => {
         harness.bundle.calendar = {
             gateOpenSlot: async () => "busy",
             gateOffering: async () => "off",
+            gateSpan: async () => "off",
             gateMoved: async () => "off",
             filterSlots: async (_companyId, slots) => ({ slots: [...slots], gate: "off" }),
             mirrorBooked: async () => {
