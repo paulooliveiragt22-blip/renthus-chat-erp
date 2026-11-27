@@ -212,6 +212,25 @@ body {
 [data-slot="dialog-content"] {
   transform: translate(-50%, -50%);
 }
+[data-slot="dialog-content"].agenda-drawer,
+[data-slot="dialog-content"].agenda-drawer.animate-in,
+[data-slot="dialog-content"].agenda-drawer.animate-out {
+  top: 0;
+  right: 0;
+  left: auto;
+  height: 100dvh;
+  max-height: 100dvh;
+  width: min(24rem, 100%);
+  max-width: 24rem;
+  border-radius: 0;
+  transform: none;
+}
+[data-slot="dialog-content"].agenda-drawer.animate-in {
+  animation-name: dialog-fade-in;
+}
+[data-slot="dialog-content"].agenda-drawer.animate-out {
+  animation-name: dialog-fade-out;
+}
 @media (max-width: 1023px) {
   [data-slot="dialog-content"].sheet-full,
   [data-slot="dialog-content"].sheet-full.animate-in,

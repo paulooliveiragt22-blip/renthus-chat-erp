@@ -17,7 +17,15 @@ Strictly adhere to the following technical skills and behavioral rules for all U
 - **Rule 1: Never Reinvent the Wheel.** For complex interactive components (Dialogs, Modals, Selects, Dropdowns, Switches, Tabs, Tooltips), you MUST use `@radix-ui` primitives. Do not write custom `useState` logic for opening/closing or managing visual states if Radix provides a native mechanism.
 - **Rule 2: Type Everything Strictly.** All UI components must extend their native HTML element attributes (e.g., `React.ButtonHTMLAttributes<HTMLButtonElement>`). Extract CVA variants using `VariantProps<typeof variantObject>` and export them so IDE autocomplete functions flawlessly.
 - **Rule 3: Design Tokens Only.** Rely strictly on Tailwind's design tokens (colors, spacing, typography). Ensure flawless dark mode support using Tailwind's `dark:` modifier when applicable, mapping attributes to data-states (e.g., `data-[state=checked]`).
-- **Rule 4: Pragmatic & Production-Ready.** Write minimal, highly cohesive code. Do not include boilerplate comments or verbose explanations unless explicitly asked. The code must be clean enough to be pushed directly to production.
+- **Rule 4: Pragmatic & Production-Ready.** Write minimal, highly cohesive code. Do not include boilerplate comments or verbose explanations unless explicitly asked. The code must be clean enough to be pushed directly 0to production.
 ---
+### 🎨 VISUAL POLISH & HIGH-TECH AESTHETIC (IN-PLACE REFACTOR ONLY)
+When modifying existing UI, DO NOT rewrite component logic, Radix structures, or layout architecture. Only upgrade visual classes, typography, borders, and micro-interactions:
+1. **Surface & Borders (Linear/Vercel Style):** Replace heavy drop shadows (`shadow-md`, `shadow-lg`) with razor-thin `1px` borders (`border-zinc-800/80` in dark mode, `border-zinc-200/80` in light mode) and subtle surface layering (`bg-zinc-950` base, `bg-zinc-900/50` cards, `backdrop-blur-md` for sticky headers/modals).
+2. **Technical Data Typography:** Apply `font-mono tabular-nums` to all dynamic technical metadata: Google Calendar sync timestamps, appointment hours, WhatsApp phone numbers, event IDs, and AI latency/status counters.
+3. **Live Status & Telemetry Indicators:** Upgrade static status texts ("Conectado", "Ativo", "Sincronizado") into high-tech status pills (`bg-emerald-500/10 text-emerald-400 border border-emerald-500/20`) paired with a subtle animated status dot (`animate-pulse`) for Google Calendar sync and WhatsApp AI bot states.
+4. **Interactive Micro-Polish:** Add smooth transitions (`transition-all duration-150`), crisp focus rings (`focus-visible:ring-1 focus-visible:ring-zinc-400`), and subtle hover highlights (`hover:bg-zinc-800/50`) on table rows, calendar slots, and buttons.
+
 alwaysApply: true
+
 ---

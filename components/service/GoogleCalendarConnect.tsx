@@ -122,11 +122,13 @@ export function GoogleCalendarConnect({ onChange }: { onChange?: () => void }) {
             {connected ? (
                 <Button
                     type="button"
-                    className="max-w-full rounded-full bg-accent text-accent-foreground hover:bg-accent-dark"
+                    variant="ghost"
+                    className="h-8 max-w-64 gap-2 rounded-full border border-emerald-500/20 bg-emerald-500/10 px-3 text-xs font-medium text-emerald-700 hover:bg-emerald-500/15 dark:text-emerald-300"
                     disabled={busy}
                     onClick={() => setConfirmOff(true)}
                 >
-                    <span className="truncate">{label}</span>
+                    <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-400 motion-safe:animate-pulse" aria-hidden />
+                    <span className="truncate font-mono tabular-nums">{status?.email}</span>
                 </Button>
             ) : (
                 <Button
@@ -138,9 +140,6 @@ export function GoogleCalendarConnect({ onChange }: { onChange?: () => void }) {
                     {label}
                 </Button>
             )}
-            {connected && status?.email ? (
-                <p className="max-w-48 truncate text-xs text-zinc-500 dark:text-zinc-400">{status.email}</p>
-            ) : null}
             {notice ? <p className="max-w-64 text-xs text-zinc-600 dark:text-zinc-300">{notice}</p> : null}
             <Dialog open={connectOpen} onOpenChange={setConnectOpen}>
                 <DialogContent className="max-w-md">
