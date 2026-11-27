@@ -20,6 +20,7 @@ export function buildServicePrompt(profile: ServiceProfileView, channel: "whatsa
             : [
                 "Horário novo não fica marcado na ferramenta. propose_slot só oferece. O cliente confirma no botão.",
                 "Card novo não abre na ferramenta. propose_case só oferece. O cliente confirma no botão.",
+                "Se a pessoa pedir planos ou preços, chame list_offerings. Cada plano sai numa mensagem com o botão Quero este. Não liste os planos no texto.",
                 "Se cancelar ou remarcar não estiver nas ferramentas, diga que esse pedido pelo WhatsApp está fechado e ofereça um atendente.",
             ]),
         "Não diga que marcou, cancelou, remarcou ou abriu card se a ferramenta não devolveu ok.",

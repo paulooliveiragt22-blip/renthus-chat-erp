@@ -55,12 +55,7 @@ export function speakOfferings(offerings: readonly ServiceOfferingView[]): strin
     for (const key of ["Delivery", "Office", "outros"] as const) {
         const rows = offerings
             .filter((offering) => groupOf(offering.name) === key)
-            .sort((a, b) => {
-                const family = (name: string) =>
-                    name.includes("Essencial") ? 0 : /\bPro\b/u.test(name) ? 1 : name.includes("Market") ? 2 : 3;
-                const period = (name: string) => (name.endsWith(" mensal") ? 0 : name.endsWith(" anual") ? 1 : 2);
-                return family(a.name) - family(b.name) || period(a.name) - period(b.name) || a.name.localeCompare(b.name, "pt-BR");
-            });
+            .sort(compareOfferings);
         if (rows.length === 0) continue;
         const title = GROUP_TITLE[key];
         const lines = rows.map(planLine);
@@ -130,9 +125,88 @@ export type SitePlanCard = {
 };
 
 export type SiteSalesStep =
-    | { kind: "catalog" | "benefits" | "ask_name" | "ask_plan"; body: string }
+    | { kind: "catalog" | "ask_name" | "ask_plan"; body: string }
+    | { kind: "benefits"; body: string; offering: ServiceOfferingView }
     | { kind: "period"; body: string; rows: ServiceOfferingView[] }
     | { kind: "save"; name: string; phone: string; interest: string };
+
+export const PLAN_SIGNUP_BUTTON = "Quero este";
+
+export const WHATSAPP_PLAN_INTRO =
+    "Estes são os planos. Toque em Quero este para abrir o cadastro com esse plano.";
+
+export type WhatsappPlanBubble =
+    | { kind: "cta"; body: string; path: string }
+    | { kind: "text"; body: string };
+
+function compareOfferings(a: ServiceOfferingView, b: ServiceOfferingView): number {
+    const family = (name: string) =>
+        name.includes("Essencial") ? 0 : /\bPro\b/u.test(name) ? 1 : name.includes("Market") ? 2 : 3;
+    const period = (name: string) => (name.endsWith(" mensal") ? 0 : name.endsWith(" anual") ? 1 : 2);
+    return family(a.name) - family(b.name) || period(a.name) - period(b.name) || a.name.localeCompare(b.name, "pt-BR");
+}
+
+function orderedOfferings(offerings: readonly ServiceOfferingView[]): ServiceOfferingView[] {
+    const out: ServiceOfferingView[] = [];
+    for (const key of ["Delivery", "Office", "outros"] as const) {
+        out.push(...offerings.filter((offering) => groupOf(offering.name) === key).sort(compareOfferings));
+    }
+    return out;
+}
+
+/** Cadastro com o plano e o ciclo já escolhidos. Enterprise não tem checkout. */
+export function signupPathForOffering(offering: ServiceOfferingView): string | null {
+    const name = offering.name.toLocaleLowerCase("pt-BR");
+    const period = name.endsWith(" anual") ? "year" : name.endsWith(" mensal") ? "month" : null;
+    if (!period) return null;
+    if (name.startsWith("atendimento ") || name.startsWith("office ")) {
+        return `/signup/office?periodo=${period}`;
+    }
+    if (!name.startsWith("delivery ")) return null;
+    const plan = name.includes("essencial")
+        ? "essencial"
+        : /\bpro\b/u.test(name)
+          ? "pro"
+          : name.includes("market")
+            ? "market"
+            : null;
+    if (!plan) return null;
+    return `/signup?plano=${plan}&periodo=${period}`;
+}
+
+function planMessageTitle(name: string): string {
+    const lower = name.toLocaleLowerCase("pt-BR");
+    if (lower.startsWith("atendimento ") || lower.startsWith("office ")) {
+        return `Office ${displayLabel(name).toLocaleLowerCase("pt-BR")}`;
+    }
+    return displayLabel(name);
+}
+
+function planSignupBody(offering: ServiceOfferingView): string {
+    const lines = [planMessageTitle(offering.name), pricePhrase(offering)];
+    const benefits = benefitLines(offering.description).slice(0, 4);
+    if (benefits.length > 0) lines.push("", ...benefits);
+    return lines.join("\n");
+}
+
+export function whatsappPlanBubbles(rows: readonly ServiceOfferingView[]): WhatsappPlanBubble[] {
+    const bubbles: WhatsappPlanBubble[] = [];
+    for (const row of orderedOfferings(rows)) {
+        const path = signupPathForOffering(row);
+        if (path) {
+            bubbles.push({ kind: "cta", body: planSignupBody(row), path });
+            continue;
+        }
+        const lower = row.name.toLocaleLowerCase("pt-BR");
+        if (lower === "enterprise" || lower.startsWith("enterprise ")) {
+            bubbles.push({
+                kind: "text",
+                body: "Enterprise: sob consulta. Me chama que a gente monta com você.",
+            });
+        }
+    }
+    return bubbles;
+}
 
 function familyPool(rows: readonly ServiceOfferingView[], text: string): ServiceOfferingView[] {
     const folded = text.toLocaleLowerCase("pt-BR");
@@ -290,7 +364,7 @@ export function siteSalesStep(
 ): SiteSalesStep | null {
     if (offeringId) {
         const picked = rows.find((row) => row.id === offeringId);
-        if (picked) return { kind: "benefits", body: chosenSpeech(picked) };
+        if (picked) return { kind: "benefits", body: chosenSpeech(picked), offering: picked };
     }
     const phone = normalizeVisitorPhone(text);
     const name = visitorName(text);
@@ -308,7 +382,7 @@ export function siteSalesStep(
     if (matched.length === 1) {
         const only = matched[0];
         if (!only) return null;
-        return { kind: "benefits", body: benefitSpeech(only, collectContact) };
+        return { kind: "benefits", body: benefitSpeech(only, collectContact), offering: only };
     }
     if (matched.length > 1) {
         return { kind: "period", body: `${matched.map(planLine).join("\n")}\n\nQual desses você tem interesse?`, rows: matched };

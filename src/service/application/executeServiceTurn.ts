@@ -1,3 +1,4 @@
+import { appPublicOrigin } from "@/lib/marketing/hosts";
 import { QueueRetryableError, isQueueRetryableError } from "@/lib/chatbot/queueRetry";
 import { buildServicePrompt } from "@/src/service/application/servicePrompt";
 import { asksForHuman } from "@/src/service/domain/humanAsk";
@@ -13,8 +14,12 @@ import {
     siteSalesStep,
     speakOfferings,
     storeWhatsappHref,
+    WHATSAPP_PLAN_INTRO,
+    whatsappPlanBubbles,
+    PLAN_SIGNUP_BUTTON,
     type SitePlanCard,
     type SiteSalesStep,
+    type WhatsappPlanBubble,
 } from "@/src/service/domain/offeringSpeech";
 import { serviceButton } from "@/src/service/domain/serviceButton";
 import { sanitizeModelError } from "@/src/service/domain/modelError";
@@ -86,15 +91,19 @@ export async function executeServiceTurn(
     const writes = emptyTurnWrites();
     const toolsUsed: ServiceToolName[] = [];
     const offerLinks: { name: string; label: string; url: string }[] = [];
+    const planBubbles: WhatsappPlanBubble[] = [];
     const sales: { rows: ServiceOfferingView[] | null; saved: boolean } = { rows: null, saved: false };
     const button = input.messagingChannel === "site" ? null : serviceButton(input.text);
     let modelFailure: string | null = null;
 
-    const finish = async (body: string, buttons?: { id: "svc_confirm_slot" | "svc_confirm_case"; title: string }[]) => {
-        if (buttons && buttons.length > 0) {
-            await ports.reply.buttons(body, buttons);
-        } else {
-            await ports.reply.text(body);
+    const finish = async (body: string | null, buttons?: { id: "svc_confirm_slot" | "svc_confirm_case"; title: string }[]) => {
+        const trimmed = body?.trim() ?? "";
+        if (trimmed) {
+            if (buttons && buttons.length > 0) {
+                await ports.reply.buttons(trimmed, buttons);
+            } else {
+                await ports.reply.text(trimmed);
+            }
         }
         await record(ports, input, toolsUsed, writes, modelFailure);
     };
@@ -176,7 +185,7 @@ export async function executeServiceTurn(
             executeTool: (name, raw) => executeTool(name, raw, input, writes, toolsUsed, ports, offerLinks, sales),
         });
         const drafted = withHandoff(composeServiceReply(modelResult.replyText, writes), writes, input);
-        const reply = await salesReply(drafted, input, ports, offerLinks, sales, writes);
+        const reply = await salesReply(drafted, input, ports, offerLinks, sales, writes, planBubbles);
         const buttons = proposalButtons(writes);
         if (modelResult.inputTokens > 0 || modelResult.outputTokens > 0) {
             await ports.wallet.settle(
@@ -190,7 +199,16 @@ export async function executeServiceTurn(
             await ports.wallet.release(input.companyId, input.messageId);
         }
         await finish(reply, buttons);
-        if (buttons.length === 0) {
+        if (buttons.length === 0 && planBubbles.length > 0) {
+            const origin = appPublicOrigin();
+            for (const bubble of planBubbles) {
+                if (bubble.kind === "cta") {
+                    await ports.reply.cta(bubble.body, PLAN_SIGNUP_BUTTON, `${origin}${bubble.path}`);
+                } else {
+                    await ports.reply.text(bubble.body);
+                }
+            }
+        } else if (buttons.length === 0) {
             for (const link of offerLinks.slice(0, 3)) {
                 await ports.reply.cta(link.name, link.label, link.url);
             }
@@ -271,7 +289,8 @@ async function salesReply(
     ports: ServiceTurnPorts,
     offerLinks: { name: string; label: string; url: string }[],
     sales: { rows: ServiceOfferingView[] | null; saved: boolean },
-    writes: TurnWrites
+    writes: TurnWrites,
+    planBubbles: WhatsappPlanBubble[]
 ): Promise<string> {
     if (writes.humanRequested) return reply;
     const collect = input.messagingChannel === "site";
@@ -296,6 +315,23 @@ async function salesReply(
                         url: storeWhatsappHref(input.humanHref, step.interest, step.name),
                     });
                 }
+            }
+        } else if (step && input.messagingChannel !== "site") {
+            const targets =
+                step.kind === "catalog"
+                    ? rows
+                    : step.kind === "period"
+                      ? step.rows
+                      : step.kind === "benefits"
+                        ? [step.offering]
+                        : [];
+            const bubbles = whatsappPlanBubbles(targets);
+            if (bubbles.some((bubble) => bubble.kind === "cta")) {
+                planBubbles.push(...bubbles);
+                const onePlan = step.kind === "benefits" && bubbles.length === 1;
+                reply = onePlan ? "" : WHATSAPP_PLAN_INTRO;
+            } else {
+                reply = composeServiceReply(step.body, writes);
             }
         } else if (step) {
             reply = composeServiceReply(step.body, writes);

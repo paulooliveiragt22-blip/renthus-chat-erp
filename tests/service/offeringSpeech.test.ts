@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
+import { appPublicOrigin } from "../../lib/marketing/hosts";
 import { executeServiceTurn } from "../../src/service/application/executeServiceTurn";
-import { normalizeVisitorPhone, planCards, reaisFromCents, siteSalesStep, speakOfferings } from "../../src/service/domain/offeringSpeech";
+import { normalizeVisitorPhone, planCards, reaisFromCents, signupPathForOffering, siteSalesStep, speakOfferings, whatsappPlanBubbles } from "../../src/service/domain/offeringSpeech";
 import { toolsForTurn } from "../../src/service/domain/serviceTools";
 import { CASE_STAGE_LABELS, type ServiceOfferingView, type ServiceProfileView } from "../../src/service/domain/types";
 
@@ -265,6 +266,114 @@ describe("contato do chat do site", () => {
         assert.equal((ctas[0] ?? "").includes("65999998888"), false);
         assert.equal((texts[0] ?? "").includes("empresa retorna"), false);
     });
+
+    it("no WhatsApp cada plano abre o cadastro já escolhido", async () => {
+        const texts: string[] = [];
+        const ctas: string[] = [];
+        const offerings = [
+            ...OFFERINGS,
+            {
+                id: "5",
+                name: "Atendimento anual",
+                description: "Agente de IA no WhatsApp",
+                durationMin: null,
+                priceCents: 119880,
+                linkUrl: null,
+                linkLabel: null,
+            },
+        ];
+        await executeServiceTurn(
+            {
+                admin: {} as never,
+                companyId: "11111111-1111-4111-8111-111111111111",
+                threadId: "22222222-2222-4222-8222-222222222222",
+                messageId: "33333333-3333-4333-8333-333333333333",
+                phoneE164: "+5565999998888",
+                text: "quais planos vocês têm?",
+                messagingChannel: "whatsapp",
+            },
+            salesPorts(texts, offerings, async () => "tudo num parágrafo difícil de ler", undefined, ctas)
+        );
+        const origin = appPublicOrigin();
+        assert.match(texts[0] ?? "", /Quero este/u);
+        assert.equal((texts[0] ?? "").includes("parágrafo"), false);
+        assert.deepEqual(
+            ctas.map((line) => line.split("\n")[0]),
+            [
+                `Quero este ${origin}/signup?plano=essencial&periodo=month Essencial mensal`,
+                `Quero este ${origin}/signup?plano=essencial&periodo=year Essencial anual`,
+                `Quero este ${origin}/signup/office?periodo=month Office mensal`,
+                `Quero este ${origin}/signup/office?periodo=year Office anual`,
+            ]
+        );
+        assert.match(texts.join("\n"), /Enterprise: sob consulta/u);
+    });
+
+    it("um plano no WhatsApp é uma mensagem com o botão", async () => {
+        const texts: string[] = [];
+        const ctas: string[] = [];
+        await executeServiceTurn(
+            {
+                admin: {} as never,
+                companyId: "11111111-1111-4111-8111-111111111111",
+                threadId: "22222222-2222-4222-8222-222222222222",
+                messageId: "33333333-3333-4333-8333-333333333333",
+                phoneE164: "+5565999998888",
+                text: "quero o atendimento mensal",
+                messagingChannel: "whatsapp",
+            },
+            salesPorts(texts, OFFERINGS, async () => "custa 15 reais", undefined, ctas)
+        );
+        assert.equal(texts.length, 0);
+        assert.equal(ctas.length, 1);
+        assert.match(ctas[0] ?? "", /Quero este/u);
+        assert.match(ctas[0] ?? "", /\/signup\/office\?periodo=month/u);
+        assert.match(ctas[0] ?? "", /Office mensal/u);
+        assert.equal((ctas[0] ?? "").includes("15 reais"), false);
+    });
+
+    it("serviço que não é plano continua em texto", async () => {
+        const texts: string[] = [];
+        const ctas: string[] = [];
+        await executeServiceTurn(
+            {
+                admin: {} as never,
+                companyId: "11111111-1111-4111-8111-111111111111",
+                threadId: "22222222-2222-4222-8222-222222222222",
+                messageId: "33333333-3333-4333-8333-333333333333",
+                phoneE164: "+5565999998888",
+                text: "quais os valores?",
+                messagingChannel: "whatsapp",
+            },
+            salesPorts(
+                texts,
+                [
+                    {
+                        id: "9",
+                        name: "Corte",
+                        description: null,
+                        durationMin: 30,
+                        priceCents: 5000,
+                        linkUrl: null,
+                        linkLabel: null,
+                    },
+                ],
+                async () => "é cinquenta",
+                undefined,
+                ctas
+            )
+        );
+        assert.equal(ctas.length, 0);
+        assert.match(texts[0] ?? "", /Corte: R\$ 50,00 · 30 min/u);
+        assert.equal((texts[0] ?? "").includes("cinquenta"), false);
+    });
+
+    it("monta o caminho do cadastro", () => {
+        assert.equal(signupPathForOffering(OFFERINGS[0]!), "/signup?plano=essencial&periodo=month");
+        assert.equal(signupPathForOffering(OFFERINGS[2]!), "/signup/office?periodo=month");
+        assert.equal(signupPathForOffering(OFFERINGS[3]!), null);
+        assert.equal(whatsappPlanBubbles([OFFERINGS[3]!]).some((bubble) => bubble.kind === "cta"), false);
+    });
 });
 
 function salesPorts(
@@ -315,8 +424,8 @@ function salesPorts(
                 texts.push(body);
             },
             buttons: async () => undefined,
-            cta: async (_body: string, label: string, url: string) => {
-                ctas.push(`${label} ${url}`);
+            cta: async (body: string, label: string, url: string) => {
+                ctas.push(`${label} ${url} ${body}`);
             },
             planCards: async (next: { title: string; options: { label: string }[] }[]) => {
                 cards.splice(0, cards.length, ...next);
