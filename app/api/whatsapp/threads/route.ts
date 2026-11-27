@@ -3,6 +3,7 @@ import { requireCapability } from "@/lib/workspace/rbac/requireCapability";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { CHATBOT_SESSION_PRO_V2_STATE_KEY } from "@/src/pro/adapters/supabase/session.repository.supabase";
 import type { OrderDraft } from "@/src/types/contracts";
+import { hydrateInboxProfilePics } from "@/lib/meta/refreshStaleThreadProfilePics";
 import {
     inboxChannelSql,
     parseInboxChannelFilter,
@@ -80,11 +81,12 @@ export async function GET(req: Request) {
     const limit = Math.min(Number(searchParams.get("limit") ?? 50), 200);
     const q = (searchParams.get("q") ?? "").trim();
     const channelFilter = parseInboxChannelFilter(searchParams.get("channel"));
+    const hydrateProfiles = searchParams.get("hydrate_profiles") === "1";
 
     let query = admin
         .from("whatsapp_threads")
         .select(
-            "id, phone_e164, profile_name, last_message_at, last_inbound_at, last_message_preview, created_at, bot_active, handover_at, unread_count, channel_id, channel, external_id"
+            "id, phone_e164, profile_name, profile_pic_url, profile_pic_fetched_at, last_message_at, last_inbound_at, last_message_preview, created_at, bot_active, handover_at, unread_count, channel_id, channel, external_id"
         )
         .eq("company_id", companyId)
         .order("last_message_at", { ascending: false })
@@ -108,16 +110,30 @@ export async function GET(req: Request) {
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
     const threads = data ?? [];
+    let withPics = threads;
+    if (hydrateProfiles) {
+        try {
+            withPics = await hydrateInboxProfilePics(admin, companyId, threads);
+        } catch (err: unknown) {
+            const message = err instanceof Error ? err.message : "hydrate_failed";
+            console.warn("[whatsapp/threads] profile_pic_hydrate", message);
+        }
+    }
+
     const cartSummaries = await loadCartSummariesByThread(
         admin,
         companyId,
-        threads.map((t) => String(t.id))
+        withPics.map((t) => String(t.id))
     );
 
-    const threadsWithCart = threads.map((t) => ({
-        ...t,
-        cart_summary: cartSummaries.get(String(t.id)) ?? null,
-    }));
+    const threadsWithCart = withPics.map((row) => {
+        const rest: Record<string, unknown> = { ...row };
+        delete rest.profile_pic_fetched_at;
+        return {
+            ...rest,
+            cart_summary: cartSummaries.get(String(row.id)) ?? null,
+        };
+    });
 
     return NextResponse.json({ threads: threadsWithCart });
 }

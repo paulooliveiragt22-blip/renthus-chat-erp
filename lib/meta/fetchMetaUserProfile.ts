@@ -1,13 +1,19 @@
 import "server-only";
 
+import { readMetaProfilePicUrl } from "@/lib/meta/profilePic";
 import { metaGraphGetJson } from "@/lib/whatsapp/metaGraphFetch";
 
 const GRAPH_VERSION = process.env.META_GRAPH_VERSION?.trim() || "v20.0";
 
 export type MetaChannelUserProfile = {
-    displayName: string;
+    displayName: string | null;
     username?: string | null;
+    profilePicUrl: string | null;
 };
+
+export type MetaProfileFetchResult =
+    | { ok: true; profile: MetaChannelUserProfile | null }
+    | { ok: false };
 
 function buildDisplayNameFromGraph(
     channel: "instagram" | "messenger",
@@ -36,7 +42,8 @@ export function parseMetaChannelUserProfileFromGraph(
     json: Record<string, unknown>
 ): MetaChannelUserProfile | null {
     const displayName = buildDisplayNameFromGraph(channel, json);
-    if (!displayName) return null;
+    const profilePicUrl = readMetaProfilePicUrl(json);
+    if (!displayName && !profilePicUrl) return null;
 
     return {
         displayName,
@@ -44,6 +51,7 @@ export function parseMetaChannelUserProfileFromGraph(
             channel === "instagram" && typeof json.username === "string"
                 ? json.username
                 : null,
+        profilePicUrl,
     };
 }
 
@@ -51,19 +59,21 @@ export function parseMetaChannelUserProfileFromGraph(
  * User Profile API — IGSID ou PSID com page access token.
  * @see https://developers.facebook.com/docs/messenger-platform/instagram/features/user-profile/
  */
-export async function fetchMetaChannelUserProfile(params: {
+export async function fetchMetaChannelUserProfileResult(params: {
     channel: "instagram" | "messenger";
     userId: string;
     pageId: string;
     accessToken: string;
-}): Promise<MetaChannelUserProfile | null> {
+}): Promise<MetaProfileFetchResult> {
     const userId = params.userId.trim();
     const pageId = params.pageId.trim();
     const accessToken = params.accessToken.trim();
-    if (!userId || !pageId || !accessToken) return null;
+    if (!userId || !pageId || !accessToken) return { ok: false };
 
     const fields =
-        params.channel === "instagram" ? "name,username" : "first_name,last_name";
+        params.channel === "instagram"
+            ? "name,username,profile_pic"
+            : "first_name,last_name,profile_pic";
     const url = `https://graph.facebook.com/${GRAPH_VERSION}/${encodeURIComponent(userId)}?fields=${fields}`;
 
     const result = await metaGraphGetJson(pageId, url, { accessToken });
@@ -74,8 +84,20 @@ export async function fetchMetaChannelUserProfile(params: {
             status: result.status,
             error: errObj?.message ?? `graph_${result.status}`,
         });
-        return null;
+        return { ok: false };
     }
 
-    return parseMetaChannelUserProfileFromGraph(params.channel, result.json);
+    return {
+        ok: true,
+        profile: parseMetaChannelUserProfileFromGraph(params.channel, result.json),
+    };
+}
+
+/** Atalho: perfil ou null. Falha de rede e perfil vazio caem no mesmo null. */
+export async function fetchMetaChannelUserProfile(
+    params: Parameters<typeof fetchMetaChannelUserProfileResult>[0]
+): Promise<MetaChannelUserProfile | null> {
+    const result = await fetchMetaChannelUserProfileResult(params);
+    if (!result.ok) return null;
+    return result.profile;
 }

@@ -236,6 +236,7 @@ async function handleMessagingEvent(params: {
     }
 
     let profileName = fallbackMetaThreadProfileName(channel);
+    let profilePicUrl: string | null = null;
     const pageToken = resolvePageAccessToken(metaChannel);
     if (pageToken) {
         const profile = await fetchMetaChannelUserProfile({
@@ -247,6 +248,9 @@ async function handleMessagingEvent(params: {
         if (profile?.displayName) {
             profileName = profile.displayName;
         }
+        if (profile?.profilePicUrl) {
+            profilePicUrl = profile.profilePicUrl;
+        }
     }
 
     const threadId = await upsertMetaThread({
@@ -256,6 +260,7 @@ async function handleMessagingEvent(params: {
         channel,
         externalId: senderId,
         profileName,
+        profilePicUrl,
     });
     if (!threadId) return;
 
@@ -317,8 +322,9 @@ async function upsertMetaThread(params: {
     channel: "instagram" | "messenger";
     externalId: string;
     profileName: string;
+    profilePicUrl: string | null;
 }): Promise<string | null> {
-    const { admin, companyId, metaChannelId, channel, externalId, profileName } = params;
+    const { admin, companyId, metaChannelId, channel, externalId, profileName, profilePicUrl } = params;
 
     const { data: existing } = await admin
         .from("whatsapp_threads")
@@ -337,6 +343,10 @@ async function upsertMetaThread(params: {
         if (shouldUpdateThreadProfileName(existing.profile_name, profileName)) {
             updates.profile_name = profileName;
         }
+        if (profilePicUrl) {
+            updates.profile_pic_url = profilePicUrl;
+            updates.profile_pic_fetched_at = new Date().toISOString();
+        }
         await admin.from("whatsapp_threads").update(updates).eq("id", existing.id);
         return existing.id as string;
     }
@@ -350,6 +360,12 @@ async function upsertMetaThread(params: {
             external_id: externalId,
             phone_e164: null,
             profile_name: profileName,
+            ...(profilePicUrl
+                ? {
+                      profile_pic_url: profilePicUrl,
+                      profile_pic_fetched_at: new Date().toISOString(),
+                  }
+                : {}),
             last_message_at: new Date().toISOString(),
             last_inbound_at: new Date().toISOString(),
             bot_active: true,

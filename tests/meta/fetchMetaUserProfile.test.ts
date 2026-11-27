@@ -27,6 +27,28 @@ describe("fetchMetaUserProfile", () => {
         assert.equal(profile?.displayName, "João Souza");
     });
 
+    it("instagram: lê profile_pic https e ignora http", () => {
+        const ok = parseMetaChannelUserProfileFromGraph("instagram", {
+            name: "Ana Costa",
+            profile_pic: "https://cdn.example/ana.jpg",
+        });
+        assert.equal(ok?.profilePicUrl, "https://cdn.example/ana.jpg");
+
+        const blocked = parseMetaChannelUserProfileFromGraph("instagram", {
+            name: "Ana Costa",
+            profile_pic: "http://cdn.example/ana.jpg",
+        });
+        assert.equal(blocked?.profilePicUrl, null);
+    });
+
+    it("instagram: foto sem nome ainda volta o perfil", () => {
+        const profile = parseMetaChannelUserProfileFromGraph("instagram", {
+            profile_pic: "https://cdn.example/sem-nome.jpg",
+        });
+        assert.equal(profile?.displayName, null);
+        assert.equal(profile?.profilePicUrl, "https://cdn.example/sem-nome.jpg");
+    });
+
     it("retorna null sem campos úteis", () => {
         assert.equal(parseMetaChannelUserProfileFromGraph("instagram", {}), null);
         assert.equal(parseMetaChannelUserProfileFromGraph("messenger", {}), null);

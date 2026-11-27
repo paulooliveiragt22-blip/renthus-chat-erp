@@ -44,7 +44,7 @@ import CartDrawer from "./CartDrawer";
 import { ServiceThreadRail } from "./ServiceThreadRail";
 import { useServiceSnapshot } from "@/components/service/useServiceSnapshot";
 import OrderSummaryModal from "./OrderSummaryModal";
-import { getInitials, normalizeBrazilToE164 } from "@/lib/whatsapp/phone";
+import { normalizeBrazilToE164 } from "@/lib/whatsapp/phone";
 import {
     isCustomerServiceWindowClosing,
     isWithinCustomerServiceWindow,
@@ -69,6 +69,7 @@ import { META_MEDIA_ID_PATH_RE, sanitizeWhatsAppMediaPathId } from "@/lib/whatsa
 import { buildWaMediaRelativePath } from "@/lib/whatsapp/waMediaUrl";
 import { BillingModal } from "./BillingModal";
 import { Switch } from "@/components/ui/switch";
+import { ThreadAvatar } from "@/components/whatsapp/ThreadAvatar";
 import {
     Dialog,
     DialogContent,
@@ -277,6 +278,7 @@ export default function WhatsAppInbox({ initialPhone }: { initialPhone?: string 
             const url = new URL("/api/whatsapp/threads", window.location.origin);
             url.searchParams.set("limit", "60");
             if (q.trim()) url.searchParams.set("q", q.trim());
+            if (!opts?.silent) url.searchParams.set("hydrate_profiles", "1");
             const channelQuery = inboxChannelFilterQueryValue(channelFilterRef.current);
             if (channelQuery) url.searchParams.set("channel", channelQuery);
             const res  = await fetch(url.toString(), { cache: "no-store", credentials: "include", signal: ctrl.signal });
@@ -999,7 +1001,6 @@ export default function WhatsAppInbox({ initialPhone }: { initialPhone?: string 
                             };
                             const label     = threadDisplayName(displayIn);
                             const subtitle  = t.last_message_preview || threadDisplaySubtitle(displayIn);
-                            const initials  = getInitials(label);
                             const nearClose = isCustomerServiceWindowClosing(t.last_inbound_at);
                             const expired   = !isWithinCustomerServiceWindow(t.last_inbound_at);
                             const badge     = channelBadgeLabel(t.channel);
@@ -1020,11 +1021,12 @@ export default function WhatsAppInbox({ initialPhone }: { initialPhone?: string 
                                         <span className="absolute inset-y-2 left-0 w-[3px] rounded-full bg-primary" />
                                     )}
                                     <div className="flex items-center gap-2.5">
-                                        {/* Avatar com badge não lidos */}
                                         <div className="relative shrink-0">
-                                            <div className={`flex h-9 w-9 items-center justify-center rounded-full text-xs font-bold ${active ? "bg-primary text-white" : "bg-zinc-100 text-zinc-600 dark:bg-zinc-700 dark:text-zinc-200"}`}>
-                                                {initials}
-                                            </div>
+                                            <ThreadAvatar
+                                                src={t.profile_pic_url}
+                                                label={label}
+                                                className={`h-9 w-9 text-xs font-bold ${active ? "bg-primary text-white" : "bg-zinc-100 text-zinc-600 dark:bg-zinc-700 dark:text-zinc-200"}`}
+                                            />
                                             {(t.unread_count ?? 0) > 0 && (
                                                 <span
                                                     className="absolute -right-1 -top-1 flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-primary px-1 text-[9px] font-bold text-white shadow"
@@ -1108,16 +1110,16 @@ export default function WhatsAppInbox({ initialPhone }: { initialPhone?: string 
                     {selectedThread ? (
                         <>
                             <div className="flex min-w-0 items-center gap-3">
-                                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary text-sm font-bold text-white">
-                                    {getInitials(
-                                        threadDisplayName({
-                                            channel: selectedThread.channel,
-                                            profileName: selectedThread.profile_name,
-                                            phoneE164: selectedThread.phone_e164,
-                                            externalId: selectedThread.external_id,
-                                        })
-                                    )}
-                                </div>
+                                <ThreadAvatar
+                                    src={selectedThread.profile_pic_url}
+                                    label={threadDisplayName({
+                                        channel: selectedThread.channel,
+                                        profileName: selectedThread.profile_name,
+                                        phoneE164: selectedThread.phone_e164,
+                                        externalId: selectedThread.external_id,
+                                    })}
+                                    className="h-9 w-9 bg-primary text-sm font-bold text-white"
+                                />
                                 <div className="min-w-0">
                                     <p className="truncate text-sm font-bold text-zinc-900 dark:text-zinc-50">
                                         <span className="mr-1.5 rounded bg-zinc-200 px-1.5 py-0.5 text-[10px] font-bold text-zinc-600 dark:bg-zinc-700 dark:text-zinc-300">
@@ -1241,9 +1243,11 @@ export default function WhatsAppInbox({ initialPhone }: { initialPhone?: string 
                                         aria-label={isOut ? "Mensagem enviada" : "Mensagem recebida"}
                                     >
                                         {!isOut && (
-                                            <div className="mb-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-zinc-300 text-[10px] font-bold text-zinc-600 dark:bg-zinc-600 dark:text-zinc-200" aria-hidden="true">
-                                                {getInitials(selectedThread?.profile_name || selectedThread?.phone_e164 || "?")}
-                                            </div>
+                                            <ThreadAvatar
+                                                src={selectedThread.profile_pic_url}
+                                                label={selectedThread.profile_name || selectedThread.phone_e164 || "?"}
+                                                className="mb-1 h-6 w-6 bg-zinc-300 text-[10px] font-bold text-zinc-600 dark:bg-zinc-600 dark:text-zinc-200"
+                                            />
                                         )}
 
                                         <div className={`max-w-[75%] rounded-2xl px-3 py-2 shadow-sm ${
@@ -1548,7 +1552,6 @@ function CustomerProfileSidebar({
         externalId: thread.external_id,
     };
     const name     = threadDisplayName(displayIn);
-    const initials = getInitials(name);
 
     return (
         <aside
@@ -1558,9 +1561,11 @@ function CustomerProfileSidebar({
             {/* Cabeçalho do perfil */}
             <div className="flex flex-col items-center gap-2 border-b border-zinc-100 bg-zinc-50 px-4 py-5 text-center dark:border-zinc-800 dark:bg-zinc-800/50">
                 <div className="relative">
-                    <div className="flex h-16 w-16 items-center justify-center rounded-full bg-primary text-xl font-bold text-white shadow-md" aria-hidden="true">
-                        {initials}
-                    </div>
+                    <ThreadAvatar
+                        src={thread.profile_pic_url}
+                        label={name}
+                        className="h-16 w-16 bg-primary text-xl font-bold text-white shadow-md"
+                    />
                     <button
                         onClick={onClose}
                         aria-label="Fechar perfil do cliente"

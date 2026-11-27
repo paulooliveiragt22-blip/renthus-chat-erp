@@ -23,6 +23,8 @@ export interface Thread {
     id:                   string;
     phone_e164:           string | null;
     profile_name?:        string | null;
+    /** Foto https da Meta (IG/Messenger). WhatsApp não tem esse campo na Cloud API. */
+    profile_pic_url?:     string | null;
     last_message_at?:     string | null;
     /** Último inbound do cliente — base da janela de 24h (não usar `last_message_at`). */
     last_inbound_at?:     string | null;
