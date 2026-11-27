@@ -31,6 +31,10 @@ export const applyPresetSchema = z.object({
 
 export const offerLinkLabelSchema = z.enum(["Ver oferta", "Ver plano", "Ver serviço"]);
 
+export const deleteOfferingSchema = z.object({
+    id: z.string().uuid(),
+});
+
 export const upsertOfferingSchema = z
     .object({
         id: z.string().uuid().nullable().optional(),

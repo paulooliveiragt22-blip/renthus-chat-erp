@@ -35,6 +35,8 @@ export default function OfertasPage() {
     const [linkUrl, setLinkUrl] = useState("");
     const [linkLabel, setLinkLabel] = useState<OfferLinkLabel>("Ver oferta");
     const [error, setError] = useState<string | null>(null);
+    const [removing, setRemoving] = useState(false);
+    const [notice, setNotice] = useState<string | null>(null);
 
     async function load() {
         setLoading(true);
@@ -106,12 +108,41 @@ export default function OfertasPage() {
         await load();
     }
 
+    async function remove() {
+        if (!editing) return;
+        setRemoving(true);
+        setError(null);
+        try {
+            const res = await fetch("/api/admin/service/offerings", {
+                method: "DELETE",
+                credentials: "include",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ id: editing.id }),
+            });
+            const json = (await res.json().catch(() => ({}))) as { code?: string };
+            if (!res.ok) {
+                setError("Não foi possível apagar a oferta.");
+                return;
+            }
+            setNotice(
+                json.code === "deactivated"
+                    ? "Oferta desativada. Os horários marcados e a conversa continuam."
+                    : "Oferta apagada."
+            );
+            setOpen(false);
+            await load();
+        } finally {
+            setRemoving(false);
+        }
+    }
+
     return (
         <div className="mx-auto flex w-full max-w-3xl flex-col gap-4">
             <div className="flex items-center justify-between gap-3">
                 <h1 className="text-xl font-bold text-zinc-900 dark:text-zinc-50">Ofertas</h1>
                 <Button type="button" onClick={startCreate}>Nova oferta</Button>
             </div>
+            {notice ? <p className="text-sm text-zinc-500">{notice}</p> : null}
             {loading ? (
                 <Skeleton className="h-24 w-full" />
             ) : (
@@ -157,7 +188,12 @@ export default function OfertasPage() {
                         </Select>
                         {error ? <p className="text-sm text-red-600 dark:text-red-400">{error}</p> : null}
                     </div>
-                    <DialogFooter>
+                    <DialogFooter className={editing ? "sm:justify-between" : undefined}>
+                        {editing ? (
+                            <Button type="button" variant="destructive" onClick={() => void remove()} disabled={removing}>
+                                Apagar
+                            </Button>
+                        ) : null}
                         <Button type="button" onClick={() => void save()}>Salvar</Button>
                     </DialogFooter>
                 </DialogContent>

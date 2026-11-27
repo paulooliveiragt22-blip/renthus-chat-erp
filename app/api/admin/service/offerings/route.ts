@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireCapability } from "@/lib/workspace/rbac/requireCapability";
-import { upsertOfferingSchema } from "@/src/service/http/schemas";
+import { deleteOfferingSchema, upsertOfferingSchema } from "@/src/service/http/schemas";
 import { callServiceRpc } from "@/src/service/http/serviceRpcResult";
 
 export const runtime = "nodejs";
@@ -29,6 +29,18 @@ export async function POST(req: Request) {
         p_active: parsed.data.active ?? true,
         p_link_url: parsed.data.linkUrl?.trim() ? parsed.data.linkUrl.trim() : null,
         p_link_label: parsed.data.linkUrl?.trim() ? (parsed.data.linkLabel ?? "Ver oferta") : null,
+    });
+    return NextResponse.json(result.body, { status: result.status });
+}
+
+export async function DELETE(req: Request) {
+    const ctx = await requireCapability("settings.company", "any", { mutating: true });
+    if (!ctx.ok) return NextResponse.json({ error: ctx.error }, { status: ctx.status });
+    const parsed = deleteOfferingSchema.safeParse(await req.json().catch(() => null));
+    if (!parsed.success) return NextResponse.json({ error: "offering_invalid" }, { status: 400 });
+    const result = await callServiceRpc(ctx.admin, "rpc_service_delete_offering", {
+        p_company_id: ctx.companyId,
+        p_offering_id: parsed.data.id,
     });
     return NextResponse.json(result.body, { status: result.status });
 }

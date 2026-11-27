@@ -25,9 +25,49 @@ export function countPlaceholders(text: string): number {
 export function buildMetaTemplateComponents(
     body: SubmitWhatsappTemplateBody
 ): Array<Record<string, unknown>> {
-    const components: Array<Record<string, unknown>> = [];
+    if (body.category === "AUTHENTICATION") {
+        const components: Array<Record<string, unknown>> = [
+            {
+                type: "BODY",
+                add_security_recommendation: body.addSecurityRecommendation === true,
+            },
+        ];
+        if (body.codeExpirationMinutes) {
+            components.push({
+                type: "FOOTER",
+                code_expiration_minutes: body.codeExpirationMinutes,
+            });
+        }
+        const otp: Record<string, unknown> = {
+            type: "OTP",
+            otp_type: body.otpType ?? "COPY_CODE",
+        };
+        if (body.otpType === "ONE_TAP") {
+            otp.supported_apps = [
+                {
+                    package_name: body.packageName,
+                    signature_hash: body.signatureHash,
+                },
+            ];
+        }
+        components.push({ type: "BUTTONS", buttons: [otp] });
+        return components;
+    }
 
-    if (body.headerText?.trim()) {
+    const components: Array<Record<string, unknown>> = [];
+    const limited = body.category === "MARKETING" && body.marketingKind === "limited_time_offer";
+
+    if (limited) {
+        components.push({
+            type: "LIMITED_TIME_OFFER",
+            limited_time_offer: {
+                text: body.offerText,
+                has_expiration: body.offerHasExpiration === true,
+            },
+        });
+    }
+
+    if (!limited && body.headerText?.trim()) {
         const header: Record<string, unknown> = {
             type: "HEADER",
             format: "TEXT",
@@ -39,11 +79,12 @@ export function buildMetaTemplateComponents(
         components.push(header);
     }
 
-    const placeholderCount = countPlaceholders(body.bodyText);
+    const bodyText = body.bodyText ?? "";
+    const placeholderCount = countPlaceholders(bodyText);
     const examples = body.exampleBodyValues ?? [];
     const bodyComp: Record<string, unknown> = {
         type: "BODY",
-        text: body.bodyText,
+        text: bodyText,
     };
     if (placeholderCount > 0) {
         bodyComp.example = {
@@ -52,7 +93,7 @@ export function buildMetaTemplateComponents(
     }
     components.push(bodyComp);
 
-    if (body.footerText?.trim()) {
+    if (!limited && body.footerText?.trim()) {
         components.push({ type: "FOOTER", text: body.footerText.trim() });
     }
 
@@ -73,6 +114,9 @@ function toMetaButton(btn: TemplateButton): Record<string, unknown> {
     }
     if (btn.type === "URL") {
         return { type: "URL", text: btn.text, url: btn.url };
+    }
+    if (btn.type === "COPY_CODE") {
+        return { type: "COPY_CODE", example: btn.example };
     }
     return {
         type: "PHONE_NUMBER",
@@ -104,9 +148,9 @@ export async function submitTemplateToMeta(
         };
     }
 
-    const placeholderCount = countPlaceholders(body.bodyText);
+    const placeholderCount = countPlaceholders(body.bodyText ?? "");
     const examples = body.exampleBodyValues ?? [];
-    if (placeholderCount > 0 && examples.length < placeholderCount) {
+    if (body.category !== "AUTHENTICATION" && placeholderCount > 0 && examples.length < placeholderCount) {
         return {
             ok: false,
             error: "example_values_required",

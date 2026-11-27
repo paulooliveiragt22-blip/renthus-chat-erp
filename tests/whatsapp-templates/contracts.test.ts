@@ -98,4 +98,54 @@ describe("WhatsappTemplates contracts", () => {
         assert.equal(buttons.length, 2);
         assert.equal(buttons[1]?.url, "https://example.com");
     });
+
+    it("marketing de oferta limitada não leva rodapé e pede o texto curto", () => {
+        const rejected = SubmitWhatsappTemplateBodySchema.safeParse({
+            name: "oferta_relampago",
+            category: "MARKETING",
+            marketingKind: "limited_time_offer",
+            bodyText: "Use {{1}}",
+            exampleBodyValues: ["BEMVINDO"],
+            footerText: "Loja",
+            offerText: "Expira hoje",
+        });
+        assert.equal(rejected.success, false);
+
+        const parsed = SubmitWhatsappTemplateBodySchema.safeParse({
+            name: "oferta_relampago",
+            category: "MARKETING",
+            marketingKind: "limited_time_offer",
+            bodyText: "Use {{1}}",
+            exampleBodyValues: ["BEMVINDO"],
+            offerText: "Expira hoje",
+            offerHasExpiration: true,
+            buttons: [{ type: "COPY_CODE", example: "BEMVINDO" }],
+        });
+        assert.equal(parsed.success, true);
+        if (!parsed.success) return;
+        const components = buildMetaTemplateComponents(parsed.data);
+        assert.equal(components[0]?.type, "LIMITED_TIME_OFFER");
+        assert.equal(components.some((item) => item.type === "FOOTER"), false);
+        assert.equal(components.at(-1)?.type, "BUTTONS");
+    });
+
+    it("autenticação manda o texto fixo da Meta e o botão OTP", () => {
+        const parsed = SubmitWhatsappTemplateBodySchema.safeParse({
+            name: "codigo_acesso",
+            category: "AUTHENTICATION",
+            addSecurityRecommendation: true,
+            codeExpirationMinutes: 10,
+            otpType: "COPY_CODE",
+        });
+        assert.equal(parsed.success, true);
+        if (!parsed.success) return;
+        const components = buildMetaTemplateComponents(parsed.data);
+        assert.equal(components[0]?.type, "BODY");
+        assert.equal(components[0]?.add_security_recommendation, true);
+        assert.equal(components[0]?.text, undefined);
+        assert.equal(components[1]?.code_expiration_minutes, 10);
+        const buttons = components[2]?.buttons as Array<Record<string, unknown>>;
+        assert.equal(buttons[0]?.type, "OTP");
+        assert.equal(buttons[0]?.otp_type, "COPY_CODE");
+    });
 });

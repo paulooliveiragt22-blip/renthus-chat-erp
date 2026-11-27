@@ -50,10 +50,16 @@ export const TemplatePhoneButtonSchema = z.object({
         .regex(/^\+[1-9]\d{7,14}$/, "phone_e164_required"),
 });
 
+export const TemplateCopyCodeButtonSchema = z.object({
+    type: z.literal("COPY_CODE"),
+    example: z.string().trim().min(1).max(15),
+});
+
 export const TemplateButtonSchema = z.discriminatedUnion("type", [
     TemplateQuickReplyButtonSchema,
     TemplateUrlButtonSchema,
     TemplatePhoneButtonSchema,
+    TemplateCopyCodeButtonSchema,
 ]);
 
 export const SubmitWhatsappTemplateBodySchema = z
@@ -66,38 +72,68 @@ export const SubmitWhatsappTemplateBodySchema = z
             .regex(/^[a-z0-9_]+$/, "name_snake_case_only"),
         language: z.string().trim().min(2).max(15).default("pt_BR"),
         category: WhatsappTemplateCategorySchema.default("UTILITY"),
-        /** Header TEXT opcional (mídia fica fora do T3 — exige upload handle Meta). */
+        marketingKind: z.enum(["custom", "limited_time_offer"]).optional(),
+        /** Header TEXT opcional. Mídia exige handle da Meta e fica fora deste envio. */
         headerText: z.string().trim().min(1).max(60).optional(),
         headerExample: z.string().trim().min(1).max(60).optional(),
-        bodyText: z.string().trim().min(1).max(1024),
+        bodyText: z.string().trim().max(1024).optional(),
         footerText: z.string().trim().max(60).optional(),
         exampleBodyValues: z.array(z.string().trim().min(1)).max(10).optional(),
-        buttons: z.array(TemplateButtonSchema).max(3).optional(),
+        buttons: z.array(TemplateButtonSchema).max(10).optional(),
+        offerText: z.string().trim().min(1).max(16).optional(),
+        offerHasExpiration: z.boolean().optional(),
+        addSecurityRecommendation: z.boolean().optional(),
+        codeExpirationMinutes: z.number().int().min(1).max(90).optional(),
+        otpType: z.enum(["COPY_CODE", "ONE_TAP"]).optional(),
+        packageName: z.string().trim().min(1).max(224).optional(),
+        signatureHash: z.string().trim().length(11).optional(),
     })
     .superRefine((val, ctx) => {
-        if (val.headerText?.includes("{{") && !val.headerExample?.trim()) {
-            ctx.addIssue({
-                code: "custom",
-                path: ["headerExample"],
-                message: "header_example_required",
-            });
-        }
         const buttons = val.buttons ?? [];
         const urlCount = buttons.filter((b) => b.type === "URL").length;
         const phoneCount = buttons.filter((b) => b.type === "PHONE_NUMBER").length;
+        const copyCount = buttons.filter((b) => b.type === "COPY_CODE").length;
         if (urlCount > 2) {
-            ctx.addIssue({
-                code: "custom",
-                path: ["buttons"],
-                message: "max_two_url_buttons",
-            });
+            ctx.addIssue({ code: "custom", path: ["buttons"], message: "max_two_url_buttons" });
         }
         if (phoneCount > 1) {
-            ctx.addIssue({
-                code: "custom",
-                path: ["buttons"],
-                message: "max_one_phone_button",
-            });
+            ctx.addIssue({ code: "custom", path: ["buttons"], message: "max_one_phone_button" });
+        }
+        if (copyCount > 1) {
+            ctx.addIssue({ code: "custom", path: ["buttons"], message: "max_one_copy_code" });
+        }
+
+        if (val.category === "AUTHENTICATION") {
+            if (val.headerText || val.footerText || val.bodyText || buttons.length > 0 || val.offerText) {
+                ctx.addIssue({ code: "custom", path: ["category"], message: "auth_preset_only" });
+            }
+            if (val.otpType === "ONE_TAP" && (!val.packageName || !val.signatureHash)) {
+                ctx.addIssue({ code: "custom", path: ["packageName"], message: "android_app_required" });
+            }
+            return;
+        }
+
+        if (!val.bodyText?.trim()) {
+            ctx.addIssue({ code: "custom", path: ["bodyText"], message: "body_required" });
+        }
+        const limited = val.category === "MARKETING" && val.marketingKind === "limited_time_offer";
+        if (limited) {
+            if (!val.offerText) {
+                ctx.addIssue({ code: "custom", path: ["offerText"], message: "offer_text_required" });
+            }
+            if (val.headerText || val.footerText) {
+                ctx.addIssue({ code: "custom", path: ["footerText"], message: "limited_offer_has_no_footer" });
+            }
+            if (buttons.some((button) => button.type !== "COPY_CODE" && button.type !== "URL")) {
+                ctx.addIssue({ code: "custom", path: ["buttons"], message: "limited_offer_buttons" });
+            }
+            return;
+        }
+        if (val.category === "UTILITY" && val.marketingKind === "limited_time_offer") {
+            ctx.addIssue({ code: "custom", path: ["marketingKind"], message: "limited_offer_is_marketing" });
+        }
+        if (val.headerText?.includes("{{") && !val.headerExample?.trim()) {
+            ctx.addIssue({ code: "custom", path: ["headerExample"], message: "header_example_required" });
         }
     });
 
