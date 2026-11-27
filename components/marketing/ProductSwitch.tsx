@@ -1,4 +1,5 @@
 import { attendanceLandingHref, deliveryLandingHref } from "@/lib/marketing/hosts";
+import { OFFICE_LANDING_VISIBLE } from "@/lib/marketing/officeLanding";
 import { cn } from "@/lib/utils";
 
 type MarketingProduct = "delivery" | "office";
@@ -17,6 +18,8 @@ export function ProductSwitch({
     product: MarketingProduct;
     linkToApp?: boolean;
 }) {
+    if (!OFFICE_LANDING_VISIBLE) return null;
+
     const deliveryHref = deliveryLandingHref(linkToApp);
     const officeHref = attendanceLandingHref(linkToApp);
 

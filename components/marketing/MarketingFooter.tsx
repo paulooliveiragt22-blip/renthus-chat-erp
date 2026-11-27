@@ -1,6 +1,7 @@
 import { ATTENDANCE_FOOTER, officeCheckoutPath } from "@/lib/marketing/attendanceOffer";
 import { FOOTER_COLUMNS } from "@/lib/marketing/copy";
 import { accountHref, attendanceLandingHref, deliveryLandingHref } from "@/lib/marketing/hosts";
+import { OFFICE_LANDING_VISIBLE } from "@/lib/marketing/officeLanding";
 
 type MarketingFooterProps = {
     linkToApp?: boolean;
@@ -62,11 +63,13 @@ export function MarketingFooter({ linkToApp = false, product = "delivery" }: Mar
                                 {startLabel}
                             </a>
                         </li>
-                        <li>
-                            <a href={otherHref} className="text-sm text-slate-600 transition-colors duration-200 hover:text-slate-950">
-                                {otherLabel}
-                            </a>
-                        </li>
+                        {OFFICE_LANDING_VISIBLE || product === "attendance" ? (
+                            <li>
+                                <a href={otherHref} className="text-sm text-slate-600 transition-colors duration-200 hover:text-slate-950">
+                                    {otherLabel}
+                                </a>
+                            </li>
+                        ) : null}
                     </ul>
                 </nav>
             </div>

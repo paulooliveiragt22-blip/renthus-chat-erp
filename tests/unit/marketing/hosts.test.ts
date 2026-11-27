@@ -47,9 +47,11 @@ describe("marketing host", () => {
         );
         assert.equal(marketingHostAction("www.zampell.com.br", "/chat/0113a3fe-e224-49ff-81c6-f8b9df556267", env).type, "next");
         const attendance = marketingHostAction("www.zampell.com.br", "/atendimento", env);
-        assert.equal(attendance.type, "rewrite");
-        if (attendance.type === "rewrite") assert.equal(attendance.pathname, "/agente");
-        assert.equal(marketingHostAction("www.zampell.com.br", "/agente", env).type, "next");
+        assert.equal(attendance.type, "redirect-local");
+        if (attendance.type === "redirect-local") assert.equal(attendance.pathname, "/");
+        const agente = marketingHostAction("www.zampell.com.br", "/agente", env);
+        assert.equal(agente.type, "redirect-local");
+        if (agente.type === "redirect-local") assert.equal(agente.pathname, "/");
         assert.equal(marketingHostAction("app.zampell.com.br", "/atendimento", env).type, "ignore");
         assert.equal(marketingHostAction("www.zampell.com.br", "/pdv", env).type, "redirect");
         assert.equal(marketingHostAction("www.zampell.com.br", "/c/loja", env).type, "redirect");

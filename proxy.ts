@@ -446,6 +446,11 @@ function handleMarketingHost(
         url.pathname = action.pathname;
         return rewriteWithCsp(request, url, csp);
     }
+    if (action.type === "redirect-local") {
+        const url = request.nextUrl.clone();
+        url.pathname = action.pathname;
+        return stampCspResponse(NextResponse.redirect(url, 307), csp);
+    }
     if (action.type === "deny") {
         return stampCspResponse(
             NextResponse.json(

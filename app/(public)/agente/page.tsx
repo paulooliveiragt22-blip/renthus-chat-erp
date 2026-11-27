@@ -1,7 +1,9 @@
 import type { Metadata } from "next";
 import { headers } from "next/headers";
+import { redirect } from "next/navigation";
 import { AttendanceHome } from "@/components/marketing/AttendanceHome";
 import { isMarketingHostname } from "@/lib/marketing/hosts";
+import { OFFICE_LANDING_VISIBLE } from "@/lib/marketing/officeLanding";
 import { resolveRequestHostname } from "@/lib/platform/resolvePlatformRequestHost";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { readSiteChatPublicCompany } from "@/src/service/adapters/site/siteChatRpc";
@@ -15,6 +17,7 @@ export const metadata: Metadata = {
 };
 
 export default async function AgentePage() {
+    if (!OFFICE_LANDING_VISIBLE) redirect("/inicio");
     const host = resolveRequestHostname(await headers());
     const siteChat = await loadZampellChat();
     return <AttendanceHome linkToApp={isMarketingHostname(host)} siteChat={siteChat} />;

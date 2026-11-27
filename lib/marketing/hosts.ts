@@ -1,4 +1,5 @@
 import type { EnvLike } from "@/lib/env/EnvLike";
+import { OFFICE_LANDING_VISIBLE } from "@/lib/marketing/officeLanding";
 
 const DEFAULT_MARKETING_HOSTS = ["zampell.com.br", "www.zampell.com.br"] as const;
 /** Origem dos links da vitrine quando `NEXT_PUBLIC_APP_URL` não está definido. */
@@ -58,6 +59,7 @@ export type MarketingHostAction =
     | { type: "next" }
     | { type: "rewrite"; pathname: string }
     | { type: "redirect" }
+    | { type: "redirect-local"; pathname: string }
     | { type: "deny" };
 
 function isMarketingAsset(pathname: string): boolean {
@@ -98,6 +100,12 @@ export function marketingHostAction(
     if (pathname === "/") return { type: "rewrite", pathname: "/inicio" };
     if (pathname === "/inicio" || pathname.startsWith("/inicio/")) return { type: "next" };
     if (pathname === "/chat" || pathname.startsWith("/chat/")) return { type: "next" };
+    if (
+        !OFFICE_LANDING_VISIBLE &&
+        (pathname === "/atendimento" || pathname === "/agente" || pathname.startsWith("/agente/"))
+    ) {
+        return { type: "redirect-local", pathname: "/" };
+    }
     if (pathname === "/agente" || pathname.startsWith("/agente/")) return { type: "next" };
     if (pathname === "/atendimento") return { type: "rewrite", pathname: "/agente" };
     if (pathname.startsWith("/api/")) return { type: "deny" };
