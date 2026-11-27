@@ -8,6 +8,7 @@
  */
 
 import "server-only";
+import { customerCardDeclineMessage } from "@/lib/billing/customerCardDecline";
 import {
     getMonthlyPriceCentsForPlan,
     getYearlyPriceCentsForPlan,
@@ -222,21 +223,14 @@ export type PagarmeCharge = {
     last_transaction?: PagarmePixTransaction;
 };
 
-/** Mensagem amigável quando charge de cartão falha no PSP (live vs sandbox). */
+/** Recusa de cartão na voz de quem paga. Não ecoa o texto do lojista nem dica de sandbox. */
 export function cardPaymentFailedUserMessage(order: PagarmeOrder): string {
     const tx = order.charges?.[0]?.last_transaction;
-    const acquirer = String(tx?.acquirer_message ?? "").trim();
-    const gwErr = String(tx?.gateway_response?.errors?.[0]?.message ?? "").trim();
-    const detail = acquirer || gwErr;
-    const key = process.env.PAGARME_API_KEY ?? "";
-    const isSandbox = key.includes("_test_") || key.startsWith("sk_test");
-    const base = detail
-        ? `Cartão recusado pelo Pagar.me: ${detail}`
-        : "Cartão recusado pelo Pagar.me. Confira dados do titular, CVV e endereço de cobrança.";
-    if (isSandbox) {
-        return `${base} No sandbox use CVV 123 e cartão de teste (ex.: 4000000000000010).`;
-    }
-    return `${base} Em produção use cartão real (números de teste do sandbox não funcionam). Ou pague via PIX.`;
+    return customerCardDeclineMessage({
+        returnCode: tx?.acquirer_return_code,
+        acquirerMessage: tx?.acquirer_message,
+        gatewayMessage: tx?.gateway_response?.errors?.[0]?.message,
+    });
 }
 
 export type PagarmeCheckout = {

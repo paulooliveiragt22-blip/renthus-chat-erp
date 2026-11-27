@@ -28,25 +28,25 @@ export function validateRenthusCardCheckout(
       } {
     const expRaw = renthusCard.exp.trim();
     if (!/^\d{2}\/\d{2}$/.test(expRaw)) {
-        return { error: "Validade do cartão: use MM/AA (ex.: 08/28)." };
+        return { error: "Confira a validade. Use mês e ano, como 08/28." };
     }
     const exp = parseCardExpiry(expRaw);
-    if (!exp) return { error: "Validade do cartão: use MM/AA." };
+    if (!exp) return { error: "Confira a validade. Use mês e ano, como 08/28." };
     const month = Number(exp.month);
     if (month < 1 || month > 12) {
-        return { error: "Mês de validade inválido (01–12)." };
+        return { error: "O mês de validade não existe. Use de 01 a 12." };
     }
     const year2 = Number(exp.year);
     if (isExpiryInPast(month, year2)) {
-        return { error: "Cartão vencido. Informe uma validade futura." };
+        return { error: "Este cartão está vencido. Informe uma validade que ainda não passou." };
     }
     const num = renthusCard.number.replaceAll(/\D/g, "");
     if (num.length < 13 || num.length > 19) {
-        return { error: "Número do cartão inválido." };
+        return { error: "O número do cartão não foi aceito. Confira os dígitos." };
     }
     const cvv = renthusCard.cvv.replaceAll(/\D/g, "");
     if (cvv.length < 3 || cvv.length > 4) {
-        return { error: "CVV inválido (3 ou 4 dígitos)." };
+        return { error: "O código de segurança tem 3 ou 4 dígitos. Confira no verso do cartão." };
     }
     const holder = renthusCard.holder.trim() || nomeFantasia.trim();
     if (holder.length < 3) {

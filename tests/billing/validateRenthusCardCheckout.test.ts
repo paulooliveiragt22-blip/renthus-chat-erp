@@ -54,7 +54,7 @@ describe("validateRenthusCardCheckout", () => {
             "Loja"
         );
         assert.ok("error" in r);
-        assert.match(r.error, /CVV/);
+        assert.match(r.error, /código de segurança/iu);
     });
 
     it("exige CPF/CNPJ do titular", () => {

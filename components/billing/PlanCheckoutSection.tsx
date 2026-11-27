@@ -267,11 +267,6 @@ export function PlanCheckoutSection({
                     confirmar.
                 </div>
             ) : null}
-            {st === "pending_payment" || st === "pending_setup" ? (
-                <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-900 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-200">
-                    Pagamento inicial pendente. Escolha PIX ou cartão para começar.
-                </div>
-            ) : null}
             {st === "overdue" ? (
                 <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-900 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-200">
                     Mensalidade em aberto. Escolha PIX ou cartão.
@@ -284,7 +279,7 @@ export function PlanCheckoutSection({
         <div className="space-y-3">
             {!PAGARME_PUBLIC_KEY ? (
                 <p className="text-xs text-amber-700 dark:text-amber-300">
-                    Configure NEXT_PUBLIC_PAGARME_PUBLIC_KEY para pagar com cartão.
+                    Pagamento com cartão indisponível agora. Use PIX.
                 </p>
             ) : null}
             <div className="grid gap-3 sm:grid-cols-2">

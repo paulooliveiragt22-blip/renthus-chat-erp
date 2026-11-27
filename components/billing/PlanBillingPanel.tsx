@@ -411,7 +411,7 @@ export default function PlanBillingPanel({ variant = "full" }: PlanBillingPanelP
         setBillingErr(null);
         setBillingSuccessMsg(null);
         if (!PAGARME_PUBLIC_KEY) {
-            setBillingErr("Configure NEXT_PUBLIC_PAGARME_PUBLIC_KEY e cadastre o domínio no Pagar.me.");
+            setBillingErr("Não foi possível pagar com cartão agora. Use PIX.");
             return;
         }
         const validated = validateRenthusCardCheckout(renthusCard, cardAddr, nomeFantasia);
