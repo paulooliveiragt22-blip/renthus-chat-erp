@@ -38,10 +38,11 @@ export const eventTone = cva("", {
 });
 
 export type Tone = "sky" | "emerald" | "amber" | "violet" | "rose" | "cyan" | "google";
+type OfferingTone = Exclude<Tone, "google">;
 
-const TONES: Tone[] = ["sky", "emerald", "amber", "violet", "rose", "cyan"];
+const TONES: OfferingTone[] = ["sky", "emerald", "amber", "violet", "rose", "cyan"];
 
-export function toneFor(name: string): Tone {
+export function toneFor(name: string): OfferingTone {
     let hash = 0;
     for (let index = 0; index < name.length; index += 1) hash = (hash + name.charCodeAt(index)) % TONES.length;
     return TONES[hash] ?? "sky";
