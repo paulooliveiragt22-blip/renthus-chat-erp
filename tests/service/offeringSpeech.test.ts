@@ -1,9 +1,8 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { appPublicOrigin } from "../../lib/marketing/hosts";
 import { executeServiceTurn } from "../../src/service/application/executeServiceTurn";
-import { normalizeVisitorPhone, planCards, reaisFromCents, signupPathForOffering, siteSalesStep, speakOfferings, whatsappPlanBubbles } from "../../src/service/domain/offeringSpeech";
+import { normalizeVisitorPhone, planCards, reaisFromCents, siteSalesStep, speakOfferings, whatsappPlanBubbles } from "../../src/service/domain/offeringSpeech";
 import { toolsForTurn } from "../../src/service/domain/serviceTools";
 import { CASE_STAGE_LABELS, type ServiceOfferingView, type ServiceProfileView } from "../../src/service/domain/types";
 
@@ -113,6 +112,7 @@ describe("contato do chat do site", () => {
             {
                 data: {
                     loadProfile: async () => profile,
+                    listFaqs: async () => [],
                     listOfferings: async () => [],
                     listFreeSlots: async () => ({ ok: true, code: "ok", slots: [] }),
                     proposeSlot: async () => ({ ok: true, code: "ok" }),
@@ -271,15 +271,18 @@ describe("contato do chat do site", () => {
         const texts: string[] = [];
         const ctas: string[] = [];
         const offerings = [
-            ...OFFERINGS,
+            { ...OFFERINGS[0]!, linkUrl: "https://app.zampell.com.br/signup?plano=essencial&periodo=month", linkLabel: "Ver oferta" },
+            { ...OFFERINGS[1]!, linkUrl: "https://cadastro.exemplo/essencial-ano", linkLabel: "Ver oferta" },
+            { ...OFFERINGS[2]!, linkUrl: "https://app.zampell.com.br/signup/office?periodo=month", linkLabel: "Ver plano" },
+            OFFERINGS[3]!,
             {
                 id: "5",
                 name: "Atendimento anual",
                 description: "Agente de IA no WhatsApp",
                 durationMin: null,
                 priceCents: 119880,
-                linkUrl: null,
-                linkLabel: null,
+                linkUrl: "https://app.zampell.com.br/signup/office?periodo=year",
+                linkLabel: "Ver oferta",
             },
         ];
         await executeServiceTurn(
@@ -294,16 +297,15 @@ describe("contato do chat do site", () => {
             },
             salesPorts(texts, offerings, async () => "tudo num parágrafo difícil de ler", undefined, ctas)
         );
-        const origin = appPublicOrigin();
-        assert.match(texts[0] ?? "", /Quero este/u);
+        assert.match(texts[0] ?? "", /Toque no botão/u);
         assert.equal((texts[0] ?? "").includes("parágrafo"), false);
         assert.deepEqual(
             ctas.map((line) => line.split("\n")[0]),
             [
-                `Quero este ${origin}/signup?plano=essencial&periodo=month Essencial mensal`,
-                `Quero este ${origin}/signup?plano=essencial&periodo=year Essencial anual`,
-                `Quero este ${origin}/signup/office?periodo=month Office mensal`,
-                `Quero este ${origin}/signup/office?periodo=year Office anual`,
+                "Ver oferta https://app.zampell.com.br/signup?plano=essencial&periodo=month Essencial mensal",
+                "Ver oferta https://cadastro.exemplo/essencial-ano Essencial anual",
+                "Ver plano https://app.zampell.com.br/signup/office?periodo=month Office mensal",
+                "Ver oferta https://app.zampell.com.br/signup/office?periodo=year Office anual",
             ]
         );
         assert.match(texts.join("\n"), /Enterprise: sob consulta/u);
@@ -322,12 +324,24 @@ describe("contato do chat do site", () => {
                 text: "quero o atendimento mensal",
                 messagingChannel: "whatsapp",
             },
-            salesPorts(texts, OFFERINGS, async () => "custa 15 reais", undefined, ctas)
+            salesPorts(
+                texts,
+                [
+                    {
+                        ...OFFERINGS[2]!,
+                        linkUrl: "https://app.zampell.com.br/signup/office?periodo=month",
+                        linkLabel: "Ver plano",
+                    },
+                ],
+                async () => "custa 15 reais",
+                undefined,
+                ctas
+            )
         );
         assert.equal(texts.length, 0);
         assert.equal(ctas.length, 1);
-        assert.match(ctas[0] ?? "", /Quero este/u);
-        assert.match(ctas[0] ?? "", /\/signup\/office\?periodo=month/u);
+        assert.match(ctas[0] ?? "", /Ver plano/u);
+        assert.match(ctas[0] ?? "", /https:\/\/app\.zampell\.com\.br\/signup\/office\?periodo=month/u);
         assert.match(ctas[0] ?? "", /Office mensal/u);
         assert.equal((ctas[0] ?? "").includes("15 reais"), false);
     });
@@ -368,11 +382,21 @@ describe("contato do chat do site", () => {
         assert.equal((texts[0] ?? "").includes("cinquenta"), false);
     });
 
-    it("monta o caminho do cadastro", () => {
-        assert.equal(signupPathForOffering(OFFERINGS[0]!), "/signup?plano=essencial&periodo=month");
-        assert.equal(signupPathForOffering(OFFERINGS[2]!), "/signup/office?periodo=month");
-        assert.equal(signupPathForOffering(OFFERINGS[3]!), null);
-        assert.equal(whatsappPlanBubbles([OFFERINGS[3]!]).some((bubble) => bubble.kind === "cta"), false);
+    it("o botão usa o link cadastrado e some sem ele", () => {
+        const [bubble] = whatsappPlanBubbles([
+            {
+                ...OFFERINGS[0]!,
+                linkUrl: "https://cadastro.exemplo/essencial",
+                linkLabel: "Ver plano",
+            },
+        ]);
+        assert.equal(bubble?.kind, "cta");
+        if (bubble?.kind === "cta") {
+            assert.equal(bubble.label, "Ver plano");
+            assert.equal(bubble.url, "https://cadastro.exemplo/essencial");
+        }
+        assert.equal(whatsappPlanBubbles([OFFERINGS[0]!]).some((item) => item.kind === "cta"), false);
+        assert.equal(whatsappPlanBubbles([OFFERINGS[3]!]).some((item) => item.kind === "cta"), false);
     });
 });
 
@@ -386,6 +410,7 @@ function salesPorts(
 ) {
     return {
         data: {
+            listFaqs: async () => [],
             loadProfile: async () => ({
                 preset: "servico" as const,
                 contextText: "",

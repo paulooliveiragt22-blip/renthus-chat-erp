@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { FAQ_ANSWER_MAX, FAQ_QUESTION_MAX } from "@/src/service/domain/faq";
 
 export const servicePresetSchema = z.enum(["horario", "servico", "consulta_caso", "balcao"]);
 
@@ -6,6 +7,17 @@ export const caseStageSchema = z.enum(["aberto", "em_andamento", "concluido", "p
 
 export const saveContextSchema = z.object({
     contextText: z.string().max(4000),
+});
+
+export const upsertFaqSchema = z.object({
+    id: z.string().uuid().nullable().optional(),
+    question: z.string().trim().min(1).max(FAQ_QUESTION_MAX),
+    answer: z.string().trim().min(1).max(FAQ_ANSWER_MAX),
+    active: z.boolean().optional(),
+});
+
+export const deleteFaqSchema = z.object({
+    id: z.string().uuid(),
 });
 
 export const channelFlagsSchema = z.object({

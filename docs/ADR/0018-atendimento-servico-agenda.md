@@ -108,6 +108,17 @@ Endereço, telefone e turnos continuam em `companies` e `company_settings`.
 
 No máximo 30 ofertas ativas no prompt, cada uma com nome, duração e preço. Oferta sem duração não entra na grade. Preço nulo é “sob consulta”: o modelo não inventa número. Se a oferta tem link, o turno manda um botão `cta_url` com o rótulo escolhido. No máximo três botões por resposta, e nenhum quando a mesma resposta já pede confirmação de horário ou card.
 
+`service_faqs` — pergunta e resposta escritas pela empresa no painel de atendimento.
+
+| Coluna | Papel |
+|---|---|
+| `company_id` | FK, indexada |
+| `question` | Até 200 caracteres |
+| `answer` | Até 1.000 caracteres |
+| `active` | Só as ativas entram no prompt. Teto de 40 ativas, na RPC |
+
+O bloco vai entre `<company_faq>`, como dado. Se a fala do cliente corresponder a uma pergunta, a resposta é a cadastrada. Se nenhuma servir, o atendente não inventa e oferece uma pessoa. WhatsApp e chat do site leem a mesma lista. Delivery não usa esta tabela.
+
 ### D3 — Vaga oferecida, e uma função só que insere
 
 `service_slot_offers` — o horário que o servidor ofereceu. Não bloqueia a agenda.

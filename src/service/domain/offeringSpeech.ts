@@ -1,3 +1,4 @@
+import { httpsOfferLink, offerLinkLabel } from "@/src/service/domain/offerLink";
 import type { ServiceOfferingView } from "@/src/service/domain/types";
 
 export function reaisFromCents(cents: number): string {
@@ -130,13 +131,11 @@ export type SiteSalesStep =
     | { kind: "period"; body: string; rows: ServiceOfferingView[] }
     | { kind: "save"; name: string; phone: string; interest: string };
 
-export const PLAN_SIGNUP_BUTTON = "Quero este";
-
 export const WHATSAPP_PLAN_INTRO =
-    "Estes são os planos. Toque em Quero este para abrir o cadastro com esse plano.";
+    "Estes são os planos. Toque no botão para abrir o cadastro com esse plano.";
 
 export type WhatsappPlanBubble =
-    | { kind: "cta"; body: string; path: string }
+    | { kind: "cta"; body: string; label: string; url: string }
     | { kind: "text"; body: string };
 
 function compareOfferings(a: ServiceOfferingView, b: ServiceOfferingView): number {
@@ -152,26 +151,6 @@ function orderedOfferings(offerings: readonly ServiceOfferingView[]): ServiceOff
         out.push(...offerings.filter((offering) => groupOf(offering.name) === key).sort(compareOfferings));
     }
     return out;
-}
-
-/** Cadastro com o plano e o ciclo já escolhidos. Enterprise não tem checkout. */
-export function signupPathForOffering(offering: ServiceOfferingView): string | null {
-    const name = offering.name.toLocaleLowerCase("pt-BR");
-    const period = name.endsWith(" anual") ? "year" : name.endsWith(" mensal") ? "month" : null;
-    if (!period) return null;
-    if (name.startsWith("atendimento ") || name.startsWith("office ")) {
-        return `/signup/office?periodo=${period}`;
-    }
-    if (!name.startsWith("delivery ")) return null;
-    const plan = name.includes("essencial")
-        ? "essencial"
-        : /\bpro\b/u.test(name)
-          ? "pro"
-          : name.includes("market")
-            ? "market"
-            : null;
-    if (!plan) return null;
-    return `/signup?plano=${plan}&periodo=${period}`;
 }
 
 function planMessageTitle(name: string): string {
@@ -192,9 +171,14 @@ function planSignupBody(offering: ServiceOfferingView): string {
 export function whatsappPlanBubbles(rows: readonly ServiceOfferingView[]): WhatsappPlanBubble[] {
     const bubbles: WhatsappPlanBubble[] = [];
     for (const row of orderedOfferings(rows)) {
-        const path = signupPathForOffering(row);
-        if (path) {
-            bubbles.push({ kind: "cta", body: planSignupBody(row), path });
+        const url = httpsOfferLink(row.linkUrl);
+        if (url) {
+            bubbles.push({
+                kind: "cta",
+                body: planSignupBody(row),
+                label: offerLinkLabel(row.linkLabel),
+                url,
+            });
             continue;
         }
         const lower = row.name.toLocaleLowerCase("pt-BR");

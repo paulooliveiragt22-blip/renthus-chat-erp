@@ -1,4 +1,3 @@
-import { appPublicOrigin } from "@/lib/marketing/hosts";
 import { QueueRetryableError, isQueueRetryableError } from "@/lib/chatbot/queueRetry";
 import { buildServicePrompt } from "@/src/service/application/servicePrompt";
 import { asksForHuman } from "@/src/service/domain/humanAsk";
@@ -16,7 +15,6 @@ import {
     storeWhatsappHref,
     WHATSAPP_PLAN_INTRO,
     whatsappPlanBubbles,
-    PLAN_SIGNUP_BUTTON,
     type SitePlanCard,
     type SiteSalesStep,
     type WhatsappPlanBubble,
@@ -173,8 +171,9 @@ export async function executeServiceTurn(
 
     const tools = toolsForTurn(profile, input.messagingChannel);
     try {
+        const faqs = await ports.data.listFaqs(input.companyId);
         const modelResult = await ports.model.run({
-            system: buildServicePrompt(profile, input.messagingChannel === "site" ? "site" : "whatsapp"),
+            system: buildServicePrompt(profile, input.messagingChannel === "site" ? "site" : "whatsapp", faqs),
             messages: toServiceModelMessages(
                 input.priorTurns,
                 input.text,
@@ -200,16 +199,15 @@ export async function executeServiceTurn(
         }
         await finish(reply, buttons);
         if (buttons.length === 0 && planBubbles.length > 0) {
-            const origin = appPublicOrigin();
             for (const bubble of planBubbles) {
                 if (bubble.kind === "cta") {
-                    await ports.reply.cta(bubble.body, PLAN_SIGNUP_BUTTON, `${origin}${bubble.path}`);
+                    await ports.reply.cta(bubble.body, bubble.label, bubble.url);
                 } else {
                     await ports.reply.text(bubble.body);
                 }
             }
         } else if (buttons.length === 0) {
-            for (const link of offerLinks.slice(0, 3)) {
+            for (const link of offerLinks) {
                 await ports.reply.cta(link.name, link.label, link.url);
             }
         }

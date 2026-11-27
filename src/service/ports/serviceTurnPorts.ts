@@ -1,5 +1,6 @@
 import type { SitePlanCard } from "@/src/service/domain/offeringSpeech";
 import type { ServiceModelMessage } from "@/src/service/domain/modelMessages";
+import type { ServiceFaqView } from "@/src/service/domain/faq";
 import type {
     ServiceAppointmentView,
     ServiceCaseView,
@@ -14,6 +15,7 @@ export type ServiceSlotList = ServiceCommandResult & { slots: string[] };
 
 export type ServiceDataPort = {
     loadProfile(companyId: string): Promise<ServiceProfileView | null>;
+    listFaqs(companyId: string): Promise<ServiceFaqView[]>;
     listOfferings(companyId: string): Promise<ServiceOfferingView[]>;
     listFreeSlots(companyId: string, offeringId: string, day: string): Promise<ServiceSlotList>;
     proposeSlot(

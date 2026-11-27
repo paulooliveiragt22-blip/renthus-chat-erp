@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Skeleton } from "@/components/ui/skeleton";
+import { ServiceFaqPanel } from "@/components/service/ServiceFaqPanel";
 import { useServiceSnapshot } from "@/components/service/useServiceSnapshot";
 import { siteChatPageUrl } from "@/src/service/domain/siteChat";
 import type { ServicePreset } from "@/src/service/domain/types";
@@ -116,6 +117,8 @@ export default function AtendimentoPage() {
             <Button type="button" disabled={saving} onClick={() => void post({ action: "context", contextText })}>
                 Salvar contexto
             </Button>
+
+            <ServiceFaqPanel />
 
             {snapshot.siteChatKey ? (
                 <div className="flex flex-col gap-3 rounded-xl border border-zinc-200 p-4 dark:border-zinc-800">

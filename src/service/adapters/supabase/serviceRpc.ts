@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import type { ServiceFaqView } from "@/src/service/domain/faq";
 import { isServicePreset } from "@/src/service/domain/preset";
 import {
     CASE_STAGE_LABELS,
@@ -87,6 +88,13 @@ export function createServiceDataPort(admin: SupabaseClient): ServiceDataPort {
                     perdido: labelOf(labels, "perdido"),
                 },
             } satisfies ServiceProfileView;
+        },
+        async listFaqs(companyId) {
+            const raw = await callRpc(admin, "rpc_service_list_faqs", {
+                p_company_id: companyId,
+                p_active_only: true,
+            });
+            return mapRows(raw).flatMap(mapFaq);
         },
         async listOfferings(companyId) {
             const raw = await callRpc(admin, "rpc_service_list_offerings", { p_company_id: companyId });
@@ -198,6 +206,11 @@ export function createServiceDataPort(admin: SupabaseClient): ServiceDataPort {
 function labelOf(labels: Record<string, unknown> | null, stage: CaseStage): string {
     const value = labels?.[stage];
     return typeof value === "string" && value.trim().length > 0 ? value : CASE_STAGE_LABELS[stage];
+}
+
+function mapFaq(row: Record<string, unknown>): ServiceFaqView[] {
+    if (typeof row.id !== "string" || typeof row.question !== "string" || typeof row.answer !== "string") return [];
+    return [{ id: row.id, question: row.question, answer: row.answer, active: row.active === true }];
 }
 
 function mapOffering(row: Record<string, unknown>): ServiceOfferingView[] {
