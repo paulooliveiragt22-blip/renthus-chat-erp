@@ -11,7 +11,23 @@ import type {
     TurnWrites,
 } from "@/src/service/domain/types";
 
-export type ServiceSlotList = ServiceCommandResult & { slots: string[] };
+export type ServiceSlotList = ServiceCommandResult & { slots: string[]; durationMin?: number | null };
+
+export type GoogleGate = "off" | "free" | "busy" | "unavailable" | "missing";
+
+export type ServiceCalendarPort = {
+    gateOpenSlot(companyId: string, threadId: string): Promise<GoogleGate>;
+    gateOffering(companyId: string, offeringId: string, startsAt: string): Promise<GoogleGate>;
+    gateMoved(companyId: string, appointmentId: string, startsAt: string): Promise<GoogleGate>;
+    filterSlots(
+        companyId: string,
+        slots: readonly string[],
+        durationMin: number
+    ): Promise<{ slots: string[]; gate: GoogleGate }>;
+    mirrorBooked(companyId: string, appointmentId: string): Promise<void>;
+    mirrorCancelled(companyId: string, appointmentId: string): Promise<void>;
+    mirrorMoved(companyId: string, fromAppointmentId: string, toAppointmentId: string): Promise<void>;
+};
 
 export type ServiceDataPort = {
     loadProfile(companyId: string): Promise<ServiceProfileView | null>;
@@ -134,4 +150,5 @@ export type ServiceTurnPorts = {
     reply: ServiceReplyPort;
     handover: ServiceHandoverPort;
     trace: ServiceTracePort;
+    calendar?: ServiceCalendarPort;
 };

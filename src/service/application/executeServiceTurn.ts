@@ -107,6 +107,13 @@ export async function executeServiceTurn(
     };
 
     if (button === "slot") {
+        if (ports.calendar) {
+            const gate = await ports.calendar.gateOpenSlot(input.companyId, input.threadId);
+            if (gate === "busy" || gate === "unavailable") {
+                await finish(serviceFailureText(gate === "busy" ? "slot_taken" : "calendar_unavailable"));
+                return;
+            }
+        }
         const result = await ports.data.confirmOpenSlot(
             input.companyId,
             input.threadId,
@@ -114,6 +121,9 @@ export async function executeServiceTurn(
             input.profileName ?? null
         );
         writes.booked = wrote(result);
+        if (writes.booked && result.appointmentId) {
+            await ports.calendar?.mirrorBooked(input.companyId, result.appointmentId);
+        }
         const when = formatWhen(result.startsAt, result.timeZone);
         const name = result.offeringName ? `: ${result.offeringName}` : "";
         const whenText = when ? `, ${when}` : "";
@@ -380,11 +390,21 @@ async function executeTool(
         const parsed = listFreeSlotsInput.safeParse(raw);
         if (!parsed.success) return { ok: false, code: "offering_invalid" };
         const listed = await ports.data.listFreeSlots(companyId, parsed.data.offering_id, parsed.data.day);
+        if (listed.ok && ports.calendar && listed.durationMin && listed.durationMin > 0 && listed.slots.length > 0) {
+            const filtered = await ports.calendar.filterSlots(companyId, listed.slots, listed.durationMin);
+            if (filtered.gate === "unavailable") return { ok: false, code: "calendar_unavailable", slots: [] };
+            return { ok: true, code: "ok", slots: filtered.slots };
+        }
         return { ok: listed.ok, code: listed.code, slots: listed.slots };
     }
     if (name === "propose_slot") {
         const parsed = proposeSlotInput.safeParse(raw);
         if (!parsed.success) return { ok: false, code: "offering_invalid" };
+        if (ports.calendar) {
+            const gate = await ports.calendar.gateOffering(companyId, parsed.data.offering_id, parsed.data.starts_at);
+            if (gate === "busy") return { ok: false, code: "slot_taken" };
+            if (gate === "unavailable") return { ok: false, code: "calendar_unavailable" };
+        }
         const result = await ports.data.proposeSlot(
             companyId,
             threadId,
@@ -401,12 +421,20 @@ async function executeTool(
         const parsed = appointmentIdInput.safeParse(raw);
         if (!parsed.success) return { ok: false, code: "appointment_closed" };
         const result = await ports.data.cancelAppointment(companyId, threadId, parsed.data.appointment_id);
-        if (wrote(result)) writes.cancelled = true;
+        if (wrote(result)) {
+            writes.cancelled = true;
+            await ports.calendar?.mirrorCancelled(companyId, parsed.data.appointment_id);
+        }
         return { ok: result.ok, code: result.code };
     }
     if (name === "reschedule_appointment") {
         const parsed = rescheduleInput.safeParse(raw);
         if (!parsed.success) return { ok: false, code: "outside_hours" };
+        if (ports.calendar) {
+            const gate = await ports.calendar.gateMoved(companyId, parsed.data.appointment_id, parsed.data.starts_at);
+            if (gate === "busy") return { ok: false, code: "slot_taken" };
+            if (gate === "unavailable") return { ok: false, code: "calendar_unavailable" };
+        }
         const key = `svc-re:${input.messageId}:${parsed.data.appointment_id}`.slice(0, 200);
         const result = await ports.data.rescheduleAppointment(
             companyId,
@@ -415,7 +443,12 @@ async function executeTool(
             parsed.data.starts_at,
             key
         );
-        if (wrote(result)) writes.rescheduled = true;
+        if (wrote(result)) {
+            writes.rescheduled = true;
+            if (result.appointmentId) {
+                await ports.calendar?.mirrorMoved(companyId, parsed.data.appointment_id, result.appointmentId);
+            }
+        }
         return { ok: result.ok, code: result.code };
     }
     if (name === "list_open_cases") {

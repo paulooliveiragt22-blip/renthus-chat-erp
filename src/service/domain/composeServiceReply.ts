@@ -68,6 +68,8 @@ export function serviceFailureText(code: string): string {
             return "Esse pedido pelo WhatsApp está fechado. Se quiser, peça um atendente.";
         case "outside_hours":
             return "Esse horário está fora do expediente. Me peça outro.";
+        case "calendar_unavailable":
+            return "Não consegui consultar a agenda agora. Pode tentar de novo?";
         default:
             return "Não consegui concluir isso agora. Pode tentar de novo ou pedir um atendente.";
     }

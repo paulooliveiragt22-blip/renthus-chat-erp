@@ -1,6 +1,6 @@
 # ADR 0018 — Atendimento de serviço: motor ao lado do delivery
 
-**Status:** aceito (2026-11-25) — emenda 2026-11-26: chat do site na vitrine, no mesmo turno, sem agenda. Emenda 2026-11-26, à tarde: a página pública de atendimento tem tabela própria (D10) e ainda não entra no billing. Workers publicados em 2026-11-25: `renthus-inbound-worker:live` versão 100.
+**Status:** aceito (2026-11-25) — emenda 2026-11-26: chat do site na vitrine, no mesmo turno, sem agenda. Emenda 2026-11-26, à tarde: a página pública de atendimento tem tabela própria (D10) e ainda não entra no billing. Emenda 2026-11-27: a agenda do Google entra no painel do Office (D11). O Postgres continua a fonte do horário. Workers publicados em 2026-11-25: `renthus-inbound-worker:live` versão 100.
 **Data:** 2026-11-25
 **Aprovação do dono:** 2026-11-25, de manhã (mesmo repositório; WhatsApp é o canal; inbox, templates, campanhas e Embedded Signup são reaproveitados; motor de serviço ao lado do delivery). Emenda 2026-11-25, à tarde: a estrutura superior substitui o miolo. O modelo propõe a marcação nova; o botão ou o balcão confirma; a inserção é uma função só. Emenda 2026-11-25, em seguida: cancelar e remarcar entram nas ferramentas do WhatsApp, cada um com interruptor da empresa. Os dois nascem desligados. Emenda 2026-11-25, fim da tarde: no cadastro a empresa escolhe um modelo (horário, serviço, consulta e caso, balcão). Isso liga agenda e card. As etapas do card são quatro, fixas. O rótulo pode mudar. O funil não. Emenda 2026-11-25, em seguida: o checklist de implementação passa a travar UI, contrato tipado e as rules do repositório, para o corte de código não reabrir decisão.
 **Escopo técnico:** um segundo motor de atendimento, no mesmo webhook, na mesma fila e no mesmo número. A empresa escolhe o modo no cadastro. O modo serviço responde com o contexto da empresa e marca horário. O modo delivery continua em `src/pro`.
@@ -302,9 +302,21 @@ A lista que o cliente lê é montada no servidor, uma linha por plano, e termina
 
 ---
 
+### D11 — Agenda do Google
+
+Em 2026-11-27 o dono pediu a conexão no painel. Uma empresa de serviço conecta uma conta Google. O cliente final não autoriza nada. Delivery não ganha essa conexão.
+
+O horário marcado continua nascendo em `service_appointments`. A conta Google faz duas coisas: a vaga ocupada nessa agenda não é oferecida nem confirmada; o horário confirmado vira um evento, o cancelamento apaga o evento e a remarcação move o mesmo evento. Se a gravação do evento falhar depois que o Postgres já gravou, a marcação fica e a agenda do painel mostra “Não entrou no Google”. Sem conta conectada, o turno segue só no Postgres.
+
+Escopos: e-mail da conta, livre/ocupado (`calendar.freebusy`) e eventos (`calendar.events`). Não pede a agenda inteira. O refresh token fica cifrado com `CREDENTIALS_ENCRYPTION_KEY` em `service_google_connections`. O browser não recebe o token.
+
+O cliente OAuth é um aplicativo da Web, sem a marca de agente de IA. O retorno registrado no Google é `https://app.zampell.com.br/api/admin/google-calendar/callback`. No servidor, `GOOGLE_CALENDAR_CLIENT_ID` e `GOOGLE_CALENDAR_CLIENT_SECRET` ficam na Vercel e no worker de entrada. Sem essas duas variáveis, o botão fica desligado e a agenda do sistema segue sozinha.
+
+Enquanto o app do Google estiver em teste, só os Gmail listados em Público-alvo autorizam. Cliente de fora dessa lista exige a verificação do Google. Gmail, Meet, login do painel com Google, contatos e Drive ficam de fora. Vários profissionais continuam fora de escopo: é uma conta por empresa.
+
 ## Futuro
 
-- Integrações com o Google. Exemplo: agenda / Google Calendar. Ainda não há conta, contrato nem sincronização. A agenda do produto continua no Postgres até essa integração existir.
+- Gmail, Google Meet, login do painel com Google e mais de uma agenda por empresa. A marcação continua no Postgres.
 
 ---
 
@@ -487,6 +499,7 @@ Não começar sem pedido explícito de implementar. Marcar no próprio item. A o
 - [x] Interruptor de cancelar e de remarcar: Switch Radix, `disabled` quando a agenda está desligada.
 - [x] Contexto, ofertas, agenda, cards e rótulos: Dialog Radix, skeleton, `truncate` / `line-clamp`, `dark:`, sem largura em pixel solto.
 - [x] Agenda só com `agenda_enabled`. Cards só com `cases_enabled`. URL de delivery recusada no layout quando o modo é serviço.
+- [x] Painel de atendimento conecta uma conta Google. O token não volta ao browser. Sem as variáveis do cliente, o botão fica desligado.
 - [x] Rota nova no inventário de `createAdminClient`. `company_id` da sessão. Zod na borda.
 - [x] Trilho da inbox de serviço não chama `/cart` nem `/orders`.
 

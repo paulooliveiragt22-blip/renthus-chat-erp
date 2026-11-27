@@ -13,6 +13,7 @@ type Row = {
     starts_at: string;
     phone_e164: string;
     customer_name: string | null;
+    google_sync?: string | null;
 };
 
 type Offering = { id: string; name: string; duration_min: number | null };
@@ -57,8 +58,15 @@ export default function AgendaPage() {
                 idempotencyKey: `admin-${crypto.randomUUID()}`,
             }),
         });
+        const json = (await res.json().catch(() => ({}))) as { code?: string };
         if (!res.ok) {
-            setError("Não foi possível marcar.");
+            setError(
+                json.code === "slot_taken"
+                    ? "Esse horário está ocupado na agenda do Google."
+                    : json.code === "calendar_unavailable"
+                      ? "A agenda do Google não respondeu. Tente de novo."
+                      : "Não foi possível marcar."
+            );
             return;
         }
         setOpen(false);
@@ -94,6 +102,9 @@ export default function AgendaPage() {
                             <p className="truncate text-sm text-zinc-500 dark:text-zinc-400">
                                 {new Date(row.starts_at).toLocaleString("pt-BR")} · {row.customer_name || row.phone_e164}
                             </p>
+                            {row.google_sync === "failed" ? (
+                                <p className="text-sm text-amber-700 dark:text-amber-300">Não entrou no Google.</p>
+                            ) : null}
                         </div>
                         <Button type="button" variant="outline" onClick={() => void cancel(row.id)}>Cancelar</Button>
                     </li>

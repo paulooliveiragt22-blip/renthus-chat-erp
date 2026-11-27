@@ -111,7 +111,8 @@ export function createServiceDataPort(admin: SupabaseClient): ServiceDataPort {
             const slots = Array.isArray(row?.slots)
                 ? row.slots.filter((slot): slot is string => typeof slot === "string")
                 : [];
-            const listed: ServiceSlotList = { ...command, slots: command.ok ? slots : [] };
+            const durationMin = typeof row?.duration_min === "number" ? row.duration_min : null;
+            const listed: ServiceSlotList = { ...command, slots: command.ok ? slots : [], durationMin };
             return listed;
         },
         async proposeSlot(companyId, threadId, offeringId, startsAt) {

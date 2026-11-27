@@ -24,6 +24,8 @@ export function buildServicePrompt(
             ]
             : [
                 "Horário novo não fica marcado na ferramenta. propose_slot só oferece. O cliente confirma no botão.",
+                "list_free_slots já tira o horário ocupado na agenda do Google, quando ela está conectada. Não ofereça um início que não veio da lista.",
+                "Se list_free_slots ou propose_slot devolver calendar_unavailable, diga que a agenda não respondeu e peça para tentar de novo. Não invente horário.",
                 "Card novo não abre na ferramenta. propose_case só oferece. O cliente confirma no botão.",
                 "Se a pessoa pedir planos ou preços, chame list_offerings. Cada oferta com link sai numa mensagem, com o botão e o endereço cadastrados nela. Não liste os planos no texto.",
                 "Se cancelar ou remarcar não estiver nas ferramentas, diga que esse pedido pelo WhatsApp está fechado e ofereça um atendente.",

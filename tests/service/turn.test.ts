@@ -150,6 +150,26 @@ const base = {
 };
 
 describe("turno de serviço", () => {
+    it("botão de horário ocupado no Google não marca", async () => {
+        const harness = ports({});
+        let mirrored = 0;
+        harness.bundle.calendar = {
+            gateOpenSlot: async () => "busy",
+            gateOffering: async () => "off",
+            gateMoved: async () => "off",
+            filterSlots: async (_companyId, slots) => ({ slots: [...slots], gate: "off" }),
+            mirrorBooked: async () => {
+                mirrored += 1;
+            },
+            mirrorCancelled: async () => undefined,
+            mirrorMoved: async () => undefined,
+        };
+        await executeServiceTurn({ ...base, text: "svc_confirm_slot" }, harness.bundle);
+        assert.equal(harness.confirms, 0);
+        assert.equal(mirrored, 0);
+        assert.match(harness.texts[0] ?? "", /ocupado/u);
+    });
+
     it("botão de horário não chama modelo nem carteira", async () => {
         const harness = ports({});
         await executeServiceTurn({ ...base, text: "svc_confirm_slot" }, harness.bundle);

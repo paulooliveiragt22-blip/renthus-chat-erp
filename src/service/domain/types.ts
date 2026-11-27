@@ -32,7 +32,8 @@ export type ServiceResultCode =
     | "appointment_closed"
     | "cap_reached"
     | "slot_taken"
-    | "flag_off";
+    | "flag_off"
+    | "calendar_unavailable";
 
 export type ServiceFlags = {
     agendaEnabled: boolean;
@@ -155,6 +156,7 @@ const RESULT_CODES: ReadonlySet<string> = new Set<ServiceResultCode>([
     "cap_reached",
     "slot_taken",
     "flag_off",
+    "calendar_unavailable",
 ]);
 
 export function isServiceResultCode(value: unknown): value is ServiceResultCode {
