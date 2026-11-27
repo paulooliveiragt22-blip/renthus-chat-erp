@@ -1,11 +1,12 @@
 import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { normalizeCampaignPhone, parseCampaignPhones } from "@/lib/campaigns/parsePhones";
 
 export type AudienceFilter = {
-    /** all_with_phone | ordered_last_days */
-    mode: "all_with_phone" | "ordered_last_days";
+    mode: "all_with_phone" | "ordered_last_days" | "selected";
     orderedLastDays?: number;
+    phones?: string[];
 };
 
 export type AudienceMember = {
@@ -14,11 +15,7 @@ export type AudienceMember = {
 };
 
 function normalizePhone(raw: string | null | undefined): string | null {
-    const digits = String(raw ?? "").replace(/\D/g, "");
-    if (digits.length < 10) return null;
-    if (digits.startsWith("55") && digits.length >= 12) return `+${digits}`;
-    if (digits.length >= 10 && digits.length <= 11) return `+55${digits}`;
-    return digits.startsWith("+") ? digits : `+${digits}`;
+    return normalizeCampaignPhone(raw);
 }
 
 /**
@@ -31,6 +28,32 @@ export async function buildCampaignAudience(
     filter: AudienceFilter
 ): Promise<AudienceMember[]> {
     const byPhone = new Map<string, AudienceMember>();
+
+    if (filter.mode === "selected") {
+        const wanted = parseCampaignPhones((filter.phones ?? []).join("\n"));
+        if (wanted.length === 0) return [];
+        const { data: known } = await admin
+            .from("customers")
+            .select("id, phone, phone_e164")
+            .eq("company_id", companyId)
+            .limit(10000);
+        const customerByPhone = new Map<string, AudienceMember>();
+        for (const row of known ?? []) {
+            const phone =
+                normalizePhone(row.phone_e164 as string | null) ||
+                normalizePhone(row.phone as string | null);
+            if (!phone) continue;
+            const member: AudienceMember = { customerId: row.id as string, phoneE164: phone };
+            customerByPhone.set(phone, member);
+            customerByPhone.set(phone.replace(/\D/g, "").slice(-11), member);
+        }
+        return wanted.map((phone) => {
+            const hit =
+                customerByPhone.get(phone) ??
+                customerByPhone.get(phone.replace(/\D/g, "").slice(-11));
+            return hit ?? { customerId: null, phoneE164: phone };
+        });
+    }
 
     if (filter.mode === "ordered_last_days") {
         const days = Math.min(365, Math.max(1, filter.orderedLastDays ?? 30));

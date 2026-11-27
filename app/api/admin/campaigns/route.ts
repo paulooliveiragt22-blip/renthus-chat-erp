@@ -67,8 +67,9 @@ export async function POST(req: Request) {
     const body = (await req.json().catch(() => ({}))) as {
         name?: string;
         templateId?: string;
-        audienceMode?: "all_with_phone" | "ordered_last_days";
+        audienceMode?: "all_with_phone" | "ordered_last_days" | "selected";
         orderedLastDays?: number;
+        phones?: string[];
         bodyParams?: string[];
     };
 
@@ -77,10 +78,19 @@ export async function POST(req: Request) {
         return NextResponse.json({ error: "template_id_required" }, { status: 400 });
     }
 
-    const audience: AudienceFilter = {
-        mode: body.audienceMode === "ordered_last_days" ? "ordered_last_days" : "all_with_phone",
-        orderedLastDays: body.orderedLastDays,
-    };
+    const phones = Array.isArray(body.phones)
+        ? body.phones.filter((phone) => typeof phone === "string").slice(0, 500)
+        : [];
+    const audience: AudienceFilter =
+        body.audienceMode === "selected"
+            ? { mode: "selected", phones }
+            : {
+                  mode:
+                      body.audienceMode === "ordered_last_days"
+                          ? "ordered_last_days"
+                          : "all_with_phone",
+                  orderedLastDays: body.orderedLastDays,
+              };
 
     const result = await startBroadcastCampaign({
         admin,
@@ -104,5 +114,6 @@ export async function POST(req: Request) {
     return NextResponse.json({
         campaignId: result.campaignId,
         queued: result.queued,
+        leftOut: result.leftOut,
     });
 }

@@ -48,7 +48,7 @@ export async function startBroadcastCampaign(params: {
     audience: AudienceFilter;
     bodyParams?: string[];
 }): Promise<
-    | { ok: true; campaignId: string; queued: number }
+    | { ok: true; campaignId: string; queued: number; leftOut: number }
     | { ok: false; error: string; hint?: string }
 > {
     const { data: template, error: tplErr } = await params.admin
@@ -63,7 +63,7 @@ export async function startBroadcastCampaign(params: {
         return {
             ok: false,
             error: "template_not_approved",
-            hint: "Só templates APPROVED podem ser usados em campanha.",
+            hint: "Essa mensagem ainda não foi aprovada.",
         };
     }
 
@@ -75,7 +75,7 @@ export async function startBroadcastCampaign(params: {
         .eq("status", "active")
         .maybeSingle();
     if (!channel?.id) {
-        return { ok: false, error: "no_active_channel", hint: "Conecte o WhatsApp em Canais." };
+        return { ok: false, error: "no_active_channel", hint: "Conecte o WhatsApp antes de enviar." };
     }
 
     let audience = await buildCampaignAudience(
@@ -83,22 +83,25 @@ export async function startBroadcastCampaign(params: {
         params.companyId,
         params.audience
     );
+    let leftOut = 0;
     if (template.category === "MARKETING") {
-        audience = await filterMarketingOptInAudience(
+        const allowed = await filterMarketingOptInAudience(
             params.admin,
             params.companyId,
             audience
         );
+        leftOut = audience.length - allowed.length;
+        audience = allowed;
         if (audience.length === 0) {
             return {
                 ok: false,
                 error: "no_opt_in_audience",
-                hint: "Nenhum cliente com opt-in marketing (QUERO OFERTAS).",
+                hint: "Ninguém dessa lista pediu para receber ofertas. A pessoa precisa escrever QUERO OFERTAS no seu WhatsApp.",
             };
         }
     }
     if (audience.length === 0) {
-        return { ok: false, error: "empty_audience", hint: "Nenhum destinatário encontrado." };
+        return { ok: false, error: "empty_audience", hint: "Nenhum WhatsApp válido nessa lista." };
     }
 
     const now = new Date().toISOString();
@@ -222,7 +225,7 @@ export async function startBroadcastCampaign(params: {
         );
     }
 
-    return { ok: true, campaignId, queued };
+    return { ok: true, campaignId, queued, leftOut };
 }
 
 export async function cancelBroadcastCampaign(params: {
