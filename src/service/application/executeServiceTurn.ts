@@ -208,8 +208,9 @@ export async function executeServiceTurn(
             await ports.wallet.release(input.companyId, input.messageId);
         }
         await finish(reply, buttons);
-        if (buttons.length === 0 && planBubbles.length > 0) {
-            for (const bubble of planBubbles) {
+        const bubbles = planBubbles.length > 0 ? planBubbles : whatsappPlanBubbles(sales.rows ?? []);
+        if (buttons.length === 0 && bubbles.length > 0) {
+            for (const bubble of bubbles) {
                 if (bubble.kind === "cta") {
                     await ports.reply.cta(bubble.body, bubble.label, bubble.url);
                 } else {

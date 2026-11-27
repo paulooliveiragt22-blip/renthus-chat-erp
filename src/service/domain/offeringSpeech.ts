@@ -163,8 +163,14 @@ function planMessageTitle(name: string): string {
 
 function planSignupBody(offering: ServiceOfferingView): string {
     const lines = [planMessageTitle(offering.name), pricePhrase(offering)];
-    const benefits = benefitLines(offering.description).slice(0, 4);
-    if (benefits.length > 0) lines.push("", ...benefits);
+    const kept: string[] = [];
+    let size = lines.join("\n").length;
+    for (const line of benefitLines(offering.description)) {
+        if (size + line.length + 2 > 900) break;
+        kept.push(line);
+        size += line.length + 1;
+    }
+    if (kept.length > 0) lines.push("", ...kept);
     return lines.join("\n");
 }
 

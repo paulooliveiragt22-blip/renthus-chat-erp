@@ -299,6 +299,8 @@ describe("contato do chat do site", () => {
         );
         assert.match(texts[0] ?? "", /Toque no botão/u);
         assert.equal((texts[0] ?? "").includes("parágrafo"), false);
+        assert.match(ctas.join("\n"), /R\$ 279,00 por mês/u);
+        assert.match(ctas.join("\n"), /Agente de IA no WhatsApp/u);
         assert.deepEqual(
             ctas.map((line) => line.split("\n")[0]),
             [
