@@ -119,6 +119,12 @@ export default function CampaignsClient() {
     const [query, setQuery] = useState("");
     const [contacts, setContacts] = useState<Person[]>([]);
     const [searching, setSearching] = useState(false);
+    const [roster, setRoster] = useState<Person[]>([]);
+    const [rosterLoaded, setRosterLoaded] = useState<Person[]>([]);
+    const [rosterLoading, setRosterLoading] = useState(false);
+    const [rosterHidden, setRosterHidden] = useState(0);
+    const [listQuery, setListQuery] = useState("");
+    const [rosterTick, setRosterTick] = useState(0);
 
     useEffect(() => {
         if (serviceMode && who === "recent") setWho("everyone");
@@ -215,6 +221,54 @@ export default function CampaignsClient() {
         };
     }, [query]);
 
+    useEffect(() => {
+        if (who === "chosen") return;
+        const controller = new AbortController();
+        const timer = setTimeout(() => {
+            setRosterLoading(true);
+            const params = new URLSearchParams({
+                mode: who === "recent" ? "ordered_last_days" : "all_with_phone",
+                marketing: promotion ? "1" : "0",
+            });
+            if (who === "recent") params.set("days", String(orderedLastDays));
+            void fetch(`/api/admin/campaigns/audience?${params}`, {
+                credentials: "include",
+                cache: "no-store",
+                signal: controller.signal,
+            })
+                .then(async (res) => {
+                    const json = (await res.json().catch(() => ({}))) as {
+                        people?: Array<{ name: string; phone: string }>;
+                        hidden?: number;
+                    };
+                    if (!res.ok) {
+                        setRoster([]);
+                        setRosterLoaded([]);
+                        setErr("Não consegui carregar os clientes.");
+                        return;
+                    }
+                    const next = (json.people ?? []).map((person) => ({
+                        phone: person.phone,
+                        name: person.name,
+                    }));
+                    setRoster(next);
+                    setRosterLoaded(next);
+                    setRosterHidden(json.hidden ?? 0);
+                })
+                .catch((error: unknown) => {
+                    if (error instanceof DOMException && error.name === "AbortError") return;
+                    setErr("Não consegui carregar os clientes.");
+                })
+                .finally(() => {
+                    if (!controller.signal.aborted) setRosterLoading(false);
+                });
+        }, who === "recent" ? 300 : 0);
+        return () => {
+            clearTimeout(timer);
+            controller.abort();
+        };
+    }, [orderedLastDays, promotion, rosterTick, who]);
+
     function addPeople(next: Person[]) {
         setPeople((current) => {
             const seen = new Set(current.map((person) => person.phone));
@@ -239,7 +293,7 @@ export default function CampaignsClient() {
         Boolean(templateId) &&
         !codeMessage &&
         !missingBlank &&
-        (who !== "chosen" || people.length > 0);
+        (who === "chosen" ? people.length > 0 : !rosterLoading && roster.length > 0);
 
     async function start() {
         setStarting(true);
@@ -261,6 +315,12 @@ export default function CampaignsClient() {
                               : "all_with_phone",
                     orderedLastDays: who === "recent" ? orderedLastDays : undefined,
                     phones: who === "chosen" ? people.map((person) => person.phone) : undefined,
+                    excludePhones:
+                        who === "chosen"
+                            ? undefined
+                            : rosterLoaded
+                                  .filter((person) => !roster.some((kept) => kept.phone === person.phone))
+                                  .map((person) => person.phone),
                     bodyParams: slots > 0 ? params.map((value) => value.trim()) : undefined,
                 }),
             });
@@ -284,6 +344,7 @@ export default function CampaignsClient() {
                     : "";
             setMsg(`Pronto. ${sent}${aside}`);
             setPeople([]);
+            setRosterTick((tick) => tick + 1);
             await load();
         } finally {
             setStarting(false);
@@ -313,11 +374,23 @@ export default function CampaignsClient() {
                 ? "1 pessoa na lista."
                 : `${people.length} pessoas na lista.`;
         }
-        if (who === "recent") {
-            return `Clientes que compraram nos últimos ${orderedLastDays} dias.`;
-        }
-        return "Todo cliente que já tem WhatsApp salvo.";
-    }, [orderedLastDays, people.length, who]);
+        if (rosterLoading) return "Carregando a lista…";
+        const count =
+            roster.length === 1
+                ? "1 cliente vai receber."
+                : `${roster.length} clientes vão receber.`;
+        return `${count} Tire quem não deve entrar nesta leva.`;
+    }, [people.length, roster.length, rosterLoading, who]);
+
+    const shownRoster = useMemo(() => {
+        const text = listQuery.trim().toLowerCase();
+        const digits = text.replace(/\D/g, "");
+        if (!text) return roster;
+        return roster.filter((person) => {
+            const personName = (person.name ?? "").toLowerCase();
+            return personName.includes(text) || (digits.length >= 3 && person.phone.includes(digits));
+        });
+    }, [listQuery, roster]);
 
     if (loading) {
         return (
@@ -486,6 +559,73 @@ export default function CampaignsClient() {
                                         }
                                     />
                                 </label>
+                            ) : null}
+
+                            {who !== "chosen" ? (
+                                <div className="space-y-3">
+                                    <label className="block text-sm">
+                                        <span className="mb-1 block text-zinc-600 dark:text-zinc-300">
+                                            Procurar nesta lista
+                                        </span>
+                                        <input
+                                            className={fieldClass}
+                                            value={listQuery}
+                                            placeholder="Nome ou WhatsApp"
+                                            onChange={(event) => setListQuery(event.target.value)}
+                                        />
+                                    </label>
+                                    {rosterLoading ? (
+                                        <p className="text-sm text-zinc-500">Carregando clientes…</p>
+                                    ) : null}
+                                    {rosterHidden > 0 ? (
+                                        <p className="text-sm text-amber-800 dark:text-amber-200">
+                                            {rosterHidden === 1
+                                                ? "1 cliente não entra porque ainda não pediu ofertas."
+                                                : `${rosterHidden} clientes não entram porque ainda não pediram ofertas.`}
+                                        </p>
+                                    ) : null}
+                                    {!rosterLoading && roster.length === 0 ? (
+                                        <p className="text-sm text-zinc-500">
+                                            Nenhum cliente com WhatsApp nesta leva.
+                                        </p>
+                                    ) : null}
+                                    {shownRoster.length > 0 ? (
+                                        <ul className="max-h-80 overflow-y-auto rounded-lg border border-zinc-200/80 dark:border-zinc-800/80">
+                                            {shownRoster.map((person) => (
+                                                <li
+                                                    key={person.phone}
+                                                    className="flex items-center justify-between gap-3 border-b border-zinc-100 px-3 py-2 last:border-b-0 dark:border-zinc-800"
+                                                >
+                                                    <span className="min-w-0 truncate text-sm">
+                                                        {person.name ?? "Sem nome"}
+                                                    </span>
+                                                    <span className="shrink-0 font-mono text-xs tabular-nums text-zinc-500">
+                                                        {showPhone(person.phone)}
+                                                    </span>
+                                                    <button
+                                                        type="button"
+                                                        className="shrink-0 rounded-full px-2 py-1 text-xs text-zinc-500 transition-colors hover:bg-zinc-100 hover:text-zinc-900 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-400 dark:hover:bg-zinc-800"
+                                                        aria-label={`Tirar ${person.name ?? showPhone(person.phone)}`}
+                                                        onClick={() =>
+                                                            setRoster((current) =>
+                                                                current.filter(
+                                                                    (item) => item.phone !== person.phone
+                                                                )
+                                                            )
+                                                        }
+                                                    >
+                                                        Tirar
+                                                    </button>
+                                                </li>
+                                            ))}
+                                        </ul>
+                                    ) : null}
+                                    {!rosterLoading && roster.length > 0 && shownRoster.length === 0 ? (
+                                        <p className="text-sm text-zinc-500">
+                                            Ninguém com esse nome ou número nesta lista.
+                                        </p>
+                                    ) : null}
+                                </div>
                             ) : null}
 
                             {who === "chosen" ? (

@@ -70,6 +70,7 @@ export async function POST(req: Request) {
         audienceMode?: "all_with_phone" | "ordered_last_days" | "selected";
         orderedLastDays?: number;
         phones?: string[];
+        excludePhones?: string[];
         bodyParams?: string[];
     };
 
@@ -79,7 +80,12 @@ export async function POST(req: Request) {
     }
 
     const phones = Array.isArray(body.phones)
-        ? body.phones.filter((phone) => typeof phone === "string").slice(0, 500)
+        ? body.phones.filter((phone): phone is string => typeof phone === "string").slice(0, 500)
+        : [];
+    const excludePhones = Array.isArray(body.excludePhones)
+        ? body.excludePhones
+              .filter((phone): phone is string => typeof phone === "string")
+              .slice(0, 10000)
         : [];
     const audience: AudienceFilter =
         body.audienceMode === "selected"
@@ -90,6 +96,7 @@ export async function POST(req: Request) {
                           ? "ordered_last_days"
                           : "all_with_phone",
                   orderedLastDays: body.orderedLastDays,
+                  excludePhones,
               };
 
     const result = await startBroadcastCampaign({

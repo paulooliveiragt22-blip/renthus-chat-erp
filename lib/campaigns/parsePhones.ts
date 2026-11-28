@@ -18,6 +18,24 @@ function phonesInChunk(chunk: string): string[] {
     return joined ? [joined] : [];
 }
 
+export function omitCampaignPhones<T extends { phoneE164: string }>(
+    members: T[],
+    exclude: string[] | undefined
+): T[] {
+    if (!exclude?.length) return members;
+    const drop = new Set<string>();
+    for (const raw of exclude) {
+        const phone = normalizeCampaignPhone(raw);
+        if (!phone) continue;
+        drop.add(phone);
+        drop.add(phone.replace(/\D/g, "").slice(-11));
+    }
+    return members.filter((member) => {
+        const digits = member.phoneE164.replace(/\D/g, "").slice(-11);
+        return !drop.has(member.phoneE164) && !drop.has(digits);
+    });
+}
+
 /** Um número por linha, com ou sem 55, espaço ou traço. */
 export function parseCampaignPhones(raw: string): string[] {
     const seen = new Set<string>();
