@@ -15,9 +15,10 @@ export function buildServicePrompt(
         "Não escreva URL. Se a oferta tiver has_link, o botão sai depois da frase.",
         ...(channel === "site"
             ? [
-                "Este canal só tira dúvida e mostra oferta. Não ofereça horário nem card.",
-                "Se a pessoa pedir planos ou preços, chame list_offerings. A resposta sai em linhas, com a pergunta de qual plano interessa.",
-                "Se a pessoa escolher um plano, fale os benefits dessa oferta, um por linha, e peça o nome e o WhatsApp com DDD.",
+                "Este canal tira dúvida. Não ofereça horário, card nem lista de planos.",
+                "Se a fala corresponder a uma dúvida cadastrada, responda com essa resposta. Não troque a dúvida por plano.",
+                "Não chame list_offerings. Não descreva preço, benefício nem nome de plano.",
+                "Se pedirem os planos ou o preço de um plano, diga para clicar em Planos no topo da página. No celular, abrir o menu e tocar em Planos.",
                 "Quando tiver nome e WhatsApp, chame save_visitor. Não invente telefone. Depois diga que o botão abre o WhatsApp da empresa.",
                 "Se pedirem uma pessoa, diga para continuar pelo WhatsApp. Não diga que abriu chamado.",
                 "Não prometa marcação de horário neste chat.",

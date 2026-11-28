@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import { executeServiceTurn } from "../../src/service/application/executeServiceTurn";
-import { normalizeVisitorPhone, planCards, reaisFromCents, siteSalesStep, speakOfferings, whatsappPlanBubbles } from "../../src/service/domain/offeringSpeech";
+import { asksForPlanPage, normalizeVisitorPhone, planCards, reaisFromCents, SITE_PLAN_PAGE_HINT, siteSalesStep, speakOfferings, whatsappPlanBubbles } from "../../src/service/domain/offeringSpeech";
 import { toolsForTurn } from "../../src/service/domain/serviceTools";
 import { CASE_STAGE_LABELS, type ServiceOfferingView, type ServiceProfileView } from "../../src/service/domain/types";
 
@@ -177,9 +177,30 @@ describe("contato do chat do site", () => {
             },
             salesPorts(texts, OFFERINGS, async () => "Essencial R$ 27,90 por mês, tudo num parágrafo.", undefined, [], cards)
         );
-        assert.equal(texts[0], "Qual desses você tem interesse?");
-        assert.equal((texts[0] ?? "").includes("27,90"), false);
-        assert.equal(cards.find((card) => card.title === "Essencial")?.options.map((option) => option.label).join(","), "Mensal,Anual");
+        assert.equal(texts[0], SITE_PLAN_PAGE_HINT);
+        assert.equal(cards.length, 0);
+        assert.match(texts[0] ?? "", /clique em Planos/u);
+        assert.equal(asksForPlanPage("quanto tempo demora a entrega?"), false);
+        assert.equal(asksForPlanPage("quanto custa o Pro?"), true);
+    });
+
+    it("no site uma dúvida não vira lista de planos", async () => {
+        const texts: string[] = [];
+        const cards: { title: string; options: { label: string }[] }[] = [];
+        await executeServiceTurn(
+            {
+                admin: {} as never,
+                companyId: "11111111-1111-4111-8111-111111111111",
+                threadId: "22222222-2222-4222-8222-222222222222",
+                messageId: "33333333-3333-4333-8333-333333333333",
+                phoneE164: "",
+                text: "quanto tempo demora a entrega?",
+                messagingChannel: "site",
+            },
+            salesPorts(texts, OFFERINGS, async () => "Chega no mesmo dia.", undefined, [], cards)
+        );
+        assert.equal(texts[0], "Chega no mesmo dia.");
+        assert.equal(cards.length, 0);
     });
 
     it("anual depois de atendimento não reabre todos os planos", () => {
@@ -214,7 +235,7 @@ describe("contato do chat do site", () => {
         assert.deepEqual(shown.map((card) => card.title), ["Office", "Enterprise"]);
     });
 
-    it("depois da escolha mostra benefícios e pede nome e WhatsApp", async () => {
+    it("no site a escolha de um plano não substitui a resposta", async () => {
         const texts: string[] = [];
         const offerings = OFFERINGS.map((row) =>
             row.name === "Atendimento mensal"
@@ -234,9 +255,8 @@ describe("contato do chat do site", () => {
             },
             salesPorts(texts, offerings, async () => "custa 15 reais e é bom")
         );
-        assert.match(texts[0] ?? "", /Agente de IA no WhatsApp\nAgenda com confirmação no botão/u);
-        assert.match(texts[0] ?? "", /Me passa seu nome e seu WhatsApp com DDD\?/u);
-        assert.equal((texts[0] ?? "").includes("15 reais"), false);
+        assert.match(texts[0] ?? "", /15 reais/u);
+        assert.equal(texts.some((text) => text.includes("Me passa seu nome")), false);
     });
 
     it("grava nome e WhatsApp da frase e manda o botão", async () => {

@@ -8,14 +8,14 @@ import {
     looksLikeSales,
     normalizeVisitorPhone,
     offeringPriceLabel,
-    planCards,
+    asksForPlanPage,
     SITE_CONTACT_SAVED,
+    SITE_PLAN_PAGE_HINT,
     siteSalesStep,
     speakOfferings,
     storeWhatsappHref,
     WHATSAPP_PLAN_INTRO,
     whatsappPlanBubbles,
-    type SitePlanCard,
     type SiteSalesStep,
     type WhatsappPlanBubble,
 } from "@/src/service/domain/offeringSpeech";
@@ -167,16 +167,10 @@ export async function executeServiceTurn(
         return;
     }
 
-    if (input.messagingChannel === "site" && !asksForHuman(input.text)) {
-        const rows = await ports.data.listOfferings(input.companyId);
-        const step = siteSalesStep(input.text, rows, input.priorTurns ?? [], true, input.offeringId);
-        const scripted = scriptedSite(step, rows);
-        if (scripted) {
-            await ports.wallet.release(input.companyId, input.messageId);
-            await finish(scripted.reply);
-            if (scripted.cards.length > 0) await ports.reply.planCards?.(scripted.cards);
-            return;
-        }
+    if (input.messagingChannel === "site" && !asksForHuman(input.text) && asksForPlanPage(input.text)) {
+        await ports.wallet.release(input.companyId, input.messageId);
+        await finish(SITE_PLAN_PAGE_HINT);
+        return;
     }
 
     const tools = toolsForTurn(profile, input.messagingChannel);
@@ -208,6 +202,14 @@ export async function executeServiceTurn(
             await ports.wallet.release(input.companyId, input.messageId);
         }
         await finish(reply, buttons);
+        if (input.messagingChannel === "site") {
+            if (sales.saved) {
+                for (const link of offerLinks) {
+                    await ports.reply.cta(link.name, link.label, link.url);
+                }
+            }
+            return;
+        }
         const bubbles = planBubbles.length > 0 ? planBubbles : whatsappPlanBubbles(sales.rows ?? []);
         if (buttons.length === 0 && bubbles.length > 0) {
             for (const bubble of bubbles) {
@@ -280,18 +282,6 @@ async function record(
     }
 }
 
-function scriptedSite(
-    step: SiteSalesStep | null,
-    rows: readonly ServiceOfferingView[]
-): { reply: string; cards: SitePlanCard[] } | null {
-    if (!step || step.kind === "save" || step.kind === "ask_name" || step.kind === "ask_plan") return null;
-    if (step.kind === "catalog" || step.kind === "period") {
-        const cards = planCards(step.kind === "period" ? step.rows : rows);
-        if (cards.length > 0) return { reply: "Qual desses você tem interesse?", cards };
-    }
-    return { reply: step.body, cards: [] };
-}
-
 async function salesReply(
     reply: string,
     input: ServiceTurnInput,
@@ -342,7 +332,7 @@ async function salesReply(
             } else {
                 reply = composeServiceReply(step.body, writes);
             }
-        } else if (step) {
+        } else if (step && step.kind !== "catalog" && step.kind !== "period" && step.kind !== "benefits") {
             reply = composeServiceReply(step.body, writes);
         }
     }

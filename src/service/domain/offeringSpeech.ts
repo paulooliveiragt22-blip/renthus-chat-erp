@@ -81,6 +81,18 @@ export function storeWhatsappHref(base: string, interest: string, name: string):
 
 export const SITE_CONTACT_SAVED = "Pronto. Toque em Continuar no WhatsApp.";
 
+export const SITE_PLAN_PAGE_HINT =
+    "Os planos estão nesta página. No topo, clique em Planos. No celular, abra o menu e toque em Planos.";
+
+const PLAN_FAMILY_RE = /\b(essencial|market|enterprise|pro|atendimento|mensal|anual)\b/iu;
+const PRICE_ASK_RE = /\b(quanto|pre[cç]os?|valores?|custa|tabela)\b/iu;
+
+/** Pedido para ver ou precificar plano. Dúvida solta, como prazo ou taxa, não entra. */
+export function asksForPlanPage(text: string): boolean {
+    if (/\bplanos?\b/iu.test(text)) return true;
+    return PRICE_ASK_RE.test(text) && PLAN_FAMILY_RE.test(text);
+}
+
 const CATALOG_RE = /\b(planos?|pre[cç]os?|valores?|quanto|tabela|custa|assinatura|produtos?|op[cç][õo]es)\b/iu;
 const FAMILY_RE = /\b(essencial|market|enterprise|pro|atendimento|mensal|anual)\b/iu;
 
