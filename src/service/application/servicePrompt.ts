@@ -21,7 +21,7 @@ export function buildServicePrompt(
                 "Se pedirem os planos ou o preço de um plano, diga para clicar em Planos no topo da página. No celular, abrir o menu e tocar em Planos.",
                 "Quando a pessoa já deu nome e WhatsApp num pedido de plano, chame save_visitor. Não invente telefone.",
                 "Se nenhuma dúvida cadastrada responder, ou se pedirem suporte, chame request_human. Não invente. Não escreva link.",
-                "No suporte, o sistema pede o nome, depois o WhatsApp com DDD, e então manda o botão de chamar.",
+                "No suporte, o sistema abre o formulário de nome e WhatsApp e depois manda o botão de chamar.",
                 "Não prometa marcação de horário neste chat.",
             ]
             : [

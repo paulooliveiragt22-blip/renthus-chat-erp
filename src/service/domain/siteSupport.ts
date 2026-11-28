@@ -1,11 +1,10 @@
-import { normalizeVisitorPhone, visitorName } from "@/src/service/domain/offeringSpeech";
+import { normalizeVisitorPhone, SITE_CONTACT_ASK, visitorName } from "@/src/service/domain/offeringSpeech";
 
-export const SITE_SUPPORT_ASK_NAME =
-    "Não tenho essa resposta. Me passa seu nome para o suporte te chamar?";
+export const SITE_SUPPORT_ASK_NAME = `Não tenho essa resposta. ${SITE_CONTACT_ASK}`;
 export const SITE_SUPPORT_ASK_PHONE = "Agora me passa seu WhatsApp com DDD.";
 export const SITE_SUPPORT_INTEREST = "Suporte";
 
-const NAME_MARK = "Me passa seu nome para o suporte";
+const NAME_MARK = SITE_CONTACT_ASK;
 const PHONE_MARK = "Agora me passa seu WhatsApp com DDD";
 
 export type SiteSupportStep =

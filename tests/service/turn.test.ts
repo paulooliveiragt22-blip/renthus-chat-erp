@@ -382,7 +382,7 @@ describe("turno de serviço", () => {
         );
         assert.equal(harness.handoffs, 0);
         assert.equal(harness.confirms, 0);
-        assert.match(harness.texts.join("\n"), /Me passa seu nome para o suporte/u);
+        assert.match(harness.texts.join("\n"), /Me passa seu nome e seu WhatsApp com DDD/u);
         assert.equal(harness.texts.join("\n").includes("wa.me"), false);
         assert.equal(harness.buttons.length, 0);
     });

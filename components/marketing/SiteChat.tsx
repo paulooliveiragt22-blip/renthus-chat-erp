@@ -3,6 +3,7 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { MessageCircle, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { showsSiteContactForm } from "@/src/service/domain/offeringSpeech";
 import { SITE_CHAT_TEXT_MAX } from "@/src/service/domain/siteChat";
 import { cn } from "@/lib/utils";
 import { readPlanCards, SitePlanCards, type ChatPlanCard } from "@/components/marketing/SitePlanCards";
@@ -39,7 +40,7 @@ type ChatPayload = {
 
 function asksForContact(bubble: { role: "user" | "assistant"; text: string } | undefined): boolean {
     if (!bubble || bubble.role !== "assistant") return false;
-    return /me passa (?:também )?o seu nome|me passa seu nome e seu whatsapp/iu.test(bubble.text);
+    return showsSiteContactForm(bubble.text);
 }
 
 function greeting(now = new Date()): string {

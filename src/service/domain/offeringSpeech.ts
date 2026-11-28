@@ -112,10 +112,17 @@ export function benefitLines(description: string | null): string[] {
         .filter((line) => line.length > 1 && !/^r\$/iu.test(line) && !/^mensalidade$/iu.test(line));
 }
 
+/** Frase que abre o formulário de nome e WhatsApp no chat do site. */
+export const SITE_CONTACT_ASK = "Me passa seu nome e seu WhatsApp com DDD?";
+
+export function showsSiteContactForm(text: string): boolean {
+    return /me passa (?:também )?o seu nome/iu.test(text) || text.includes(SITE_CONTACT_ASK);
+}
+
 export function benefitSpeech(offering: ServiceOfferingView, askContact: boolean): string {
     const lines = [displayLabel(offering.name), pricePhrase(offering), "", ...benefitLines(offering.description)];
     if (askContact) {
-        lines.push("", "Me passa seu nome e seu WhatsApp com DDD?");
+        lines.push("", SITE_CONTACT_ASK);
     }
     return lines.join("\n").replace(/\n{3,}/gu, "\n\n").trim();
 }
@@ -324,7 +331,7 @@ function chosenSpeech(offering: ServiceOfferingView): string {
     return [
         `${displayLabel(offering.name)} · ${pricePhrase(offering)}`,
         "",
-        "Me passa seu nome e seu WhatsApp com DDD?",
+        SITE_CONTACT_ASK,
     ].join("\n");
 }
 

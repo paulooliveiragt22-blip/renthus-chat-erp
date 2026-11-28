@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { executeServiceTurn } from "../../src/service/application/executeServiceTurn";
+import { showsSiteContactForm } from "../../src/service/domain/offeringSpeech";
 import {
     SITE_SUPPORT_ASK_NAME,
     SITE_SUPPORT_ASK_PHONE,
@@ -10,6 +11,11 @@ import type { ServiceTurnPorts } from "../../src/service/ports/serviceTurnPorts"
 
 describe("suporte do chat do site", () => {
     it("pede o nome e depois o WhatsApp", () => {
+        assert.equal(showsSiteContactForm(SITE_SUPPORT_ASK_NAME), true);
+        assert.equal(
+            siteSupportStep("Ana 65999990000", [{ role: "assistant", text: SITE_SUPPORT_ASK_NAME }])?.kind,
+            "save"
+        );
         assert.equal(
             siteSupportStep("Ana", [{ role: "assistant", text: SITE_SUPPORT_ASK_NAME }])?.kind,
             "ask_phone"
