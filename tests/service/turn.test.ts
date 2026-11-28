@@ -301,6 +301,29 @@ describe("turno de serviço", () => {
         assert.deepEqual(harness.buttons, ["Ver plano"]);
     });
 
+    it("cadastro no WhatsApp não reenvia os planos", async () => {
+        const harness = ports({
+            replyText: "O cadastro abre pelo botão do plano que você escolher.",
+            onModel: async (request) => {
+                await request.executeTool("list_offerings", {});
+            },
+        });
+        harness.bundle.data.listOfferings = async () => [
+            {
+                id: "33333333-3333-4333-8333-333333333333",
+                name: "Essencial mensal",
+                description: "Agente de IA no WhatsApp",
+                durationMin: null,
+                priceCents: 27900,
+                linkUrl: "https://zampell.com.br/signup",
+                linkLabel: "Ver plano",
+            },
+        ];
+        await executeServiceTurn({ ...base, text: "como faço pra me cadastrar?" }, harness.bundle);
+        assert.match(harness.texts.join("\n"), /cadastro abre/u);
+        assert.equal(harness.buttons.length, 0);
+    });
+
     it("o prompt leva a dúvida ativa e esconde a inativa", async () => {
         const harness = ports({
             replyText: "O estacionamento é grátis.",
@@ -359,7 +382,9 @@ describe("turno de serviço", () => {
         );
         assert.equal(harness.handoffs, 0);
         assert.equal(harness.confirms, 0);
-        assert.match(harness.texts.join("\n"), /https:\/\/wa\.me\/556692071285/u);
+        assert.match(harness.texts.join("\n"), /Me passa seu nome para o suporte/u);
+        assert.equal(harness.texts.join("\n").includes("wa.me"), false);
+        assert.equal(harness.buttons.length, 0);
     });
 
     it("chat do site ignora o botão de horário", async () => {

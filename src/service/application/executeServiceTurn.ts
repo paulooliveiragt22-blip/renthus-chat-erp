@@ -1,12 +1,19 @@
 import { QueueRetryableError, isQueueRetryableError } from "@/lib/chatbot/queueRetry";
 import { buildServicePrompt } from "@/src/service/application/servicePrompt";
 import { asksForHuman } from "@/src/service/domain/humanAsk";
+import {
+    SITE_SUPPORT_ASK_NAME,
+    SITE_SUPPORT_ASK_PHONE,
+    SITE_SUPPORT_INTEREST,
+    siteSupportStep,
+} from "@/src/service/domain/siteSupport";
 import { composeServiceReply, serviceFailureText } from "@/src/service/domain/composeServiceReply";
 import { httpsOfferLink, offerLinkLabel } from "@/src/service/domain/offerLink";
 import {
     benefitLines,
     looksLikeSales,
     normalizeVisitorPhone,
+    visitorName,
     offeringPriceLabel,
     asksForPlanPage,
     SITE_CONTACT_SAVED,
@@ -157,14 +164,33 @@ export async function executeServiceTurn(
     if (!begun.allowed) {
         if (asksForHuman(input.text)) {
             writes.humanRequested = true;
-            if (input.messagingChannel !== "site") {
-                await ports.handover.handoff("Cliente pediu atendimento humano sem crédito de IA");
+            if (input.messagingChannel === "site") {
+                await finish(SITE_SUPPORT_ASK_NAME);
+                return;
             }
+            await ports.handover.handoff("Cliente pediu atendimento humano sem crédito de IA");
             await finish(handoffLine(input));
             return;
         }
         await finish(EMPTY_WALLET);
         return;
+    }
+
+    if (input.messagingChannel === "site") {
+        const support = siteSupportStep(input.text, input.priorTurns ?? []);
+        if (support) {
+            await ports.wallet.release(input.companyId, input.messageId);
+            if (support.kind === "save") {
+                await saveSiteSupport(ports, input, offerLinks, support.name, support.phone);
+                await finish(SITE_CONTACT_SAVED);
+                for (const link of offerLinks) {
+                    await ports.reply.cta(link.name, link.label, link.url);
+                }
+                return;
+            }
+            await finish(support.kind === "ask_phone" ? SITE_SUPPORT_ASK_PHONE : SITE_SUPPORT_ASK_NAME);
+            return;
+        }
     }
 
     if (input.messagingChannel === "site" && !asksForHuman(input.text) && asksForPlanPage(input.text)) {
@@ -188,7 +214,18 @@ export async function executeServiceTurn(
             executeTool: (name, raw) => executeTool(name, raw, input, writes, toolsUsed, ports, offerLinks, sales),
         });
         const drafted = withHandoff(composeServiceReply(modelResult.replyText, writes), writes, input);
-        const reply = await salesReply(drafted, input, ports, offerLinks, sales, writes, planBubbles);
+        let reply = await salesReply(drafted, input, ports, offerLinks, sales, writes, planBubbles);
+        if (input.messagingChannel === "site" && writes.humanRequested && !sales.saved) {
+            const phone = normalizeVisitorPhone(input.text);
+            const name = visitorName(input.text);
+            if (name && phone) {
+                const saved = await saveSiteSupport(ports, input, offerLinks, name, phone);
+                sales.saved = saved;
+                reply = saved ? SITE_CONTACT_SAVED : SITE_SUPPORT_ASK_NAME;
+            } else {
+                reply = SITE_SUPPORT_ASK_NAME;
+            }
+        }
         const buttons = proposalButtons(writes);
         if (modelResult.inputTokens > 0 || modelResult.outputTokens > 0) {
             await ports.wallet.settle(
@@ -210,18 +247,13 @@ export async function executeServiceTurn(
             }
             return;
         }
-        const bubbles = planBubbles.length > 0 ? planBubbles : whatsappPlanBubbles(sales.rows ?? []);
-        if (buttons.length === 0 && bubbles.length > 0) {
-            for (const bubble of bubbles) {
+        if (buttons.length === 0 && planBubbles.length > 0) {
+            for (const bubble of planBubbles) {
                 if (bubble.kind === "cta") {
                     await ports.reply.cta(bubble.body, bubble.label, bubble.url);
                 } else {
                     await ports.reply.text(bubble.body);
                 }
-            }
-        } else if (buttons.length === 0) {
-            for (const link of offerLinks) {
-                await ports.reply.cta(link.name, link.label, link.url);
             }
         }
     } catch (error: unknown) {
@@ -235,6 +267,31 @@ export async function executeServiceTurn(
     }
 }
 
+async function saveSiteSupport(
+    ports: ServiceTurnPorts,
+    input: ServiceTurnInput,
+    offerLinks: { name: string; label: string; url: string }[],
+    name: string,
+    phone: string
+): Promise<boolean> {
+    const saved = await ports.data.saveSiteContact(
+        input.companyId,
+        input.threadId,
+        name,
+        phone,
+        SITE_SUPPORT_INTEREST
+    );
+    if (!saved.ok || !input.humanHref) return saved.ok;
+    if (!offerLinks.some((item) => item.label === "Chamar no WhatsApp")) {
+        offerLinks.push({
+            name: SITE_SUPPORT_INTEREST,
+            label: "Chamar no WhatsApp",
+            url: storeWhatsappHref(input.humanHref, SITE_SUPPORT_INTEREST, name),
+        });
+    }
+    return true;
+}
+
 function handoffLine(input: ServiceTurnInput): string {
     if (input.messagingChannel !== "site") return HANDOFF;
     return input.humanHref ? `Para falar com uma pessoa, chame no WhatsApp: ${input.humanHref}` : SITE_HANDOFF;
@@ -242,12 +299,7 @@ function handoffLine(input: ServiceTurnInput): string {
 
 function withHandoff(reply: string, writes: TurnWrites, input: ServiceTurnInput): string {
     if (!writes.humanRequested) return reply;
-    if (input.messagingChannel === "site") {
-        const line = handoffLine(input);
-        if (input.humanHref && reply.includes(input.humanHref)) return reply;
-        if (!input.humanHref && reply.includes("WhatsApp")) return reply;
-        return `${line} ${reply}`.trim();
-    }
+    if (input.messagingChannel === "site") return reply;
     if (reply.includes("alguém da equipe")) return reply;
     return `${HANDOFF} ${reply}`.trim();
 }

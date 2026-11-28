@@ -19,8 +19,9 @@ export function buildServicePrompt(
                 "Se a fala corresponder a uma dúvida cadastrada, responda com essa resposta. Não troque a dúvida por plano.",
                 "Não chame list_offerings. Não descreva preço, benefício nem nome de plano.",
                 "Se pedirem os planos ou o preço de um plano, diga para clicar em Planos no topo da página. No celular, abrir o menu e tocar em Planos.",
-                "Quando tiver nome e WhatsApp, chame save_visitor. Não invente telefone. Depois diga que o botão abre o WhatsApp da empresa.",
-                "Se pedirem uma pessoa, diga para continuar pelo WhatsApp. Não diga que abriu chamado.",
+                "Quando a pessoa já deu nome e WhatsApp num pedido de plano, chame save_visitor. Não invente telefone.",
+                "Se nenhuma dúvida cadastrada responder, ou se pedirem suporte, chame request_human. Não invente. Não escreva link.",
+                "No suporte, o sistema pede o nome, depois o WhatsApp com DDD, e então manda o botão de chamar.",
                 "Não prometa marcação de horário neste chat.",
             ]
             : [
@@ -38,7 +39,7 @@ export function buildServicePrompt(
         profile.contextText,
         "</company_context>",
     ];
-    const faq = faqPromptBlock(faqs);
+    const faq = faqPromptBlock(faqs, channel);
     if (faq) lines.push(faq);
     return lines.join("\n");
 }
