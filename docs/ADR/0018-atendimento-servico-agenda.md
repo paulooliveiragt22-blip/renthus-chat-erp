@@ -280,6 +280,8 @@ A memória do turno é a lista de mensagens do modelo, no WhatsApp e no site. O 
 
 A empresa de serviço deixa de se chamar Ferrester Serviço e passa a se chamar Zampell. A empresa de delivery Ferrester não muda.
 
+A landpage grava uma visita por navegador no período, sem nome e sem texto. A conversa com a IA é a sessão que já tem pelo menos uma mensagem. Os dois totais ficam em Atendimento, em hoje, 7 dias ou 30 dias. A empresa do número é a da sessão do painel. A visita pública grava só a empresa da vitrine, no servidor.
+
 ### D10 — Oferta pública e checkout
 
 Em 2026-11-26 o dono fechou: atendimento é outro produto, com outra tabela. Delivery continua em Essencial, Pro e Market. No mesmo dia, o nome público passou a ser Office. A URL segue `/atendimento` e o painel da empresa continua em `/atendimento`.

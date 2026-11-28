@@ -24,7 +24,7 @@ Ao adicionar `app/api/**/route.ts` que importa `createAdminClient`:
 
 Admin operacional, billing self-service, workspace, uploads, WhatsApp painel, delivery, chatbot config, reports.
 
-Exemplos: `app/api/admin/**`, `app/api/admin/service/snapshot` (`requireCompanyAccess`), `app/api/admin/service/profile`, `offerings`, `agenda`, `cases` (`requireCapability("settings.company")`; mutação com `mutating: true`), `app/api/whatsapp/threads/[threadId]/service` (`whatsapp.operate`), `app/api/billing/status`, `create-invoice-checkout`, `change-plan`, `self-reactivate`, `payment-methods`, `allow-overage`, `pending-plan-change`, `app/api/address/cep` (`billing_self`; sem `createAdminClient` direto), `app/api/workspace/**`, `app/api/products/upload-image`, `app/api/whatsapp/send`, `upload`, `threads`, `app/api/orders/**` (exceto gone), `app/api/companies/update`, `app/api/support/create-ticket` (`requireCompanyAccess` + `mutating`; company_id só do cookie), `app/api/delivery/**`, `app/api/chatbot/config`.
+Exemplos: `app/api/admin/**`, `app/api/admin/service/snapshot` (`requireCompanyAccess`), `app/api/admin/service/audience` (`requireCompanyAccess`; `company_id` só da sessão; período 1, 7 ou 30), `app/api/admin/service/profile`, `offerings`, `agenda`, `cases` (`requireCapability("settings.company")`; mutação com `mutating: true`), `app/api/whatsapp/threads/[threadId]/service` (`whatsapp.operate`), `app/api/billing/status`, `create-invoice-checkout`, `change-plan`, `self-reactivate`, `payment-methods`, `allow-overage`, `pending-plan-change`, `app/api/address/cep` (`billing_self`; sem `createAdminClient` direto), `app/api/workspace/**`, `app/api/products/upload-image`, `app/api/whatsapp/send`, `upload`, `threads`, `app/api/orders/**` (exceto gone), `app/api/companies/update`, `app/api/support/create-ticket` (`requireCompanyAccess` + `mutating`; company_id só do cookie), `app/api/delivery/**`, `app/api/chatbot/config`.
 
 `GET/POST /api/admin/whatsapp-channel/embedded-signup/*` — `requireCompanyPlanFeature("whatsapp_messages", ["owner","admin"])`. `company_id` só da sessão. Complete: rate limit 5/10min por empresa. `PUT /api/admin/whatsapp-channel` — mesmo gate; rate limit 8/10min por empresa; corpo sem `company_id`. `POST /api/admin/whatsapp-channel/migrate` — mesmo gate; rate limit 5/10min; só move o canal quando o usuário administra a empresa de origem.
 
@@ -81,6 +81,7 @@ Impersonation — proxy `isTenantMutationPath` deny-by-default sob `/api/*` tena
 | `app/api/ativar`, `app/api/onboarding`, `app/api/companies/create` | pós-auth / wizard (não superfície anônima) |
 | `app/api/billing/public-plans`, `trial-policy` | catálogo público — **proxy allowlist A7** + rate limit IP; oferta sem UUID de plano |
 | `app/api/public/site-chat` | chat da vitrine — empresa fixa no servidor, sem `company_id` no corpo; rate limit 30 mensagens por IP a cada hora; teto de 8 por conversa na RPC |
+| `app/api/public/site-visit` | visita da landpage — empresa fixa no servidor, sem corpo; rate limit 30 por IP a cada hora; um navegador por dia |
 | `app/api/public/menu/**` | slug + rate limit **IP+slug** (B12) |
 | `app/api/health` | uptime |
 | `app/api/debug/whoami` | 404 em prod salvo flag |

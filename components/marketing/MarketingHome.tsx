@@ -8,6 +8,7 @@ import { MarketingFooter } from "@/components/marketing/MarketingFooter";
 import { MarketingHeader } from "@/components/marketing/MarketingHeader";
 import { PlanShowcase } from "@/components/marketing/PlanShowcase";
 import { SiteChat } from "@/components/marketing/SiteChat";
+import { SiteVisitBeacon } from "@/components/marketing/SiteVisitBeacon";
 import { StickySignupCta } from "@/components/marketing/StickySignupCta";
 import { UseCaseList } from "@/components/marketing/UseCaseList";
 
@@ -46,6 +47,7 @@ export function MarketingHome({ linkToApp = false, siteChat = null }: MarketingH
             </main>
             <MarketingFooter linkToApp={linkToApp} />
             <StickySignupCta linkToApp={linkToApp} />
+            <SiteVisitBeacon />
             <SiteChat
                 publicKey={siteChat?.publicKey}
                 companyName={siteChat?.companyName}

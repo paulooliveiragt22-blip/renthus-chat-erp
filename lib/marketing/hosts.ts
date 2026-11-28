@@ -82,12 +82,13 @@ function isMarketingReadApi(pathname: string): boolean {
     return (
         pathname === "/api/billing/public-plans" ||
         pathname === "/api/billing/trial-policy" ||
-        pathname === "/api/public/site-chat"
+        pathname === "/api/public/site-chat" ||
+        pathname === "/api/public/site-visit"
     );
 }
 
 /**
- * No host da vitrine: `/` vira a landing, assets e as duas APIs públicas seguem,
+ * No host da vitrine: `/` vira a landing, assets e as APIs públicas seguem,
  * o resto da UI vai para o app e as outras APIs recusam o host.
  */
 export function marketingHostAction(

@@ -6,6 +6,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ServiceFaqPanel } from "@/components/service/ServiceFaqPanel";
+import { SiteAudienceCard } from "@/components/service/SiteAudienceCard";
 import { useServiceSnapshot } from "@/components/service/useServiceSnapshot";
 import { siteChatPageUrl } from "@/src/service/domain/siteChat";
 import type { ServicePreset } from "@/src/service/domain/types";
@@ -85,6 +86,8 @@ export default function AtendimentoPage() {
                     O modelo liga a agenda e os cards. O texto abaixo é o que o atendente sabe sobre a empresa.
                 </p>
             </div>
+
+            <SiteAudienceCard />
 
             <label className="flex flex-col gap-2 text-sm text-zinc-800 dark:text-zinc-100">
                 Modelo
